@@ -209,6 +209,7 @@ class PgOutputDecoder:
         # end_lsn starts at byte 9: flags(1) + commit_lsn(8)
         end_lsn = PgLSN.from_bytes(payload[9:17]).serialize()
         self._last_commit_end_lsn = end_lsn
+        self._check_decode_time()
         spill, tail, types = self._tx_spill, self._tx_buffer, self._tx_spill_types
         self._tx_spill = None
         self._reset_transaction()
@@ -217,6 +218,11 @@ class PgOutputDecoder:
             return [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
         self._replay_spill = spill
         return _replay_spilled_transaction(spill, types, tail, end_lsn)
+
+    def _check_decode_time(self) -> None:
+        if time.monotonic() - self._tx_started_at > MAX_TX_DECODE_SECONDS:
+            self._reset_transaction()
+            raise CDCTransactionTooLargeError(f"Transaction took more than {MAX_TX_DECODE_SECONDS}s to decode")
 
     def close(self) -> None:
         """Release a spill file left by a read that failed before its transaction committed or finished replaying."""
@@ -456,9 +462,7 @@ class PgOutputDecoder:
 
         Decoded values are only bool, int, float, str or None, so JSON round-trips them exactly.
         """
-        if time.monotonic() - self._tx_started_at > MAX_TX_DECODE_SECONDS:
-            self._reset_transaction()
-            raise CDCTransactionTooLargeError(f"Transaction took more than {MAX_TX_DECODE_SECONDS}s to decode")
+        self._check_decode_time()
         if self._tx_spill is None:
             self._tx_spill = tempfile.TemporaryFile()
         type_index = {id(types): i for i, types in enumerate(self._tx_spill_types)}

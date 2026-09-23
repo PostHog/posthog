@@ -581,10 +581,11 @@ class TestTransactionBufferGuard:
             with pytest.raises(CDCTransactionTooLargeError):
                 decoder.decode_message(_make_insert(1, [("t", "99"), None, None, None]), "0/1")
 
-    def test_raises_when_decoding_a_transaction_outlasts_the_time_limit(self) -> None:
+    @parameterized.expand([("at_a_spill", 1), ("at_commit", 100)])
+    def test_raises_when_decoding_a_transaction_outlasts_the_time_limit(self, _name: str, chunk: int) -> None:
         clock = iter([0.0, 3601.0])
         with (
-            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk),
             patch(f"{_DECODER_MODULE}.time.monotonic", side_effect=lambda: next(clock)),
         ):
             decoder = self._decoder_with_relation()
@@ -592,6 +593,7 @@ class TestTransactionBufferGuard:
 
             with pytest.raises(CDCTransactionTooLargeError):
                 decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+                decoder.decode_message(_make_commit(), "0/2")
 
     @parameterized.expand([("before_commit", False), ("mid_replay", True)])
     def test_close_releases_the_spill(self, _name: str, committed: bool) -> None:
@@ -605,7 +607,9 @@ class TestTransactionBufferGuard:
             decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
             decoder.decode_message(_make_insert(1, [("t", "2"), None, None, None]), "0/1")
             if committed:
-                next(iter(decoder.decode_message(_make_commit(), "0/2")))
+                replay = iter(decoder.decode_message(_make_commit(), "0/2"))
+                next(replay)
+                assert not spill.closed
 
             decoder.close()
 
