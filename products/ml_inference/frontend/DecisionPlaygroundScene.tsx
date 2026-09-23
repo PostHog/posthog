@@ -9,6 +9,7 @@ import {
     LemonSelect,
     LemonTable,
     LemonTextArea,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -49,7 +50,7 @@ const QUESTIONS_VIEW_OPTIONS: { value: QuestionsView; label: string }[] = [
 ]
 
 export function DecisionPlaygroundScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const {
         state,
@@ -77,7 +78,8 @@ export function DecisionPlaygroundScene(): JSX.Element {
 
     // The same rule as the API: the flag enrols a project, and local development needs no flag.
     if (!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && !preflight?.is_debug) {
-        return <NotFound object="page" />
+        // An unset flag before the first flags response is unknown, not off, so the 404 waits for the answer.
+        return receivedFeatureFlags ? <NotFound object="page" /> : <Spinner className="text-3xl mx-auto my-8" />
     }
 
     const answerRows = decision
