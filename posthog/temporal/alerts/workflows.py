@@ -33,6 +33,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
     ScheduleDueAlertChecksWorkflowInputs,
+    SkipReason,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -150,10 +151,23 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
+            # An AI detector calls a model, and only the AI worker holds the provider
+            # credentials, so that check evaluates on the AI queue.
+            evaluate_task_queue = (
+                settings.MAX_AI_TASK_QUEUE
+                if prepare_result.uses_llm_detector
+                and temporalio.workflow.patched("alerts-evaluate-ai-detector-on-ai-queue")
+                else None
+            )
             try:
                 evaluation = await temporalio.workflow.execute_activity(
                     evaluate_alert,
-                    EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
+                    EvaluateAlertActivityInputs(
+                        alert_id=inputs.alert_id,
+                        uses_llm_detector=prepare_result.uses_llm_detector,
+                        team_id=inputs.team_id,
+                    ),
+                    task_queue=evaluate_task_queue,
                     start_to_close_timeout=timeouts.evaluate_start_to_close,
                     schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     heartbeat_timeout=timeouts.heartbeat_timeout,
@@ -168,7 +182,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 # workflow, so no open execution has already replayed past it.)
                 new_state = AlertState.ERRORED
                 try:
-                    await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
+                    await self._record_failed_evaluation(
+                        inputs, timeouts, evaluation_error, prepare_result.evaluation_fingerprint
+                    )
                 except Exception:
                     # A failure while recording must not replace the original evaluation error: the
                     # bare raise below still re-raises evaluation_error, not this one.
@@ -176,6 +192,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         "alerts.record_failed_evaluation_failed", extra={"alert_id": inputs.alert_id}
                     )
                 raise
+            if evaluation.alert_check_id is None:
+                skip_reason = SkipReason.CHANGED_DURING_EVALUATION
+                return
             new_state = evaluation.new_state
 
             # Phase 3 — notify (optional)
@@ -236,6 +255,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
         inputs: CheckAlertWorkflowInputs,
         timeouts: AlertTimeouts,
         evaluation_error: BaseException,
+        evaluation_fingerprint: str | None = None,
     ) -> None:
         """Write the errored AlertCheck the failed evaluation never got to write, then notify."""
         # Unwrap Temporal's ActivityError plumbing to the underlying reason the owner sees in the
@@ -243,9 +263,18 @@ class CheckAlertWorkflow(PostHogWorkflow):
         cause = unwrap_temporal_cause(evaluation_error)
         message = cause.message if cause is not None else str(evaluation_error)
         message = truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS)
+        # Temporal rebuilds a remote failure as a bare ApplicationError with the original class
+        # name on `type`, which is all the activity needs to pick the owner-facing reason.
+        error_type = cause.type if cause is not None else type(evaluation_error).__name__
         recorded = await temporalio.workflow.execute_activity(
             record_failed_evaluation,
-            RecordFailedEvaluationActivityInputs(alert_id=inputs.alert_id, error_message=message),
+            RecordFailedEvaluationActivityInputs(
+                alert_id=inputs.alert_id,
+                error_message=message,
+                error_type=error_type,
+                evaluation_fingerprint=evaluation_fingerprint,
+                team_id=inputs.team_id,
+            ),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=ALERT_PREPARE_RETRY_POLICY,
         )

@@ -80,6 +80,11 @@ The list cuts both ways: when you _deliberately_ defer a significant heavy libra
 Removing an entry to dodge a failure weakens the guard; adding one to lock in a deferral strengthens it.
 Confirm the module is absent from a bare `django.setup()` first, then add it.
 
+**Never add a product facade or its contracts module to `FORBIDDEN_AT_SETUP`.**
+A facade is the sanctioned door of a product, and code imports it at module scope from anywhere, setup-path modules included.
+Pinning it makes the guard fail the next legitimate consumer.
+Pin the module you actually deferred instead: the heavy module that a receiver or model file used to import.
+
 **The forward-looking guard: new heavy imports.**
 `FORBIDDEN_AT_SETUP` only catches modules someone already named; `test_no_new_heavy_imports_at_setup` catches the heavy import nobody has named yet.
 It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/repo_invariants/setup_import_baseline.txt` costs ≥100ms.
@@ -103,6 +108,16 @@ If the module holding the receiver also imports something heavy at module scope,
 The test is simple: importing the module you wire at `ready()` should pull only light dependencies.
 Prefer the dedicated light module even when the owning module looks light _today_ — API/viewset modules accumulate module-scope imports, and `ready()` silently inherits whatever they gain.
 The batch-exports `ready()` wired its receiver through the API module on a "the module is light" justification; the module later picked up imports reaching every destination's vendor SDK, and `django.setup()` quietly grew ~1.6s.
+
+**Choosing where to cut.**
+Cut at the setup-path entry: the module that `ready()` wires, a model file, or `apps.py`.
+Do not defer a product facade import inside the modules that consume it.
+That hides the product boundary and treats the facade like an optional SDK.
+When a heavy facade reaches setup, find the receiver or model module on the setup path that leads to it.
+In that module, defer the import of the implementation module that sits between it and the facade.
+Leave every facade import itself at module scope.
+When the setup path needs only one symbol from a heavy module, move that symbol to a light module and re-export it from the old place.
+hothog's `1-cut@` column (see [Measuring](#measuring)) names the dominator: the one module where a deferral removes the whole subtree.
 
 **Adding a heavy dependency** (a vendor SDK, a Temporal/AI/ClickHouse path, anything pulling pandas/pyarrow/scipy).
 If it is used on one code path, import it function-locally at that path with `# noqa: PLC0415`, not at module scope.
@@ -135,6 +150,13 @@ When the floor has crept, the lever is the same as it ever was — find the heav
   A ~100ms gen2 collection fires wherever the allocation counter crosses its threshold, and `importtime` books it as that module's self-time — a 400-line module of dict literals showed 117ms, and the phantom _migrates between modules when import order changes_ (two runs of the same code attributed it to two different modules).
   Before deferring a suspiciously expensive module, sanity-check it: a pure-Python module with no heavy imports should cost microseconds.
   The decisive test is re-capturing with `gc.disable()` in front — if the cost vanishes, the module is innocent and the finding is GC, not imports.
+- Deciding what to defer, and where: [hothog](https://github.com/PostHog/hothog).
+  It reads an `importtime` log, re-runs the entry under an import hook, and ranks each heavy import by the cost that would actually come off the path.
+  Each row gets a verdict (`easy`, `many`, `BLOCKED:baseclass`, `BLOCKED:modscope`) and the `1-cut@` dominator to defer at.
+  `--compare` diffs two logs, which gives the before/after for a PR.
+  Install it into the project venv, not as an isolated tool, because it imports the code it analyzes:
+  `uv pip install hothog`, then `hothog <importtime.log> --django-settings posthog.settings --env DEBUG=1 --env TEST=1 --first-party posthog,products,ee,common`.
+  Capture the log with GC disabled, or hothog ranks the GC phantoms described above.
 - Finding the _trigger_ of a heavy load: monkeypatch `builtins.__import__` to print the stack the first time the target module is imported.
   A profile shows cost but never whether it is _removable_ — confirm with an A/B, because a module is often reachable by more than one path and cutting one changes nothing.
 - Import _structure_, when a deferral is blocked: `grimp` builds the module import graph.
@@ -176,7 +198,8 @@ The eager router imported a large chain when `posthog/urls.py` loaded, _before_ 
 That chain often imported some module fully and early, accidentally papering over a circular import elsewhere that only ever worked because of that import order.
 Make the router lazy and the accidental pre-import disappears, so the next process to import the URLconf hits the cycle head-on.
 The real example: `slack_app.backend.api` imports workflow classes from `posthog_code_slack_mention`, which imported a helper straight back from `slack_app.backend.api` at module scope (placed late with `# noqa: E402` — a tell that someone already fought the ordering).
-With the pre-import gone, Django's system checks (`check_custom_error_handlers` imports the URLconf, e.g. during `ensure_migration_defaults`) raised `cannot import name ... from partially initialized module`.
+With the pre-import gone, Django's system checks (`check_custom_error_handlers` imports the URLconf) raised `cannot import name ... from partially initialized module`.
+They raised it during `ensure_migration_defaults`, which skips the system checks now, so the same cycle would surface first in a test that loads the URLconf.
 Two things make this nasty: it surfaces far from the change (a migration-defaults step in one CI job, not the lazy-router files), and the buggy code is not yours — so it is tempting to blame master.
 Do not assume: the decisive test is `django.setup()` then `import_module("posthog.urls")` in a clean subprocess, run on a detached `origin/master` worktree _and_ the branch.
 If only the branch fails, you unmasked it and you own the fix — break the cycle by deferring the back-reference to its call sites.

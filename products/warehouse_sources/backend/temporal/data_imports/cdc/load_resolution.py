@@ -6,7 +6,6 @@ ordering and delete safety have to be settled on the batch rather than in merge 
 
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Final
 
 import pyarrow as pa
@@ -19,8 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
 )
-
-WRITE_RESOLUTION_FLAG = "dwh-cdc-write-resolution"
 
 # Verification is a diagnostic; cap it so a delete-heavy batch can't dominate the write path.
 MAX_VERIFIED_DELETE_ROWS = 1_000
@@ -192,34 +189,3 @@ def verify_delete_enrichment(
         rows_with_nulled_columns=rows_with_nulls,
         columns=tuple(sorted(columns)[:MAX_REPORTED_COLUMNS]),
     )
-
-
-@lru_cache(maxsize=2048)
-def is_cdc_write_resolution_enabled(team_id: int, schema_id: str, run_uuid: str) -> bool:
-    """Per-team rollout gate, resolved once per schema per run.
-
-    Keyed on `run_uuid` to keep a flags round trip off every batch's write path. Fails closed: a
-    flags blip must not start dropping rows.
-    """
-    import posthoganalytics
-
-    from posthog.models import Team
-
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                WRITE_RESOLUTION_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team_id)},
-                person_properties={"team_id": str(team_id), "schema_id": str(schema_id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team_id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:  # noqa: BLE001
-        return False

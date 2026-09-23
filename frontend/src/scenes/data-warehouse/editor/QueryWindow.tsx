@@ -121,7 +121,7 @@ export function QueryWindow({
     } = useActions(logic)
     const { setEditorView } = useActions(biLogic)
 
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
     const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
@@ -377,6 +377,7 @@ export function QueryWindow({
                         // that mounts against an existing model never runs that path, and would then
                         // ask for metadata without the index report.
                         indexUsage: true,
+                        onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },

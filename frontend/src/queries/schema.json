@@ -1408,8 +1408,21 @@
                 "service_name": {
                     "type": "string"
                 },
+                "sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact."
+                },
+                "spans_with_distinct_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "spans_with_session_id": {
+                    "$ref": "#/definitions/integer"
+                },
                 "total_duration_nano": {
                     "type": "number"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": [
@@ -21270,7 +21283,8 @@
                 "hbos",
                 "lof",
                 "ocsvm",
-                "pca"
+                "pca",
+                "llm"
             ],
             "type": "string"
         },
@@ -22204,7 +22218,7 @@
                 "detectors": {
                     "description": "Sub-detector configurations (minimum 2)",
                     "items": {
-                        "$ref": "#/definitions/SingleDetectorConfig"
+                        "$ref": "#/definitions/EnsembleSubDetectorConfig"
                     },
                     "type": "array"
                 },
@@ -22223,6 +22237,52 @@
         "EnsembleOperator": {
             "enum": ["and", "or"],
             "type": "string"
+        },
+        "EnsembleSubDetectorConfig": {
+            "description": "A single (leaf) detector config",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/HBOSDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LOFDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/OCSVMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/PCADetectorConfig"
+                }
+            ],
+            "required": ["type"],
+            "type": "object"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -24711,7 +24771,7 @@
                 },
                 "start_event": {
                     "$ref": "#/definitions/ExperimentApiRetentionStart",
-                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then."
+                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure."
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
@@ -30356,6 +30416,35 @@
             "required": ["type"],
             "type": "object"
         },
+        "LLMDetectorConfig": {
+            "additionalProperties": false,
+            "description": "Hands the series to a model instead of a statistical test. Carries no preprocessing block: differencing or smoothing would hide from the model exactly what it is meant to read.",
+            "properties": {
+                "instructions": {
+                    "description": "What counts as unusual or interesting for this metric, in your own words. Optional.",
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                "threshold": {
+                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "type": {
+                    "const": "llm",
+                    "type": "string"
+                },
+                "window": {
+                    "description": "How many recent points the model is shown (default: 90)",
+                    "maximum": 400,
+                    "minimum": 5,
+                    "type": "integer"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "LLMSentimentMessage": {
             "additionalProperties": false,
             "properties": {
@@ -32647,6 +32736,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day."
@@ -32658,6 +32750,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolDailyStatsQueryResponse"
@@ -32763,6 +32861,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolDescriptionsQuery",
                     "type": "string"
@@ -32770,6 +32871,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolDescriptionsQueryResponse"
@@ -32944,6 +33051,9 @@
                     "description": "Raw $mcp_error_type bucket; \"unknown\" selects errored events without an error type.",
                     "type": "string"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolFailureOccurrencesQuery",
                     "type": "string"
@@ -32951,6 +33061,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolFailureOccurrencesQueryResponse"
@@ -33042,6 +33158,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolFailuresQuery",
                     "type": "string"
@@ -33049,6 +33168,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolFailuresQueryResponse"
@@ -33154,6 +33279,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolNeighborsQuery",
                     "type": "string"
@@ -33166,6 +33294,12 @@
                     "description": "Whether to count tools called immediately before or after the target tool.",
                     "enum": ["before", "after"],
                     "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolNeighborsQueryResponse"
@@ -33627,6 +33761,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolSampleIntentsQuery",
                     "type": "string"
@@ -33634,6 +33771,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolSampleIntentsQueryResponse"
@@ -33755,6 +33898,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolStatsQuery",
                     "type": "string"
@@ -33762,6 +33908,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolStatsQueryResponse"
@@ -33896,6 +34048,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolTopUsersQuery",
                     "type": "string"
@@ -33903,6 +34058,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolTopUsersQueryResponse"
@@ -39394,10 +39555,18 @@
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
         },
+        "PredicateFixAction": {
+            "enum": ["edit_query", "edit_property_type", "materialize"],
+            "type": "string"
+        },
         "PredicateIndexUsage": {
             "additionalProperties": false,
             "description": "How one property filter in the query reads its data, decided before the query runs.",
             "properties": {
+                "ai_fix_prompt": {
+                    "description": "Instruction for an AI rewrite of the query, set when a query edit would help.",
+                    "type": "string"
+                },
                 "column_name": {
                     "type": "string"
                 },
@@ -39405,7 +39574,11 @@
                     "$ref": "#/definitions/integer"
                 },
                 "fix": {
+                    "description": "Prose advice for a reader.",
                     "type": "string"
+                },
+                "fix_action": {
+                    "$ref": "#/definitions/PredicateFixAction"
                 },
                 "message": {
                     "type": "string"
@@ -39420,6 +39593,10 @@
                 },
                 "property_name": {
                     "type": "string"
+                },
+                "quickfix": {
+                    "$ref": "#/definitions/PredicateQuickfix",
+                    "description": "A deterministic query edit that unblocks the index."
                 },
                 "scope": {
                     "$ref": "#/definitions/PredicateScope"
@@ -39462,6 +39639,25 @@
         "PredicateIndexVerdict": {
             "enum": ["indexed", "blocked", "unindexed_column", "unindexed_json", "operator_not_indexable"],
             "type": "string"
+        },
+        "PredicateQuickfix": {
+            "additionalProperties": false,
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Character offset in the query where the replaced range ends."
+                },
+                "start": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Character offset in the query where the replaced range starts."
+                },
+                "text": {
+                    "description": "Replacement text, substituted for the range verbatim.",
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end", "text"],
+            "type": "object"
         },
         "PredicateScope": {
             "enum": ["event", "person", "group", "unknown"],
@@ -51556,6 +51752,9 @@
                 },
                 {
                     "$ref": "#/definitions/PCADetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LLMDetectorConfig"
                 }
             ],
             "required": ["type"],
@@ -53512,6 +53711,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "includeImpact": {
+                    "description": "Also aggregate sessions and people per operation. Off by default: it reads the attribute maps.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansAggregationQuery",

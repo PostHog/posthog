@@ -31,6 +31,8 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Literal, TypeVar
 
+from django.conf import settings
+
 import grpc
 import dagster
 import psycopg2
@@ -57,9 +59,8 @@ DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
 
-# personhog-router caps every backend call at BACKEND_TIMEOUT_MS whatever the client deadline. The
-# replica deletes at most REPLICA_CHUNK_SIZE persons per call (its BULK_CHUNK_SIZE) and clamps the
-# row budget to REPLICA_MAX_ROWS (its TOMBSTONED_DELETE_MAX_ROWS).
+# tonic takes min(client deadline, personhog-router's BACKEND_TIMEOUT_MS), which is 15 s, so this
+# deadline is what bounds a request.
 ROUTER_BACKEND_TIMEOUT_SECONDS = 5.0
 REPLICA_CHUNK_SIZE = 100
 REPLICA_MAX_ROWS = 5000
@@ -70,6 +71,18 @@ REPLICA_MAX_ROWS = 5000
 STEP_START_ROWS = 500
 STEP_FLOOR_ROWS = 100
 STEP_GROWTH_SUCCESSES = 20
+
+# Short enough that a daily run always ends before the next one fires.
+SCHEDULED_MAX_RUNTIME_SECONDS = 20 * 3600
+
+# Above the op's own 24 h default, so a manual run reaches its cap and publishes rather than being
+# killed short of it.
+JOB_MAX_RUNTIME_SECONDS = 25 * 3600
+
+# Contention with the sweep, which writes the queue while we delete from it. A statement timeout
+# retries the same way but means something else, so it stays out of the conflict counter.
+PG_CONFLICT_CODES = frozenset({"40001", "40P01", "55P03"})
+PG_RETRYABLE_CODES = PG_CONFLICT_CODES | {"57014"}
 
 RETRY_BACKOFF_CAP_SECONDS = 60.0
 PG_RETRY_BACKOFF_SECONDS = 1.0
@@ -228,6 +241,7 @@ class DrainTotals:
     step_rows_min: int = 0
     step_rows_max: int = 0
     pg_reconnects: int = 0
+    pg_queue_conflict_retries: int = 0
     rpc_seconds_total: float = 0.0
     rpc_seconds_max: float = 0.0
     rpc_seconds_last: float = 0.0
@@ -258,6 +272,7 @@ class DrainTotals:
             "step_rows_min": dagster.MetadataValue.int(self.step_rows_min),
             "step_rows_max": dagster.MetadataValue.int(self.step_rows_max),
             "pg_reconnects": dagster.MetadataValue.int(self.pg_reconnects),
+            "pg_queue_conflict_retries": dagster.MetadataValue.int(self.pg_queue_conflict_retries),
             "rpc_seconds_total": dagster.MetadataValue.float(round(self.rpc_seconds_total, 3)),
             "rpc_seconds_max": dagster.MetadataValue.float(round(self.rpc_seconds_max, 3)),
             "rpc_seconds_mean": dagster.MetadataValue.float(round(self.rpc_seconds_mean(), 3)),
@@ -291,13 +306,18 @@ def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk
 PgRecovery = Literal["retry", "reconnect"]
 
 
+def pg_is_queue_conflict(exc: BaseException) -> bool:
+    """Whether a failed statement lost a race for a row, rather than running too long."""
+    return isinstance(exc, psycopg2.Error) and getattr(exc, "pgcode", None) in PG_CONFLICT_CODES
+
+
 def pg_recovery(exc: BaseException) -> PgRecovery | None:
     """How a failed queue statement can be run again, or None when it cannot."""
     if not isinstance(exc, psycopg2.Error):
         return None
     # Serialization failure, deadlock, lock_timeout and statement_timeout: the same connection
     # can simply run the statement again.
-    if getattr(exc, "pgcode", None) in {"40001", "40P01", "55P03", "57014"}:
+    if getattr(exc, "pgcode", None) in PG_RETRYABLE_CODES:
         return "retry"
     # psycopg2 raises OperationalError for a dropped or refused connection and InterfaceError for
     # a connection already closed; both need a new connection first.
@@ -524,6 +544,8 @@ class _Drain:
                     ) from exc
                 if recovery == "reconnect":
                     self.close()
+                elif pg_is_queue_conflict(exc):
+                    self.totals.pg_queue_conflict_retries += 1
                 if self.out_of_time():
                     raise _OutOfTime from exc
                 pause = backoff_seconds(PG_RETRY_BACKOFF_SECONDS, failures)
@@ -712,6 +734,12 @@ class _Drain:
             after.rpc_calls - before.rpc_calls,
         )
         _emit(self.metrics, "person_pg_cleanup_drain_pg_reconnects", {}, after.pg_reconnects - before.pg_reconnects)
+        _emit(
+            self.metrics,
+            "person_pg_cleanup_drain_pg_queue_conflict_retries",
+            {},
+            after.pg_queue_conflict_retries - before.pg_queue_conflict_retries,
+        )
 
     def snapshot(self) -> DrainTotals:
         return DrainTotals(
@@ -723,6 +751,7 @@ class _Drain:
             queue_rows_deleted=self.totals.queue_rows_deleted,
             rpc_calls=self.totals.rpc_calls,
             pg_reconnects=self.totals.pg_reconnects,
+            pg_queue_conflict_retries=self.totals.pg_queue_conflict_retries,
         )
 
     def run(self) -> DrainTotals:
@@ -868,6 +897,11 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
             value=totals.pg_reconnects,
         ),
         PublishedGauge(
+            name=f"{prefix}pg_queue_conflict_retries",
+            help_text="Queue statements retried after a lock or serialization conflict, mostly with the sweep",
+            value=totals.pg_queue_conflict_retries,
+        ),
+        PublishedGauge(
             name=f"{prefix}rpc_seconds_max",
             help_text="Slowest successful personhog request",
             value=totals.rpc_seconds_max,
@@ -898,12 +932,52 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
-        # The sweep's run-queue tag (limit 1 in charts argocd/dagster/deployment_settings), so a
-        # drain never runs alongside a sweep or another drain.
-        "clickhouse_deletion_sweep_concurrency": "v1",
+        # Limit 1 in charts (argocd/dagster/deployment_settings), so a second drain queues rather
+        # than doubling the load on the persons writer.
+        "person_pg_cleanup_drain_concurrency": "v1",
+        # Catches a run that stops progressing without reaching its own max_runtime_seconds check.
+        # Safe to kill: every deleted row stays deleted.
+        "dagster/max_runtime": JOB_MAX_RUNTIME_SECONDS,
     },
     executor_def=dagster.in_process_executor,
 )
 def person_pg_cleanup_drain_job():
     """Hard-delete the Postgres rows of persons the ClickHouse sweep has already removed."""
     publish_drain_metrics(drain_person_pg_cleanup_queue())
+
+
+# Every DrainConfig field is pinned: dry_run defaults to true, so a field left out would drain
+# nothing forever.
+SCHEDULED_RUN_CONFIG = {
+    "ops": {
+        "drain_person_pg_cleanup_queue": {
+            "config": {
+                "dry_run": False,
+                "max_persons": 0,
+                "page_size": RPC_MAX_UUIDS,
+                "rpc_batch_size": REPLICA_CHUNK_SIZE,
+                "max_rows_per_request": 1000,
+                "pause_ms": 200,
+                "latency_multiplier": 1.0,
+                "rpc_timeout_seconds": ROUTER_BACKEND_TIMEOUT_SECONDS,
+                "max_runtime_seconds": SCHEDULED_MAX_RUNTIME_SECONDS,
+                "retry_backoff_seconds": 2.0,
+                "rpc_retry_window_seconds": 3600.0,
+                "pg_retry_window_seconds": 1800.0,
+                "blocked_retry_hours": 24,
+                "max_blocked": 1000,
+            }
+        }
+    }
+}
+
+# Nothing else empties person_pg_cleanup_queue. It is not chained to the sweep that fills it
+# because one sweep queues more rows than one run can drain.
+person_pg_cleanup_drain_schedule = dagster.ScheduleDefinition(
+    job=person_pg_cleanup_drain_job,
+    cron_schedule=settings.PERSON_PG_CLEANUP_DRAIN_SCHEDULE,
+    execution_timezone="UTC",
+    name="person_pg_cleanup_drain_schedule",
+    run_config=SCHEDULED_RUN_CONFIG,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)

@@ -19,7 +19,7 @@ from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.worker import ALL_INTERCEPTOR_CLASSES
 
-from products.alerts.backend.facade.temporal import AlertsProductTelemetryInterceptor
+from products.alerts.backend.facade.temporal import AlertsPlatformTelemetryInterceptor
 from products.alerts.backend.temporal import telemetry
 
 
@@ -38,7 +38,7 @@ async def test_activity_attempt_logs(error, outcome, level, tracing_enabled, act
     downstream = Mock(spec=ActivityInboundInterceptor)
     result = object()
     downstream.execute_activity = AsyncMock(return_value=result, side_effect=error)
-    interceptor = AlertsProductTelemetryInterceptor().intercept_activity(downstream)
+    interceptor = AlertsPlatformTelemetryInterceptor().intercept_activity(downstream)
     activity_input = ExecuteActivityInput(
         fn=downstream.execute_activity,
         args=["sensitive activity input"],
@@ -64,11 +64,11 @@ async def test_activity_attempt_logs(error, outcome, level, tracing_enabled, act
     assert len(activity_logs) == 4
     for attempt, duration_ms in ((1, 125.0), (2, 500.0)):
         start, finish = activity_logs[(attempt - 1) * 2 : attempt * 2]
-        assert start["event"] == "alerts_product_activity_started"
+        assert start["event"] == "alerts_platform_activity_started"
         assert start["log_level"] == "info"
         assert "duration_ms" not in start
         assert "outcome" not in start
-        assert finish["event"] == "alerts_product_activity_finished"
+        assert finish["event"] == "alerts_platform_activity_finished"
         assert finish["log_level"] == level
         assert finish["outcome"] == outcome
         assert finish["duration_ms"] == duration_ms
@@ -106,7 +106,7 @@ async def test_telemetry_failure_preserves_activity_outcome(error, failure_point
     downstream = Mock(spec=ActivityInboundInterceptor)
     result = object()
     downstream.execute_activity = AsyncMock(return_value=result, side_effect=error)
-    interceptor = AlertsProductTelemetryInterceptor().intercept_activity(downstream)
+    interceptor = AlertsPlatformTelemetryInterceptor().intercept_activity(downstream)
     activity_input = ExecuteActivityInput(fn=downstream.execute_activity, args=[], executor=None, headers={})
     telemetry_error = RuntimeError("telemetry unavailable")
     if failure_point in ("start", "finish"):
@@ -133,7 +133,7 @@ async def test_logging_does_not_block_activity_loop(phase: str, activity_logs: l
     downstream = Mock(spec=ActivityInboundInterceptor)
     result = object()
     downstream.execute_activity = AsyncMock(return_value=result)
-    interceptor = AlertsProductTelemetryInterceptor().intercept_activity(downstream)
+    interceptor = AlertsPlatformTelemetryInterceptor().intercept_activity(downstream)
     activity_input = ExecuteActivityInput(fn=downstream.execute_activity, args=[], executor=None, headers={})
     loop = asyncio.get_running_loop()
     log_started = asyncio.Event()
@@ -141,7 +141,7 @@ async def test_logging_does_not_block_activity_loop(phase: str, activity_logs: l
     released: list[bool] = []
 
     def block_log(_logger: WrappedLogger, _method_name: str, entry: EventDict) -> EventDict:
-        if entry["event"] == f"alerts_product_activity_{phase}":
+        if entry["event"] == f"alerts_platform_activity_{phase}":
             loop.call_soon_threadsafe(log_started.set)
             released.append(release_log.wait(timeout=10))
         return entry
@@ -165,12 +165,12 @@ async def test_cancellation_during_logging_preserves_activity_outcome(
     downstream = Mock(spec=ActivityInboundInterceptor)
     result = object()
     downstream.execute_activity = AsyncMock(return_value=result, side_effect=error)
-    interceptor = AlertsProductTelemetryInterceptor().intercept_activity(downstream)
+    interceptor = AlertsPlatformTelemetryInterceptor().intercept_activity(downstream)
     activity_input = ExecuteActivityInput(fn=downstream.execute_activity, args=[], executor=None, headers={})
     log_started = asyncio.Event()
 
     async def wait_for_cancellation(event: str, **fields: object) -> None:
-        if event == f"alerts_product_activity_{phase}":
+        if event == f"alerts_platform_activity_{phase}":
             log_started.set()
             await asyncio.Event().wait()
 
@@ -200,8 +200,8 @@ async def test_cancellation_during_logging_preserves_activity_outcome(
 @pytest.mark.parametrize(
     "task_queue,supported",
     [
-        (settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, True),
-        (settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE, True),
+        (settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE, True),
+        (settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE, True),
         (settings.LOGS_ALERTING_TASK_QUEUE, False),
         ("unrelated-task-queue", False),
     ],
@@ -210,6 +210,6 @@ def test_telemetry_registration(task_queue, supported):
     registered = [
         interceptor
         for interceptor in ALL_INTERCEPTOR_CLASSES
-        if interceptor is AlertsProductTelemetryInterceptor and is_task_queue_supported(task_queue, interceptor)
+        if interceptor is AlertsPlatformTelemetryInterceptor and is_task_queue_supported(task_queue, interceptor)
     ]
-    assert registered == ([AlertsProductTelemetryInterceptor] if supported else [])
+    assert registered == ([AlertsPlatformTelemetryInterceptor] if supported else [])

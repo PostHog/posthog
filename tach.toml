@@ -76,6 +76,7 @@ depends_on = [
     "products.user_interviews",
     "products.warehouse_sources",
     "products.exports",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -941,6 +942,7 @@ layer = "modules"
 [[modules]]
 path = "products.tasks"
 depends_on = [
+    "products.cdp",
     "ee",
     "posthog",
     "products.canvas",
@@ -964,6 +966,7 @@ layer = "modules"
 [[modules]]
 path = "products.canvas"
 depends_on = [
+    "products.workflows",
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
@@ -1614,6 +1617,20 @@ expose = [
 ]
 from = [
     "products.ai_training",
+]
+
+[[modules]]
+path = "products.ml_inference"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ml_inference",
 ]
 
 [[modules]]

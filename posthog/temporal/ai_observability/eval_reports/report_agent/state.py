@@ -7,6 +7,8 @@ from langgraph.managed import RemainingSteps
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent
 
+REPORT_RUN_HANDLE_KEY = "report_run_handles"
+
 
 class EvalReportAgentState(TypedDict):
     """State for the evaluation report agent graph.
@@ -44,3 +46,6 @@ class EvalReportAgentState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
     session_id_allowlist: list[str]
+    # Short handle -> run UUID for every past run the agent has listed. The agent sees
+    # only the handle, because a run UUID is UUID-shaped but can never be cited.
+    report_run_handles: dict[str, str]
