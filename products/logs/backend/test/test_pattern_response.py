@@ -71,6 +71,33 @@ class TestBoundPatternsResponse(SimpleTestCase):
         self.assertEqual(bounded["omitted_pattern_count"], 1)
         self.assertEqual(bounded["total_count"], 24)
 
+    def test_moves_dropped_stored_pattern_rows_into_the_remainder(self) -> None:
+        results = {
+            "patterns": [_pattern(count=count) for count in (9, 8, 7)],
+            "total_count": 30,
+            "represented_count": 24,
+            "remainder_count": 6,
+        }
+
+        bounded = bound_patterns_response(results, limit=2, max_pattern_chars=0)
+
+        # The 7 rows of the dropped group are no longer covered by what the response carries.
+        self.assertEqual(bounded["represented_count"], 17)
+        self.assertEqual(bounded["remainder_count"], 13)
+        self.assertEqual(bounded["represented_count"] + bounded["remainder_count"], 30)
+
+    def test_leaves_body_mining_coverage_counts_alone(self) -> None:
+        results = {
+            "patterns": [_pattern(count=count) for count in (9, 8)],
+            "represented_count": None,
+            "remainder_count": None,
+        }
+
+        bounded = bound_patterns_response(results, limit=1, max_pattern_chars=0)
+
+        self.assertIsNone(bounded["represented_count"])
+        self.assertIsNone(bounded["remainder_count"])
+
     def test_unbounded_response_is_unchanged_apart_from_the_bound_report(self) -> None:
         pattern = _pattern(pattern="x" * 5000, match_patterns=["x" * 5000], match_regex="x" * 5000)
 

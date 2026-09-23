@@ -62,17 +62,39 @@ def parse_max_pattern_chars(raw: Any, *, over_mcp: bool) -> int:
 def bound_patterns_response(results: dict[str, Any], *, limit: int, max_pattern_chars: int) -> dict[str, Any]:
     """Cap the pattern groups and the text of each one, reporting what was left out.
 
-    The groups are already ordered by count, so the cap keeps the highest-volume ones. The
-    window-level counts (`total_count`, `represented_count`, `remainder_count`) are untouched:
-    they describe the logs, not the payload.
+    The groups are already ordered by count, so the cap keeps the highest-volume ones.
+    `total_count` and `scanned_count` are untouched, because they describe the window rather
+    than the payload.
     """
     patterns = results.get("patterns") or []
     kept = patterns[:limit]
+    dropped = patterns[limit:]
+    return _recount_coverage(
+        {
+            **results,
+            "patterns": [_bound_pattern(pattern, max_pattern_chars) for pattern in kept],
+            "returned_pattern_count": len(kept),
+            "omitted_pattern_count": len(dropped),
+        },
+        dropped,
+    )
+
+
+def _recount_coverage(results: dict[str, Any], dropped: list[dict[str, Any]]) -> dict[str, Any]:
+    """Move the dropped groups' rows from `represented_count` over to `remainder_count`.
+
+    Both counts are defined against the groups the response carries, so a `limit` that drops
+    groups has to move their rows across. Leaving them in `represented_count` would tell an agent
+    that rows it cannot see are covered by the groups it can. Body mining reports neither count.
+    """
+    represented = results.get("represented_count")
+    if not dropped or represented is None:
+        return results
+    dropped_rows = sum(pattern.get("count") or 0 for pattern in dropped)
     return {
         **results,
-        "patterns": [_bound_pattern(pattern, max_pattern_chars) for pattern in kept],
-        "returned_pattern_count": len(kept),
-        "omitted_pattern_count": len(patterns) - len(kept),
+        "represented_count": max(0, represented - dropped_rows),
+        "remainder_count": (results.get("remainder_count") or 0) + dropped_rows,
     }
 
 
