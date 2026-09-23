@@ -130,7 +130,19 @@ describe('SegmentDestinationExecutorService', () => {
                 },
             },
             { name: 'omits an unset value', customData: { value: '' }, expected: {} },
-        ])('pinterest conversions $name', async ({ customData, expected }) => {
+            {
+                name: 'sends a person without an email by IP and user agent',
+                userData: { email: [null], client_ip_address: '203.0.113.7', client_user_agent: 'Mozilla/5.0' },
+                customData: {},
+                expected: {},
+            },
+            {
+                name: 'rejects a person without an email, IP or user agent',
+                userData: { email: [null] },
+                customData: {},
+                expectedError: 'User data must contain values for Email',
+            },
+        ])('pinterest conversions $name', async ({ userData, customData, expected, expectedError }) => {
             const pinterestPlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-pinterest-conversions-api']
             const fn = createHogFunction({
                 name: 'Plugin test',
@@ -145,16 +157,27 @@ describe('SegmentDestinationExecutorService', () => {
                 action_source: 'web',
                 event_time: '2025-01-01T00:00:00Z',
                 event_id: 'event-id',
-                user_data: { email: ['buyer@example.com'] },
+                user_data: userData ?? { email: ['buyer@example.com'] },
                 custom_data: { currency: 'USD', ...customData },
             })
 
             const result = await service.execute(invocation)
 
+            if (expectedError) {
+                expect(String(result.error)).toContain(expectedError)
+                expect(mockFetch).not.toHaveBeenCalled()
+                return
+            }
             expect(result.error).toBeUndefined()
             expect(mockFetch).toHaveBeenCalledTimes(1)
             const body = parseJSON(mockFetch.mock.calls[0][1].body)
             expect(body.data[0].custom_data).toEqual({ currency: 'USD', ...expected })
+            if (userData) {
+                expect(body.data[0].user_data).toEqual({
+                    client_ip_address: userData.client_ip_address,
+                    client_user_agent: userData.client_user_agent,
+                })
+            }
         })
 
         it('should redact a credential input that a stale stored schema leaves non-secret', async () => {

@@ -193,7 +193,7 @@ patchedDependencies:
     hash: a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
     path: patches/@connectrpc__connect-node@2.1.1.patch
   '@segment/action-destinations@3.387.0':
-    hash: 1578ef0bd2da6a4c4ff2016bcde3d27c50410cddb7e366120d29a96893c23bd1
+    hash: 49dbcb7ed5fb1eb2f8afd18588672f9ccbcefe1d1a74e5a503a305b484fc095d
     path: patches/@segment__action-destinations@3.387.0.patch
   dayjs@1.11.11:
     hash: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
@@ -1629,7 +1629,7 @@ importers:
         version: 0.4.8(express@5.2.1)
       '@segment/action-destinations':
         specifier: 3.387.0
-        version: 3.387.0(patch_hash=1578ef0bd2da6a4c4ff2016bcde3d27c50410cddb7e366120d29a96893c23bd1)(ajv@8.20.0)(encoding@0.1.13)
+        version: 3.387.0(patch_hash=49dbcb7ed5fb1eb2f8afd18588672f9ccbcefe1d1a74e5a503a305b484fc095d)(ajv@8.20.0)(encoding@0.1.13)
       '@smithy/node-http-handler':
         specifier: 4.4.9
         version: 4.4.9
@@ -31336,7 +31336,7 @@ snapshots:
 
   '@segment/a1-notation@2.1.4': {}
 
-  '@segment/action-destinations@3.387.0(patch_hash=1578ef0bd2da6a4c4ff2016bcde3d27c50410cddb7e366120d29a96893c23bd1)(ajv@8.20.0)(encoding@0.1.13)':
+  '@segment/action-destinations@3.387.0(patch_hash=49dbcb7ed5fb1eb2f8afd18588672f9ccbcefe1d1a74e5a503a305b484fc095d)(ajv@8.20.0)(encoding@0.1.13)':
     dependencies:
       '@amplitude/ua-parser-js': 0.7.33
       '@aws-sdk/client-eventbridge': 3.806.0

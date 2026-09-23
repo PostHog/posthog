@@ -25,10 +25,27 @@ index 8aa7c65aa595746c1c0fe561320529f09d0fecef..3808e1a460eafb8d66c9b91f76254efc
      },
      default: {
 diff --git a/dist/destinations/pinterest-conversions/reportConversionEvent/index.js b/dist/destinations/pinterest-conversions/reportConversionEvent/index.js
-index 4a81037ad73097ae6a8107ce2760f953eaff9e00..03d7fd8966d0dd425f61effe5ac45cdaec9c6ad6 100644
+index 4a81037ad73097ae6a8107ce2760f953eaff9e00..990786a2cce586b2defe2d7b32373aabbd75a55a 100644
 --- a/dist/destinations/pinterest-conversions/reportConversionEvent/index.js
 +++ b/dist/destinations/pinterest-conversions/reportConversionEvent/index.js
-@@ -187,13 +187,18 @@ function createPinterestPayload(payload) {
+@@ -161,6 +161,16 @@ const action = {
+     }
+ };
+ async function processPayload(request, settings, payload) {
++    if (payload.user_data) {
++        const user_data = { ...payload.user_data };
++        for (const [key, value] of Object.entries(user_data)) {
++            if (Array.isArray(value)) {
++                const present = value.filter((el) => el != null && String(el).trim() !== '');
++                user_data[key] = present.length ? present : undefined;
++            }
++        }
++        payload = { ...payload, user_data };
++    }
+     if ((0, isEmpty_1.default)(payload.user_data?.email) &&
+         (0, isEmpty_1.default)(payload.user_data?.hashed_maids) &&
+         !(payload.user_data?.client_ip_address && payload.user_data?.client_user_agent)) {
+@@ -187,13 +197,18 @@ function createPinterestPayload(payload) {
              user_data: (0, pinterset_capi_user_data_1.hash_user_data)({ user_data: payload.user_data }),
              custom_data: {
                  currency: payload?.custom_data?.currency,
