@@ -11,10 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
-import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
-import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
-
-import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
+import { LineageGraph } from '../lineage/LineageGraph'
+import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
+import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
