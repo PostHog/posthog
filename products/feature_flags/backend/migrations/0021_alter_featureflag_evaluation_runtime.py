@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=[("server", "Server"), ("client", "Client"), ("all", "All")],
                 default="all",
-                help_text="Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.",
+                help_text="Filters which SDKs receive this flag from /flags, based on the runtime the caller reports. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.",
                 max_length=10,
                 null=True,
             ),

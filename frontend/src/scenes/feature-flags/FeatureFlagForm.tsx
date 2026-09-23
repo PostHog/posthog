@@ -647,11 +647,12 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     labelClassName="text-sm font-medium"
                                                     info={
                                                         <>
-                                                            Filters which SDKs receive this flag. It is not an access
-                                                            control: anyone with your public project API key can request
-                                                            any flag. To keep a value away from clients, use a remote
-                                                            config flag and encrypt the payload. Only a personal API key
-                                                            can read it.{' '}
+                                                            Filters requests that ask PostHog to evaluate this flag.
+                                                            Local evaluation loads flag definitions for all runtimes.
+                                                            This is not an access control: anyone with your public
+                                                            project API key can request any flag. To keep a value away
+                                                            from clients, use a remote config flag and encrypt the
+                                                            payload. Only a personal API key can read it.{' '}
                                                             <Link
                                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
                                                                 target="_blank"
@@ -668,10 +669,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 label: (
                                                                     <div className="flex flex-col">
                                                                         <span className="font-medium">
-                                                                            Both client and server
+                                                                            Client and server requests
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Sent to client and server SDKs
+                                                                            For either runtime
                                                                         </span>
                                                                     </div>
                                                                 ),
@@ -682,11 +683,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 label: (
                                                                     <div className="flex flex-col">
                                                                         <span className="font-medium">
-                                                                            Client-side only
+                                                                            Client-side requests
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Sent to client SDKs only (browser, mobile,
-                                                                            desktop)
+                                                                            Browser, mobile, and desktop SDKs
                                                                         </span>
                                                                     </div>
                                                                 ),
@@ -697,10 +697,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 label: (
                                                                     <div className="flex flex-col">
                                                                         <span className="font-medium">
-                                                                            Server-side only
+                                                                            Server-side requests
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Sent to server SDKs only
+                                                                            Server SDKs
                                                                         </span>
                                                                     </div>
                                                                 ),

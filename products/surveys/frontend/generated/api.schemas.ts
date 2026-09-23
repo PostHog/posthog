@@ -169,7 +169,7 @@ export interface MinimalFeatureFlagApi {
      * @nullable
      */
     version?: number | null
-    /** Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
+    /** Filters which SDKs receive this flag from /flags, based on the runtime the caller reports. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
      *
      * * `server` - Server
      * * `client` - Client

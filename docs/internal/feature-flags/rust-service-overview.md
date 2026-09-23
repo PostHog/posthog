@@ -181,7 +181,9 @@ Otherwise it infers a runtime from `User-Agent`, `Origin`, `Referer` and the `Se
 A caller that sends `evaluation_runtime: "all"` empties the exclusion set, and an unrecognized value falls back to `all` behind a log warning.
 
 So a flag marked `server` is not withheld from a caller that asks for it.
-The setting filters what each SDK receives, which keeps client bundles small and keeps server-shaped flags out of browser payloads.
+The setting filters remote evaluation responses from `/flags`.
+The local evaluation definitions endpoint returns definitions for all runtimes.
+Server SDKs can evaluate a client-runtime flag locally, so a backend that passes flags to a browser must select which flags to return.
 Do not build an access decision on it, in this service or in a caller.
 
 `override_flags_definitions` in the same struct shows the shape a real restriction takes.

@@ -1185,8 +1185,9 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
         required=False,
         allow_null=True,
-        help_text="Filters which SDKs receive this flag, based on the runtime the caller reports: "
+        help_text="Filters which SDKs receive this flag from /flags, based on the runtime the caller reports: "
         "'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. "
+        "Local evaluation loads flag definitions for all runtimes. "
         "This is a delivery filter and not an access control: any caller with the project's "
         "public API key can still request any flag.",
     )
@@ -1237,8 +1238,9 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
         required=False,
         allow_null=True,
-        help_text="Filters which SDKs receive this flag, based on the runtime the caller reports: "
+        help_text="Filters which SDKs receive this flag from /flags, based on the runtime the caller reports: "
         "'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. "
+        "Local evaluation loads flag definitions for all runtimes. "
         "This is a delivery filter and not an access control: any caller with the project's "
         "public API key can still request any flag.",
     )
