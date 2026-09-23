@@ -964,6 +964,35 @@ describe('StateManager', () => {
 
             expect(await laterRequest.getOrFetchGroupTypes('7')).toEqual([])
         })
+
+        it('lets the throttled entity itself retry as soon as the backoff passes', async () => {
+            vi.useFakeTimers()
+            try {
+                const getGroupTypes = vi.fn().mockRejectedValueOnce(rateLimit(60)).mockResolvedValue([])
+                ;(stateManager as any)._api = { getGroupTypes }
+
+                await stateManager.getOrFetchGroupTypes('42')
+                // Past the backoff but well inside the 10-minute cache TTL.
+                vi.advanceTimersByTime(61 * 1000)
+
+                expect(await stateManager.getOrFetchGroupTypes('42')).toEqual([])
+                expect(getGroupTypes).toHaveBeenCalledTimes(2)
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('keeps the longest deadline when concurrent refreshes report different hints', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(rateLimit(600))
+            const other = new StateManager(cache, { getGroupTypes } as unknown as ApiClient)
+            await other.getOrFetchGroupTypes('42')
+            const longDeadline = (await cache.get('backgroundRefreshBlockedUntil'))!
+
+            ;(stateManager as any)._api = { getGroupTypes: vi.fn().mockRejectedValue(rateLimit(60)) }
+            await stateManager.getOrFetchGroupTypes('7')
+
+            expect(await cache.get('backgroundRefreshBlockedUntil')).toBe(longDeadline)
+        })
     })
 
     describe('getOrFetchIntegrationKinds', () => {

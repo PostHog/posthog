@@ -38,7 +38,7 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
-    private _backgroundRefreshBlockedUntil?: Promise<number | undefined>
+    private _backgroundRefreshBlockedUntil?: number
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -257,20 +257,28 @@ export class StateManager {
             Math.max(requestedMs, BACKGROUND_REFRESH_BACKOFF_DEFAULT_MS),
             BACKGROUND_REFRESH_BACKOFF_MAX_MS
         )
-        const blockedUntil = Date.now() + backoffMs
-        this._backgroundRefreshBlockedUntil = Promise.resolve(blockedUntil)
+        // Deadlines merge by maximum. Parallel refreshes can carry different
+        // Retry-After hints, and a short one must not cut a long one short.
+        // The read and the write are not atomic, so a deadline written between
+        // them is lost; that costs one early refresh, which the next 429
+        // re-blocks.
+        const blockedUntil = Math.max(await this._readBackgroundRefreshBlock(), Date.now() + backoffMs)
+        this._backgroundRefreshBlockedUntil = blockedUntil
         await this._cache.set('backgroundRefreshBlockedUntil', blockedUntil).catch(() => {})
     }
 
     /**
-     * One read per StateManager, which is built per request context. Several
-     * entities refresh in parallel on the same request, and they all consult
-     * the same identity-wide flag, so they share one lookup.
+     * The later of what this manager recorded and what the shared cache holds.
+     * A concurrent request for the same identity has its own manager and writes
+     * only to the cache, so a local value alone would miss its deadline.
      */
+    private async _readBackgroundRefreshBlock(): Promise<number> {
+        const stored = await this._cache.get('backgroundRefreshBlockedUntil').catch(() => undefined)
+        return Math.max(stored ?? 0, this._backgroundRefreshBlockedUntil ?? 0)
+    }
+
     private async _isBackgroundRefreshBlocked(): Promise<boolean> {
-        this._backgroundRefreshBlockedUntil ??= this._cache.get('backgroundRefreshBlockedUntil').catch(() => undefined)
-        const blockedUntil = await this._backgroundRefreshBlockedUntil
-        return blockedUntil !== undefined && blockedUntil > Date.now()
+        return (await this._readBackgroundRefreshBlock()) > Date.now()
     }
 
     async setDefaultOrganizationAndProject(): Promise<{
@@ -381,10 +389,13 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            if (error instanceof PostHogRateLimitError) {
-                await this._noteRateLimited(error)
-            }
             this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (error instanceof PostHogRateLimitError) {
+                // Leave `fetchedAt` alone so the backoff, not the full TTL,
+                // decides when this entity tries again.
+                await this._noteRateLimited(error)
+                return cached
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
