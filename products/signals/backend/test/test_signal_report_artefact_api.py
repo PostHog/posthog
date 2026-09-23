@@ -1041,6 +1041,20 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert self._reviewer_filter_matches(report, bob)
         assert not self._reviewer_filter_matches(report, alice)
 
+    def test_backfill_walk_keeps_both_reviewers_of_a_created_at_tie(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        bob = self._create_org_member("bob@example.com", github_login="bob")
+        report = self._create_report()
+        first = self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        second = self._create_artefact(report, content=[{"user_uuid": str(bob.uuid)}])
+        SignalReportArtefact.objects.filter(id=first.id).update(created_at=second.created_at)
+        SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).delete()
+
+        self._run_backfill_walk()
+
+        assert self._reviewer_filter_matches(report, alice)
+        assert self._reviewer_filter_matches(report, bob)
+
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
         report = self._create_report()
