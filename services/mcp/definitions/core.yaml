@@ -115,6 +115,9 @@ tools:
     file-system-destroy:
         operation: file_system_destroy
         enabled: false
+    file-system-home-folder-create:
+        operation: file_system_home_folder_create
+        enabled: false
     file-system-link-create:
         operation: file_system_link_create
         enabled: false

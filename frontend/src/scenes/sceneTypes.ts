@@ -51,6 +51,7 @@ export enum Scene {
     DebugHog = 'DebugHog',
     ProjectFiles = 'ProjectFiles',
     DebugQuery = 'DebugQuery',
+    Terminal = 'Terminal',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
     ErrorAccessDenied = 'AccessDenied',

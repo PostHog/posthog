@@ -37,7 +37,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
-    DataIntervalEndInFutureError,
+    DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
     _execute_query,
     _raise_on_hogql_resource_limit_error,
@@ -209,7 +209,7 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
         patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
+        with pytest.raises(DataIntervalInFutureError, match="The provided 'data_interval_end'.*is in the future"):
             await _write_batch_export_record_batches_to_internal_stage(
                 query_or_model="SELECT 1",
                 full_range=(data_interval_start, data_interval_end),

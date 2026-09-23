@@ -3,7 +3,15 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconFolderPlus,
+    IconHome,
+    IconPlusSmall,
+    IconStar,
+} from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -33,6 +41,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
@@ -128,7 +137,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         isActiveInPanel,
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
@@ -180,7 +189,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const showFilterDropdown = root === 'project://'
     const showSortMenuItems = root === 'project://'
 
-    let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
 
     // Apply checked items override for external control (e.g. product selection)
     if (checkedItemsOverride) {
@@ -573,11 +582,18 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                        <TreeNodeDisplayIcon
+                            item={item}
+                            expandedItemIds={expandedFolders}
+                            defaultFolderIcon={isHomeFolder(item, currentHomeFolder) ? <IconHome /> : undefined}
+                        />
                     </>
                 )
             }}
             renderItem={(item) => {
+                if (item.type === 'empty-folder') {
+                    return item.displayName
+                }
                 const isCustomProduct = root === 'custom-products://'
                 const isNew =
                     !isCustomProduct &&
@@ -588,7 +604,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     <span className="truncate">
                         <span
                             className={cn('truncate', {
-                                'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                                'font-semibold': item.record?.type === 'folder',
                             })}
                         >
                             {item.displayName}{' '}
