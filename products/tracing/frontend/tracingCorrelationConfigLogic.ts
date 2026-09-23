@@ -1,10 +1,14 @@
-import { MakeLogicType, afterMount, connect, kea, path, selectors } from 'kea'
+import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { PatchedTeamTracingConfigApi, TeamTracingConfigApi } from 'products/tracing/frontend/generated/api.schemas'
 
@@ -23,7 +27,9 @@ export interface tracingCorrelationConfigLogicValues {
     currentTeamId: number | null // teamLogic
     configuredDistinctIdKeys: string[] | undefined
     configuredSessionIdKeys: string[] | undefined
+    correlationConfigNeeded: boolean
     correlationLinksEnabled: boolean
+    sessionErrorBadgesEnabled: boolean
     tracingConfig: TeamTracingConfigApi | null
     tracingConfigLoading: boolean
 }
@@ -68,6 +74,8 @@ export interface tracingCorrelationConfigLogicMeta {
         configuredDistinctIdKeys: (tracingConfig: TeamTracingConfigApi | null) => string[] | undefined
         configuredSessionIdKeys: (tracingConfig: TeamTracingConfigApi | null) => string[] | undefined
         correlationLinksEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        sessionErrorBadgesEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        correlationConfigNeeded: (correlationLinksEnabled: boolean, sessionErrorBadgesEnabled: boolean) => boolean
     }
 }
 
@@ -121,11 +129,34 @@ export const tracingCorrelationConfigLogic = kea<tracingCorrelationConfigLogicTy
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS],
         ],
+        // Single owner of the "badge spans whose session hit errors?" rule, for the span list
+        // badge and the trace drawer's Errors tab. Error Tracking viewer access is required as well
+        // as the flag, because the counts and the issues are that product's data. The endpoints
+        // behind both refuse a caller without it, so this gate is what keeps those surfaces from
+        // rendering a refusal as an error state.
+        sessionErrorBadgesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES] &&
+                userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer),
+        ],
+        // This config only feeds correlation surfaces, so it is only worth a request when one of
+        // them is on. The error badges resolve a session from the same configured keys, so a team
+        // that renamed those keys needs the config loaded for the badges alone.
+        correlationConfigNeeded: [
+            (s) => [s.correlationLinksEnabled, s.sessionErrorBadgesEnabled],
+            (correlationLinksEnabled: boolean, sessionErrorBadgesEnabled: boolean): boolean =>
+                correlationLinksEnabled || sessionErrorBadgesEnabled,
+        ],
     }),
-    afterMount(({ actions, values }) => {
-        // This config only feeds correlation links, so skip the request when they are off.
-        if (values.correlationLinksEnabled) {
-            actions.loadTracingConfig()
-        }
-    }),
+    subscriptions(({ actions, values }) => ({
+        // A subscription rather than afterMount, because posthog-js can resolve the flags after
+        // this logic mounts. Reading them once would leave the configured keys unloaded, and
+        // session detection would silently fall back to the built-in convention list.
+        correlationConfigNeeded: (needed: boolean) => {
+            if (needed && !values.tracingConfig && !values.tracingConfigLoading) {
+                actions.loadTracingConfig()
+            }
+        },
+    })),
 ])

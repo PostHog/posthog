@@ -48,6 +48,43 @@ describe("getCloudRuntimeOptions", () => {
   const session = (overrides: Partial<AgentSession>): AgentSession =>
     ({ configOptions: [], ...overrides }) as unknown as AgentSession;
 
+  it.each([
+    [true, "completed", "codex"],
+    [true, "in_progress", "claude"],
+    [false, undefined, "claude"],
+  ] as const)(
+    "selects the next runtime only for a completed cloud run (%s, %s)",
+    (isCloud, cloudStatus, adapter) => {
+      const result = getCloudRuntimeOptions(
+        session({
+          isCloud,
+          cloudStatus,
+          adapter: "claude",
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              category: "model",
+              currentValue: "gpt-5.6-sol",
+              options: [{ value: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+            },
+          ],
+        }),
+        {
+          runtime_adapter: "claude",
+          reasoning_effort: "max",
+          state: { initial_permission_mode: "acceptEdits" },
+        } as unknown as TaskRun,
+      );
+      expect(result.adapter).toBe(adapter);
+      if (adapter === "codex") {
+        expect(result.reasoningLevel).toBeUndefined();
+        expect(result.initialPermissionMode).toBeUndefined();
+      }
+    },
+  );
+
   it("prefers the session config option, then the previous run", () => {
     const result = getCloudRuntimeOptions(
       session({

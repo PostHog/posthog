@@ -378,7 +378,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
     listeners(({ actions, values }) => ({
         loadTaggers: async () => {
             // nosemgrep: prefer-codegen-api
-            const response = await api.get('api/environments/@current/taggers/')
+            const response = await api.get(`api/projects/${teamLogic.values.currentTeamId}/taggers/`)
             actions.loadTaggersSuccess(response.results)
         },
         loadTaggersSuccess: () => {
@@ -391,7 +391,9 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                 return
             }
             // nosemgrep: prefer-codegen-api
-            await api.update(`api/environments/@current/taggers/${id}/`, { enabled: !tagger.enabled })
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/taggers/${id}/`, {
+                enabled: !tagger.enabled,
+            })
             await breakpoint(100)
             actions.loadTaggers()
         },

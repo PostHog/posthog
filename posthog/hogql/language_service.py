@@ -288,7 +288,15 @@ class LanguageServiceClient:
         )
 
     def validate(self, team_id: int, user_id: int, query: str) -> LanguageServiceResult:
-        return self._request("POST", team_id, user_id, "validate", "validate", {"query": query}, 1)
+        return self._request(
+            "POST",
+            team_id,
+            user_id,
+            "validate",
+            "validate",
+            {"query": query, "positionEncoding": "utf-16"},
+            1,
+        )
 
     def _request(
         self,
