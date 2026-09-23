@@ -208,7 +208,8 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
             )
             scheduled_summaries[attrs.activity_id] = decoded_summary
 
-    expected_names = [spec.name for spec in QUERIES if report_behavior == "pre_patch" or spec.name not in UsageCounter]
+    counter_names = plans[0].query_names if plans else set()
+    expected_names = [spec.name for spec in QUERIES if spec.name not in counter_names]
     # Queries run with bounded concurrency, so completion order is not
     # deterministic — only assert the set. Result ordering (passed to the
     # aggregator) is preserved via `asyncio.gather`.

@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from threading import RLock
@@ -24,6 +24,14 @@ SHADOW_MISSING_ORGS = Gauge(
 
 
 class UsageCounter(StrEnum):
+    EVENTS = "teams_with_event_count_in_period"
+    ENHANCED_PERSON_EVENTS = "teams_with_enhanced_persons_event_count_in_period"
+    RECORDINGS = "teams_with_recording_count_in_period"
+    MOBILE_RECORDINGS = "teams_with_mobile_recording_count_in_period"
+    MOBILE_BILLABLE_RECORDINGS = "teams_with_mobile_billable_recording_count_in_period"
+    SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
+    AI_EVENTS = "teams_with_ai_event_count_in_period"
+    EXCEPTIONS = "teams_with_exceptions_captured_in_period"
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
     FEATURE_FLAG_REQUESTS = "teams_with_decide_requests_count_in_period"
     FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS = "teams_with_local_evaluation_requests_count_in_period"
@@ -54,6 +62,14 @@ class UsageRecordTotal:
 
 
 RECORD_USAGE_KEYS = {
+    UsageCounter.EVENTS: "events",
+    UsageCounter.ENHANCED_PERSON_EVENTS: "enhanced_person_events",
+    UsageCounter.RECORDINGS: "session_replay_recordings",
+    UsageCounter.MOBILE_RECORDINGS: "mobile_replay_recordings",
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile_replay_recordings",
+    UsageCounter.SURVEY_RESPONSES: "survey_responses",
+    UsageCounter.AI_EVENTS: "ai_events",
+    UsageCounter.EXCEPTIONS: "exceptions",
     UsageCounter.CDP_INVOCATIONS: "cdp_billable_invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature_flag_requests",
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: "feature_flag_local_evaluation_requests",
@@ -63,6 +79,14 @@ RECORD_USAGE_KEYS = {
     UsageCounter.WORKFLOW_INVOCATIONS: "workflow_billable_invocations",
 }
 COUNTER_FLAG_NAMES = {
+    UsageCounter.EVENTS: "events",
+    UsageCounter.ENHANCED_PERSON_EVENTS: "enhanced-persons",
+    UsageCounter.RECORDINGS: "recordings",
+    UsageCounter.MOBILE_RECORDINGS: "mobile-recordings",
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile-billable-recordings",
+    UsageCounter.SURVEY_RESPONSES: "survey-responses",
+    UsageCounter.AI_EVENTS: "ai-events",
+    UsageCounter.EXCEPTIONS: "exceptions",
     UsageCounter.CDP_INVOCATIONS: "cdp-invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature-flag-requests",
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: "feature-flag-local-evaluation-requests",
@@ -91,6 +115,12 @@ class UsageCounterPlan:
 
     def __post_init__(self) -> None:
         validate_usage_record_window(self.period)
+
+    @property
+    def query_names(self) -> set[str]:
+        return {
+            "exceptions_captured" if counter == UsageCounter.EXCEPTIONS else counter.value for counter in self.modes
+        }
 
 
 @frozen
@@ -150,6 +180,26 @@ class UsageCounterService:
         from posthog.tasks import usage_report
 
         self._queries: dict[UsageCounter, UsageCounterQuery] = {
+            UsageCounter.EVENTS: lambda begin, end: usage_report.get_teams_with_billable_event_count_in_period(
+                begin, end, count_distinct=True
+            ),
+            UsageCounter.ENHANCED_PERSON_EVENTS: lambda begin, end: (
+                usage_report.get_teams_with_billable_enhanced_persons_event_count_in_period(
+                    begin, end, count_distinct=True
+                )
+            ),
+            UsageCounter.RECORDINGS: lambda begin, end: usage_report.get_teams_with_recording_count_in_period(
+                begin, end, snapshot_source="web"
+            ),
+            UsageCounter.MOBILE_RECORDINGS: lambda begin, end: usage_report.get_teams_with_recording_count_in_period(
+                begin, end, snapshot_source="mobile"
+            ),
+            UsageCounter.MOBILE_BILLABLE_RECORDINGS: usage_report.get_teams_with_mobile_billable_recording_count_in_period,
+            UsageCounter.SURVEY_RESPONSES: usage_report.get_teams_with_survey_responses_count_in_period,
+            UsageCounter.AI_EVENTS: usage_report.get_teams_with_ai_event_count_in_period,
+            UsageCounter.EXCEPTIONS: lambda begin, end: [
+                (team_id, count) for team_id, count in self._exceptions_query(begin, end)[1]
+            ],
             UsageCounter.CDP_INVOCATIONS: usage_report.get_teams_with_cdp_billable_invocations_in_period,
             UsageCounter.FEATURE_FLAG_REQUESTS: lambda begin, end: (
                 usage_report.get_teams_with_feature_flag_requests_count_in_period(
@@ -166,13 +216,46 @@ class UsageCounterService:
             UsageCounter.WORKFLOW_SMS: usage_report.get_teams_with_workflow_sms_sent_in_period,
             UsageCounter.WORKFLOW_INVOCATIONS: usage_report.get_teams_with_workflow_billable_invocations_in_period,
         }
+        self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
+        self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
         self._records_query = usage_report.get_usage_records_in_period
 
-    def resolve_plan(self, period: DayRange, *, caller: UsageCounterCaller) -> UsageCounterPlan:
-        return UsageCounterPlan(period=period, caller=caller, modes=resolve_modes(caller))
+    def resolve_plan(
+        self, period: DayRange, *, caller: UsageCounterCaller, counters: Collection[UsageCounter] | None = None
+    ) -> UsageCounterPlan:
+        modes = resolve_modes(caller)
+        return UsageCounterPlan(
+            period=period,
+            caller=caller,
+            modes={counter: mode for counter, mode in modes.items() if counters is None or counter in counters},
+        )
 
-    def get_legacy(self, counter: UsageCounter, begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    def get_legacy(
+        self, counter: UsageCounter, begin: datetime, end: datetime, *, caller: UsageCounterCaller = "daily_report"
+    ) -> list[tuple[int, int]]:
+        if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
+            return self._quota_events_query(begin, end, count_distinct=False)
         return self._queries[counter](begin, end)
+
+    def _fetch_legacy(self, plan: UsageCounterPlan) -> dict[str, list[tuple[int, int]]]:
+        counts: dict[str, list[tuple[int, int]]] = {}
+        for counter, mode in plan.modes.items():
+            if counter == UsageCounter.EXCEPTIONS and plan.caller != "quota_limiting":
+                # The records have no library breakdown, which reports still need after the total switches.
+                libraries, totals = self._exceptions_query(plan.period.start, plan.period.end)
+                counts.update(
+                    {
+                        f"teams_with_{'js_lite' if library == 'web_lite' else library}_exceptions_captured_in_period": [
+                            (team_id, count) for team_id, count in rows
+                        ]
+                        for library, rows in libraries.items()
+                    }
+                )
+                if mode != UsageCounterMode.REALTIME:
+                    counts[counter.value] = [(team_id, count) for team_id, count in totals]
+            elif mode != UsageCounterMode.REALTIME:
+                counts[counter.value] = self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)
+        return counts
 
     def fetch_report(self, period: DayRange, *, plan: UsageCounterPlan | None = None) -> UsageCounterReport:
         if plan is None:
@@ -183,18 +266,14 @@ class UsageCounterService:
             )
         if plan.period != period:
             raise ValueError("A usage counter plan cannot be shared across periods")
-        counts = {
-            counter.value: self.get_legacy(counter, period.start, period.end)
-            for counter, mode in plan.modes.items()
-            if mode != UsageCounterMode.REALTIME
-        }
+        counts = self._fetch_legacy(plan)
         record_counters = [counter for counter, mode in plan.modes.items() if mode != UsageCounterMode.LEGACY]
         if not record_counters:
             return UsageCounterReport(counts=counts)
         sources = {counter.value.removeprefix("teams_with_"): mode for counter, mode in plan.modes.items()}
         try:
             rows = self._records_query(
-                period, tuple(RECORD_USAGE_KEYS[counter] for counter in record_counters), plan.caller
+                period, tuple(dict.fromkeys(RECORD_USAGE_KEYS[counter] for counter in record_counters)), plan.caller
             )
         except Exception:
             if UsageCounterMode.REALTIME in plan.modes.values():
