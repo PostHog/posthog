@@ -381,6 +381,7 @@ Every other caller, including the editor and every MCP surface, may do exactly t
 - `PATCH` `managed_by` on its own, which hands the workflow back to the UI.
 
 The operational actions stay open as well: `rerun`, `run`, `invocations`, `cancel_invocations`, `batch_jobs`, `cancel_batch_job` and `resume_email_sending`.
+So does `code` on `POST`, because it renders the body as source and stores nothing. That is how the editor turns unsaved edits into the file to commit.
 `schedules` and `schedule_detail` stay open too, because the app owns a schedule's cadence.
 `onSchedule()` in a workflow file declares a schedule trigger but no cadence, so a person sets the cadence in the app after the first push.
 

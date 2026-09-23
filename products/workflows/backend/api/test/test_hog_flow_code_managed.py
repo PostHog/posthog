@@ -200,6 +200,17 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json().get("code") != "immutable", response.json()
 
+    def test_rendering_unsaved_edits_as_code_is_not_refused_and_stores_nothing(self) -> None:
+        updated_at = self.workflow.updated_at
+
+        response = self.client.post(self._url("/code"), {"name": "Edited in the UI"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "Edited in the UI" in response.json()["code"]
+        self.workflow.refresh_from_db()
+        assert self.workflow.name == "Welcome"
+        assert self.workflow.updated_at == updated_at
+
     def test_the_ui_sets_the_schedule_of_a_code_managed_workflow(self) -> None:
         starts_at = (timezone.now() + timedelta(days=1)).isoformat()
 
