@@ -501,7 +501,11 @@
       
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'log_entries_test', kafka_group_name = 'clickhouse_log_entries_aux', kafka_format = 'JSONEachRow')
   
-      SETTINGS kafka_skip_broken_messages = 100
+      SETTINGS kafka_skip_broken_messages = 100,
+               kafka_num_consumers = 1,
+               kafka_thread_per_consumer = 1,
+               kafka_poll_timeout_ms = 10000,
+               kafka_max_block_size = 100000
       
   '''
 # ---
@@ -2900,7 +2904,11 @@
       
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'log_entries_test', kafka_group_name = 'clickhouse_log_entries_aux', kafka_format = 'JSONEachRow')
   
-      SETTINGS kafka_skip_broken_messages = 100
+      SETTINGS kafka_skip_broken_messages = 100,
+               kafka_num_consumers = 1,
+               kafka_thread_per_consumer = 1,
+               kafka_poll_timeout_ms = 10000,
+               kafka_max_block_size = 100000
       
   '''
 # ---

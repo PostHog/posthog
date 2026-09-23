@@ -543,7 +543,7 @@ CREATE TABLE posthog.kafka_log_entries_aux (
   timestamp DateTime64(6, 'UTC'),
   level LowCardinality(String),
   message String
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_aux', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_aux', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_log_entries_v3 (
   team_id UInt64,
   log_source LowCardinality(String),

@@ -315,14 +315,19 @@ def LOG_ENTRIES_AUX_WRITABLE_TABLE_SQL():
 
 
 def KAFKA_LOG_ENTRIES_AUX_TABLE_SQL():
-    from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_LOG_ENTRIES_AUX
+    from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_LOG_ENTRIES_AUX, kafka_num_consumers
 
     return (
         LOG_ENTRIES_TABLE_BASE_SQL
         + """
-    SETTINGS kafka_skip_broken_messages = 100
+    SETTINGS kafka_skip_broken_messages = 100,
+             kafka_num_consumers = {num_consumers},
+             kafka_thread_per_consumer = 1,
+             kafka_poll_timeout_ms = 10000,
+             kafka_max_block_size = 100000
     """
     ).format(
+        num_consumers=kafka_num_consumers(1),
         table_name=KAFKA_LOG_ENTRIES_AUX_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=kafka_engine(

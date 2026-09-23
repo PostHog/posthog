@@ -32,6 +32,10 @@ database "posthog" {
       group_name           = "clickhouse_log_entries_aux"
       format               = "JSONEachRow"
       skip_broken_messages = 100
+      num_consumers        = 1
+      thread_per_consumer  = true
+      poll_timeout_ms      = 10000
+      max_block_size       = 100000
     }
   }
   materialized_view "log_entries_aux_mv" {

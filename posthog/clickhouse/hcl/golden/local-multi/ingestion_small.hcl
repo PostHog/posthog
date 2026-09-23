@@ -335,7 +335,11 @@ database "posthog" {
       topic_list           = "log_entries"
       group_name           = "clickhouse_log_entries_aux"
       format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
       skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
     }
   }
 
