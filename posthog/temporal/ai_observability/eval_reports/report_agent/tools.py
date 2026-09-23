@@ -68,13 +68,10 @@ logger = structlog.get_logger(__name__)
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 # Capture the token inside any inline-code span, so the guard can tell an ID
-# apart from prose regardless of how many backticks or spaces wrap it. The
-# `` `id` `` span needs a branch of its own, because its content holds backticks
-# and the general branch would skip straight over the ID. The general branch
-# excludes only the backtick from its character class, so the run to the next one
-# is unambiguous and the scan stays linear. A class that also matched the
-# surrounding whitespace makes every split of a whitespace run a candidate, and
-# the agent writes the input.
+# apart from prose regardless of how many backticks or spaces wrap it. The class
+# excludes only the backtick, so the run to the next one is unambiguous and the
+# scan stays linear. A class that also matched the surrounding whitespace makes
+# every split of a whitespace run a candidate, and the agent writes the input.
 _BACKTICKED_TOKEN_RE = re.compile(r"`` `([^`]*)` ``|`+([^`]*)`+")
 
 # Match a canonical UUID anywhere it is used as a whole token. Opaque IDs are not
@@ -1531,7 +1528,11 @@ def set_title(
 
 
 def _span_token(match: re.Match[str]) -> str:
-    """The candidate identifier inside an inline-code span, whichever branch matched."""
+    """The candidate identifier inside an inline-code span, whichever branch matched.
+
+    The `` `id` `` wrapper the renderer links holds backticks of its own, so it needs a
+    branch to itself. The general branch stops at the inner pair and skips over the ID.
+    """
     inner = match.group(1) if match.group(1) is not None else match.group(2)
     return inner.strip()
 

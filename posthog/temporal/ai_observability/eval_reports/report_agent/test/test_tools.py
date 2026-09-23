@@ -830,7 +830,6 @@ class TestDeadBacktickedIds(SimpleTestCase):
                 f"See `{_OPAQUE_SESSION_ID}`.",
             ),
             (
-                # Unwrapping this one would cost the reader a link the renderer can still make.
                 "cited_id_keeps_its_double_backtick_span",
                 f"See `` `{_OPAQUE_SESSION_ID}` ``.",
                 f"See `` `{_OPAQUE_SESSION_ID}` ``.",
