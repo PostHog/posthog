@@ -1,3 +1,6 @@
+import json
+import math
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
@@ -11,6 +14,7 @@ from django.utils import timezone
 
 import redis
 from posthoganalytics import Posthog
+from posthoganalytics.consumer import MAX_MSG_SIZE
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
@@ -405,44 +409,36 @@ def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
     logger = _bind_batch_logger(input)
     logger.info("Generating Replay recording count batch")
 
-    recording_count = 0
-    team_count = 0
+    eligible_team_ids = _eligible_team_ids(input)
+    tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST)
+    rows = sync_execute(
+        SessionReplayEvents.count_soon_to_expire_sessions_by_team_query(),
+        {
+            "team_id_start": input.team_id_range.start,
+            "team_id_end": input.team_id_range.end,
+            "python_now": datetime.now(UTC),
+            "ttl_threshold": TTL_THRESHOLD,
+        },
+        workload=Workload.OFFLINE,
+    )
 
-    ch_query: str = SessionReplayEvents.count_soon_to_expire_sessions_query()
+    # Teams without expiring recordings get no key; aggregation defaults the count to zero.
+    payload_by_team: dict[int, str] = {}
+    recording_count = 0
+    for team_id, count in rows:
+        if team_id not in eligible_team_ids:
+            continue
+        expiring_recordings = RecordingCount(recording_count=int(count))
+        payload_by_team[team_id] = expiring_recordings.model_dump_json()
+        recording_count += expiring_recordings.recording_count
 
     with _digest_redis(input.common) as r:
-        for team in _teams_in_range(input):
-            try:
-                tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST, team_id=team.id)
-                rows = sync_execute(
-                    ch_query,
-                    {
-                        "team_id": team.id,
-                        "python_now": datetime.now(UTC),
-                        "ttl_threshold": TTL_THRESHOLD,
-                    },
-                    workload=Workload.OFFLINE,
-                    team_id=team.id,
-                )
-                expiring_recordings = RecordingCount(recording_count=int(rows[0][0]) if rows else 0)
-
-                key = team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id)
-                r.setex(key, input.common.redis_ttl, expiring_recordings.model_dump_json())
-
-                team_count += 1
-                recording_count += expiring_recordings.recording_count
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate Replay recording count for team {team.id}, skipping...",
-                    error=str(e),
-                    team_id=team.id,
-                )
-                continue
+        _store_team_data(r, input, TeamDataKey.EXPIRING_RECORDINGS, payload_by_team, eligible_team_ids)
 
     logger.info(
         "Finished generating Replay recording count batch",
         recording_count=recording_count,
-        team_count=team_count,
+        team_count=len(payload_by_team),
     )
 
 
@@ -506,9 +502,34 @@ def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMe
     )
 
 
-def _query_team_usage_trends(team_id: int, period_start: datetime, period_end: datetime) -> UsageTrends | None:
+# Teams with no events in the current window produce no usage section, so one range-wide query finds
+# the teams worth a per-team HogQL query. HogQL cannot express this: it guards every table by team.
+ACTIVE_TEAMS_QUERY = """
+SELECT team_id
+FROM events
+WHERE team_id >= %(team_id_start)s AND team_id < %(team_id_end)s
+    AND timestamp >= %(period_start)s AND timestamp < %(period_end)s
+GROUP BY team_id
+"""
+
+
+def _active_team_ids(input: GenerateDigestDataBatchInput) -> set[int]:
+    tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST)
+    rows = sync_execute(
+        ACTIVE_TEAMS_QUERY,
+        {
+            "team_id_start": input.team_id_range.start,
+            "team_id_end": input.team_id_range.end,
+            "period_start": input.digest.period_start,
+            "period_end": input.digest.period_end,
+        },
+        workload=Workload.OFFLINE,
+    )
+    return {int(team_id) for (team_id,) in rows}
+
+
+def _query_team_usage_trends(team: Team, period_start: datetime, period_end: datetime) -> UsageTrends | None:
     """Run the per-team usage snapshot on the offline cluster. Returns None for inactive teams."""
-    team = Team.objects.get(pk=team_id)
     window = period_end - period_start
     response = execute_hogql_query(
         query=USAGE_TRENDS_QUERY,
@@ -545,30 +566,31 @@ def _generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
     logger = _bind_batch_logger(input)
     logger.info("Generating usage trends batch")
 
-    team_count = 0
     attempted = 0
     error_count = 0
 
-    with _digest_redis(input.common) as r:
-        for team in _teams_in_range(input):
-            attempted += 1
-            try:
-                usage_trends = _query_team_usage_trends(team.id, input.digest.period_start, input.digest.period_end)
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Failed to generate usage trends for team {team.id}, skipping...",
-                    error=str(e),
-                    team_id=team.id,
-                )
-                continue
+    eligible_team_ids = _eligible_team_ids(input)
+    active_team_ids = _active_team_ids(input) & eligible_team_ids
+    # execute_hogql_query reads several team columns, so load the active teams in full rather than
+    # through the trimmed digest queryset.
+    active_teams = Team.objects.filter(id__in=active_team_ids).order_by("id")
 
-            if usage_trends is None:
-                continue
+    payload_by_team: dict[int, str] = {}
+    for team in active_teams:
+        attempted += 1
+        try:
+            usage_trends = _query_team_usage_trends(team, input.digest.period_start, input.digest.period_end)
+        except Exception as e:
+            error_count += 1
+            logger.warning(
+                f"Failed to generate usage trends for team {team.id}, skipping...",
+                error=str(e),
+                team_id=team.id,
+            )
+            continue
 
-            key = team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id)
-            r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
-            team_count += 1
+        if usage_trends is not None:
+            payload_by_team[team.id] = usage_trends.model_dump_json()
 
     # A malformed query (or an offline-cluster outage) fails for every team, which would
     # otherwise look identical to "no active teams" and silently ship an empty section for
@@ -576,7 +598,10 @@ def _generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
     if attempted > 0 and error_count == attempted:
         raise RuntimeError(f"Usage trends query failed for all {attempted} teams in batch")
 
-    logger.info("Finished generating usage trends batch", team_count=team_count, error_count=error_count)
+    with _digest_redis(input.common) as r:
+        _store_team_data(r, input, TeamDataKey.USAGE_TRENDS, payload_by_team, eligible_team_ids)
+
+    logger.info("Finished generating usage trends batch", team_count=len(payload_by_team), error_count=error_count)
 
 
 @activity.defn(name="generate-usage-trends-lookup")
@@ -865,16 +890,52 @@ def generate_organization_digest_batch(input: GenerateOrganizationDigestInput) -
 
 RECORD_BATCH_SIZE = 100
 DIGEST_ITEM_COUNT_THRESHOLD = 4
+# The SDK queue holds 10,000 events. Draining well below that keeps `capture` from dropping events on a
+# full queue, and bounds how many unconfirmed events an abandoned attempt leaves behind.
+DRAIN_EVENT_COUNT = 500
+# The SDK consumer drops an event above MAX_MSG_SIZE without calling on_error. The margin covers the fields
+# the SDK adds around the properties.
+DIGEST_PAYLOAD_SIZE_LIMIT = MAX_MSG_SIZE - 16 * 1024
+UPLOAD_CLEANUP_SECONDS = 120
+DRAIN_SLICE_SECONDS = 5
 
 
-# A BaseException, so that the per-organization `except Exception` handler cannot swallow it.
+# These derive from BaseException, so that the per-organization `except Exception` handler cannot swallow them.
 class ActivityCancelled(BaseException):
+    pass
+
+
+class UploadDeadlineExceeded(BaseException):
     pass
 
 
 def _raise_if_cancelled() -> None:
     if activity.in_activity() and activity.is_cancelled():
         raise ActivityCancelled
+
+
+def _upload_deadline() -> float:
+    if not activity.in_activity():
+        return math.inf
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return math.inf
+    remaining = info.started_time + info.start_to_close_timeout - datetime.now(UTC)
+    return time.monotonic() + remaining.total_seconds() - UPLOAD_CLEANUP_SECONDS
+
+
+def _drain(ph_client: Posthog, deadline: float) -> bool:
+    # `flush` returns silently with events still queued once its budget runs out. A slice that returns
+    # before its budget ends has emptied the queue, and short slices let a cancellation stop the wait.
+    while True:
+        _raise_if_cancelled()
+        budget = min(DRAIN_SLICE_SECONDS, deadline - time.monotonic())
+        if budget <= 0:
+            return False
+        started = time.monotonic()
+        ph_client.flush(timeout_seconds=budget)
+        if time.monotonic() - started < budget:
+            return True
 
 
 def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
@@ -886,14 +947,40 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     empty_org_digest_count = 0
     empty_user_digest_count = 0
 
+    # The SDK marks a batch done whether or not its upload succeeded, so this callback and the value
+    # `capture` returns are the only delivery signals. Every event carries organization_id in its payload.
+    failed_organization_ids: set[str] = set()
+
+    def on_upload_error(error: Exception, items: list[dict[str, Any]]) -> None:
+        failed_organization_ids.update(str(item.get("properties", {}).get("organization_id")) for item in items)
+        logger.warning("Failed to upload digest events", error=str(error), event_count=len(items))
+
     # Only US deployment forwards email events to customer.io
-    ph_client: Posthog = get_ph_client(region="US", sync_mode=True)
+    ph_client: Posthog | None = get_ph_client(region="US", on_error=on_upload_error)
 
     if not ph_client and not input.dry_run:
         logger.error("Failed to set up Posthog client")
         return
 
-    messaging_record_batch: list[MessagingRecord] = []
+    messaging_record_batch: list[tuple[str, MessagingRecord]] = []
+    deadline = _upload_deadline()
+    queued_event_count = 0
+
+    def drain() -> None:
+        nonlocal queued_event_count
+        if ph_client is not None and not _drain(ph_client, deadline):
+            raise UploadDeadlineExceeded
+        queued_event_count = 0
+
+    def record_sent(records: list[tuple[str, MessagingRecord]]) -> None:
+        # An organization whose events failed to upload keeps sent_at empty, so the next attempt resends it.
+        drain()
+        delivered = [record for organization_id, record in records if organization_id not in failed_organization_ids]
+        if len(delivered) < len(records):
+            logger.warning(
+                "Leaving organizations unsent after failed uploads", organization_count=len(records) - len(delivered)
+            )
+        MessagingRecord.objects.bulk_update(delivered, ["sent_at"])
 
     try:
         with _digest_redis(input.common) as r:
@@ -973,9 +1060,17 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 digest=payload,
                                 user_email=user.email,
                             )
-                        else:
+                        elif len(json.dumps(payload, default=str).encode()) > DIGEST_PAYLOAD_SIZE_LIMIT:
+                            logger.error(
+                                "Digest exceeds the event size limit, leaving the organization unsent",
+                                organization_id=organization.id,
+                                user_id=user.id,
+                            )
+                            failed_organization_ids.add(str(organization.id))
+                            continue
+                        elif ph_client is not None:
                             partial = True
-                            ph_client.capture(
+                            queued = ph_client.capture(
                                 distinct_id=user.distinct_id,
                                 event="transactional email",
                                 properties=payload,
@@ -984,6 +1079,11 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                     "instance": settings.SITE_URL,
                                 },
                             )
+                            if queued is None:
+                                failed_organization_ids.add(str(organization.id))
+                            queued_event_count += 1
+                            if queued_event_count >= DRAIN_EVENT_COUNT:
+                                drain()
 
                         sent_digest_count += 1
                 except Exception as e:
@@ -996,16 +1096,18 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                 finally:
                     if not input.dry_run and partial:
                         messaging_record.sent_at = timezone.now()
-                        messaging_record_batch.append(messaging_record)
+                        messaging_record_batch.append((str(organization.id), messaging_record))
 
                     if len(messaging_record_batch) >= RECORD_BATCH_SIZE:
-                        MessagingRecord.objects.bulk_update(messaging_record_batch, ["sent_at"])
+                        record_sent(messaging_record_batch)
                         messaging_record_batch = []
+
+        if len(messaging_record_batch) > 0:
+            record_sent(messaging_record_batch)
+
     finally:
-        # Sync mode sends each capture before `capture` returns, so a record in the batch belongs to an
-        # organization that reached PostHog. Saving it on cancellation too keeps the retry from resending it.
-        if messaging_record_batch:
-            MessagingRecord.objects.bulk_update(messaging_record_batch, ["sent_at"])
+        if ph_client is not None:
+            ph_client.shutdown()
 
     logger.info(
         "Finished sending weekly digest batch",
