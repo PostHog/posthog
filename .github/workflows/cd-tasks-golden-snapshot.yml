@@ -51,6 +51,14 @@ on:
                 description: "PostHog ref/SHA to render the skills from (blank = this workflow's checkout ref, i.e. master on schedule)"
                 required: false
                 default: ''
+            box_mem_mib:
+                description: 'Total/cap memory (MiB) for the golden. Blank = 20480 (fixed-size default).'
+                required: false
+                default: ''
+            box_mem_boot_mib:
+                description: 'Boot memory (MiB) for a pluggable-memory golden — boots this small and hot-adds up to the cap. Blank = fixed-size golden (today).'
+                required: false
+                default: ''
     schedule:
         # Daily, minute offset off :00 — GitHub's scheduler is contended at the
         # top of the hour and may drop those runs. No-op until armed (job `if`).
@@ -613,7 +621,11 @@ jobs:
                   SKILLS_TARBALL: ${{ env.SKILLS_TARBALL }}
                   AGENT_VERSION: ${{ steps.agent-version.outputs.version }}
                   BOX_CPUS: '4'
-                  BOX_MEM_MIB: '20480'
+                  # Both blank on the schedule -> fixed-size 20 GiB golden, unchanged.
+                  # A manual dispatch can bake a pluggable-memory golden (e.g. cap 32768
+                  # + boot 4096) without touching the scheduled path.
+                  BOX_MEM_MIB: ${{ inputs.box_mem_mib || '20480' }}
+                  BOX_MEM_BOOT_MIB: ${{ inputs.box_mem_boot_mib || '' }}
                   BOX_DISK_GIB: '64'
               run: |
                   set -euo pipefail
