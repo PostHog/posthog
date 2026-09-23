@@ -7,6 +7,7 @@ import { now } from 'lib/dayjs'
 import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { isObject } from 'lib/utils/guards'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -664,7 +665,7 @@ type SanitizedQuery = Record<string, string | number | boolean | undefined>
 function insightQuerySource(query: Node | null): InsightQueryNode | undefined {
     if (isInsightVizNode(query)) {
         // A query read from the URL is unvalidated, so `source` can be any JSON value
-        return query.source && typeof query.source === 'object' ? query.source : undefined
+        return isObject(query.source) ? query.source : undefined
     }
     return isInsightQueryNode(query) ? query : undefined
 }
