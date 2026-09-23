@@ -53,6 +53,16 @@ class LLMDetectorMisconfiguredError(LLMDetectorError):
     """
 
 
+# What the alert's owner reads on a check the judge could not reach a verdict for. The raw
+# transport error can carry an internal detail, so the check history and the error email show
+# this instead, and the code is what lets it past the serializer's allowlist.
+LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
+LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
+    "The AI detector could not reach its model provider, so this check did not run. "
+    "The alert is still on and the next check tries again."
+)
+
+
 @frozen
 class SeriesContext:
     """What the series means: everything the judge reads that the values array cannot carry."""
