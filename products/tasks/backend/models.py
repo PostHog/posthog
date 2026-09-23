@@ -41,7 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
@@ -350,6 +350,7 @@ class Task(DeletedMetaFields, models.Model):
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
+        AUTORESEARCH = "autoresearch", "Autoresearch"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Headless scan that pre-computes the "Suggested for this project" scout batch
@@ -378,6 +379,9 @@ class Task(DeletedMetaFields, models.Model):
         # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
         # the workflow's creator.
         WORKFLOW = "workflow", "Workflow"
+        # The one-off task that sets a space up for a goal or a feature. Started by a person
+        # from the create-space flow, so it is billed and timed like their own tasks.
+        SPACE_SETUP = "space_setup", "Space Setup"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -643,6 +647,8 @@ class Task(DeletedMetaFields, models.Model):
                 all_properties["origin_key"] = self.origin_key
             if self.channel_id:
                 all_properties["channel_id"] = str(self.channel_id)
+            if self.signal_report_id:
+                all_properties["signal_report_id"] = str(self.signal_report_id)
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -788,12 +794,34 @@ class Task(DeletedMetaFields, models.Model):
             if state.get("claude_model_access") == "own-subscription":
                 state["claude_subscription_user_id"] = acting_user_id or task.created_by_id
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
+            carry_config_snapshot = (
+                task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
+            )
+            if state.get("sandbox_template") is None:
+                # A null is "no choice", the same as an absent key, so it must not block the carry.
+                state.pop("sandbox_template", None)
+            carry_sandbox_template = "sandbox_template" not in state
+            if not carry_sandbox_template:
+                from products.tasks.backend.logic.services.sandbox import parse_requested_sandbox_template
+
+                # Unknown and VM templates are refused here, before the run row exists.
+                parse_requested_sandbox_template(state["sandbox_template"])
+            previous_state: dict = {}
+            if carry_config_snapshot or carry_sandbox_template:
+                # Only the newest run's state; ``latest_run`` would load every run of the task.
+                previous_state = (
+                    task.runs.filter(team_id=task.team_id)
+                    .order_by("-created_at", "-id")
+                    .values_list("state", flat=True)
+                    .first()
+                    or {}
+                )
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
-            if task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state:
-                previous = task.latest_run
-                previous_snapshot = previous.state.get("config_snapshot") if previous else None
-                if previous_snapshot:
-                    state["config_snapshot"] = previous_snapshot
+            if carry_config_snapshot and previous_state.get("config_snapshot"):
+                state["config_snapshot"] = previous_state["config_snapshot"]
+            # Later runs keep the image the task was first provisioned with.
+            if carry_sandbox_template and previous_state.get("sandbox_template"):
+                state["sandbox_template"] = previous_state["sandbox_template"]
             # Every run creation flows through here, so this is where team/user default AI run
             # preferences apply when the caller didn't pin a runtime selection.
             task._apply_ai_run_defaults(state, acting_user_id)
@@ -1002,6 +1030,7 @@ class Task(DeletedMetaFields, models.Model):
         reasoning_effort: str | None = None,
         service_tier: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -1033,7 +1062,15 @@ class Task(DeletedMetaFields, models.Model):
         ]
         repository = resolved_repositories[0] if resolved_repositories else None
 
-        from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.logic.services.sandbox import (
+            is_public_sandbox_repo,
+            parse_requested_sandbox_template,
+        )
+
+        # Validated before the Task row exists, so a bad template leaves nothing behind.
+        requested_template = (
+            parse_requested_sandbox_template(sandbox_template) if sandbox_template is not None else None
+        )
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -1043,13 +1080,14 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals task must carry no GitHub credential at all — team or personal.
-        # Provisioning injects whatever integration is attached, and these runs read text any
-        # member can write, so an attached token turns planted text into repository access.
+        # A repo-less signals or autoresearch task must carry no GitHub credential at all — team
+        # or personal. Provisioning injects whatever integration is attached, and these runs read
+        # text any member can write, so an attached token turns planted text into repository access.
         github_resolution_allowed = bool(repository) or origin_product not in (
             Task.OriginProduct.SIGNALS_CHAT,
             Task.OriginProduct.SIGNAL_REPORT,
             Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+            Task.OriginProduct.AUTORESEARCH,
         )
         github_integration = None
         if github_resolution_allowed:
@@ -1216,6 +1254,9 @@ class Task(DeletedMetaFields, models.Model):
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
+        if requested_template is not None:
+            extra_state["sandbox_template"] = requested_template.value
+
         # Optional per-task sandbox compute/timeout overrides. Read back into
         # SandboxConfig at provision time (see TaskProcessingContext); unset
         # fields keep the SandboxConfig defaults.
@@ -1363,6 +1404,7 @@ class Task(DeletedMetaFields, models.Model):
         reasoning_effort: str | None = None,
         service_tier: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -1386,6 +1428,15 @@ class Task(DeletedMetaFields, models.Model):
             enqueue_or_start_workflow,
         )
         from products.tasks.backend.temporal.client import _normalize_slack_context
+
+        # extra_run_state overwrites the derived run state below, so the template it carries is
+        # the one provisioning reads. Route it through the same validation as the parameter; a
+        # null is "no choice", as on later runs, and must not replace the parameter.
+        if extra_run_state and "sandbox_template" in extra_run_state:
+            extra_run_state = dict(extra_run_state)
+            carried_template = extra_run_state.pop("sandbox_template")
+            if carried_template is not None:
+                sandbox_template = carried_template
 
         task, extra_state = Task._build_task(
             team=team,
@@ -1414,6 +1465,7 @@ class Task(DeletedMetaFields, models.Model):
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
             initial_permission_mode=initial_permission_mode,
+            sandbox_template=sandbox_template,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
@@ -2355,6 +2407,15 @@ class TaskRun(models.Model):
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
+            # The same period scan, narrowed to runs that shipped a GitHub PR. A prefix match
+            # cannot use `task_run_output_pr_url_idx`, so on `task_run_created_at_idx` alone
+            # Postgres detoasts every run's `output` in the window to test it. Carrying the
+            # test as the index predicate answers it from the index instead.
+            models.Index(
+                fields=["created_at"],
+                name="task_run_github_pr_run_idx",
+                condition=models.Q(output__pr_url__startswith=GITHUB_PR_URL_PREFIX),
+            ),
             models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
             models.Index(
                 fields=["team", "stage", "task"],
@@ -2915,6 +2976,9 @@ class TaskRun(models.Model):
         benjamin_version = state.get("benjamin_version")
         if isinstance(benjamin_version, str) and benjamin_version:
             props["benjamin_version"] = benjamin_version
+        agent_version = state.get("agent_version")
+        if isinstance(agent_version, str) and agent_version:
+            props["agent_version"] = agent_version
         budget = state.get("budget_guard")
         if isinstance(budget, dict):
             for key in ("cap_usd", "spent_usd", "estimated_usd", "sdk_total_usd"):

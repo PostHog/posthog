@@ -47,7 +47,8 @@ async def run_oneshot_review(
     different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback
     stays off: the Python gateway's Bedrock path forwards only allowlisted params and would strip
     ``output_config``, losing both the effort pin and the schema constraint. The Go gateway drops
-    Bedrock targets that cannot serve structured outputs itself, so it needs no opt-out.
+    Bedrock targets that cannot serve structured outputs itself, so it needs no opt-out. It streams
+    because the Go gateway's public path cuts a buffered response at 290s, which chunking can exceed.
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``
@@ -61,7 +62,7 @@ async def run_oneshot_review(
     )
     async with client:
         try:
-            response = await client.messages.parse(
+            async with client.messages.stream(
                 model=model,
                 max_tokens=_MAX_OUTPUT_TOKENS,
                 system=system_prompt,
@@ -74,7 +75,8 @@ async def run_oneshot_review(
                 metadata={"user_id": f"user-{user_id}"},
                 extra_headers={"x-posthog-property-ai_stage": step_name},
                 timeout=_TIMEOUT_SECONDS,
-            )
+            ) as stream:
+                response = await stream.get_final_message()
         except APIError as e:
             status = getattr(e, "status_code", None)
             non_retryable = status is not None and 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES

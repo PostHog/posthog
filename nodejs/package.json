@@ -27,6 +27,7 @@
         "lint:fix": "eslint . --fix && oxlint -c .oxlintrc.nodejs.json . --fix",
         "check:boundaries": "node bin/check-ingestion-boundaries.mjs",
         "check:boundaries:write": "node bin/check-ingestion-boundaries.mjs --write",
+        "build:filter-globals": "pnpm --filter=@posthog/hogvm build && NODE_ENV=test tsx bin/build-filter-globals.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "prepublishOnly": "pnpm build",

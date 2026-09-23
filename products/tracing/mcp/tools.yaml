@@ -227,8 +227,14 @@ tools:
         response:
             include:
                 - results
+    tracing-spans-error-counts-create:
+        operation: tracing_spans_error_counts_create
+        enabled: false
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
+        enabled: false
+    tracing-spans-impact-create:
+        operation: tracing_spans_impact_create
         enabled: false
     tracing-spans-symbol-stats-create:
         operation: tracing_spans_symbol_stats_create

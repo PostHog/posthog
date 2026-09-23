@@ -10,12 +10,12 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AI_EVENT_NAME_PREFIX } from '~/ingestion/common/ai-event-types'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
-import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
+import { createAllowEventPrefixStep } from '~/ingestion/common/steps/allow-events'
 import {
     createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -157,7 +157,7 @@ export function createAiIngestionPipeline<
             )
             // Header-only steps: allow only AI events, apply token restrictions.
             .parseHeaders()
-            .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
+            .pipe(createAllowEventPrefixStep(AI_EVENT_NAME_PREFIX))
             .pipe(
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,

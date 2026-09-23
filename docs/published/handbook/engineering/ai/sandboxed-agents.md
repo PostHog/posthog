@@ -90,20 +90,21 @@ task = Task.create_and_run(
 
 ### Parameters
 
-| Parameter                | Required | Description                                                                |
-| ------------------------ | -------- | -------------------------------------------------------------------------- |
-| `team`                   | Yes      | The team this task belongs to                                              |
-| `title`                  | Yes      | Human-readable task title                                                  |
-| `description`            | Yes      | Detailed description of what the agent should do                           |
-| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
-| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key |
-| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
-| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                    |
-| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                     |
-| `mode`                   | No       | Execution mode (default: `"background"`)                                   |
-| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                       |
-| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
-| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)     |
+| Parameter                | Required | Description                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`                   | Yes      | The team this task belongs to                                                                                                                                                                                                                                                                                                                                              |
+| `title`                  | Yes      | Human-readable task title                                                                                                                                                                                                                                                                                                                                                  |
+| `description`            | Yes      | Detailed description of what the agent should do                                                                                                                                                                                                                                                                                                                           |
+| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)                                                                                                                                                                                                                                                                                                         |
+| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key                                                                                                                                                                                                                                                                                                 |
+| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)                                                                                                                                                                                                                                                                                                              |
+| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                                                                                                                                                                                                                                                                                                                    |
+| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                                                                                                                                                                                                                                                                                                                     |
+| `mode`                   | No       | Execution mode (default: `"background"`)                                                                                                                                                                                                                                                                                                                                   |
+| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                                                                                                                                                                                                                                                                                                                       |
+| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)                                                                                                                                                                                                                                                                                                       |
+| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)                                                                                                                                                                                                                                                                                                     |
+| `sandbox_template`       | No       | Image the sandbox boots from, as a `SandboxTemplate` value (default: `"default_base"`). `"autoresearch_base"` adds pandas, numpy, scikit-learn and pyarrow, and runs on Modal and Docker only (a non-default template keeps the run off hogland). `"vm_base"` cannot be requested; VM routing selects it server-side. Later runs of the task keep the first run's template |
 
 ### Adding a new origin product
 
@@ -627,10 +628,10 @@ for readiness before signaling completion, then checks persisted status, error, 
 sandbox shutdown. It does not test Django API authentication or LLM task execution.
 
 These tests consume the published sandbox image, not the agent source in the checkout.
-An agent release triggers a separate sandbox image build that installs the published
-package and updates the shared image. Running backend tests against that image alone
-does not validate an unpublished agent change. A release check must exercise the
-candidate image before promoting it to the shared tag.
+The image pins the agent version in `Dockerfile.sandbox-base`.
+An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
+That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
+Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?
 

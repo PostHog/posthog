@@ -182,6 +182,22 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "max_reports_per_day"
 
+    @parameterized.expand(
+        [
+            ("enable", {"pull_request_label_enabled": True, "pull_request_label": "ours"}, True, "ours"),
+            ("clear_name", {"pull_request_label": ""}, False, None),
+        ]
+    )
+    def test_update_pull_request_label(self, _name, sent, expected_enabled, expected_label):
+        response = self.client.post(self._url(), data=sent, format="json")
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["pull_request_label_enabled"] is expected_enabled
+        assert data["pull_request_label"] == expected_label
+        self.config.refresh_from_db()
+        assert self.config.pull_request_label_enabled is expected_enabled
+        assert self.config.pull_request_label == expected_label
+
     def test_reports_generated_today_is_zero_without_a_limit(self):
         # No limit set: the count is never shown, so the serializer reports 0 without counting even
         # when visible reports exist today.
@@ -325,3 +341,16 @@ class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
         serializer = SignalTeamConfigSerializer(data={"autostart_base_branches": value}, partial=True)
         assert not serializer.is_valid()
         assert "autostart_base_branches" in serializer.errors
+
+    @parameterized.expand([("blank", ""), ("whitespace", "   "), ("null", None)])
+    def test_pull_request_label_normalizes_an_empty_name_to_null(self, _name, value):
+        # One stored shape for "use the default", so a team that clears the box does not save a
+        # name GitHub would refuse.
+        serializer = SignalTeamConfigSerializer(data={"pull_request_label": value}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["pull_request_label"] is None
+
+    def test_pull_request_label_rejects_a_name_github_would_refuse(self):
+        serializer = SignalTeamConfigSerializer(data={"pull_request_label": "l" * 51}, partial=True)
+        assert not serializer.is_valid()
+        assert "pull_request_label" in serializer.errors

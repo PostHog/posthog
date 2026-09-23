@@ -52,6 +52,7 @@ from products.tasks.backend.temporal.metrics import (
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.organization import guard_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
@@ -733,6 +734,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             origin_product=ctx.origin_product,
             used_snapshot=input.used_snapshot,
         ),
+        guard_organization_execution(ctx.team_id),
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
@@ -877,6 +879,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             origin_product=ctx.origin_product,
             used_snapshot=input.used_snapshot,
         ),
+        guard_organization_execution(ctx.team_id),
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
@@ -944,6 +947,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             origin_product=ctx.origin_product,
             used_snapshot=input.used_snapshot,
         ),
+        guard_organization_execution(ctx.team_id),
     ):
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)

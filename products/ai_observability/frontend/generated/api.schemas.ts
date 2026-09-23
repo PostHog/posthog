@@ -2739,6 +2739,18 @@ export interface LLMPromptLabelSummaryApi {
     version: number
 }
 
+export interface LLMPromptResolvedReferenceApi {
+    /** Name of the referenced prompt that was spliced in. */
+    name: string
+    /** Exact version whose content was spliced in. */
+    version: number
+    /**
+     * Label the reference used, or null when it pinned a version directly.
+     * @nullable
+     */
+    label: string | null
+}
+
 /**
  * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
  * @nullable
@@ -2778,6 +2790,8 @@ export interface LLMPromptListApi {
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
     readonly all_labels: readonly LLMPromptLabelSummaryApi[]
+    /** @nullable */
+    readonly resolved_references: readonly LLMPromptResolvedReferenceApi[] | null
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2836,18 +2850,6 @@ export interface LLMPromptApi {
  * @nullable
  */
 export type LLMPromptPublicApiConfig = { [key: string]: unknown } | null
-
-export interface LLMPromptResolvedReferenceApi {
-    /** Name of the referenced prompt that was spliced in. */
-    name: string
-    /** Exact version whose content was spliced in. */
-    version: number
-    /**
-     * Label the reference used, or null when it pinned a version directly.
-     * @nullable
-     */
-    label: string | null
-}
 
 export interface LLMPromptPublicApi {
     id: string
@@ -3765,6 +3767,10 @@ export type LlmPromptsListParams = {
      * @minLength 1
      */
     order_by?: string
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */

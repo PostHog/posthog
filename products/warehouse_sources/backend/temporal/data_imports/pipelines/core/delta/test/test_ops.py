@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_MERGE_CONFLICT_RETRIES,
+    ObjectStorePermissionDeniedError,
     delta_merge_spill_kwargs,
     execute_with_conflict_retry,
 )
@@ -129,5 +130,53 @@ class TestExecuteWithConflictRetry:
         with pytest.raises(ValueError):
             await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
 
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # delta-rs maps a 403 from its Rust object_store crate onto io::ErrorKind::PermissionDenied
+            # and hands the fixed sentence back as a bare OSError.
+            (
+                "kernel_privileges_oserror",
+                OSError(
+                    "Kernel error -> The operation lacked the necessary privileges to complete for path "
+                    "warehouse/team_42_source_7/orders/part-00003.parquet"
+                ),
+            ),
+            # The same refusal during the commit itself arrives as CommitFailedError, because delta-rs
+            # maps every DeltaTableError::Transaction onto that class whatever the transaction failed on.
+            # Without classifying the text first, this reads as a conflict and spends the whole budget.
+            (
+                "refusal_wrapped_in_commit_failed",
+                deltalake.exceptions.CommitFailedError(
+                    "Object store error: Generic S3 error: The operation lacked the necessary privileges "
+                    "to complete for path warehouse/team_42_source_7/orders/_delta_log/00000000000000000012.json"
+                ),
+            ),
+            # s3fs translates an explicit S3 AccessDenied response code into PermissionError.
+            ("s3fs_access_denied", PermissionError("Access Denied")),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_object_store_refusal_is_typed_and_not_retried(self, _case: str, error: Exception):
+        # A refused read, write or delete is not a race, so re-running the operation against a
+        # refreshed table makes the same refused calls. Regression coverage for the refusal reaching
+        # the caller as a raw OSError (which no retry budget in this package classifies) and for a
+        # refusal wrapped in CommitFailedError burning the conflict budget before it does.
+        table = MagicMock()
+        operation_fn = MagicMock(side_effect=error)
+
+        with pytest.raises(ObjectStorePermissionDeniedError) as exc_info:
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
+
+        assert exc_info.value.__cause__ is error
+        # The message reaches the customer as the sync run's error text, so the object key the raw
+        # error names must not survive into it.
+        assert "warehouse/" not in str(exc_info.value)
+        # It also reaches every source's non-retryable-error patterns (see external_data_job.py),
+        # many of which match "access denied". A message carrying that phrase pauses the schema and
+        # tells the customer to go fix credentials that are working.
+        assert "access denied" not in str(exc_info.value).lower()
         operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()

@@ -53,10 +53,14 @@ request
 [4] No-join fast path (unfiltered queries)
   │   no property filters, no conversion goal, no session-table fields;
   │   WEB_ANALYTICS_NO_JOIN_TEAM_IDS + rollout % (100% on Cloud)
+  │   (stats table: any simple or first-pageview breakdown without bounce
+  │     rate or session fields, filters and conversion goals included)
   │ needs session fields with filters
   ▼
 [5] Full events↔sessions join (unconditional fallback)
 ```
+
+**Conversion goals on the overview** run ahead of this ladder as two independent reads: the goal-less overview (which climbs the ladder above for visitors) plus a scan of goal events only (`web_overview_conversion_goal_query`). The joined shape grouped every pageview session in range to count the goal, so its memory scaled with traffic; the split scales with conversions. Visitors therefore equal the goal-less visitors card, and a session with a goal event but no pageview or screenview no longer counts as a visitor. Legacy sessions v1 and queries with session or cohort filters keep the joined shape.
 
 **The one-way rule (#72959):** user-facing reads never build precompute buckets inline — `run_inserts` is true only for background-warming requests.
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
@@ -66,13 +70,14 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
 ### WebOverviewQuery (`web_overview.py`)
 
-| #   | Strategy                   | Conditions                                                           | Tag                                 |
-| --- | -------------------------- | -------------------------------------------------------------------- | ----------------------------------- |
-| 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions          | `web_overview_lazy_query`           |
-| 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                     | `web_overview_preaggregated_query`  |
-| 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`) | `web_overview_session_id_set_query` |
-| 4   | No-join                    | Unfiltered, no conversion goal                                       | `web_overview_no_join_query`        |
-| 5   | Full join                  | Fallback                                                             | `web_overview_query`                |
+| #   | Strategy                   | Conditions                                                                                                                            | Tag                                                    |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 0   | Conversion-goal split      | Conversion goal + sessions v2/v3 + events-evaluable filters; visitors from the goal-less dispatch below, conversions from goal events | `web_overview_conversion_goal_query` (+ visitors' tag) |
+| 1   | Lazy precompute            | Shared gate only — overview has no extra shape restrictions                                                                           | `web_overview_lazy_query`                              |
+| 2   | Preaggregated (deprecated) | Modifier on + no conversion goal                                                                                                      | `web_overview_preaggregated_query`                     |
+| 3   | Session-id-set             | Filtered + allowlisted + preflight passes (sets `sessionIdPushdown`)                                                                  | `web_overview_session_id_set_query`                    |
+| 4   | No-join                    | Unfiltered, no conversion goal                                                                                                        | `web_overview_no_join_query`                           |
+| 5   | Full join                  | Fallback (conversion goals with legacy sessions v1, session filters, or cohort filters land here)                                     | `web_overview_query`                                   |
 
 ### WebStatsTableQuery (`stats_table.py`) — three lazy families, tried in order
 
@@ -83,7 +88,7 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 | 3   | Simple-breakdown lazy      | ~18 supported breakdowns (DeviceType, Browser, OS, Country, Region, City, Viewport, Timezone, Language, ExitPage, InitialChannelType, InitialReferringDomain/URL, InitialUTM\_\*); rejects bounce rate, avg time, scroll depth | `web_stats_lazy_query`                                                                                               |
 | 4   | Preaggregated (deprecated) | Modifier on + no avg-time-on-page + no conversion goal                                                                                                                                                                         | `stats_table_preaggregated*`                                                                                         |
 | 5   | Session-id-set             | Page breakdown ± avg time, filtered + allowlisted + preflight                                                                                                                                                                  | `stats_table_session_id_set_path_bounce[_and_avg_time]`                                                              |
-| 6   | No-join                    | Unfiltered: path-bounce, path-bounce+avg-time, or simple breakdown without session fields                                                                                                                                      | `stats_table_no_join_*`                                                                                              |
+| 6   | No-join                    | Unfiltered path-bounce and path-bounce+avg-time; any simple or first-pageview breakdown without bounce rate or session fields (filters and conversion goals ride the single events scan)                                       | `stats_table_no_join_*`                                                                                              |
 | 7   | Full join                  | Fallback per shape                                                                                                                                                                                                             | `stats_table_path_bounce`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_simple_breakdown`, … |
 
 ### Traffic metrics alongside conversion goals
@@ -159,13 +164,13 @@ Four writers keep buckets warm; user reads only ever consume.
 
 Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_lazy_insert` = bucket build (background only), `*_preflight` = selectivity probe.
 
-| Family          | Precompute                                                                                                 | Live tags                                                                                                                                                                                                                                    |
-| --------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overview        | `web_overview_lazy_query/insert`, `web_overview_preaggregated_query`                                       | `web_overview_no_join_query`, `web_overview_session_id_set_query` (+`_preflight`), `web_overview_query`                                                                                                                                      |
-| Stats table     | `web_stats_paths_lazy_*`, `web_stats_frustration_lazy_*`, `web_stats_lazy_*`, `stats_table_preaggregated*` | `stats_table_no_join_*`, `stats_table_session_id_set_*` (+`_preflight`), `stats_table_path_bounce[_and_avg_time]`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_frustration_metrics`, `stats_table_simple_breakdown` |
-| Goals           | `web_goals_lazy_query/insert`                                                                              | `web_goals_query`                                                                                                                                                                                                                            |
-| Vitals          | `web_vitals_paths_lazy_query/insert`                                                                       | `web_vitals_path_breakdown_query`                                                                                                                                                                                                            |
-| External clicks | —                                                                                                          | `external_clicks_query`                                                                                                                                                                                                                      |
+| Family          | Precompute                                                                                                 | Live tags                                                                                                                                                                                                                                                                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview        | `web_overview_lazy_query/insert`, `web_overview_preaggregated_query`                                       | `web_overview_conversion_goal_query`, `web_overview_no_join_query`, `web_overview_session_id_set_query` (+`_preflight`), `web_overview_query`                                                                                                                                                                                                   |
+| Stats table     | `web_stats_paths_lazy_*`, `web_stats_frustration_lazy_*`, `web_stats_lazy_*`, `stats_table_preaggregated*` | `stats_table_no_join_*` (incl. `stats_table_no_join_first_pageview_attribution`), `stats_table_session_id_set_*` (+`_preflight`), `stats_table_path_bounce[_and_avg_time]`, `stats_table_entry_bounce`, `stats_table_channel_type`, `stats_table_first_pageview_attribution`, `stats_table_frustration_metrics`, `stats_table_simple_breakdown` |
+| Goals           | `web_goals_lazy_query/insert`                                                                              | `web_goals_query`                                                                                                                                                                                                                                                                                                                               |
+| Vitals          | `web_vitals_paths_lazy_query/insert`                                                                       | `web_vitals_path_breakdown_query`                                                                                                                                                                                                                                                                                                               |
+| External clicks | —                                                                                                          | `external_clicks_query`                                                                                                                                                                                                                                                                                                                         |
 
 ## Reading a slow tile
 
