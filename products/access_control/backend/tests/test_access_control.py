@@ -1423,6 +1423,70 @@ class TestAccessControlFiltering(BaseAccessControlTest):
         assert len(res.json()["results"]) == 1
 
 
+class TestAccessControlAcrossEnvironments(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user")
+        self.sibling_env = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="sibling env"
+        )
+        self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user, name="restricted")
+
+    def _restrict_dashboard(self, level: str = "none"):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/access_controls",
+            {"access_level": level},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+    @parameterized.expand([("get",), ("patch",)])
+    def test_object_rule_applies_when_addressed_through_sibling_environment(self, method: str):
+        self._restrict_dashboard()
+
+        url = f"/api/projects/{self.sibling_env.id}/dashboards/{self.dashboard.id}/"
+        res = self.client.get(url) if method == "get" else self.client.patch(url, {"name": "renamed"})
+
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        self.dashboard.refresh_from_db()
+        assert self.dashboard.name == "restricted"
+
+    def test_list_through_sibling_environment_hides_restricted_dashboard(self):
+        visible = Dashboard.objects.create(team=self.team, created_by=self.other_user, name="visible")
+        self._restrict_dashboard()
+
+        res = self.client.get(f"/api/projects/{self.sibling_env.id}/dashboards/")
+
+        assert res.status_code == status.HTTP_200_OK
+        assert [d["id"] for d in res.json()["results"]] == [visible.id]
+
+    def test_rule_written_through_sibling_environment_lands_on_the_dashboards_own_team(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        res = self.client.put(
+            f"/api/projects/{self.sibling_env.id}/dashboards/{self.dashboard.id}/access_controls",
+            {"access_level": "none"},
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        rule = AccessControl.objects.get(resource="dashboard", resource_id=str(self.dashboard.id))
+        assert rule.team_id == self.team.id
+        listed = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/access_controls")
+        assert [ac["access_level"] for ac in listed.json()["access_controls"]] == ["none"]
+
+    def test_environment_denied_at_project_level_hides_its_dashboards_through_a_sibling(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(f"/api/projects/{self.team.id}/access_controls", {"access_level": "none"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        listed = self.client.get(f"/api/projects/{self.sibling_env.id}/dashboards/")
+        assert listed.json()["results"] == []
+        retrieved = self.client.get(f"/api/projects/{self.sibling_env.id}/dashboards/{self.dashboard.id}/")
+        assert retrieved.status_code == status.HTTP_403_FORBIDDEN, retrieved.json()
+
+
 class TestAccessControlProjectFiltering(BaseAccessControlTest):
     """
     Projects are listed in multiple places and ways so we need to test all of them here

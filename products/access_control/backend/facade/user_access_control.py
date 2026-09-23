@@ -580,6 +580,28 @@ class UserAccessControl:
         creator_id = getattr(obj, "created_by_id", None)
         return creator_id is not None and creator_id == self._user.id
 
+    def _resolver_for_object(self, obj: Model) -> Optional["UserAccessControl"]:
+        """The instance whose rows govern `obj`: this one for an object in its own team, the
+        sibling built for the object's team otherwise, and None when the user is denied that team.
+
+        Rows are keyed by the object's own team, but dashboards and insights are addressed
+        through any environment of their project. Resolving them against the URL team finds no
+        rows and grants the resource default, so an object outside this team must resolve
+        against its own team, and only after that team's project rule allows the user in - the
+        view's project check only covers the URL team.
+        """
+        object_team_id = getattr(obj, "team_id", None)
+        if object_team_id is None or self._team is None or object_team_id == self._team.id:
+            return self
+        # `for_team_ids` builds instances for the requesting user, so a subclass that answers for
+        # another subject keeps resolving against its own team
+        if type(self) is not UserAccessControl:
+            return self
+        sibling = self.for_team_ids([object_team_id]).get(object_team_id)
+        if sibling is None or not sibling.has_project_access:
+            return None
+        return sibling
+
     # ------------------------------------------------------------
     # Access control helpers
     # ------------------------------------------------------------
@@ -713,15 +735,28 @@ class UserAccessControl:
             return
 
         filter_groups: list[dict] = []
+        # A project-wide list mixes objects from several environments; each sibling preloads its own
+        siblings: dict[int, UserAccessControl] = {}
+        objects_by_sibling_team: dict[int, list[Model]] = defaultdict(list)
 
         for obj in objects:
             resource = model_to_resource(obj)
             if not resource:
                 return
 
+            resolver = self._resolver_for_object(obj)
+            if resolver is None:
+                continue
+            if resolver is not self and resolver._team is not None:
+                siblings[resolver._team.id] = resolver
+                objects_by_sibling_team[resolver._team.id].append(obj)
+                continue
+
             filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
 
         self._preload_filter_groups(filter_groups)
+        for team_id, sibling_objects in objects_by_sibling_team.items():
+            siblings[team_id].preload_object_access_controls(sibling_objects)
 
     def _preload_filter_groups(self, filter_groups: list[dict]) -> None:
         """Fill self._cache for these filter groups. When every group is team-scoped they're served
@@ -782,6 +817,14 @@ class UserAccessControl:
             explicit: If True, only return explicit access controls (no fallback to default)
             specific_only: If True, only consider access controls with roles or organization members
         """
+
+        resolver = self._resolver_for_object(obj)
+        if resolver is None:
+            return None
+        if resolver is not self:
+            return resolver.access_level_for_object(
+                obj, resource=resource, explicit=explicit, specific_only=specific_only
+            )
 
         resource = resource or model_to_resource(obj)
         org_membership = self._organization_membership
@@ -869,6 +912,12 @@ class UserAccessControl:
         4. The user has "manager" access to the resource
         """
 
+        resolver = self._resolver_for_object(obj)
+        if resolver is None:
+            return False
+        if resolver is not self:
+            return resolver.check_can_modify_access_levels_for_object(obj)
+
         if self._is_creator(obj):
             # TODO: Should this always be the case, even for projects?
             return True
@@ -895,6 +944,12 @@ class UserAccessControl:
         Determine how the user got access to an object.
         Returns None if the user has no access context.
         """
+        resolver = self._resolver_for_object(obj)
+        if resolver is None:
+            return None
+        if resolver is not self:
+            return resolver.get_access_source_for_object(obj, resource=resource)
+
         resource = resource or model_to_resource(obj)
         org_membership = self._organization_membership
 
@@ -1158,7 +1213,11 @@ class UserAccessControl:
     # ------------------------------------------------------------
 
     def filter_queryset_by_access_level(
-        self, queryset: QuerySet, include_all_if_admin: bool = False, resource: Optional[APIScopeObject] = None
+        self,
+        queryset: QuerySet,
+        include_all_if_admin: bool = False,
+        resource: Optional[APIScopeObject] = None,
+        spans_project: bool = False,
     ) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
@@ -1176,6 +1235,9 @@ class UserAccessControl:
             return queryset
 
         model_has_creator = hasattr(model, "created_by")
+
+        if spans_project and self._team is not None and EE_AVAILABLE and self.access_controls_supported:
+            return self._filter_project_queryset_by_access_level(queryset, resource, model_has_creator)
 
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
@@ -1199,6 +1261,64 @@ class UserAccessControl:
                 queryset = queryset.exclude(id__in=decision.blocked_ids)
 
         return queryset
+
+    def _filter_project_queryset_by_access_level(
+        self, queryset: QuerySet, resource: APIScopeObject, model_has_creator: bool
+    ) -> QuerySet:
+        """The project-wide form of `filter_queryset_by_access_level`, for a queryset that lists
+        objects from every environment of the project.
+
+        Object rows are keyed by the object's own team, so each environment's rows decide only
+        for its own objects, through the sibling built for that team. An environment the user is
+        denied at the project level drops out entirely: nothing above this filter checks project
+        access for any team but the URL one.
+
+        One query loads the user's rows across the sibling environments and seeds each sibling's
+        pool with them. An environment with no rows for the user resolves to the defaults, which
+        grant access, so it is kept whole without building a sibling for it.
+        """
+        assert self._team is not None
+        project_team_ids = Team.objects.filter(project_id=self._team.project_id).values("id")
+        rows_by_team: dict[int, list[_AccessControl]] = defaultdict(list)
+        for row in AccessControl.objects.filter(self._filter_options({"team_id__in": project_team_ids})).exclude(
+            team_id=self._team.id
+        ):
+            rows_by_team[row.team_id].append(row)
+
+        siblings = self.for_team_ids(rows_by_team) if rows_by_team else {}
+        for team_id, sibling in siblings.items():
+            sibling.__dict__["_cached_access_controls"] = rows_by_team[team_id]
+
+        kept = ~Q(team_id__in=[self._team.id, *siblings])
+        for team_id, access_control in ((self._team.id, self), *siblings.items()):
+            condition = access_control._environment_rows_condition(team_id, resource, model_has_creator)
+            if condition is not None:
+                kept |= condition
+
+        return queryset.filter(kept)
+
+    def _environment_rows_condition(
+        self, team_id: int, resource: APIScopeObject, model_has_creator: bool
+    ) -> Optional[Q]:
+        """The rows of `team_id` this instance's rules let the user list, or None for none of them."""
+        if not self.has_project_access:
+            return None
+
+        decision = self._blocked_and_allowed_object_ids(
+            resource, self._get_access_controls(self._access_controls_filters_for_queryset(resource))
+        )
+        condition = Q(team_id=team_id)
+        if not self.has_resource_access(resource):
+            granted = Q(id__in=decision.allowed_ids)
+            if model_has_creator:
+                granted |= Q(created_by=self._user)
+            return condition & granted
+        if decision.blocked_ids:
+            denied = Q(id__in=decision.blocked_ids)
+            if model_has_creator:
+                denied &= ~Q(created_by=self._user)
+            return condition & ~denied
+        return condition
 
     def _blocked_and_allowed_object_ids(
         self, resource: APIScopeObject, access_controls: list[_AccessControl]
@@ -1645,6 +1765,12 @@ class UserAccessControl:
         if not resource:
             return None
 
+        resolver = self._resolver_for_object(obj)
+        if resolver is None:
+            return None
+        if resolver is not self:
+            return resolver.get_user_access_level(obj, explicit=explicit)
+
         if self._is_most_specific_access_control_enabled:
             resolved_access = self.resolve_most_specific_object_access(obj)
             if resolved_access is None or (explicit and resolved_access.source == "system_default"):
@@ -1756,6 +1882,12 @@ class UserAccessControl:
         resource = model_to_resource(obj)
         if not resource:
             return None
+
+        resolver = self._resolver_for_object(obj)
+        if resolver is None:
+            return None
+        if resolver is not self:
+            return resolver.resolve_most_specific_object_access(obj)
 
         resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
         if resolved:
