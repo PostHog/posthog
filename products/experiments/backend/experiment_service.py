@@ -3998,13 +3998,15 @@ class ExperimentService:
         if not (experiment.is_draft or update_feature_flag_params):
             return
 
-        self._assert_flag_access(feature_flag)
-
         holdout = experiment.holdout
         if "holdout" in update_data:
             holdout = update_data["holdout"]
 
         if feature_flag_config:
+            # Checked per branch, not once above: a draft PATCH that touches neither the flag
+            # config nor the holdout falls through without writing the flag, and must not need
+            # flag access to rename an experiment.
+            self._assert_flag_access(feature_flag)
             config_filters = feature_flag_config.get("filters") or {}
             existing_filters = feature_flag.filters or {}
 
@@ -4043,6 +4045,7 @@ class ExperimentService:
 
             update_flag(feature_flag, flag_update_data, team=self.team, user=self.user, request=context.get("request"))
         elif "holdout" in update_data:
+            self._assert_flag_access(feature_flag)
             update_flag(
                 feature_flag,
                 {

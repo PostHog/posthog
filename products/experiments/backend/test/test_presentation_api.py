@@ -4832,6 +4832,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag.refresh_from_db()
         self.assertEqual(flag.active, flag_active_before)
 
+    def test_patching_a_draft_without_touching_the_flag_needs_no_flag_access(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Rename only", "rename-only-flag")
+        self._restrict_flag_and_login_as_member("rename-only-flag", "no-flag-rename@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"name": "Renamed without flag access"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Renamed without flag access")
+
     def test_launching_by_patching_start_date_refuses_a_flag_the_user_cannot_edit(self) -> None:
         self._enable_access_control()
         experiment_id = self._create_experiment_to_copy("Patch launch", "patch-launch-flag")
