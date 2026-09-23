@@ -23,6 +23,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { CodeManagedSource } from './CodeManagedSource'
 import { CodeManagedTag } from './CodeManagedTag'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
@@ -184,6 +185,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
             )}
             <SceneTitleSection
                 name={workflow?.name}
+                nameSuffix={<CodeManagedTag workflow={originalWorkflow} />}
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
                 canEdit={canEditWorkflow}
@@ -193,7 +195,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
-                        <CodeManagedTag workflow={originalWorkflow} />
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
@@ -300,42 +301,43 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             // which moved a different action under a pointer that had not left the
                             // button.
                             <>
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.Workflow}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={
-                                        props.id === 'new' ? undefined : (workflowUserAccessLevel ?? undefined)
-                                    }
-                                >
-                                    <LemonButton
-                                        data-attr="workflow-save"
-                                        type={hasStagedDraft && !hasUnsavedChanges ? 'secondary' : 'primary'}
-                                        size="small"
-                                        htmlType="submit"
-                                        form="workflow"
-                                        onClick={submitWorkflow}
-                                        loading={isWorkflowSubmitting}
-                                        disabledReason={
-                                            // Ownership first: naming the file is more useful than
-                                            // telling someone their unsaved changes cannot be saved.
-                                            workflowSaveDisabledReason
-                                                ? workflowSaveDisabledReason
-                                                : workflowHasErrors
-                                                  ? 'Some fields still need work'
-                                                  : isCreatedFromTemplate
-                                                    ? undefined
-                                                    : hasUnsavedChanges
-                                                      ? undefined
-                                                      : 'No changes to save'
+                                {/* Only a push saves a code-managed workflow, so it has no save button. */}
+                                {!isCodeManaged && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Workflow}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={
+                                            props.id === 'new' ? undefined : (workflowUserAccessLevel ?? undefined)
                                         }
                                     >
-                                        {props.id === 'new'
-                                            ? 'Create as draft'
-                                            : workflow?.status === 'active'
-                                              ? 'Save draft'
-                                              : 'Save'}
-                                    </LemonButton>
-                                </AccessControlAction>
+                                        <LemonButton
+                                            data-attr="workflow-save"
+                                            type={hasStagedDraft && !hasUnsavedChanges ? 'secondary' : 'primary'}
+                                            size="small"
+                                            htmlType="submit"
+                                            form="workflow"
+                                            onClick={submitWorkflow}
+                                            loading={isWorkflowSubmitting}
+                                            disabledReason={
+                                                workflowSaveDisabledReason
+                                                    ? workflowSaveDisabledReason
+                                                    : workflowHasErrors
+                                                      ? 'Some fields still need work'
+                                                      : isCreatedFromTemplate
+                                                        ? undefined
+                                                        : hasUnsavedChanges
+                                                          ? undefined
+                                                          : 'No changes to save'
+                                            }
+                                        >
+                                            {props.id === 'new'
+                                                ? 'Create as draft'
+                                                : workflow?.status === 'active'
+                                                  ? 'Save draft'
+                                                  : 'Save'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
                                 {showDraftActions && (
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.Workflow}
@@ -382,6 +384,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                     </>
                 }
             />
+            {/* Pulled up into the gap below the title and description, so it reads as part of them. */}
+            <CodeManagedSource workflow={originalWorkflow} className="-mt-3" />
         </>
     )
 }
