@@ -280,8 +280,9 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     })
 
     const columnCount = graph.nodes.reduce((max, node) => Math.max(max, node.layer + 1), 0)
-    // Mirrors the engine's column spacing, so a column with no node still gets a position.
-    const columnStep = columnCount <= 1 ? 0 : (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1)
+    // A pinned column can hold no node, so derive every column's x from the engine's spacing
+    // rather than from the nodes that happen to land in it, and headers never read a hole.
+    const columnStep = columnCount > 1 ? (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1) : 0
     const columnX = Array.from({ length: columnCount }, (_, column) => plot.plotLeft + column * columnStep)
 
     const total = graph.nodes.filter((node) => node.targetLinks.length === 0).reduce((sum, node) => sum + node.value, 0)
