@@ -2412,8 +2412,10 @@ class TestShellSplitActionArgsCheck:
             ("sh -c 'tool --flag \"${ARGS}\" --other'", False),
             # quoted somewhere, bare somewhere else: still a hazard
             ("sh -c 'tool \"$OTHER\" $ARGS'", True),
-            # single quotes protect an interpolated expression just as well
-            ("sh -c \"tool '${{ inputs.flags }}'\"", False),
+            # A GitHub expression is NOT a shell variable: Actions substitutes it into
+            # the script text before any shell parses, so a quote in the value closes the
+            # quote around it. Quoting cannot protect it -- both forms are hazards.
+            ("sh -c \"tool '${{ inputs.flags }}'\"", True),
             ('sh -c "tool ${{ inputs.flags }}"', True),
         ],
     )
@@ -2434,6 +2436,20 @@ class TestShellSplitActionArgsCheck:
         assert unparseable_actions(tmp_path) == [".github/actions/broken"]
         issues = self._run(tmp_path, _caller("--config p/python"))
         assert any("does not parse" in issue for issue in issues), issues
+
+    def test_derivation_reads_an_unquoted_shell_c_operand(self, tmp_path: Path) -> None:
+        # `sh -c $FLAGS` is if anything worse than a quoted operand: the value is
+        # split before the inner shell even sees it. It must not go uninspected.
+        self._write_action(tmp_path, "bare", "sh -c $ARGS")
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/bare") == frozenset({"flags"})
+
+    def test_a_nested_action_with_unreadable_metadata_is_reported(self, tmp_path: Path) -> None:
+        # The derivation scans `.github/actions/**` recursively; this alarm has to
+        # reach as far, or a nested action it would have scanned goes unmentioned.
+        nested = tmp_path / ".github" / "actions" / "group" / "inner"
+        nested.mkdir(parents=True)
+        (nested / "action.yml").write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [".github/actions/group/inner"]
 
     def test_a_parseable_action_is_not_reported_as_unparseable(self, tmp_path: Path) -> None:
         self._write_action(tmp_path, "fine", """sh -c 'tool "$ARGS"'""")

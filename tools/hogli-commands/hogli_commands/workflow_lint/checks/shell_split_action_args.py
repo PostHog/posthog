@@ -51,10 +51,11 @@ ACTIONS_DIR = ".github/actions"
 # is its own quoted argument, never re-parsed, so it carries no hazard.
 UNSAFE_ARG_RE = re.compile(r"[^ A-Za-z0-9._/@:=+-]")
 SHELL_C_RE = re.compile(
-    # Both quotings: Actions substitutes `${{ }}` before the shell parses, so a
-    # single-quoted script splices an input just as a double-quoted one does.
+    # All three operand forms. Quoting the operand does not make the value in it
+    # safe, and leaving it bare (`sh -c $FLAGS`) is if anything worse -- the
+    # operand is then split before the inner shell even sees it.
     r"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:-\S+\s+)*-c\s+"
-    r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)')",
+    r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)'|(?P<bare>\S+))",
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
 INPUT_EXPR_RE = re.compile(
@@ -114,16 +115,13 @@ def unparseable_actions(repo_root: Path) -> list[str]:
     actions_root = repo_root / ACTIONS_DIR
     if not actions_root.is_dir():
         return broken
-    for directory in sorted(p for p in actions_root.iterdir() if p.is_dir()):
-        for name in ("action.yml", "action.yaml"):
-            path = directory / name
-            if not path.is_file():
-                continue
-            try:
-                yaml.safe_load(path.read_text(encoding="utf-8"))
-            except (yaml.YAMLError, OSError):
-                broken.append(f"{ACTIONS_DIR}/{directory.name}")
-            break
+    # rglob, matching `derive_shell_split_inputs`: a nested action it would scan
+    # must not be invisible to the alarm that says the scan could not read one.
+    for path in sorted(actions_root.rglob("action.y*ml")):
+        try:
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError):
+            broken.append(path.parent.relative_to(repo_root).as_posix())
     return broken
 
 
@@ -207,7 +205,7 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
             if match is not None:
                 by_var[str(var)] = _input_name(match)
     for shell_c in SHELL_C_RE.finditer(run):
-        script = shell_c.group("dquoted") or shell_c.group("squoted") or ""
+        script = shell_c.group("dquoted") or shell_c.group("squoted") or shell_c.group("bare") or ""
         quoted = _quoted_spans(script)
         for ref in VAR_REF_RE.finditer(script):
             if any(span.start <= ref.start() < span.end for span in quoted):
@@ -216,9 +214,14 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
             if name is not None:
                 yield name
         # an input interpolated straight into the script, with no env hop
+        # NO quote check here, unlike the variable references above, and the
+        # difference is the whole point. A shell variable is expanded AFTER the
+        # shell parses quotes, so `"$ARGS"` is one argument whatever it holds.
+        # A GitHub expression is substituted into the script text BEFORE any
+        # shell runs, so a quote inside the value closes the quote around it and
+        # the rest is re-parsed as script. Quoting cannot protect it; only
+        # passing it through `env:` and referencing the variable can.
         for direct in INPUT_EXPR_RE.finditer(script):
-            if any(span.start <= direct.start() < span.end for span in quoted):
-                continue
             yield _input_name(direct)
 
 
