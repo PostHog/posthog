@@ -206,6 +206,31 @@ export const commonConfig = {
                 )
             },
         },
+        // @posthog/icons ships every icon in one ES bundle, and each icon is declared as
+        // `const IconFoo = forwardRef(...)`. A bundler cannot prove a bare call is side-effect
+        // free, so none of the 300+ icons is ever dropped and every entry point that uses a
+        // single icon ships the whole set (~260 KiB of parse work on the boot path). forwardRef
+        // only wraps its argument, so annotate the calls and let tree shaking keep the icons the
+        // app actually renders. Remove this once the package annotates them itself.
+        {
+            name: 'icons-pure-annotations',
+            setup(build) {
+                build.onLoad({ filter: /@posthog[\\/]icons[\\/]dist[\\/][^\\/]+\.es\.js$/ }, async (args) => {
+                    const source = await fs.readFile(args.path, 'utf8')
+                    let annotated = 0
+                    const contents = source.replace(/^const ([A-Za-z0-9_$]+) = forwardRef\(/gm, (_match, name) => {
+                        annotated += 1
+                        return `const ${name} = /* @__PURE__ */ forwardRef(`
+                    })
+                    if (annotated === 0) {
+                        // Bundle shape changed upstream - fail loudly rather than silently
+                        // reshipping the whole icon set on every page.
+                        throw new Error(`icons-pure-annotations: no icon declarations found in ${args.path}`)
+                    }
+                    return { contents, loader: 'js' }
+                })
+            },
+        },
         // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
         // which esbuild can't resolve through monaco-editor's package.json exports map
         {

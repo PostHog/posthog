@@ -27,8 +27,6 @@ import * as ReactDom from 'react-dom'
 import * as ReactDomClient from 'react-dom/client'
 import * as Zod from 'zod'
 
-import * as PosthogIcons from '@posthog/icons'
-
 export const __chunkAnchors = {
     BaseUiReact,
     DndKitCore,
@@ -42,7 +40,6 @@ export const __chunkAnchors = {
     KeaWindowValues,
     Liquidjs,
     Marked,
-    PosthogIcons,
     PosthogJs,
     PosthogRrweb,
     React,
