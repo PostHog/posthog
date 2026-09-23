@@ -11,8 +11,6 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.proxy import models_cache_key
@@ -1525,16 +1523,6 @@ class TestLLMProviderKeyScopedTokenAccess(APIBaseTest):
         )
         self.client.logout()
 
-    def _personal_api_key(self, scopes: list[str]) -> str:
-        value = f"phx_{uuid4()}"
-        PersonalAPIKey.objects.create(
-            label="Test Key",
-            user=self.user,
-            secure_value=hash_key_value(value),
-            scopes=scopes,
-        )
-        return value
-
     @parameterized.expand(
         [
             ("write_scope", ["llm_provider_key:write"], status.HTTP_200_OK),
@@ -1548,7 +1536,7 @@ class TestLLMProviderKeyScopedTokenAccess(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.key.id}/validate/",
-            HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(scopes)}",
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}",
         )
         self.assertEqual(response.status_code, expected_status, response.json())
 
@@ -1562,6 +1550,6 @@ class TestLLMProviderKeyScopedTokenAccess(APIBaseTest):
     def test_dependent_configs_requires_read_scope(self, _name: str, scopes: list[str], expected_status: int):
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.key.id}/dependent_configs/",
-            HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(scopes)}",
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}",
         )
         self.assertEqual(response.status_code, expected_status, response.json())
