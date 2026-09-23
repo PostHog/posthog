@@ -218,8 +218,9 @@ export function PlanUsageContent({
                 <UsageMix components={components} />
               )}
               <Text className="text-[12px] text-muted-foreground">
-                This total comes from billing, so it can lag by 15 to 20
-                minutes. Your own spend below is near real time.
+                {meter.kind === "dollars"
+                  ? "This total comes from billing, so it can lag by 15 to 20 minutes. Your own spend below is near real time."
+                  : "Your own spend below is near real time."}
               </Text>
             </Flex>
           )}
