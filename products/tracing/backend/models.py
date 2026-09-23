@@ -102,6 +102,13 @@ def resolved_tracing_identity_attribute_keys(team: "Team") -> TracingIdentityAtt
     )
 
 
+# Default number of days a span is kept before ClickHouse expires it. Deliberately duplicated
+# rather than imported from `posthog.models.team.logs_retention`: that module imports the logs
+# product's models, so importing it here would put a product app on this module's import path.
+# `test_models.py` asserts the two stay equal.
+DEFAULT_TRACES_RETENTION_DAYS = 14
+
+
 class TeamTracingConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — span emission and ingestion are
     # per-environment, and so is this config. Inheriting the root-mixin would rewrite
@@ -131,6 +138,16 @@ class TeamTracingConfig(models.Model):
         default=default_tracing_session_id_attribute_keys,
         db_default=Value("{sessionId}"),
     )
+
+    # How long spans are kept before ClickHouse expires them. Applied at ingest, so a change
+    # only affects spans received after it. Span retention rules (`LogsRetentionRule` with
+    # `source=spans`) override this per span; spans matching no rule keep this period.
+    retention_days = models.PositiveIntegerField(
+        default=DEFAULT_TRACES_RETENTION_DAYS, db_default=Value(DEFAULT_TRACES_RETENTION_DAYS)
+    )
+
+    # When `retention_days` was last changed, for the once-per-24-hours throttle.
+    retention_last_updated = models.DateTimeField(null=True, blank=True)
 
 
 register_team_extension_signal(TeamTracingConfig, logger=logger)

@@ -500,9 +500,14 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
 
 
 class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """User-defined rules that override how long matching log lines are retained (evaluated in ingestion
-    when enabled). First matching rule by (priority, created_at) wins; logs matching no rule keep the
-    team's default retention (`Team.logs_settings.retention_days`)."""
+    """User-defined rules that override how long matching records are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; records matching no rule keep the
+    team's default retention (`Team.logs_settings.retention_days` for logs,
+    `TeamTracingConfig.retention_days` for spans)."""
+
+    class RecordSource(models.TextChoices):
+        LOGS = "logs", "Logs"
+        SPANS = "spans", "Spans"
 
     # Plain team FK — like LogsExclusionRule and TeamLogsConfig, retention rules are per-environment,
     # so this deliberately does not use TeamScopedRootMixin (whose canonical-team save() rewrite would
@@ -523,6 +528,16 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
     )
     # {"filter_group": <PropertyGroupFilter>, "retention_days": <14 or a multiple of 30>}
     config = models.JSONField(default=dict)
+    # Record source the rule applies to. Set by the route that created the rule and never
+    # changed afterwards — it decides which consumer (logs vs traces) evaluates the rule, and
+    # priorities are ordered per source. Default keeps pre-existing rows as log rules; the
+    # database default keeps inserts from a release that predates this column working.
+    source = models.CharField(
+        max_length=16,
+        choices=RecordSource.choices,
+        default=RecordSource.LOGS,
+        db_default=Value(RecordSource.LOGS),
+    )
     version = models.PositiveIntegerField(default=1)
 
     class Meta:
