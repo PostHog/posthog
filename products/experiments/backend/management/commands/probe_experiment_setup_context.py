@@ -1,17 +1,30 @@
-"""Score what `experiment-setup-context` tells an agent, over many projects at once.
+"""Read every section of `experiment-setup-context` back for a project, from a shell.
 
-Calls the providers in process, so neither the feature flag nor authentication applies.
+A local tool with two jobs. It confirms that a seeded project reports the shape it was seeded with,
+and it checks that every section still answers after `setup_context.py` changes.
+
+    CLICKHOUSE_DATABASE=posthog python manage.py probe_experiment_setup_context \\
+        --team-id 1 --target-event '$pageview' --metric-event '<event>' --cold
+
+`CLICKHOUSE_DATABASE=posthog` is not optional. The setting defaults to `default`, and the real
+value lives in `.env.services`, which a plain shell does not load.
+
+It answers a narrow question: did the section answer, and was the fact there to read. It does not
+measure whether the setup context helps an agent configure an experiment correctly, which needs an
+eval that scores the created experiment across two arms. A coverage number over a whole region is
+cheaper to get from one cross-team query than from this per-team loop, so this is not the way to
+measure a fleet.
+
+Calls the providers in process, so neither the feature flag nor authentication applies. It also
+skips the access-control filtering the endpoint applies to the experiment and saved-metric
+querysets, so the two list counts are upper bounds rather than what a scoped agent sees.
 
 Latency is only meaningful on a cold read. Three sections cache for an hour or more, keyed by team
-and inputs, so a second run over the same projects measures the cache. Pass `--cold` to drop those
-keys before each project.
+and inputs, so a second run over the same project measures the cache. `--cold` drops those keys,
+which is the only write this command makes.
 
-    python manage.py probe_experiment_setup_context --limit 25 --target-event '$pageview' --cold
-
-Precedent deviation by creation source needs the creation source, which only the production event
-stream carries, so it is not measured here. That comparison runs over a different set of projects
-for each source, so it cannot separate "agents configure worse" from "different projects use
-agents". Do not read it as a verdict on a creation path until a within-project version exists.
+Without `--team-id`, `--limit` picks the projects that ran an experiment most recently, across the
+whole instance and with no organization scoping.
 
 The output carries ids, counts and booleans only, so a scorecard is safe to paste into an internal
 discussion. `--per-team` adds one row per project, which is how a single slow project is found.
