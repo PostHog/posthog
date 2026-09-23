@@ -1,7 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
@@ -51,6 +55,12 @@ describe('linearTeamsModalLogic', () => {
         onClose = jest.fn()
     })
 
+    afterEach(async () => {
+        // The modal logic mounts integrationsLogic, whose mount-time load must settle here, or its
+        // response lands in the next test's context.
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+    })
+
     it.each([
         {
             name: 'a pick from Filters keeps the other keys and leaves enabled alone',
@@ -96,6 +106,48 @@ describe('linearTeamsModalLogic', () => {
 
         expect(requests).toEqual([expected])
         expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        {
+            name: 'the workspace the warehouse source syncs',
+            sources: [
+                { id: 'src-linear', source_type: 'Linear', job_inputs: { linear_integration_id: 2 }, schemas: [] },
+            ],
+            expectedIntegrationId: 2,
+        },
+        { name: 'any connection before a source exists', sources: [], expectedIntegrationId: 1 },
+    ])('lists teams from $name', async ({ sources, expectedIntegrationId }) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': () => [
+                    200,
+                    {
+                        results: [
+                            { id: 1, kind: 'linear', display_name: 'Workspace A', config: {}, errors: '' },
+                            { id: 2, kind: 'linear', display_name: 'Workspace B', config: {}, errors: '' },
+                        ],
+                    },
+                ],
+                '/api/projects/:team_id/external_data_sources/': () => [
+                    200,
+                    { results: sources, count: sources.length, next: null, previous: null },
+                ],
+            },
+        })
+        const logic = linearTeamsModalLogic({
+            config: existingConfig,
+            enableOnSave: false,
+            viaSetupWizard: false,
+            onClose,
+        })
+        logic.mount()
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+        await expectLogic(sourcesDataLogic, () => sourcesDataLogic.actions.loadSources()).toDispatchActions([
+            'loadSourcesSuccess',
+        ])
+
+        expect(logic.values.linearIntegration?.id).toBe(expectedIntegrationId)
     })
 
     it('creates the row when Linear was never turned on before', async () => {

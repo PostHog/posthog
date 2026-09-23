@@ -4,7 +4,6 @@ import { useId } from 'react'
 
 import { LemonBanner, LemonButton, LemonInputSelect, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { useLinearTeams } from 'lib/integrations/LinearIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -59,14 +58,8 @@ export function LinearTeamsModal({
     const formId = useId()
     const logicProps: LinearTeamsModalLogicProps = { config, enableOnSave, viaSetupWizard, onClose }
     const logic = linearTeamsModalLogic(logicProps)
-    const { linearTeams, linearTeamsValidationErrors, isLinearIssuesToggling } = useValues(logic)
-    const { linearIntegrations, integrations } = useValues(integrationsLogic)
-    // The warehouse source that feeds this signal source needs a Linear connection, so one exists
-    // in practice; the first one is used when a project has connected more than one workspace.
-    const integration = linearIntegrations[0] ?? null
-    // A null list means the first load has not landed, which is not the same as no connection.
-    // Reading the list rather than the loading flag keeps a later reload from blanking the picker.
-    const integrationsUnknown = integrations === null
+    const { linearTeams, linearTeamsValidationErrors, isLinearIssuesToggling, linearIntegration, integrationsUnknown } =
+        useValues(logic)
 
     const handleClose = (): void => {
         if (isLinearIssuesToggling) {
@@ -127,12 +120,15 @@ export function LinearTeamsModal({
                     {linearTeams.scope === 'selected' &&
                         (integrationsUnknown ? (
                             <LemonSkeleton className="h-10" />
-                        ) : integration ? (
+                        ) : linearIntegration ? (
                             <LemonField
                                 name="teamIds"
                                 help="Applies from the next sync. Reports already in your inbox stay."
                             >
-                                <LinearTeamsSelect integrationId={integration.id} disabled={isLinearIssuesToggling} />
+                                <LinearTeamsSelect
+                                    integrationId={linearIntegration.id}
+                                    disabled={isLinearIssuesToggling}
+                                />
                             </LemonField>
                         ) : (
                             <LemonBanner type="warning">
