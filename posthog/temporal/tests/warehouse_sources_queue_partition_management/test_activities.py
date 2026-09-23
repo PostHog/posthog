@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import TracebackType
 from typing import Any, Literal
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -311,15 +312,10 @@ class _FakePgConn:
     """
 
     def __init__(
-        self,
-        partitions: dict[str, list[str]] | None = None,
-        *,
-        denied_drops: frozenset[str] = frozenset(),
-        delete_rowcounts: dict[str, list[int]] | None = None,
+        self, partitions: dict[str, list[str]] | None = None, *, denied_drops: frozenset[str] = frozenset()
     ) -> None:
         self.partitions = partitions or {}
         self.denied_drops = denied_drops
-        self.delete_rowcounts = delete_rowcounts or {}
         self.dropped: list[str] = []
         self.deleted: list[tuple[str, datetime]] = []
 
@@ -341,10 +337,7 @@ class _FakePgConn:
                 raise psycopg.errors.InsufficientPrivilege(f"must be owner of table {partition_name}")
             self.dropped.append(partition_name)
         elif sql.strip().startswith("DELETE FROM "):
-            partition_name = sql.split()[2]
-            self.deleted.append((partition_name, params["created_before"]))
-            remaining = self.delete_rowcounts.get(partition_name, [])
-            cursor.rowcount = remaining.pop(0) if remaining else 0
+            self.deleted.append((sql.split()[2], params["created_before"]))
         return cursor
 
 
@@ -580,19 +573,50 @@ async def test_activity_expires_old_default_partition_rows_instead_of_dropping(a
         _patched_pg(partitions) as conn,
         _patched_s3([]),
         patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
-        patch.object(activities_module, "DEFAULT_PARTITION_DELETE_BATCH_SIZE", 2),
     ):
-        conn.delete_rowcounts = {"sourcebatch_default": [2, 1]}
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
     terminalize.assert_called_once_with(conn, "sourcebatch_default", created_before=cutoff)
-    assert conn.deleted == [
-        ("sourcebatch_default", cutoff),
-        ("sourcebatch_default", cutoff),
-        ("sourcebatchstatus_default", cutoff),
-    ]
+    assert conn.deleted == [("sourcebatch_default", cutoff), ("sourcebatchstatus_default", cutoff)]
     assert conn.dropped == []
     assert result["success"] is True
+
+
+def _test_database_url() -> str:
+    from django.db import connection
+
+    s = connection.settings_dict
+    return f"postgres://{s['USER']}:{s['PASSWORD']}@{s['HOST'] or 'localhost'}:{s['PORT'] or '5432'}/{s['NAME']}"
+
+
+@pytest.mark.django_db
+def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_batches() -> None:
+    table = f"expiry_test_{uuid4().hex[:12]}"
+    cutoff = date(2026, 9, 15)
+    errors: list[str] = []
+
+    with psycopg.Connection.connect(_test_database_url(), autocommit=True) as conn:
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(f"CREATE TABLE {table}_default PARTITION OF {table} DEFAULT")
+            conn.execute(
+                f"""
+                INSERT INTO {table}
+                SELECT g, timestamptz '2026-09-14 23:59:59+00' - g * interval '1 hour' FROM generate_series(1, 5) g
+                UNION ALL
+                SELECT 100 + g, timestamptz '2026-09-15 00:00:00+00' + g * interval '1 hour' FROM generate_series(0, 1) g
+                """
+            )
+
+            with patch.object(activities_module, "DEFAULT_PARTITION_DELETE_BATCH_SIZE", 2):
+                activities_module._expire_default_partition_rows(conn, table, f"{table}_default", cutoff, errors)
+
+            remaining = [row[0] for row in conn.execute(f"SELECT id FROM {table} ORDER BY id").fetchall()]
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert errors == []
+    assert remaining == [100, 101]
 
 
 @pytest.mark.asyncio
