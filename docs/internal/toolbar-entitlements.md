@@ -1,4 +1,14 @@
-# Toolbar plan entitlements
+# Toolbar behavior
+
+## Saving heatmaps
+
+The capture progress counter counts attempted screen widths, including widths that fail.
+A save with all requested widths shows a success notification.
+A partial save shows a warning with the number of saved widths.
+If all responsive captures fail but the current-window fallback succeeds, the warning explains that only the current window width was saved.
+Each failed width logs a warning, and the capture reports one exception with the failed widths and captured count.
+
+## Plan entitlements
 
 `GET /api/user/toolbar_entitlements/` requires a logged-in session and access to the toolbar for the current project. It returns an `entitlements` map of feature names to booleans, based on the current organization’s available features. `ToolbarEntitlementsSerializer` defines its OpenAPI response schema.
 
