@@ -53,6 +53,7 @@ interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
     beforeTree?: ReactNode
     renderTree?: (tree: JSX.Element) => ReactNode
+    renderItemTooltip?: (item: TreeDataItem) => ReactNode
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
@@ -492,6 +493,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 )
             }}
             renderItemTooltip={(item) => {
+                const customTooltip = props.renderItemTooltip?.(item)
+                if (customTooltip !== undefined) {
+                    return customTooltip
+                }
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
                 if (

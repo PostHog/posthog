@@ -10,10 +10,11 @@ import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { NavAppRow } from './NavAppRow'
 import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
+import { NavAppTooltip } from './NavAppTooltip'
 import { NavTabSection } from './NavTabSection'
 
 export function NavTabApps(): JSX.Element {
-    const { search, groupedItems, jevEnabled, isJevSearch, appRankings, appRankingsLoading } =
+    const { search, allItems, groupedItems, jevEnabled, isJevSearch, appRankings, appRankingsLoading } =
         useValues(navAppsTabLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
@@ -62,6 +63,10 @@ export function NavTabApps(): JSX.Element {
                                 logicKey={APPS_STARRED_TREE_KEY}
                                 onlyTree
                                 showShortcutHelp={false}
+                                renderItemTooltip={(item) => {
+                                    const app = allItems.find((app) => app.href === item.record?.href)
+                                    return app ? <NavAppTooltip item={app} /> : undefined
+                                }}
                             />
                         ) : (
                             <p className="text-xs text-tertiary px-2 py-1 mb-0">Star apps to keep them here.</p>

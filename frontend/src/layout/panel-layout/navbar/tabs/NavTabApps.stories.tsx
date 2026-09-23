@@ -18,7 +18,20 @@ const meta: Meta<typeof NavTabApps> = {
     },
     decorators: [
         mswDecorator({
-            get: { '_preflight/': { ...preflight, is_debug: false } },
+            get: {
+                '_preflight/': { ...preflight, is_debug: false },
+                'api/projects/:team_id/file_system_shortcut/': {
+                    results: [
+                        {
+                            id: 'starred-session-replay',
+                            path: 'Session replay',
+                            type: 'session_replay',
+                            href: '/replay/home',
+                        },
+                    ],
+                    count: 1,
+                },
+            },
             post: {
                 'api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
                     const body = (await request.json()) as DecideRequestApi
