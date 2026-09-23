@@ -5,26 +5,21 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQueryRunHistory } from '~/types'
-
-import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
-import {
-    ParsedLineageSearch,
-    nodeIdsForLineageSearch,
-    parseLineageSearch,
-} from 'products/data_modeling/frontend/lineage/lineageSearch'
-
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type {
     DatabaseSchemaEndpointTable,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaQueryResponse,
     DatabaseSchemaViewTable,
-} from '../../../queries/schema/schema-general'
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+} from '~/queries/schema/schema-general'
+import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQueryRunHistory } from '~/types'
+
+import { lineageDataLogic } from './lineage/lineageDataLogic'
+import { ParsedLineageSearch, nodeIdsForLineageSearch, parseLineageSearch } from './lineage/lineageSearch'
 
 export const PAGE_SIZE = 10
 
