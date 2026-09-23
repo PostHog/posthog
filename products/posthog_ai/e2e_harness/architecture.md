@@ -402,6 +402,7 @@ The next layer adds coverage across boundaries that the controlled browser cases
 The first five run with Claude and Codex. The sidebar case uses Claude for the shared editor integration.
 Provider replies use synthetic fixtures; tool execution, query results, persistence, and application streaming remain real.
 The provider response barrier opens SSE before pausing so cancellation reaches an established SDK request.
+Startup Stop also holds cancellation delivery until this barrier, so both runtimes cancel an active request instead of racing its creation.
 The approval-confirmation barrier holds the real successful response after execution starts; it never fabricates acceptance.
 These additions require ten repetitions on the actual CI runner before being described as stable.
 

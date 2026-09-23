@@ -65,6 +65,13 @@ for (const provider of ['claude', 'codex'] as const) {
                 const worker = ai.fault('worker')
                 if (phase === 'startup') {
                     await worker.arm()
+                    await page.route('**/command/', async (route) => {
+                        if (route.request().postDataJSON()?.method === 'cancel') {
+                            // An agent can cancel before its first model request reaches the response barrier.
+                            await model.waitUntilReached()
+                        }
+                        await route.continue()
+                    })
                 }
                 await ai.open(page)
                 await send(page, prompt)
