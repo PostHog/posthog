@@ -254,20 +254,34 @@ _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
 )
 
 
-def _pull_request_ref_for_commit(artefact: SignalReportArtefact, repository: str) -> PullRequestRef | None:
-    """Find the one PR produced by the same task for the commit's repository."""
-    if artefact.task_id is None:
-        return None
-    task_id = str(artefact.task_id)
-    matches: list[PullRequestRef] = []
+def _pull_request_ref_for_commit(
+    artefact: SignalReportArtefact,
+    repository: str,
+    branch: str,
+    github: GitHubIntegration,
+) -> PullRequestRef | None:
+    """Find the report PR that contains the commit artefact's branch."""
+    candidates: dict[int, tuple[PullRequestRef, str | None]] = {}
     prs = fetch_implementation_prs_for_reports([str(artefact.report_id)], team_id=artefact.team_id).get(
         str(artefact.report_id), []
     )
     for pr in prs:
         parsed = GitHubIntegration.parse_pull_request_url(pr.url)
-        if pr.task_id == task_id and parsed is not None and parsed.repository.lower() == repository.lower():
-            matches.append(parsed)
-    return matches[0] if len(matches) == 1 else None
+        if parsed is not None and parsed.repository.lower() == repository.lower():
+            candidates.setdefault(parsed.number, (parsed, pr.task_id))
+    if len(candidates) == 1:
+        return next(iter(candidates.values()))[0]
+
+    task_id = str(artefact.task_id) if artefact.task_id else None
+    task_matches = [candidate for candidate, candidate_task_id in candidates.values() if candidate_task_id == task_id]
+    if task_id is not None and len(task_matches) == 1:
+        return task_matches[0]
+
+    for candidate, _ in candidates.values():
+        details = github.get_pull_request(repository, candidate.number)
+        if details.get("success") and details.get("head_branch") == branch:
+            return candidate
+    return None
 
 
 def parse_pr_ci_status_report_ids(raw: str | None) -> list[uuid.UUID]:
@@ -5045,8 +5059,8 @@ class SignalReportArtefactViewSet(
         summary="Fetch the diff for a commit artefact",
         description=(
             "Fetch the unified diff for a `commit` artefact via the team's GitHub integration. "
-            "A commit linked to one pull request from the same task uses GitHub's durable pull request "
-            "diff. A commit without that link compares the branch's current tip with the default branch."
+            "A commit linked to a report pull request uses GitHub's durable pull request diff. "
+            "A commit without that link compares the branch's current tip with the default branch."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_diff",
@@ -5088,7 +5102,17 @@ class SignalReportArtefactViewSet(
                 {"error": f"No GitHub integration can access '{repository}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        pull_request = _pull_request_ref_for_commit(artefact, str(repository))
+        try:
+            pull_request = _pull_request_ref_for_commit(artefact, str(repository), str(branch), github)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except Exception:  # noqa: BLE001 — the branch comparison below is the safe fallback
+            logger.warning(
+                "signals pull request lookup errored; falling back to branch",
+                repository=repository,
+                branch=branch,
+            )
+            pull_request = None
         if pull_request is not None:
             try:
                 pr_result = github.get_pull_request_diff(str(repository), pull_request.number)
