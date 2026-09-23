@@ -16,10 +16,15 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightDefinition
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -132,3 +137,63 @@ def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVar
 def get_query_specific_instructions(kind: str) -> str:
     """Analysis guidance for a query kind, used by LLM insight and subscription summaries."""
     return logic.get_query_specific_instructions(kind)
+
+
+def get_or_create_saved_insight(
+    *,
+    team_id: int,
+    user_id: int,
+    short_id: str,
+    name: str | None,
+    description: str | None,
+    query: dict[str, object] | None,
+) -> tuple[int, bool]:
+    return logic.get_or_create_saved_insight(
+        team_id=team_id, user_id=user_id, short_id=short_id, name=name, description=description, query=query
+    )
+
+
+def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedInsightDefinition | None:
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access_control.check_access_level_for_resource("insight", "editor"):
+        return None
+    insight = Insight.objects.filter(team=team, short_id=short_id, deleted=False).first()
+    if insight is None:
+        return None
+    if not access_control.check_access_level_for_object(insight, "editor"):
+        return None
+    return SavedInsightDefinition(
+        id=insight.pk, short_id=insight.short_id, name=insight.name, query=insight.query or {}
+    )
+
+
+def save_saved_insight_query(
+    *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
+) -> str | None:
+    from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared  # noqa: PLC0415, I001 — avoids HogQL import cycle
+
+    with transaction.atomic():
+        insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
+        if insight is None:
+            return "Insight not found. Read it again and retry."
+        if insight.query != expected_query:
+            return "This insight changed while generating the update. Read it again and retry."
+        access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+        if not access_control.check_access_level_for_resource(
+            "insight", "editor"
+        ) or not access_control.check_access_level_for_object(insight, "editor"):
+            return "You no longer have permission to edit this insight."
+        if (
+            insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            and not access_control.is_organization_admin
+            and is_publicly_shared(insight)
+        ):
+            blocked = blocked_access_for_user(user, insight.team, [query])
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                return f"Can't save this query: you don't have access to {blocked_list}, and this insight is publicly shared."
+        insight.query = query
+        insight.saved = True
+        insight.last_modified_by = user
+        insight.save(update_fields=["query", "saved", "last_modified_by", "updated_at"])
+    return None

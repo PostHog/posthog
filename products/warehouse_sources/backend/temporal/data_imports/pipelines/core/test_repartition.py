@@ -2006,6 +2006,60 @@ class TestRewriteCheckpointResume:
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
         assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
 
+    @pytest.mark.parametrize(
+        "version_offset,expected_restart",
+        [
+            pytest.param(0, True, id="resumed_checkpoint_is_a_restart"),
+            pytest.param(999, False, id="rejected_checkpoint_is_not_a_restart"),
+        ],
+    )
+    def test_only_a_usable_checkpoint_makes_an_over_budget_attempt_a_restart(
+        self, version_offset, expected_restart, tmp_path
+    ):
+        # `had_prior_checkpoint` decides whether the activity charges this attempt against the cap.
+        # A checkpoint the resume path rejected was left by an attempt killed at an arbitrary point
+        # (a transient S3 error minutes in), so the budget spent past it is the first anybody spent
+        # on those rows, not a re-run of ground already covered. Charging it abandons a converging
+        # table after three such runs and throws away the checkpoint this attempt just saved.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version() + version_offset,
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True),
+            patch.object(
+                repartition_module,
+                "_rewrite_into_temp",
+                new=AsyncMock(side_effect=RepartitionBudgetExceededError("out of budget", rows_written=1)),
+            ),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError) as raised:
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    )
+                )
+
+        assert raised.value.had_prior_checkpoint is expected_restart
+        assert raised.value.checkpoint_saved is True
+
     def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
         # The discarded checkpoint above is only harmless while a restart can finish. Once a full
         # budget has been spent covering fewer rows than live holds, re-streaming from row 0 runs out

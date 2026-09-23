@@ -693,10 +693,19 @@ export const HomeWatchFeed: StoryObj = {
     },
 }
 
-export const HomeWatchFeedEmpty: StoryObj = {
+// A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
+// rather than filling the page with them.
+export const HomeWatchFeedOnlyNewest: StoryObj = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
+            get: {
+                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                    results: [0, 1, 2].map((i) => ({
+                        observation: observation({ id: `00000000-0000-0000-0000-0000000000f${i}` }),
+                        reason: { kind: 'unviewed_recent' },
+                    })),
+                },
+            },
         }),
     ],
     parameters: {
@@ -704,10 +713,13 @@ export const HomeWatchFeedEmpty: StoryObj = {
     },
 }
 
-// Test arm of the Usage tab: absorbs the observations chart and enabled-scanners card.
-export const UsageTabRedesigned: StoryObj = {
+export const HomeWatchFeedEmpty: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
+        }),
+    ],
     parameters: {
-        pageUrl: `${urls.replayVision()}?tab=usage`,
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
     },
 }

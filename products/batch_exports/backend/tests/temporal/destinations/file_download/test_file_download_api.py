@@ -20,8 +20,9 @@ from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.event.util import bulk_create_events
 from posthog.models.scoping import team_scope
-from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
+from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.batch_exports.backend.api.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
@@ -630,7 +631,7 @@ class TestFileDownloadHogQL:
             yield
 
     @pytest.fixture
-    async def hogql_export_test_events(self, clickhouse_client, team):
+    async def hogql_export_test_events(self, clickhouse_client, team, truncate_clickhouse_tables):
         """Insert events for this and another team directly into the events table.
 
         A hogql export reads the main (sharded) events table with no interval filter, so
@@ -652,8 +653,11 @@ class TestFileDownloadHogQL:
             event_name="test-{i}",
             properties={"$browser": "Chrome"},
         )
-        await insert_event_values_in_clickhouse(
-            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
+        await sync_to_async(bulk_create_events)(
+            [
+                {**event, "event_uuid": event["uuid"], "person_properties": event["person_properties"] or {}}
+                for event in events + events_from_other_team
+            ]
         )
         return events
 
@@ -802,6 +806,7 @@ class TestFileDownloadHogQL:
             ).aget(id=response.json()["id"])
 
         assert run.data_interval_start == run.data_interval_end
+        assert run.data_interval_end is not None
         assert before <= run.data_interval_end <= after
         on_demand = run.batch_export_on_demand
         assert on_demand is not None
@@ -870,6 +875,13 @@ class TestFileDownloadHogQL:
                 await asyncio.sleep(2)
 
         assert files is not None and len(files) == 1
+        run = await BatchExportRun.objects.aget(id=run_id, batch_export_on_demand__team_id=team.pk)
+        if run.data_interval_start is None or run.data_interval_end is None:
+            file_download = await BatchExportFileDownload.objects.aget(id=files[0], team_id=team.pk)
+            assert file_download.key == (
+                f"batch-exports/{run.batch_export_on_demand_id}/{run.id}/"
+                f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}-0.parquet"
+            )
         response = await async_client.get(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run_id}/download/{files[0]}",
         )

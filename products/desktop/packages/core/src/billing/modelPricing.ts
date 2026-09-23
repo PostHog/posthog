@@ -8,7 +8,7 @@ import { isCustomModelOption } from "@posthog/shared";
  *
  * Sources, checked 2026-09-07:
  * - Anthropic (Opus, Sonnet, Haiku): platform.claude.com/docs/en/about-claude/pricing
- * - GPT-5.4, GPT-5.5: developers.openai.com/api/docs/pricing
+ * - GPT-5.4, GPT-5.5, GPT-6 Sol, GPT-6 Luna: developers.openai.com/api/docs/pricing
  * - Fable, GPT-5.6, GPT-6 Astra, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
  *   the user is actually charged (pinned in the file above). The drift test
  *   binds these rows to it.
@@ -60,11 +60,14 @@ const BASELINE: ModelListPrice = { inputPerMtok: 2, outputPerMtok: 10 };
 const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["fable", { inputPerMtok: 10, outputPerMtok: 50 }],
   ["mythos", { inputPerMtok: 10, outputPerMtok: 50 }],
+  ["opus-5-5", { inputPerMtok: 4, outputPerMtok: 20 }],
   ["opus", { inputPerMtok: 5, outputPerMtok: 25 }],
   ["sonnet-4", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["sonnet", { inputPerMtok: 2, outputPerMtok: 10 }],
   ["haiku", { inputPerMtok: 1, outputPerMtok: 5 }],
   ["gpt-6-astra", { inputPerMtok: 10, outputPerMtok: 50 }],
+  ["gpt-6-sol", { inputPerMtok: 2, outputPerMtok: 10 }],
+  ["gpt-6-luna", { inputPerMtok: 0.1, outputPerMtok: 0.5 }],
   ["gpt-5.6-sol", { inputPerMtok: 5, outputPerMtok: 30 }],
   ["gpt-5.6-terra", { inputPerMtok: 2.5, outputPerMtok: 15 }],
   ["gpt-5.6-luna", { inputPerMtok: 1, outputPerMtok: 6 }],

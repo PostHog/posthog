@@ -13,9 +13,11 @@ from posthog.temporal.experiments.activities import (
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.temporal.metric_resolution import find_metric_dict
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-METRIC = {"metric_type": "mean", "uuid": "metric-uuid-1", "source": {"kind": "EventsNode", "event": "test"}}
+METRIC_UUID = "metric-uuid-1"
+METRIC = {"metric_type": "mean", "uuid": METRIC_UUID, "source": {"kind": "EventsNode", "event": "test"}}
 
 # Access the underlying sync functions, patching out close_old_connections which kills the test DB connection
 _raw_regular_sync = _get_experiment_regular_metrics_for_hour_sync.func  # type: ignore[attr-defined]
@@ -74,3 +76,42 @@ class TestDiscoveryFingerprints:
 
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
         assert fingerprints == [self._expected_fingerprint(experiment, saved_metric.query)]
+
+    def test_saved_metric_discovery_fingerprint_matches_recalculation_resolution(self) -> None:
+        """Discovery hashes the raw saved query; the recalculation side (timeseries sync, cold-start
+        fallback) hashes the merged dict from find_metric_dict, which injects an empty breakdown list.
+        If the two diverge, the sync never finds the daily points and daily results are never published."""
+        experiment, user = self._create_experiment(metrics=[])
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=experiment.team,
+            name="Saved metric",
+            query=METRIC,
+            created_by=user,
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata={})
+
+        with patch("posthog.temporal.experiments.activities.close_old_connections"):
+            results = _raw_saved_sync(hour=2)
+
+        discovery_fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
+        merged_dict = find_metric_dict(experiment, METRIC_UUID)
+        assert merged_dict is not None
+        assert discovery_fingerprints == [self._expected_fingerprint(experiment, merged_dict)]
+
+
+@pytest.mark.parametrize(
+    "variant,expected_equal",
+    [
+        ({**METRIC, "breakdownFilter": {"breakdowns": []}}, True),
+        ({**METRIC, "breakdownFilter": {"breakdowns": None}}, True),
+        ({**METRIC, "breakdownFilter": None}, True),
+        ({**METRIC, "breakdownFilter": {"breakdowns": [{"type": "event", "property": "$os_name"}]}}, False),
+    ],
+)
+def test_only_real_breakdowns_change_the_fingerprint(variant: dict, expected_equal: bool) -> None:
+    """Empty breakdown shapes are the same config as no breakdowns and must hash identically, while an
+    actual breakdown is a config change that must invalidate cached results."""
+    start = datetime.datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+    base_fp = compute_metric_fingerprint(METRIC, start, "bayesian", None)
+    variant_fp = compute_metric_fingerprint(variant, start, "bayesian", None)
+    assert (variant_fp == base_fp) is expected_equal

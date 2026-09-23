@@ -7,6 +7,10 @@ FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted ver
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 
+# Any `$ai_*` event is an AI event: capture and the AI pipeline route on it, and billing meters
+# it as LLM analytics. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
+AI_EVENT_NAME_PREFIX = "$ai_"
+
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
@@ -412,3 +416,8 @@ LOGIN_METHODS = [
 AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
 
 AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+
+# PostHog's own posthog-js instance on PostHog Cloud. The app's CSP names these by exact path.
+POSTHOG_JS_CLOUD_HOST = "https://internal-j.posthog.com"
+POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"
