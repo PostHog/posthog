@@ -147,12 +147,12 @@ function Library({
       !needle ||
       entry.label.toLowerCase().includes(needle) ||
       entry.description.toLowerCase().includes(needle);
-    return LIBRARY_GROUPS.map((group) => ({
-      group,
-      entries: LIBRARY.filter(
+    return LIBRARY_GROUPS.flatMap((group) => {
+      const entries = LIBRARY.filter(
         (entry) => entry.group === group && matches(entry),
-      ),
-    })).filter((item) => item.entries.length > 0);
+      );
+      return entries.length > 0 ? [{ group, entries }] : [];
+    });
   }, [search]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">

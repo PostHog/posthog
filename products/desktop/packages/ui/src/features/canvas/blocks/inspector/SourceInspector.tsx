@@ -470,6 +470,10 @@ function stepOf(spec: ParamSpec): number {
     : range / 100;
 }
 
+function firstValue(next: number | readonly number[]): number | undefined {
+  return Array.isArray(next) ? next[0] : (next as number);
+}
+
 function ParamSlider({
   value,
   spec,
@@ -484,8 +488,6 @@ function ParamSlider({
   const step = stepOf(spec);
   const decimals =
     step < 1 ? Math.min(2, String(step).split(".")[1]?.length ?? 1) : 0;
-  const first = (next: number | readonly number[]) =>
-    Array.isArray(next) ? next[0] : next;
   return (
     <div className="flex items-center gap-3">
       <Slider
@@ -496,11 +498,11 @@ function ParamSlider({
         step={step}
         className="min-w-0 flex-1"
         onValueChange={(next: number | readonly number[]) => {
-          const raw = first(next);
+          const raw = firstValue(next);
           if (typeof raw === "number") setDraft(raw);
         }}
         onValueCommitted={(next: number | readonly number[]) => {
-          const raw = first(next);
+          const raw = firstValue(next);
           if (typeof raw === "number" && raw !== value)
             onCommit(Number(raw.toFixed(decimals)));
         }}
