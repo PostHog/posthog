@@ -102,6 +102,8 @@ jobs:
                     && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
+            workflows_sdk: >-
+                ${{ (steps.filter.outputs.workflows_sdk || 'true') == 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
@@ -234,6 +236,13 @@ jobs:
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'common/replay-shared/**'
+                        - pnpm-workspace.yaml
+                        - pnpm-lock.yaml
+                        - .nvmrc
+                        - .github/workflows/ci-frontend.yml
+                      workflows_sdk:
+                        - 'products/workflows/packages/**'
+                        - 'products/workflows/workflows/**'
                         - pnpm-workspace.yaml
                         - pnpm-lock.yaml
                         - .nvmrc
@@ -734,8 +743,8 @@ jobs:
               # (dist/ is still the PR's own build then).
               run: |
                   size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
-                  echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
-                  echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
+                  echo "size_bytes=${size_bytes}" >> "$GITHUB_OUTPUT"
+                  echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B "${size_bytes}"))"
 
             - name: Capture bundle size to PostHog
               if: |
@@ -1068,6 +1077,29 @@ jobs:
               shell: bash
               run: exit 1
 
+    workflows-sdk:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.workflows_sdk == 'true'
+        name: Workflows SDK
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # The workflow files import @posthog/workflows through the devDependency
+            # in products/workflows/package.json, and pnpm only creates that link
+            # when the product package is selected too.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter "@posthog/workflows..." --filter "@posthog/products-workflows"
+
+            - name: Test workflows SDK
+              run: pnpm --filter=@posthog/workflows test
+
+            - name: Check repository workflows
+              run: pnpm --filter=@posthog/workflows repo:check
+
     report-test-signals:
         name: Report Jest test signals
         needs: [jest]
@@ -1140,6 +1172,7 @@ jobs:
             [
                 jest,
                 jest-replay-shared,
+                workflows-sdk,
                 frontend-typescript-checks,
                 frontend-format,
                 frontend-bundle-size,
@@ -1243,7 +1276,16 @@ jobs:
                       }
 
     frontend_tests:
-        needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs:
+            [
+                changes,
+                jest,
+                jest-replay-shared,
+                workflows-sdk,
+                frontend-format,
+                frontend-bundle-size,
+                frontend-typescript-checks,
+            ]
         name: Frontend Tests Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -1270,6 +1312,11 @@ jobs:
                     exit 1
                   fi
                   echo "Replay shared jest tests passed."
+                  if [[ "${{ needs.workflows-sdk.result }}" != "success" && "${{ needs.workflows-sdk.result }}" != "skipped" ]]; then
+                    echo "Workflows SDK tests failed."
+                    exit 1
+                  fi
+                  echo "Workflows SDK tests passed."
                   if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1

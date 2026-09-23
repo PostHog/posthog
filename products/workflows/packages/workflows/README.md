@@ -109,7 +109,7 @@ There is nothing to sync back: the file is the source of truth, the next push wi
 Two jobs in the repository that owns the workflow files.
 On a pull request, run `posthog-workflows check <file>` with no secret; it validates the file offline and does not block a contributor from a fork.
 On the default branch, run `posthog-workflows push <file>` with one secret, the API key, and the project id in the environment.
-Both are plain commands, so any CI system works, and the PostHog repository runs the same pair on its own workflow files under `products/workflows/workflows/`.
+Both are plain commands, so any CI system works. The PostHog repository runs the check in Frontend CI and pushes its own workflow files from `.github/workflows/workflows-as-code.yml`.
 
 ### Which auth do I use, and which permissions does the key need?
 
