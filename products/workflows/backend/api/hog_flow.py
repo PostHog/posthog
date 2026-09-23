@@ -4185,7 +4185,7 @@ def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
     return [names.get(step_id) or step_id for step_id in step_ids]
 
 
-def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str]:
+def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal, content: Optional[dict] = None) -> list[str]:
     """Parts of the workflow the proposal changes that someone else already changed since it was
     written: step ids for `actions`, field names for everything else.
 
@@ -4197,7 +4197,7 @@ def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str
     if hog_flow.version == proposal.base_version:
         return []
     base_content = base_content_of(hog_flow, proposal)
-    content = proposal_changes(proposal, base_content)
+    content = proposal_changes(proposal, base_content) if content is None else content
     touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
     touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
     touched_fields = [
@@ -4310,12 +4310,14 @@ def _leaf(item: Any, path: tuple[str, ...]) -> Any:
 
 
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
-    """Put back in the queue any suggestion whose content is no longer the staged draft.
+    """Put every approved suggestion back in the queue, because the draft it was approved into is
+    about to be replaced.
 
-    Approved means one thing here: this suggestion's content is what sits in the draft. Discarding
-    the draft, restoring a revision or approving a different suggestion replaces that content, so
-    the earlier one is pending again - and publish, which reads approved as "this is what shipped",
-    must not record it as applied against a version that never carried it.
+    Approved means one thing here: this suggestion is what sits in the draft. Discarding the draft,
+    restoring a revision, approving a different suggestion or editing over it all replace that
+    draft, and publish reads approved as "this is what shipped", so it must not record one against
+    a version that never carried it. A suggestion whose change survives the replacement comes back
+    to the queue too, which costs a person one more approval rather than a wrong history entry.
     """
     WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
         status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
@@ -5682,12 +5684,13 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
+        live_content = snapshot_flow_content(instance)
         # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
-        content = strip_proposal_secrets(dict(params["content"]), snapshot_flow_content(instance))
+        content = strip_proposal_secrets(dict(params["content"]), live_content)
         source_id = params.get("source_id") or None
 
         if "actions" in content or "edges" in content:
-            merged = merge_proposal_content(snapshot_flow_content(instance), content)
+            merged = merge_proposal_content(live_content, content)
             try:
                 # Warnings are fine to ignore; only raised errors mean the graph could not run.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
@@ -5792,7 +5795,8 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            conflicts = conflicting_parts(locked, locked_proposal)
+            changes = proposal_changes(locked_proposal, base_content_of(locked, locked_proposal))
+            conflicts = conflicting_parts(locked, locked_proposal, changes)
             if conflicts:
                 raise ProposalOutOfDateError(describe_steps(locked, conflicts))
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
@@ -5804,10 +5808,9 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # Stage what the suggestion changes, not what it sent: a field it merely echoed would
-            # otherwise be written back over a later edit that the conflict check let through.
-            changes = proposal_changes(locked_proposal, base_content_of(locked, locked_proposal))
-            # The draft is a full snapshot (live plus the proposal), so publish stays a plain copy.
+            # The draft is a full snapshot (live plus what the suggestion changes), so publish stays
+            # a plain copy. A field the suggestion merely echoed is not staged, since writing it back
+            # would undo a later edit the conflict check let through.
             merged = merge_proposal_content(snapshot_flow_content(locked), changes)
             try:
                 # Create validated the merge against the graph as it was then; it can have moved since.
