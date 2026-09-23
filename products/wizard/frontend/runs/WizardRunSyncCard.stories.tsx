@@ -87,7 +87,7 @@ export const LocalRunning: Story = {
 export const Completed: Story = {
     args: {
         run: { ...run, status: 'completed', stage: null },
-        tasks: [],
+        tasks: [task('Install the SDK and configure capture', 'running')],
         activeCount: 0,
     },
 }

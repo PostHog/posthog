@@ -6,7 +6,12 @@ import { formatElapsed } from 'scenes/onboarding/shared/wizard-sync/helpers'
 
 import type { WizardRunApi, WizardRunTaskApi } from '../generated/api.schemas'
 import type { WizardRunProgressState } from '../wizardRunDisplay'
-import { wizardRunCurrentState, wizardRunProgressState, wizardWorkspaceLabel } from '../wizardRunDisplay'
+import {
+    wizardRunCurrentState,
+    wizardRunProgressState,
+    wizardRunStagePosition,
+    wizardWorkspaceLabel,
+} from '../wizardRunDisplay'
 
 function RunStatusGlyph({ status }: { status: WizardRunApi['status'] }): JSX.Element {
     if (status === 'completed') {
@@ -48,7 +53,10 @@ export function WizardRunSyncCard({
     onClose: () => void
     onHide: () => void
 }): JSX.Element {
-    const currentTask = tasks.find((task) => task.status === 'running')
+    const currentTask =
+        run.status === 'running' && wizardRunStagePosition(run) === 2
+            ? tasks.find((task) => task.status === 'running')
+            : undefined
     const currentState = wizardRunCurrentState(run)
     const states = [0, 1, 2, 3].map((step) => wizardRunProgressState(run, step))
     const completed = states.filter((state) => state === 'complete').length
