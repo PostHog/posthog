@@ -50,13 +50,16 @@ const IMPORT_OF_PATH = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])\/static\/([^"'\s]+?\
 
 /** Replaces every import of a known chunk by path with an import of its identity specifier. */
 export function rewriteChunkSource(source, identityByFile) {
-    return source
-        .replace(SOURCE_MAP_COMMENT, '')
-        .replace(IMPORT_OF_PATH, (match, keyword, quote, file) =>
-            identityByFile.has(file)
-                ? `${keyword}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
-                : match
-        )
+    return source.replace(SOURCE_MAP_COMMENT, '').replace(IMPORT_OF_PATH, (match, keyword, quote, file) => {
+        if (!identityByFile.has(file)) {
+            return match
+        }
+        const replacement = `${keyword}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
+        // Pad to the original byte length so every other offset in the file is unchanged and the
+        // esbuild-emitted source map (which points at byte offsets) still lines up. `from"…"`,
+        // `import"…"` and `import("…")` all allow whitespace after the closing quote.
+        return replacement.padEnd(match.length, ' ')
+    })
 }
 
 export function stableFileName(originalFile, rewrittenSource) {
@@ -100,10 +103,14 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
     const imports = {}
     for (const [outputPath] of jsOutputs) {
         const file = fileOf(outputPath)
-        const source = rewriteChunkSource(readSource(outputPath), identityByFile)
+        const rawSource = readSource(outputPath)
+        const source = rewriteChunkSource(rawSource, identityByFile)
+        // Every replacement preserves length, except an identity collision with a short entry name
+        // (see rewriteChunkSource). When that happens the map's byte offsets no longer line up.
+        const mapValid = source.length === rawSource.replace(SOURCE_MAP_COMMENT, '').length
         const identity = identityByFile.get(file)
         const stableFile = stableFileName(file, source)
-        plan.set(outputPath, { identity, file, stableFile, source })
+        plan.set(outputPath, { identity, file, stableFile, source, mapValid })
         imports[`${SPECIFIER_PREFIX}${identity}`] = `static/${stableFile}`
     }
     return { plan, imports }
@@ -121,9 +128,11 @@ export function writeStableChunks({ absWorkingDir, outputs, chunks, entrypoints,
     )
 
     const stableByFile = new Map([...plan.values()].map((entry) => [entry.file, entry.stableFile]))
-    for (const { file, stableFile, source } of plan.values()) {
+    for (const { file, stableFile, source, mapValid } of plan.values()) {
         const mapFile = path.resolve(distDir, `${file}.map`)
-        const hasMap = fs.existsSync(mapFile)
+        // A rewrite that changed the source's length invalidates the map's byte offsets, so serve
+        // the source with no map rather than one that points at the wrong columns.
+        const hasMap = fs.existsSync(mapFile) && mapValid
         fs.writeFileSync(
             path.resolve(distDir, stableFile),
             hasMap ? `${source}\n//# sourceMappingURL=${stableFile}.map\n` : source

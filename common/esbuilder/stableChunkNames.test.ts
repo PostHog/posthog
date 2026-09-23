@@ -6,7 +6,7 @@ const OUTPUTS = {
     'dist/chunk-BBBB2222.js': { inputs: { 'src/lib/shared.ts': {}, 'src/lib/other.ts': {} } },
 }
 
-function plan(sources: Record<string, string>): Map<string, { stableFile: string; source: string }> {
+function plan(sources: Record<string, string>): Map<string, { stableFile: string; source: string; mapValid: boolean }> {
     return planStableChunks(OUTPUTS, (outputPath: string) => sources[outputPath]).plan
 }
 
@@ -39,12 +39,22 @@ describe('planStableChunks', () => {
     })
 
     it('rewrites chunk imports to identity specifiers and leaves URLs alone', () => {
-        const { source } = plan(entry('export const a=1')).get('dist/Scene-AAAA1111.js')!
+        const before = entry('export const a=1')
+        const { source } = plan(before).get('dist/Scene-AAAA1111.js')!
 
         expect(source).toMatch(/from"@c\/c[0-9A-F]{10}"/)
         expect(source).not.toContain('from"/static/chunk-BBBB2222.js"')
         expect(source).toContain('new URL("/static/chunk-BBBB2222.js")')
         expect(source).toContain('"/static/Inter-CCCC3333.woff2"')
+    })
+
+    it('pads a shorter specifier so the rewritten source keeps its original length', () => {
+        const before = entry('export const a=1')
+        const { source, mapValid } = plan(before).get('dist/Scene-AAAA1111.js')!
+
+        expect(source.length).toBe(before['dist/Scene-AAAA1111.js'].length)
+        expect(source).toMatch(/from"@c\/c[0-9A-F]{10}" +;/)
+        expect(mapValid).toBe(true)
     })
 
     describe('identity collisions', () => {
@@ -64,6 +74,27 @@ describe('planStableChunks', () => {
             expect(collisionPlan.get('dist/chunk-EEEE0000.js')!.identity).not.toBe(
                 collisionPlan.get('dist/chunk-FFFF0000.js')!.identity
             )
+        })
+
+        it('marks the map invalid when a collision fallback identity outgrows a short chunk name', () => {
+            // Both empty-input chunks hash to the same identity; the second falls back to a longer
+            // one (its own identity plus a hash of its output path), which can outgrow a short
+            // original file name and make the replacement longer than the specifier it replaces.
+            const outputs = {
+                'dist/c-a.js': {},
+                'dist/c-b.js': {},
+                'dist/e-x.js': { entryPoint: 'src/x.tsx', inputs: { 'src/x.tsx': {} } },
+            }
+            const sources: Record<string, string> = {
+                'dist/c-a.js': '',
+                'dist/c-b.js': '',
+                'dist/e-x.js': 'from"/static/c-b.js";render()',
+            }
+            jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+            const { plan: collisionPlan } = planStableChunks(outputs, (outputPath: string) => sources[outputPath])
+
+            expect(collisionPlan.get('dist/e-x.js')!.mapValid).toBe(false)
         })
     })
 
