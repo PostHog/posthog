@@ -54,6 +54,17 @@ It needs three repository variables:
 
 The role is scoped to the `posthog-cli/` prefix and to invalidations on that one distribution, so the workflow cannot touch another project's artifacts.
 
+### Homebrew
+
+`installers` includes `homebrew`, so cargo-dist generates `posthog-cli.rb` with per-platform URLs and checksums already filled in.
+The `publish-homebrew` job copies it into `PostHog/homebrew-tap`, which is the same tap phrocs and hogland use.
+
+Do not hand-edit `Formula/posthog-cli.rb` in that repo; the next release overwrites it.
+A prerelease does not move the formula, because Homebrew has no notion of one.
+
+Users install with `brew install posthog/tap/posthog-cli`.
+A Homebrew install is managed by Homebrew, so `brew upgrade` is how it updates.
+
 If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.

@@ -1,9 +1,9 @@
 """Plain-English rendering of the alerted insight's query definition.
 
-Without this the investigation agent only sees the insight's *name* plus the
-numbers, so a series called "Error tracking active users" reads as a count of
+Without this a model only sees the insight's *name* plus the numbers, so a series
+called "Error tracking active users" reads as a count of
 people hitting errors even when it is a `$pageview` DAU series filtered to a set
-of app URLs — and the agent then reaches for an outage to explain an engagement
+of app URLs, and the model then reaches for an outage to explain an engagement
 change. Naming the event, aggregation, and filters the alerted series is built
 from keeps every hypothesis tied to what the number actually measures.
 
@@ -14,10 +14,20 @@ workflow module's import path.
 
 from __future__ import annotations
 
+import re
 import json
 from typing import Any
 
 import structlog
+
+from posthog.dataclasses import frozen
+
+
+@frozen
+class MetricDateRange:
+    start: str
+    end: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +35,7 @@ logger = structlog.get_logger(__name__)
 # a query can carry hundreds of filter values.
 MAX_DEFINITION_CHARS = 2500
 MAX_DESCRIBED_SERIES = 6
+MAX_DESCRIBED_FORMULAS = 4
 MAX_DESCRIBED_FILTERS = 8
 MAX_VALUE_CHARS = 120
 MAX_SQL_CHARS = 800
@@ -88,22 +99,42 @@ _OPERATOR_LABELS = {
 _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 
 
-def describe_metric_definition(query: Any, *, series_index: int = 0) -> str:
+def describe_metric_definition(
+    query: Any,
+    *,
+    series_index: int = 0,
+    effective_date_range: MetricDateRange | None = None,
+    alert_config: dict[str, Any] | None = None,
+) -> str:
     """A plain-text block naming what the alerted series measures.
+
+    ``effective_date_range`` is the span of the points the caller actually supplies, for
+    readers that fetch a different range than the insight's saved one. Given it, the block
+    describes that span instead of the saved range, which would otherwise contradict the
+    dates alongside it.
+
+    ``alert_config`` is the alert's per-insight-kind config. A SQL query can return several
+    numeric columns in either time order, and only the config says which column the values
+    are and which way the rows run.
 
     Never raises: this only enriches the agent's context, so an unrecognized or
     malformed query degrades to a "couldn't read it" line rather than failing an
     investigation that would otherwise have run.
     """
     try:
-        described = _describe(query, series_index)
+        described = _describe(query, series_index, effective_date_range, alert_config)
     except Exception:
-        logger.warning("anomaly_investigation.metric_definition_failed", exc_info=True)
+        logger.warning("alerts.metric_definition_failed", exc_info=True)
         return UNAVAILABLE
     return described[:MAX_DEFINITION_CHARS]
 
 
-def _describe(query: Any, series_index: int) -> str:
+def _describe(
+    query: Any,
+    series_index: int,
+    effective_date_range: MetricDateRange | None = None,
+    alert_config: dict[str, Any] | None = None,
+) -> str:
     source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
@@ -113,16 +144,26 @@ def _describe(query: Any, series_index: int) -> str:
 
     series = source.get("series")
     clauses = source.get("clauses")
-    if isinstance(series, list) and series:
+    formulas = _formulas(source)
+    if isinstance(series, list) and series and formulas:
+        # With formulas, the alerted result is a formula over the series, and series_index
+        # picks a formula, not a raw series. The alerted formula and its inputs come first:
+        # the block is cut at a fixed size, and the other formulas are optional context.
+        lines.append(_describe_alerted_formula(formulas, series_index))
+        alerted = formulas[series_index][0] if 0 <= series_index < len(formulas) else ""
+        lines.extend(_describe_series(series, series_index=None, keep=_formula_inputs(alerted)))
+        lines.extend(_describe_other_formulas(formulas, series_index))
+    elif isinstance(series, list) and series:
         lines.extend(_describe_series(series, series_index))
     elif isinstance(clauses, list) and clauses:
         lines.extend(_describe_clauses(clauses))
     elif source.get("query"):
         lines.append(f"- SQL: {_clip(str(source['query']), MAX_SQL_CHARS)}")
+        lines.extend(_describe_sql_reading(alert_config))
     else:
         lines.append("- Series: could not be read from the stored query.")
 
-    lines.extend(_describe_query_scope(source))
+    lines.extend(_describe_query_scope(source, effective_date_range))
     return "\n".join(lines)
 
 
@@ -140,13 +181,114 @@ def unwrap_query_source(query: Any) -> dict[str, Any] | None:
     return None
 
 
-def _describe_series(series: list[Any], series_index: int) -> list[str]:
+def _formulas(source: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Every formula on the query as (expression, custom name), across the three shapes the
+    trends filter has carried: ``formulaNodes``, ``formulas``, and the single ``formula``."""
+    trends_filter = source.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return []
+    nodes = trends_filter.get("formulaNodes")
+    if isinstance(nodes, list) and nodes:
+        return [
+            (str(node.get("formula") or ""), node.get("custom_name") or None)
+            for node in nodes
+            if isinstance(node, dict)
+        ]
+    formulas = trends_filter.get("formulas")
+    if isinstance(formulas, list) and formulas:
+        return [(str(formula), None) for formula in formulas]
+    formula = trends_filter.get("formula")
+    return [(str(formula), None)] if formula else []
+
+
+def _describe_alerted_formula(formulas: list[tuple[str, str | None]], series_index: int) -> str:
+    if 0 <= series_index < len(formulas):
+        return _describe_formula(formulas[series_index], series_index, alerted=True)
+    return f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)"
+
+
+def _describe_other_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> list[str]:
+    """The lines for the formulas other than the alerted one, capped.
+
+    Custom names are unbounded, so each is clipped and the other formulas are capped:
+    otherwise one long name ahead of the alerted formula could push it past the block's cut.
+    """
+    others = [index for index in range(len(formulas)) if index != series_index]
+    lines = [_describe_formula(formulas[index], index, alerted=False) for index in others[:MAX_DESCRIBED_FORMULAS]]
+    if len(others) > MAX_DESCRIBED_FORMULAS:
+        lines.append(f"- ({len(others) - MAX_DESCRIBED_FORMULAS} further formulas omitted.)")
+    return lines
+
+
+def _describe_formula(formula: tuple[str, str | None], index: int, *, alerted: bool) -> str:
+    expression, name = formula
+    named = f' named "{_clip(name, MAX_VALUE_CHARS)}"' if name else ""
+    label = "Alerted result" if alerted else "Other result in this insight"
+    placement = "below" if alerted else "above"
+    return (
+        f"- {label} (index {index}): formula {_clip(expression, MAX_VALUE_CHARS)}{named}, "
+        f"combining the input series {placement} by letter (A is the first input series)"
+    )
+
+
+def _describe_sql_reading(alert_config: dict[str, Any] | None) -> list[str]:
+    """Which column the values come from and which way the rows run, for a SQL alert."""
+    if not isinstance(alert_config, dict) or alert_config.get("type") != "HogQLAlertConfig":
+        return []
+    column = alert_config.get("column")
+    lines = [
+        f'- Alerted values: column "{_clip(str(column), MAX_VALUE_CHARS)}"'
+        if column
+        else "- Alerted values: the query's single numeric column"
+    ]
+    label_column = alert_config.get("label_column")
+    if label_column:
+        lines.append(f'- Point labels: column "{_clip(str(label_column), MAX_VALUE_CHARS)}"')
+    evaluation = alert_config.get("evaluation")
+    if evaluation == "first_row":
+        lines.append(
+            "- Row order: the query returns newest first; the rows were reversed, so the last value is the latest"
+        )
+    elif evaluation == "last_row":
+        lines.append("- Row order: the query returns oldest first; the last value is the latest")
+    return lines
+
+
+def _formula_inputs(expression: str) -> list[int]:
+    """The series indices a formula refers to by letter: A is 0, Z is 25, AA is 26."""
+    indices: list[int] = []
+    for letters in re.findall(r"(?<![A-Za-z])([A-Z]{1,2})(?![A-Za-z])", expression):
+        index = 0
+        for letter in letters:
+            index = index * 26 + (ord(letter) - ord("A") + 1)
+        indices.append(index - 1)
+    return indices
+
+
+def _describe_series(series: list[Any], series_index: int | None, keep: list[int] | None = None) -> list[str]:
+    described = list(range(min(len(series), MAX_DESCRIBED_SERIES)))
+    # The cap bounds the prompt, but the alerted series, or the inputs of the alerted formula,
+    # are what the judge is asked about, so they displace capped ones rather than being omitted.
+    wanted = [i for i in ([series_index] if series_index is not None else []) + (keep or []) if i < len(series)]
+    slot = len(described) - 1
+    for index in dict.fromkeys(wanted):
+        if index in described:
+            continue
+        while slot >= 0 and described[slot] in wanted:
+            slot -= 1
+        if slot < 0:
+            break
+        described[slot] = index
+        slot -= 1
     lines: list[str] = []
-    for index, node in enumerate(series[:MAX_DESCRIBED_SERIES]):
-        label = "Alerted series" if index == series_index else "Other series in this insight"
-        lines.append(f"- {label} (index {index}): {_describe_series_node(node)}")
-    if len(series) > MAX_DESCRIBED_SERIES:
-        lines.append(f"- ({len(series) - MAX_DESCRIBED_SERIES} further series omitted.)")
+    for index in described:
+        if series_index is None:
+            label = f"Input series {chr(ord('A') + index)}" if index < 26 else "Input series"
+        else:
+            label = "Alerted series" if index == series_index else "Other series in this insight"
+        lines.append(f"- {label} (index {index}): {_describe_series_node(series[index])}")
+    if len(series) > len(described):
+        lines.append(f"- ({len(series) - len(described)} further series omitted.)")
     return lines
 
 
@@ -203,7 +345,7 @@ def _describe_clauses(clauses: list[Any]) -> list[str]:
     return lines
 
 
-def _describe_query_scope(source: dict[str, Any]) -> list[str]:
+def _describe_query_scope(source: dict[str, Any], effective_date_range: MetricDateRange | None = None) -> list[str]:
     lines: list[str] = []
 
     global_filters = _describe_filters(source.get("properties"))
@@ -214,17 +356,15 @@ def _describe_query_scope(source: dict[str, Any]) -> list[str]:
     if breakdown:
         lines.append(f"- Breakdown: {breakdown}")
 
-    trends_filter = source.get("trendsFilter")
-    if isinstance(trends_filter, dict):
-        formula = trends_filter.get("formula") or trends_filter.get("formulas")
-        if formula:
-            lines.append(f"- Formula combining the series: {_format_value(formula)}")
-
-    date_range = source.get("dateRange")
-    if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
-        lines.append(
-            f"- Insight date range: {date_range.get('date_from') or 'default'} to {date_range.get('date_to') or 'now'}"
-        )
+    if effective_date_range:
+        lines.append(f"- The points below cover: {effective_date_range.start} to {effective_date_range.end}")
+    else:
+        date_range = source.get("dateRange")
+        if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
+            lines.append(
+                f"- Insight date range: {date_range.get('date_from') or 'default'} to "
+                f"{date_range.get('date_to') or 'now'}"
+            )
 
     interval = source.get("interval")
     if interval:

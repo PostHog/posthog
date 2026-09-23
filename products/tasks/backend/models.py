@@ -379,6 +379,9 @@ class Task(DeletedMetaFields, models.Model):
         # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
         # the workflow's creator.
         WORKFLOW = "workflow", "Workflow"
+        # The one-off task that sets a space up for a goal or a feature. Started by a person
+        # from the create-space flow, so it is billed and timed like their own tasks.
+        SPACE_SETUP = "space_setup", "Space Setup"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -2923,6 +2926,9 @@ class TaskRun(models.Model):
         benjamin_version = state.get("benjamin_version")
         if isinstance(benjamin_version, str) and benjamin_version:
             props["benjamin_version"] = benjamin_version
+        agent_version = state.get("agent_version")
+        if isinstance(agent_version, str) and agent_version:
+            props["agent_version"] = agent_version
         budget = state.get("budget_guard")
         if isinstance(budget, dict):
             for key in ("cap_usd", "spent_usd", "estimated_usd", "sdk_total_usd"):
