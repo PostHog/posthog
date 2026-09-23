@@ -1003,7 +1003,7 @@ class TestLocalEvaluationBatch(BaseTest):
         )
 
         if malformed:
-            Cohort.objects.filter(pk=cohort_b.pk).update(filters={"properties": {"values": [None]}})
+            Cohort.objects.filter(pk=cohort_b.pk).update(filters={"properties": {"type": "AND", "values": [None]}})
 
         FeatureFlag.objects.create(
             team=team_a,
@@ -1507,6 +1507,8 @@ class TestLocalEvaluationBatch(BaseTest):
             ([],),
             ({},),
             ({"tier": "example"},),
+            ({"type": "paid"},),
+            ({"values": ["paid"]},),
             ([{"type": "person", "key": "tier", "value": "example"}],),
             ({"type": "and", "values": [{"type": "person", "key": "tier", "value": "example"}]},),
             ({"type": "AND", "values": [{}]},),
@@ -1529,7 +1531,7 @@ class TestLocalEvaluationBatch(BaseTest):
 
     @parameterized.expand(
         [
-            ("null_leaf", {"values": [None]}),
+            ("null_leaf", {"type": "AND", "values": [None]}),
             (
                 "untyped_group",
                 {"type": "AND", "values": [{"values": [{"type": "person", "key": "tier", "value": "example"}]}]},

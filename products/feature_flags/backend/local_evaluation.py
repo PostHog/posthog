@@ -556,7 +556,7 @@ def _serialize_legacy_cohort(cohort: Cohort) -> _LegacyCohortDefinition:
         if isinstance(properties, list):
             properties = {"type": "AND", "values": properties}
         # Legacy key/value dictionaries are parsed without dropping invalid leaves.
-        if not isinstance(properties, dict) or "type" in properties or "values" in properties:
+        if not isinstance(properties, dict) or ("type" in properties and "values" in properties):
             references = cohort_references(properties)
     serialized = cohort.properties.to_dict()
     if references is None:
