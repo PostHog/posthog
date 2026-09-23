@@ -43,6 +43,15 @@ EVENT_VOLUME_WINDOW_DAYS = USAGE_REPORT_EVENTS_PREAGG_TTL_DAYS - 1
 COUNTED_TABLES: frozenset[str] = frozenset({PERSONS_TABLE, GROUPS_TABLE})
 TABLE_ROWS_CACHE_SECONDS = 24 * 60 * 60
 
+# Tables whose rows arrive over time, sized as a daily rate the estimator scales to the query's range. The
+# column is the one their sort key or partition is on, so the count reads only the window it asks for.
+TIME_ORDERED_TABLES: dict[str, str] = {
+    "sessions": "min_timestamp",
+    "raw_sessions": "min_timestamp",
+    "raw_sessions_v3": "session_timestamp",
+}
+DAILY_ROWS_WINDOW_DAYS = 7
+
 
 @frozen
 class EventVolume:
@@ -82,6 +91,10 @@ class StatisticsProvider(Protocol):
         """How many rows a ClickHouse table holds for the team. ``table`` is one of ``COUNTED_TABLES``."""
         ...
 
+    def daily_rows(self, team_id: int, table: str) -> float | None:
+        """How many rows a day the team adds to a time-ordered table. ``table`` is a ``TIME_ORDERED_TABLES`` key."""
+        ...
+
 
 class ClickHouseStatisticsProvider:
     """Reads statistics from the rollups ClickHouse already maintains.
@@ -95,6 +108,7 @@ class ClickHouseStatisticsProvider:
         self._event_volume: dict[int, EventVolume | None] = {}
         self._property_ndv: dict[tuple[int, str], int | None] = {}
         self._table_rows: dict[tuple[int, str], int | None] = {}
+        self._daily_rows: dict[tuple[int, str], float | None] = {}
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         if team_id not in self._event_volume:
@@ -148,6 +162,48 @@ class ClickHouseStatisticsProvider:
         count = int(rows[0][0]) if rows else 0
         cache.set(cache_key, count, timeout=TABLE_ROWS_CACHE_SECONDS)
         return count
+
+    def daily_rows(self, team_id: int, table: str) -> float | None:
+        key = (team_id, table)
+        if key not in self._daily_rows:
+            self._daily_rows[key] = self._load_daily_rows(team_id, table)
+        return self._daily_rows[key]
+
+    def _load_daily_rows(self, team_id: int, table: str) -> float | None:
+        """Average the team's rows over the last full days, once a day. Today is excluded because it is still filling."""
+        time_column = TIME_ORDERED_TABLES.get(table)
+        if time_column is None:
+            return None
+        cache_key = f"hogql_cost:daily_rows:{team_id}:{table}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return float(cached)
+        today = self._today or date.today()
+        since = today - timedelta(days=DAILY_ROWS_WINDOW_DAYS)
+        try:
+            with tags_context(
+                product=Product.INTERNAL,
+                feature=Feature.SCHEMA_INTROSPECTION,
+                team_id=team_id,
+                plan_fingerprint=None,
+                estimated_rows=None,
+                estimated_bytes=None,
+            ):
+                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a table and column taken from TIME_ORDERED_TABLES; the rest is bound as parameters
+                rows = sync_execute(
+                    f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table} "
+                    f"WHERE team_id = %(team_id)s AND {time_column} >= %(since)s AND {time_column} < %(today)s",
+                    {"team_id": team_id, "since": since, "today": today},
+                    workload=Workload.OFFLINE,
+                    team_id=team_id,
+                    readonly=True,
+                )
+        except Exception:
+            logger.warning("hogql_cost_daily_rows_unavailable", team_id=team_id, table=table, exc_info=True)
+            return None
+        per_day = (int(rows[0][0]) if rows else 0) / DAILY_ROWS_WINDOW_DAYS
+        cache.set(cache_key, per_day, timeout=TABLE_ROWS_CACHE_SECONDS)
+        return per_day
 
     def _load_event_volume(self, team_id: int) -> EventVolume | None:
         today = self._today or date.today()
@@ -235,10 +291,12 @@ class FixedStatisticsProvider:
         event_volume: Mapping[int, EventVolume] | None = None,
         property_ndv: Mapping[tuple[int, str], int] | None = None,
         table_rows: Mapping[tuple[int, str], int] | None = None,
+        daily_rows: Mapping[tuple[int, str], float] | None = None,
     ) -> None:
         self._event_volume = dict(event_volume or {})
         self._property_ndv = dict(property_ndv or {})
         self._table_rows = dict(table_rows or {})
+        self._daily_rows = dict(daily_rows or {})
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         return self._event_volume.get(team_id)
@@ -248,3 +306,6 @@ class FixedStatisticsProvider:
 
     def table_rows(self, team_id: int, table: str) -> int | None:
         return self._table_rows.get((team_id, table))
+
+    def daily_rows(self, team_id: int, table: str) -> float | None:
+        return self._daily_rows.get((team_id, table))

@@ -7,6 +7,7 @@ headline. What is known depends on the source. For ``events``:
     rows = events per day  ×  days in the timestamp range  ×  share of volume carried by the filtered event names
            ×  share of granules the most selective indexed property filter leaves
 
+Sessions are a daily rate scaled to the range on the session's start time, the same shape without the event share.
 A warehouse table carries the rows and bytes of its last sync, and persons and groups a count of the team's rows.
 Any other table is listed with nothing known about it, so the reader sees which part of the query the number does
 not cover. The estimate is advisory. It is compared against
@@ -38,6 +39,9 @@ from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
+from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.index_eligibility import IndexKind, eligibility_from_plan
 from posthog.hogql.property_planner import PropertyScope, plan_property_comparison
 from posthog.hogql.visitor import TraversingVisitor
@@ -146,6 +150,8 @@ def estimate_scan(
             estimate, unmodelled = _estimate_events_scan(scan, volume, context.team_id, provider)
             tables.append(estimate)
             upper_bound = upper_bound or unmodelled
+        elif isinstance(scan, _SessionsScan):
+            tables.append(_estimate_sessions_scan(scan, context.team_id, provider))
         else:
             estimate = _other_table_estimate(scan, context.team_id, provider)
             tables.append(estimate)
@@ -187,6 +193,20 @@ def _estimate_events_scan(
     )
 
 
+def _estimate_sessions_scan(scan: "_SessionsScan", team_id: int, provider: StatisticsProvider) -> TableScanEstimate:
+    per_day = provider.daily_rows(team_id, scan.table)
+    if per_day is None:
+        return TableScanEstimate(name=scan.name, source="clickhouse", precision="unknown")
+    return TableScanEstimate(
+        name=scan.name,
+        source="clickhouse",
+        precision="measured",
+        rows=int(per_day * scan.days),
+        days=scan.days,
+        time_range="bounded" if scan.bounded else "open",
+    )
+
+
 def _granule_fraction(values: int, distinct_values: int) -> float:
     """Share of granules expected to hold at least one row matching an equality on ``values`` constants.
 
@@ -222,6 +242,17 @@ class _EventsScan:
 
 
 @frozen
+class _SessionsScan:
+    """One read of a sessions table, narrowed to the start-time range the query asks for."""
+
+    name: str
+    # The physical table the rate is counted on.
+    table: str
+    days: float
+    bounded: bool
+
+
+@frozen
 class _OtherScan:
     """One read of a table that is not events. Sized once the statistics provider is at hand."""
 
@@ -252,9 +283,22 @@ def _events_table(table_type: ast.Type | None) -> _TableRef | None:
     return ref if ref is not None and isinstance(ref.table, EventsTable) else None
 
 
+# The lazy tables read their raw counterpart, so both map to the physical table the rate is counted on.
+_SESSIONS_TABLES: dict[type[Table], str] = {
+    SessionsTableV1: "sessions",
+    RawSessionsTableV1: "sessions",
+    SessionsTableV2: "raw_sessions",
+    RawSessionsTableV2: "raw_sessions",
+    SessionsTableV3: "raw_sessions_v3",
+    RawSessionsTableV3: "raw_sessions_v3",
+}
+# Columns on which a comparison bounds a sessions scan: the lazy table's start time and the raw columns behind it.
+_SESSION_START_COLUMNS = frozenset({"$start_timestamp", "min_timestamp", "session_timestamp"})
+
+
 def _table_scans(
     node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE]
-) -> list[_EventsScan | _OtherScan] | None:
+) -> list[_EventsScan | _SessionsScan | _OtherScan] | None:
     """Every table scan a query's FROM clause performs, or None when the FROM tree cannot be walked.
 
     ``ctes`` are the subquery CTEs in scope. The resolver leaves a CTE reference in the FROM clause typed
@@ -263,7 +307,7 @@ def _table_scans(
     skipping them undercounts, which the "up to" wording does not promise against.
     """
     if isinstance(node, ast.SelectSetQuery):
-        scans: list[_EventsScan | _OtherScan] = []
+        scans: list[_EventsScan | _SessionsScan | _OtherScan] = []
         in_scope = dict(ctes)
         for branch in node.select_queries():
             branch_scans = _table_scans(branch, now, context, in_scope)
@@ -295,6 +339,8 @@ def _table_scans(
             name = _scan_name(join, source)
             if isinstance(source.table, EventsTable):
                 scans.append(predicates.scan_for(name, source.alias))
+            elif (sessions_table := _SESSIONS_TABLES.get(type(source.table))) is not None:
+                scans.append(predicates.sessions_scan_for(name, source.alias, sessions_table))
             else:
                 scans.append(_OtherScan(name=name, table=source.table))
         else:
@@ -386,23 +432,33 @@ class _WherePredicates(TraversingVisitor):
         super().__init__()
         self._now = now
         self._context = context
-        self._lower_bounds: dict[str | None, datetime] = {}
-        self._upper_bounds: dict[str | None, datetime] = {}
+        # Bounds are keyed by (table kind, alias): an unaliased events table and an unaliased sessions table
+        # in one join must not share a range.
+        self._lower_bounds: dict[tuple[str, str | None], datetime] = {}
+        self._upper_bounds: dict[tuple[str, str | None], datetime] = {}
         self._events: dict[str | None, set[str]] = {}
         self._property_filters: dict[str | None, list[_PropertyFilter]] = {}
         # Set when an indexed filter cannot be pinned to one scan or modelled. It applies to every scan of
         # the select, because a filter under OR or on a joined table cannot be attributed to one alias.
         self._unmodelled_filter = False
 
-    def scan_for(self, name: str, alias: str | None) -> _EventsScan:
-        since = self._lower_bounds.get(alias)
-        until = self._upper_bounds.get(alias)
+    def _range(self, kind: str, alias: str | None) -> tuple[float, bool]:
+        since = self._lower_bounds.get((kind, alias))
+        until = self._upper_bounds.get((kind, alias))
         bounded = since is not None and until is not None
         since = since or (self._now - timedelta(days=DEFAULT_RANGE_DAYS))
         until = until or self._now
+        return max((until - since).total_seconds() / 86_400, 0.0), bounded
+
+    def sessions_scan_for(self, name: str, alias: str | None, table: str) -> _SessionsScan:
+        days, bounded = self._range("sessions", alias)
+        return _SessionsScan(name=name, table=table, days=days, bounded=bounded)
+
+    def scan_for(self, name: str, alias: str | None) -> _EventsScan:
+        days, bounded = self._range("events", alias)
         return _EventsScan(
             name=name,
-            days=max((until - since).total_seconds() / 86_400, 0.0),
+            days=days,
             bounded=bounded,
             events=frozenset(self._events.get(alias, ())),
             property_filters=tuple(self._property_filters.get(alias, ())),
@@ -433,14 +489,17 @@ class _WherePredicates(TraversingVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         for field_side, value_side, flipped in ((node.left, node.right, False), (node.right, node.left, True)):
-            located = _events_column(field_side)
+            located = _table_column(field_side)
             if located is None:
                 continue
-            alias, column = located
-            if column == "timestamp":
-                self._record_timestamp(alias, node.op, value_side, flipped)
-            elif column == "event" and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
-                self._events.setdefault(alias, set()).update(_string_constants(value_side))
+            ref, column = located
+            if isinstance(ref.table, EventsTable):
+                if column == "timestamp":
+                    self._record_timestamp(("events", ref.alias), node.op, value_side, flipped)
+                elif column == "event" and node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
+                    self._events.setdefault(ref.alias, set()).update(_string_constants(value_side))
+            elif type(ref.table) in _SESSIONS_TABLES and column in _SESSION_START_COLUMNS:
+                self._record_timestamp(("sessions", ref.alias), node.op, value_side, flipped)
         self._record_property_filter(node)
 
     def _record_property_filter(self, node: ast.CompareOperation) -> None:
@@ -467,7 +526,9 @@ class _WherePredicates(TraversingVisitor):
             _PropertyFilter(property_name=plan.access.property_name, values=values)
         )
 
-    def _record_timestamp(self, alias: str | None, op: ast.CompareOperationOp, value: ast.Expr, flipped: bool) -> None:
+    def _record_timestamp(
+        self, key: tuple[str, str | None], op: ast.CompareOperationOp, value: ast.Expr, flipped: bool
+    ) -> None:
         moment = _constant_datetime(value, self._now)
         if moment is None:
             return
@@ -476,11 +537,11 @@ class _WherePredicates(TraversingVisitor):
         if flipped:
             greater, less = less, greater
         if greater:
-            current = self._lower_bounds.get(alias)
-            self._lower_bounds[alias] = max(current, moment) if current else moment
+            current = self._lower_bounds.get(key)
+            self._lower_bounds[key] = max(current, moment) if current else moment
         elif less:
-            current = self._upper_bounds.get(alias)
-            self._upper_bounds[alias] = min(current, moment) if current else moment
+            current = self._upper_bounds.get(key)
+            self._upper_bounds[key] = min(current, moment) if current else moment
 
 
 class _IndexedFilterFinder(TraversingVisitor):
@@ -501,8 +562,8 @@ class _IndexedFilterFinder(TraversingVisitor):
         super().visit_compare_operation(node)
 
 
-def _events_column(expr: ast.Expr) -> tuple[str | None, str] | None:
-    """(table alias, column name) when ``expr`` reads a plain column of an events table, else None."""
+def _table_column(expr: ast.Expr) -> tuple[_TableRef, str] | None:
+    """(table, column name) when ``expr`` reads a plain column of a physical table, else None."""
     while isinstance(expr, ast.Alias):
         expr = expr.expr
     if not isinstance(expr, ast.Field):
@@ -512,10 +573,10 @@ def _events_column(expr: ast.Expr) -> tuple[str | None, str] | None:
         field_type = field_type.type
     if not isinstance(field_type, ast.FieldType):
         return None
-    table = _events_table(field_type.table_type)
+    table = _table_ref(field_type.table_type)
     if table is None:
         return None
-    return table.alias, field_type.name
+    return table, field_type.name
 
 
 def _string_constants(expr: ast.Expr) -> list[str]:

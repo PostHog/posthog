@@ -76,6 +76,13 @@ class TestEstimateEventsScan(BaseTest):
             event_volume={self.team.pk: VOLUME}, table_rows={(self.team.pk, table): n for table, n in rows.items()}
         )
 
+    def _with_sessions_per_day(self, per_day: float) -> None:
+        # Which physical sessions table a team reads depends on a modifier, so the rate is offered for every one.
+        self.provider = FixedStatisticsProvider(
+            event_volume={self.team.pk: VOLUME},
+            daily_rows={(self.team.pk, table): per_day for table in ("sessions", "raw_sessions", "raw_sessions_v3")},
+        )
+
     def _estimate(self, sql: str) -> ScanEstimate | None:
         node = cast(ast.SelectQuery, resolve_types(parse_select(sql), self.context, dialect="clickhouse"))
         return estimate_scan(node, self.context, self.provider, now=NOW)
@@ -279,6 +286,63 @@ class TestEstimateEventsScan(BaseTest):
         assert estimate.tables == (
             TableScanEstimate(name=name, source="clickhouse", precision="size_only", rows=expected_rows),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "bounded_start_time",
+                "SELECT count() FROM sessions WHERE $start_timestamp > '2026-09-04' AND $start_timestamp < '2026-09-11'",
+                70_000,
+                7.0,
+                "bounded",
+            ),
+            (
+                "raw_table_and_relative_bound",
+                "SELECT count() FROM raw_sessions WHERE min_timestamp > now() - interval 2 day",
+                20_000,
+                2.0,
+                "open",
+            ),
+            ("no_bound_assumes_a_year", "SELECT count() FROM sessions", 3_650_000, float(DEFAULT_RANGE_DAYS), "open"),
+            (
+                "end_time_does_not_bound_the_scan",
+                "SELECT count() FROM sessions WHERE $end_timestamp > now() - interval 2 day",
+                3_650_000,
+                float(DEFAULT_RANGE_DAYS),
+                "open",
+            ),
+        ]
+    )
+    def test_sessions_scale_a_daily_rate_to_the_start_time_range(self, _name, sql, rows, days, time_range):
+        self._with_sessions_per_day(10_000)
+
+        estimate = self._estimate(sql)
+
+        assert estimate is not None
+        assert estimate.upper_bound is False
+        [table] = estimate.tables
+        assert (table.source, table.precision, table.rows, table.days, table.time_range) == (
+            "clickhouse",
+            "measured",
+            rows,
+            days,
+            time_range,
+        )
+
+    def test_events_and_sessions_in_one_join_keep_their_own_ranges(self):
+        self._with_sessions_per_day(10_000)
+
+        estimate = self._estimate(
+            "SELECT count() FROM events JOIN sessions ON events.$session_id = sessions.session_id"
+            " WHERE events.timestamp > now() - interval 1 day AND events.timestamp < now()"
+            " AND sessions.$start_timestamp > now() - interval 3 day AND sessions.$start_timestamp < now()"
+        )
+
+        assert estimate is not None
+        assert [(table.name, table.rows, table.days) for table in estimate.tables] == [
+            ("events", 100_000, 1.0),
+            ("sessions", 30_000, 3.0),
+        ]
 
     def test_a_join_to_persons_adds_the_teams_persons_to_the_ceiling(self):
         self._with_table_rows(person=2_400_000)

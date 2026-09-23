@@ -142,9 +142,28 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
         assert second == 2
         assert execute.call_count == 1
 
+    def test_daily_rows_averages_a_window_of_full_days_and_caches_it(self):
+        cache.delete(f"hogql_cost:daily_rows:{self.team_id}:raw_sessions_v3")
+        executed: list[tuple[str, dict]] = []
+
+        def count(sql: str, params: dict, **kwargs: object) -> list[tuple[int]]:
+            executed.append((sql, params))
+            return [(70,)]
+
+        with patch("posthog.hogql.cost.statistics.sync_execute", side_effect=count):
+            first = ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "raw_sessions_v3")
+            second = ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "raw_sessions_v3")
+
+        assert first == 10.0
+        assert second == 10.0
+        [(sql, params)] = executed
+        assert "raw_sessions_v3" in sql and "session_timestamp" in sql
+        assert params == {"team_id": self.team_id, "since": TODAY - timedelta(days=7), "today": TODAY}
+
     def test_table_rows_refuses_a_table_it_does_not_count(self):
         with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
             assert ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "events") is None
+            assert ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "events") is None
         execute.assert_not_called()
 
     def test_team_without_data_yields_none(self):
