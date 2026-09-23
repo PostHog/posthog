@@ -241,8 +241,8 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
-            # Written with the slot, before capture first runs, so the buffer receives every change
-            # the slot sees and no legacy delivery ever precedes it.
+            # Written with the slot, before capture first runs, so no change reaches the buffer that a
+            # legacy batch already delivered.
             "cdc_ingest_mode": "buffered",
         }
 
