@@ -68,7 +68,10 @@ export function PathsChart(): JSX.Element {
         () => buildPathsGraph(paths, pathsFilter || {}, funnelPathsFilter || undefined, colors),
         [paths, pathsFilter, funnelPathsFilter, colors]
     )
-    const chartWidth = pathsChartWidth(containerWidth ?? FALLBACK_CANVAS_WIDTH, maxPathLayer(paths))
+    const chartWidth = useMemo(
+        () => pathsChartWidth(containerWidth ?? FALLBACK_CANVAS_WIDTH, maxPathLayer(paths)),
+        [containerWidth, paths]
+    )
 
     const highlight = useMemo<SankeyHighlight | null>(() => {
         if (activeIndices.nodeIndices.size === 0) {
