@@ -401,9 +401,6 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             // Refresh the user so we know the new session expiry
             actions.loadUser()
         },
-        submitReauthenticationFailure: () => {
-            actions.resolveSensitiveAction('failure')
-        },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
                 posthog.capture('reauthentication_modal_dismissed')
