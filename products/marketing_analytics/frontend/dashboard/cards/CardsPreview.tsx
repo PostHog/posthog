@@ -72,7 +72,7 @@ export function CardsPreview({
                 ))}
             </MarketingMetricCardGrid>
             <div className="flex flex-wrap items-center gap-2">
-                <LemonButton onClick={() => onLoadingChange(!loading)}>
+                <LemonButton data-attr="marketing-story-toggle-loading" onClick={() => onLoadingChange(!loading)}>
                     {loading ? 'Show metrics' : 'Show loading'}
                 </LemonButton>
                 {setupSelected && <span>Goal setup selected</span>}
