@@ -164,7 +164,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 let value = args[1].clone();
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.push(value);
                         Ok(HogLiteral::Array(arr).into())
@@ -180,7 +180,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 let value = args[1].clone();
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.insert(0, value);
                         Ok(HogLiteral::Array(arr).into())
@@ -195,7 +195,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayPopBack")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.pop();
                         Ok(HogLiteral::Array(arr).into())
@@ -211,7 +211,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayPopFront")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         if !arr.is_empty() {
                             arr.remove(0);
@@ -229,7 +229,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arraySort")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
@@ -244,7 +244,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayReverse")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.reverse();
                         Ok(HogLiteral::Array(arr).into())
@@ -260,7 +260,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayReverseSort")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut nums = collect_sorted_nums(&vm.heap, arr, "arrayReverseSort")?;
                         nums.reverse();
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
@@ -276,7 +276,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 2, "arrayStringConcat")?;
                 let vals = args[0].deref(&vm.heap)?;
                 let sep = args[1].deref(&vm.heap)?.try_as::<str>()?;
-                let HogLiteral::Array(vals) = vals else {
+                let (HogLiteral::Array(vals) | HogLiteral::Tuple(vals)) = vals else {
                     return Ok(HogLiteral::from(String::new()).into());
                 };
                 let mut parts = Vec::with_capacity(vals.len());

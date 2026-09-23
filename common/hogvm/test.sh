@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-# List of test files to skip the compiledjs tests
+# Files whose compiled-JavaScript leg is skipped: the encoded and HMAC hash functions are stubs there.
+# The hex functions it does implement are covered by cryptoHex.hog.
 SKIP_COMPILEDJS_FILES=("crypto.hog")
 
 # Files on which we only want to run Node.js tests
