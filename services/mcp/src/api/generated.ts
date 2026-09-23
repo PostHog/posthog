@@ -51396,7 +51396,7 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
-      /** What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+      /** What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
        *
        * * `gui` - GUI
        * * `code` - Code */
@@ -51927,7 +51927,7 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
-      /** What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+      /** What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
        *
        * * `gui` - GUI
        * * `code` - Code */
@@ -76485,7 +76485,7 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
-      /** What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
+      /** What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.
        *
        * * `gui` - GUI
        * * `code` - Code */
