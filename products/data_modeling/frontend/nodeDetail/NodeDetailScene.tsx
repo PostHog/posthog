@@ -14,17 +14,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { ModelMetadata } from 'products/data_modeling/frontend/nodeDetail/ModelMetadata'
-
+import { ModelMetadata } from './ModelMetadata'
 import { NodeDetailHeader } from './NodeDetailHeader'
+import { NodeDetailLineage } from './NodeDetailLineage'
+import { NodeDetailMaterialization } from './NodeDetailMaterialization'
 import { NodeDetailOverview } from './NodeDetailOverview'
+import { NodeDetailQuery } from './NodeDetailQuery'
 import type { NodeDetailSceneLogicProps, NodeDetailSceneTab } from './nodeDetailSceneLogic'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
-import { NodeDetailLineage } from './tabs/NodeDetailLineage'
-import { NodeDetailMaterialization } from './tabs/NodeDetailMaterialization'
-import { NodeDetailQuery } from './tabs/NodeDetailQuery'
-import { NodeDetailTests } from './tabs/NodeDetailTests'
-import { NodeDetailTestsTabLabel } from './tabs/NodeDetailTestsTabLabel'
+import { NodeDetailTests } from './NodeDetailTests'
+import { NodeDetailTestsTabLabel } from './NodeDetailTestsTabLabel'
 
 export const scene: SceneExport<NodeDetailSceneLogicProps> = {
     component: NodeDetailScene,

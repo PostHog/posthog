@@ -10,13 +10,12 @@ import { pluralize } from 'lib/utils/strings'
 
 import { DataModelingNodeType } from '~/types'
 
-import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
-import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
-import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
-import { NodeTypeLegend } from 'products/data_modeling/frontend/lineage/NodeTypeLegend'
-import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
-
-import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from '../modelsLineageLogic'
+import { LineageGraph } from './LineageGraph'
+import { lineageNodeUrl } from './lineageNodeUrl'
+import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from './modelsLineageLogic'
+import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { NodeTypeLegend } from './NodeTypeLegend'
+import { SEARCH_SYNTAX_HELP } from './SearchSyntaxHelp'
 
 const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
     key: type,
