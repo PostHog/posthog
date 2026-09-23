@@ -1748,10 +1748,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.loadFolder('', true)
         },
         loadHomeFolderFailure: ({ errorObject }) => {
-            // The follow-up loads must also run when the home folder call fails, or the tree keeps
-            // whatever partial state it had for the rest of the session. A backend that predates the
-            // collection action answers 405, because the router matches the detail route first and
-            // only then refuses the method.
+            // The follow-up loads must run on both outcomes, or a failed call leaves the tree
+            // without its refresh for the rest of the session.
             posthog.capture('home folder load failed', { status: errorObject?.status ?? null })
             actions.loadShortcuts()
             actions.loadFolder('', true)
