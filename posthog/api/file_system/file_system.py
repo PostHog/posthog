@@ -507,16 +507,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         queryset = self._filter_by_access_control(queryset)
 
+        # Every branch ends on `id`, because no other sort column is unique. Without that tiebreaker
+        # Postgres can order tied rows differently per page, so a client that walks limit/offset
+        # pages sees an item twice or misses it.
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
-            queryset = queryset.order_by("shortcut")  # override order
+            queryset = queryset.order_by("shortcut", "id")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
-                queryset = queryset.order_by(order_by_param)
+                tiebreaker = "-id" if order_by_param.startswith("-") else "id"
+                queryset = queryset.order_by(order_by_param, tiebreaker)
             else:
                 # `last_viewed_at` ordering (Recents, with or without a search term) is served
                 # view-log-first in `_list_recents`, so it never reaches this queryset path.
-                queryset = queryset.order_by("-created_at")
+                queryset = queryset.order_by("-created_at", "-id")
         elif self.action == "list":
             if depth_param is not None:
                 queryset = queryset.order_by(
@@ -526,9 +530,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         output_field=IntegerField(),
                     ),
                     Lower("path"),
+                    "id",
                 )
             else:
-                queryset = queryset.order_by(Lower("path"))
+                queryset = queryset.order_by(Lower("path"), "id")
 
         return queryset
 

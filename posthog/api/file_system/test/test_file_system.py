@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC
 from typing import Any, TypedDict, cast
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -904,6 +905,51 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(results[0]["id"], str(file_1.id))
         self.assertEqual(results[1]["id"], str(file_2.id))
         self.assertEqual(results[2]["id"], str(file_3.id))
+
+    @parameterized.expand(
+        [
+            ("default", "", False),
+            ("depth", "depth=1&", False),
+            ("path", "order_by=path&", False),
+            ("path_desc", "order_by=-path&", True),
+            ("created_at", "order_by=created_at&", False),
+            ("created_at_desc", "order_by=-created_at&", True),
+            ("ref", "ref=tied&", False),
+            ("unknown_order_by", "order_by=nonsense&", True),
+        ]
+    )
+    def test_list_pages_stay_disjoint_when_sort_values_tie(self, _name: str, query: str, descending: bool):
+        # No column the list sorts on is unique, so tied rows need `id` to break the tie. Without
+        # it Postgres can order the tie differently per page, and a client that walks limit/offset
+        # pages then sees an item twice or misses it.
+        ids = [UUID(f"019759ff-0000-7000-8000-00000000000{index}") for index in range(5)]
+        with time_machine.travel("2020-01-01 10:00:00", tick=False):
+            # Insert newest id first, so heap order is the reverse of id order.
+            for file_id in reversed(ids):
+                FileSystem.objects.create(
+                    id=file_id,
+                    team=self.team,
+                    path="Tied",
+                    type="feature_flag",
+                    ref="tied",
+                    shortcut=False,
+                    depth=1,
+                    created_by=self.user,
+                )
+
+        with connection.cursor() as cursor:
+            # Force the seq-scan-plus-sort plan a larger table gets, so the tie order comes from
+            # the ORDER BY and not from an index that happens to cover it.
+            cursor.execute("SET LOCAL enable_indexscan = off")
+            cursor.execute("SET LOCAL enable_bitmapscan = off")
+
+        seen: list[str] = []
+        for offset in (0, 2, 4):
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/?{query}limit=2&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            seen.extend(item["id"] for item in response.json()["results"])
+
+        self.assertEqual(seen, [str(file_id) for file_id in sorted(ids, reverse=descending)])
 
     def test_search_path_token(self):
         """
