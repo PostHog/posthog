@@ -1,5 +1,7 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -10,8 +12,10 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 import { NavBar } from './NavBar'
 import { navAppsTabLogic } from './tabs/navAppsTabLogic'
+import { FILES_TREE_KEY, navFilesTabLogic } from './tabs/navFilesTabLogic'
 import { navRecentsLogic } from './tabs/navRecentsLogic'
 
 const files: FileSystemEntry[] = [
@@ -66,12 +70,16 @@ function SidebarStory({
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
+    useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
         setNavExperimentTab(tab)
         toggleLayoutNavCollapsed(collapsed)
         setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
+        if (tab === 'files') {
+            projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actions.setSearchTerm(search)
+        }
         setRecentsCollapsed(recentsCollapsed)
         loadShortcutsSuccess(empty ? [] : starred)
     })
@@ -130,6 +138,32 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Apps: Story = {}
 export const Files: Story = { args: { tab: 'files' } }
+export const Chat: Story = {
+    args: { tab: 'chat' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/conversations/': [
+                    200,
+                    {
+                        results: ['Review signup trends', 'Explore checkout events'].map((title, index) => ({
+                            id: `chat-${index}`,
+                            title,
+                            status: 'idle',
+                            type: 'assistant',
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            user: MOCK_DEFAULT_BASIC_USER,
+                        })),
+                        next: null,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
+export const FilesNoResults: Story = { args: { tab: 'files', search: 'nothing-matches' } }
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
 export const Collapsed: Story = { args: { collapsed: true } }
