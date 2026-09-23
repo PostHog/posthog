@@ -43,11 +43,12 @@ describe('inboxTaskKickoffLogic', () => {
         let createStatus: number
         // Runs while the kickoff awaits its run response, so a test can act as the reader does mid-flight.
         let onRunRequest: (() => void) | null
-        // What settings resolve to for this user; null is a project that never picked a model.
+        // What `@me/config` resolves to for this user; null is a project that never picked a model.
         let resolvedRunDefaults: Record<string, unknown> | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
 
-        const OPUS_5_5_TEAM_DEFAULT = {
+        // Which model it names does not matter; what counts is that a default exists.
+        const RESOLVED_TEAM_DEFAULT = {
             runtime: 'acp',
             runtime_adapter: 'claude',
             model: 'claude-opus-5-5',
@@ -212,7 +213,7 @@ describe('inboxTaskKickoffLogic', () => {
         it.each(['implementation', 'discussion'] as const)(
             'leaves the %s model to settings when the project set a default',
             async (relationship) => {
-                await applyRunDefaults(OPUS_5_5_TEAM_DEFAULT)
+                await applyRunDefaults(RESOLVED_TEAM_DEFAULT)
 
                 await expectLogic(logic, () => {
                     if (relationship === 'implementation') {
@@ -231,7 +232,7 @@ describe('inboxTaskKickoffLogic', () => {
 
         it('warms on the default model when the project set one', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
-            await applyRunDefaults(OPUS_5_5_TEAM_DEFAULT)
+            await applyRunDefaults(RESOLVED_TEAM_DEFAULT)
 
             await expectLogic(logic, () =>
                 logic.actions.openReportDiscussion(report, 'https://example.com/report')
