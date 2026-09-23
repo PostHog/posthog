@@ -32,7 +32,7 @@ A path in `expect` is the input to the resolver, before normalization.
 Some keys start with `./` or `/`, or contain `\`, to test step 1 of the algorithm.
 A path in `expect` does not have to exist in `files`.
 
-Each resolution is a mapping with all five keys:
+Each resolution is a mapping with these keys:
 
 | Key                 | Type             | Meaning                                                                    |
 | ------------------- | ---------------- | -------------------------------------------------------------------------- |
@@ -41,8 +41,10 @@ Each resolution is a mapping with all five keys:
 | `status`            | string           | The resolved status.                                                       |
 | `source`            | string or `null` | The path of the file that set the owners, or `null` when no file did.      |
 | `slack`             | string or `null` | The channel for the purpose and the producer of the case, or `null`.       |
+| `additions`         | list of strings  | Optional, default empty. The owners of additions at the path (SPEC 3.6).   |
 
-A case never leaves a key out, so no value is implied.
+A case never leaves out one of the first five keys, so no value is implied.
+A case that leaves out `additions` expects an empty list, so the cases that predate the field stay as they are.
 
 An example case:
 
@@ -73,7 +75,7 @@ For each case in each file in `cases/`:
 1. Make a new empty directory. This directory is the repository root. It is not a git repository.
 2. Write each entry of `files` to its path below the root. Make the parent directories first. Write the content exactly as given.
 3. Resolve each key of `expect` as given, with the `purpose` and the `producer` of the case.
-4. Compare all five keys of the result with the expected resolution. The order of `owners` is significant.
+4. Compare all six keys of the result with the expected resolution. An expected resolution without `additions` expects an empty list. The order of `owners` and of `additions` is significant.
 5. The case passes when every path in `expect` passes.
 
 Give each test a name of the form `<file name>::<case name>`, such as `nearest-file.yaml::owners null marks paths as unowned by design`.
