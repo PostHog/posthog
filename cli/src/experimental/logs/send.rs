@@ -51,7 +51,7 @@ pub fn classify(status: StatusCode, retry_after: Option<&str>, attempt: u32) -> 
 
 /// Doubles per attempt and stops at a minute, so a long outage does not turn into a tight loop or
 /// an unbounded sleep.
-fn backoff(attempt: u32) -> Duration {
+pub fn backoff(attempt: u32) -> Duration {
     let seconds = DEFAULT_BACKOFF
         .as_secs()
         .saturating_mul(1u64 << attempt.min(4));
