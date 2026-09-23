@@ -6,8 +6,8 @@ import math
 import time
 import threading
 import collections
-from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager
+from collections.abc import Callable, Generator, Iterator, Sequence
+from contextlib import _GeneratorContextManager, closing
 from typing import Any, Literal, Optional
 
 import pyarrow as pa
@@ -1395,6 +1395,66 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
     }
 
 
+# Some hosts serve the ClickHouse HTTP interface but not the ArrowStream output format, and the
+# rejection names the format: Tinybird answers with a 403 "invalid format ArrowStream", and a
+# ClickHouse build without Arrow support raises "Unknown format ArrowStream" (UNKNOWN_FORMAT).
+_ARROW_FORMAT_REJECTED_SUBSTRING = "format ArrowStream"
+
+
+def _is_arrow_format_rejected(message: str) -> bool:
+    return _ARROW_FORMAT_REJECTED_SUBSTRING in message
+
+
+def _native_column_to_arrow(values: Sequence[Any], field: pa.Field[pa.DataType]) -> pa.Array[Any]:
+    try:
+        return pa.array(values, type=field.type)
+    except (pa.ArrowInvalid, pa.ArrowTypeError):
+        # Types that `_build_select_list` does not cast with toString() but `to_arrow_field` maps to
+        # string (geo types, AggregateFunction states, ...) decode to Python tuples, lists or numbers.
+        if not pa.types.is_string(field.type):
+            raise
+        return pa.array([None if value is None else str(value) for value in values], type=pa.string())
+
+
+def _native_block_to_record_batch(block: Sequence[Sequence[Any]], schema: pa.Schema) -> pa.RecordBatch:
+    return pa.RecordBatch.from_arrays(
+        [_native_column_to_arrow(column, field) for column, field in zip(block, schema)],
+        schema=schema,
+    )
+
+
+def _stream_record_batches(
+    client: ClickHouseClient,
+    query: str,
+    parameters: dict[str, Any],
+    columns: list[ClickHouseColumn],
+    logger: FilteringBoundLogger,
+) -> Generator[pa.RecordBatch]:
+    """Stream the extraction query as one Arrow record batch per ClickHouse block.
+
+    ArrowStream is the fast path because the server builds the batches. When the host rejects that
+    format, we read the same query in the Native format, which every host that passed discovery
+    accepts because clickhouse-connect uses it for the metadata queries. Each Native block is
+    converted against the discovered schema. The host rejects the format before it sends any rows,
+    so the retry cannot duplicate data. Both paths hold one block (`max_block_size` rows) at a
+    time, plus the bounded HTTP read buffer of clickhouse-connect.
+    """
+    try:
+        arrow_stream = client.query_arrow_stream(query, parameters=parameters)
+    except ClickHouseError as e:
+        if not _is_arrow_format_rejected(str(e)):
+            raise
+        logger.warning("ClickHouse host rejected the ArrowStream format, reading in the Native format instead")
+        schema = pa.schema([column.to_arrow_field() for column in columns])
+        with client.query_column_block_stream(query, parameters=parameters) as blocks:
+            for block in blocks:
+                yield _native_block_to_record_batch(block, schema)
+        return
+
+    with arrow_stream as batches:
+        yield from batches
+
+
 def clickhouse_source(
     *,
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
@@ -1547,7 +1607,7 @@ def clickhouse_source(
 
                 logger.info(f"ClickHouse query: {query}")
 
-                # query_arrow_stream yields pa.RecordBatch chunks — one per
+                # The stream yields pa.RecordBatch chunks — one per
                 # ClickHouse block, capped by max_block_size. We accumulate
                 # these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS pa.Tables
                 # before yielding, so the pipeline's Delta writer sees fewer,
@@ -1555,7 +1615,9 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
+                with closing(
+                    _stream_record_batches(stream_client, query, parameters, projected_columns, logger)
+                ) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue
