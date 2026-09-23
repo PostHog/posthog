@@ -1,6 +1,6 @@
 import uuid
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +28,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -1120,3 +1121,14 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+def repair_report_actionability_cache(
+    *, team_id: int | None, batch_size: int, after: str | None = None
+) -> Iterator[RepairedBatch]:
+    """Recompute the cached actionability of every report from its artefact log, in batches.
+
+    For the `backfill_report_actionability` command. Receivers keep the cache current on every
+    artefact write, so this only repairs rows that drifted.
+    """
+    return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
