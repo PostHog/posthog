@@ -1113,7 +1113,8 @@ class TestLocalEvaluationBatch(BaseTest):
         assert str(dynamic_cohort.pk) in results[team.id]["cohorts"]
         assert str(static_cohort.pk) not in results[team.id]["cohorts"]
 
-    def test_batch_loads_nested_cohort_dependencies(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_batch_loads_nested_cohort_dependencies(self, string_reference: bool) -> None:
         """Cohorts referenced transitively through other cohorts should be loaded."""
         team = self._create_team_with_project("Nested Cohort Team")
 
@@ -1133,7 +1134,16 @@ class TestLocalEvaluationBatch(BaseTest):
                 "properties": {
                     "type": "OR",
                     "values": [
-                        {"type": "OR", "values": [{"key": "id", "value": leaf_cohort.pk, "type": "cohort"}]},
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "id",
+                                    "value": str(leaf_cohort.pk) if string_reference else leaf_cohort.pk,
+                                    "type": "cohort",
+                                }
+                            ],
+                        },
                     ],
                 }
             },
@@ -1453,7 +1463,7 @@ class TestLocalEvaluationBatch(BaseTest):
         ]
         + [
             ({"groups": [{"properties": [{"type": "cohort", "key": "id", "value": value}]}]}, deleted)
-            for value in ("not-an-id", None, [7])
+            for value in ("not-an-id", None, [7], True, False, 7.5, 7.0)
             for deleted in (False, True)
         ]
     )
@@ -1553,6 +1563,10 @@ class TestLocalEvaluationBatch(BaseTest):
                     ],
                 },
             ),
+        ]
+        + [
+            (f"cohort_{value}", {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": value}]})
+            for value in ("not-an-id", True, False, 7.5, 7.0)
         ]
     )
     def test_batch_malformed_nested_cohort_keeps_independent_flags(

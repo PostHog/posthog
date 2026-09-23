@@ -10,6 +10,12 @@ from products.feature_flags.backend.facade.config import ConfigFormatError, dete
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 
 
+def _parse_cohort_reference(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, str | int):
+        raise ValueError("Invalid legacy cohort reference")
+    return int(value)
+
+
 def validate_legacy_filters(filters: object) -> None:
     if filters is not None and not isinstance(filters, Mapping):
         raise ValueError("Invalid legacy flag filters")
@@ -34,10 +40,7 @@ def validate_legacy_filters(filters: object) -> None:
                     if isinstance(key, bool) or not isinstance(key, str | int):
                         raise ValueError("Invalid legacy flag dependency")
                     if prop.get("type") == "cohort":
-                        try:
-                            int(prop.get("value"))
-                        except (TypeError, ValueError, OverflowError) as error:
-                            raise ValueError("Invalid legacy flag cohort reference") from error
+                        _parse_cohort_reference(prop.get("value"))
     for field in ("payloads", "holdout"):
         if filters.get(field) is not None and not isinstance(filters[field], dict):
             raise ValueError("Invalid legacy flag configuration")
@@ -130,13 +133,7 @@ def cohort_references(properties: object) -> set[str]:
         except (TypeError, ValueError, ValidationError) as error:
             raise ValueError("Invalid legacy cohort property") from error
         if node.get("type") == "cohort":
-            value = node.get("value")
-            if value is None:
-                continue
-            try:
-                references.add(str(int(value)))
-            except (TypeError, ValueError):
-                continue
+            references.add(str(_parse_cohort_reference(node.get("value"))))
     return references
 
 

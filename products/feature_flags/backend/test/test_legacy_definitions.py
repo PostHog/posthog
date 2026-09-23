@@ -34,7 +34,7 @@ class TestLegacyDefinitions(SimpleTestCase):
         ]
         + [
             (f"cohort_{value}", {"groups": [{"properties": [{"type": "cohort", "key": "id", "value": value}]}]})
-            for value in (None, "not-an-id", "", "7.5", [7], {"id": 7})
+            for value in (None, "not-an-id", "", "7.5", True, False, 7.5, 7.0, [7], {"id": 7})
         ]
     )
     def test_excludes_invalid_targets_and_transitive_dependents(self, _name: str, filters: Any) -> None:
@@ -151,6 +151,10 @@ class TestLegacyDefinitions(SimpleTestCase):
             ({"type": "AND", "values": [{"values": [{"type": "person", "key": "tier", "value": "example"}]}]},),
             ({"type": "AND", "values": [{"type": "person", "value": "example"}]},),
             ({"type": "AND", "values": [{"type": "person", "key": "tier"}]},),
+        ]
+        + [
+            ({"type": "AND", "values": [{"type": "cohort", "key": "id", "value": value}]},)
+            for value in (None, "not-an-id", "", "7.5", True, False, 7.5, 7.0, [7], {"id": 7})
         ]
     )
     def test_malformed_nested_cohort_omits_only_affected_flags(self, properties: dict[str, Any]) -> None:

@@ -185,7 +185,7 @@ Only absent or numeric version 1 configurations enter the legacy feed.
 Classification includes inactive and deleted targets before existing lifecycle filtering omits them.
 Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
 A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
-Direct cohort references that cannot be parsed as integers make the flag malformed and are rejected before cohort extraction.
+Direct and nested cohort references must be integers or strings that parse as integers; booleans, floats, and unparseable values are rejected before serialization.
 Legacy cohort property dictionaries can use `type` or `values` as property names; a grouped expression requires both keys.
 Dependencies on excluded targets are omitted even when the condition expects false.
 An inconclusive dependency does not always force an SDK to use server evaluation: a later condition can return a different variant.
