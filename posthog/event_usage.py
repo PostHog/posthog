@@ -191,8 +191,8 @@ def report_password_reset_no_op(email: str, matched_deactivated_account: bool) -
     The endpoint answers every request with success so that it cannot be used to test which
     addresses have accounts. That also means a request for an address we cannot resolve sends no
     email and leaves no other record, so support cannot tell a lookup miss from a delivery failure.
-    This event carries the email domain and not the address, which keeps the same property out of
-    our own analytics.
+    The event carries the email domain and not the address, so an address that belongs to nobody
+    stays out of our own analytics.
     """
     posthoganalytics.capture(
         "password reset no-op",
