@@ -913,16 +913,22 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
 
     def test_edit_delete_of_missing_file_400s(self):
         canvas_id = self._create_canvas()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
-            {
-                "operations": [{"path": "src/nope.ts", "content": None}],
-                "expected_current_version_id": None,
-            },
-            format="json",
-        )
+        with patch("products.canvas.backend.presentation.views.report_user_action") as report:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+                {
+                    "operations": [{"path": "src/nope.ts", "content": None}],
+                    "expected_current_version_id": None,
+                },
+                format="json",
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["diagnostics"][0]["code"] == "edit_target_missing"
+        _user, event, properties = report.call_args.args
+        assert event == "canvas edit rejected"
+        assert properties["canvas_kind"] == "freeform"
+        assert properties["error_codes"] == ["edit_target_missing"]
+        assert properties["delete_operation_count"] == 1
 
     def test_edit_str_replace_without_new_string_400s(self):
         canvas_id = self._create_canvas()

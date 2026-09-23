@@ -1,5 +1,7 @@
 import json
 import hashlib
+from collections import Counter
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -78,6 +80,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasSerializer,
     CanvasSourceDraftResponseSerializer,
     CanvasSourceDraftSerializer,
+    CanvasSourceEditOp,
     CanvasSourceEditSerializer,
     CanvasSourceInvalidSerializer,
     CanvasSourcePublishResponseSerializer,
@@ -121,6 +124,14 @@ def _capacity_response() -> Response:
         {"detail": "Canvas build capacity is temporarily exhausted. Try again shortly."},
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
+
+
+def _edit_operation_properties(operations: Sequence[dict[str, Any]]) -> dict[str, int]:
+    counts = Counter(operation["op"] for operation in operations)
+    return {
+        "operation_count": len(operations),
+        **{f"{op}_operation_count": counts[op] for op in CanvasSourceEditOp.values},
+    }
 
 
 def _conflict_response(error: build_service.CanvasVersionConflict) -> Response:
@@ -967,8 +978,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 {"detail": "The canvas's source is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        project, diagnostics = apply_source_edits(project, payload.validated_data["operations"])
+        operations = payload.validated_data["operations"]
+        project, diagnostics = apply_source_edits(project, operations)
         if diagnostics:
+            self._report_canvas_action(
+                "canvas edit rejected",
+                canvas,
+                error_codes=sorted({entry["code"] for entry in diagnostics}),
+                **_edit_operation_properties(operations),
+            )
             return Response(
                 {
                     "detail": "The edit could not be applied to the canvas's current source.",
@@ -986,6 +1004,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             name=payload.validated_data.get("name"),
             has_expected_version=True,
             expected_version_id=payload.validated_data["expected_current_version_id"],
+            edit_operations=operations,
         )
 
     def _publish(
@@ -998,6 +1017,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         name: str | None,
         has_expected_version: bool,
         expected_version_id: str | None,
+        edit_operations: Sequence[dict[str, Any]] | None = None,
     ) -> Response:
         user = self._request_user()
         if name is not None and (user is None or canvas.created_by_id != user.id):
@@ -1046,6 +1066,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             inline_queries_capability=bool(posthog_capabilities.get("inlineQueries")),
             agent_requests_capability=bool(posthog_capabilities.get("agentRequests")),
             is_sandbox_publish=task_id is not None,
+            save_method="publish" if edit_operations is None else "edit",
+            **(_edit_operation_properties(edit_operations) if edit_operations is not None else {}),
         )
 
         return Response(
@@ -2278,7 +2300,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             report_user_action(
                 user,
                 event,
-                {"canvas_id": str(canvas.id), "channel_id": str(canvas.channel_id), **extra},
+                {
+                    "canvas_id": str(canvas.id),
+                    "channel_id": str(canvas.channel_id),
+                    "canvas_kind": canvas.kind,
+                    **extra,
+                },
                 team=self.team,
                 request=self.request,
             )
