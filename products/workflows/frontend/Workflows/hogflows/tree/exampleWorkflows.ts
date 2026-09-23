@@ -723,14 +723,364 @@ const addOnPromotionEmails = (): HogFlow => {
 }
 
 /**
+ * Plan change lifecycle — an invented stress case for the linear editor: an eight-way plan split at
+ * the top, regions and contact preferences nested three levels deep, about fifty steps and thirty paths.
+ */
+const planChangeLifecycle = (): HogFlow => {
+    const actions: HogFlowAction[] = []
+    const edges: Edge[] = []
+
+    const personCondition = (
+        name: string,
+        key: string,
+        value: string
+    ): { name: string; filters: { properties: any[] } } => ({
+        name,
+        filters: { properties: [{ key, type: 'person', value, operator: 'exact' }] },
+    })
+    const delayAction = (id: string, name: string, duration: string): HogFlowAction =>
+        ({ id, type: 'delay', name, description: '', config: { delay_duration: duration } }) as HogFlowAction
+    const add = (action: HogFlowAction): string => {
+        actions.push(action)
+        return action.id
+    }
+    // Adds the steps as one straight run that ends at `next`, and returns the id of the first step.
+    const run = (steps: HogFlowAction[], next: string): string => {
+        steps.forEach((step, index) => {
+            add(step)
+            edges.push({ from: step.id, to: steps[index + 1]?.id ?? next, type: 'continue' })
+        })
+        return steps[0]?.id ?? next
+    }
+    // Adds a conditional step whose paths all continue at `next`, and returns its id.
+    const split = (
+        id: string,
+        name: string,
+        paths: { condition: ReturnType<typeof personCondition>; first: string }[],
+        next: string
+    ): string => {
+        add({
+            id,
+            type: 'conditional_branch',
+            name,
+            description: '',
+            config: { conditions: paths.map((path) => path.condition) },
+        } as HogFlowAction)
+        paths.forEach((path, index) => edges.push({ from: id, to: path.first, type: 'branch', index }))
+        edges.push({ from: id, to: next, type: 'continue' })
+        return id
+    }
+    const contactSplit = (key: string, next: string): string =>
+        split(
+            `${key}_contact`,
+            'Contact preference',
+            [
+                {
+                    condition: personCondition('Prefers email', 'contact_preference', 'email'),
+                    first: run(
+                        [
+                            emailAction(
+                                `${key}_contact_email`,
+                                'Send the onboarding plan',
+                                'Your onboarding plan',
+                                'Three steps to get started',
+                                'Here is the plan we prepared for your team.'
+                            ),
+                        ],
+                        next
+                    ),
+                },
+                {
+                    condition: personCondition('Prefers a call', 'contact_preference', 'call'),
+                    first: run(
+                        [
+                            slackAction(
+                                `${key}_contact_call`,
+                                'Ask sales to schedule a call',
+                                'Schedule an onboarding call with {person.properties.email}.'
+                            ),
+                        ],
+                        next
+                    ),
+                },
+            ],
+            next
+        )
+    const REGIONS: [string, string][] = [
+        ['emea', 'EMEA'],
+        ['amer', 'AMER'],
+        ['apac', 'APAC'],
+    ]
+    const regionSplit = (key: string, next: string): string =>
+        split(
+            `${key}_region`,
+            'Route by region',
+            REGIONS.map(([code, label]) => ({
+                condition: personCondition(label, 'region', code),
+                first: run(
+                    [
+                        slackAction(
+                            `${key}_${code}_notify`,
+                            `Notify the ${label} team`,
+                            `New ${label} account: {person.properties.email}`
+                        ),
+                    ],
+                    contactSplit(`${key}_${code}`, next)
+                ),
+            })),
+            next
+        )
+
+    add(exitAction('Plan change handled'))
+    const record = run([setPersonProperty('record_outcome', 'Record the outcome', 'plan_change')], 'exit_node')
+
+    const enterprise = run(
+        [
+            emailAction(
+                'ent_welcome',
+                'Send the enterprise welcome',
+                'Welcome to the Enterprise plan',
+                'Your account team is ready',
+                'Your account team will reach out within one business day.'
+            ),
+            setPersonProperty('ent_tag', 'Set the plan tag', 'enterprise_welcome'),
+            delayAction('ent_pause', 'Wait one day', '1d'),
+        ],
+        regionSplit(
+            'ent',
+            run(
+                [
+                    delayAction('ent_wait', 'Wait two days', '2d'),
+                    emailAction(
+                        'ent_follow_up',
+                        'Send the enterprise follow-up',
+                        'How is the rollout going?',
+                        'Tips from other Enterprise teams',
+                        'Here are three things Enterprise teams set up in week one.'
+                    ),
+                ],
+                record
+            )
+        )
+    )
+    const businessTail = run([delayAction('biz_wait', 'Wait three days', '3d')], record)
+    const business = run(
+        [
+            emailAction(
+                'biz_welcome',
+                'Send the business welcome',
+                'Welcome to the Business plan',
+                'Set up your team',
+                'Invite your team and connect your first data source.'
+            ),
+            setPersonProperty('biz_tag', 'Set the plan tag', 'business_welcome'),
+        ],
+        split(
+            'biz_size',
+            'Team size',
+            [
+                {
+                    condition: personCondition('Large team', 'team_size', 'large'),
+                    first: run(
+                        [
+                            slackAction(
+                                'biz_large_notify',
+                                'Notify the account team',
+                                'Large Business team signed up: {person.properties.email}'
+                            ),
+                        ],
+                        contactSplit('biz_large', businessTail)
+                    ),
+                },
+                {
+                    condition: personCondition('Small team', 'team_size', 'small'),
+                    first: run(
+                        [
+                            emailAction(
+                                'biz_small_guide',
+                                'Send the self-serve guide',
+                                'Your self-serve setup guide',
+                                'Five minutes to your first insight',
+                                'Follow the guide to create your first dashboard.'
+                            ),
+                        ],
+                        businessTail
+                    ),
+                },
+            ],
+            businessTail
+        )
+    )
+    const pro = run(
+        [
+            emailAction(
+                'pro_welcome',
+                'Send the pro welcome',
+                'Welcome to the Pro plan',
+                'Everything you unlocked',
+                'Here is what changed on your account.'
+            ),
+            setPersonProperty('pro_tag', 'Set the plan tag', 'pro_welcome'),
+            delayAction('pro_wait', 'Wait five days', '5d'),
+            emailAction(
+                'pro_tips',
+                'Send the pro tips',
+                'Three Pro features to try',
+                'Get more from your plan',
+                'Teams on Pro use these three features most.'
+            ),
+        ],
+        record
+    )
+    const starter = run(
+        [
+            emailAction(
+                'starter_welcome',
+                'Send the starter welcome',
+                'Welcome to the Starter plan',
+                'Your first week',
+                'Here is what to set up in your first week.'
+            ),
+            setPersonProperty('starter_tag', 'Set the plan tag', 'starter_welcome'),
+        ],
+        contactSplit('starter', record)
+    )
+    const free = run(
+        [
+            emailAction(
+                'free_tips',
+                'Send the free plan tips',
+                'Getting started for free',
+                'What the free plan includes',
+                'The free plan covers your first million events.'
+            ),
+            delayAction('free_wait', 'Wait seven days', '7d'),
+            emailAction(
+                'free_upgrade',
+                'Send the upgrade nudge',
+                'Ready for more?',
+                'Compare the plans',
+                'See what a paid plan adds when you need it.'
+            ),
+        ],
+        record
+    )
+    const trial = split(
+        'trial_status',
+        'Trial status',
+        [
+            {
+                condition: personCondition('Converted', 'trial_status', 'converted'),
+                first: run(
+                    [
+                        emailAction(
+                            'trial_converted',
+                            'Send the conversion thanks',
+                            'Thanks for upgrading',
+                            'Your trial is now a plan',
+                            'Everything from your trial carries over.'
+                        ),
+                        setPersonProperty('trial_tag', 'Set the plan tag', 'trial_converted'),
+                    ],
+                    record
+                ),
+            },
+            {
+                condition: personCondition('Expired', 'trial_status', 'expired'),
+                first: run(
+                    [
+                        emailAction(
+                            'trial_expired',
+                            'Send the trial recap',
+                            'Your trial has ended',
+                            'What you built during the trial',
+                            'Your data stays for thirty days if you want to continue.'
+                        ),
+                    ],
+                    record
+                ),
+            },
+        ],
+        record
+    )
+    const education = run(
+        [
+            emailAction(
+                'edu_welcome',
+                'Send the education welcome',
+                'Welcome to the Education plan',
+                'Resources for your class',
+                'Here are the course materials other educators use.'
+            ),
+            slackAction('edu_notify', 'Notify the education team', 'New education account: {person.properties.email}'),
+        ],
+        record
+    )
+    const partner = run(
+        [
+            slackAction('partner_notify', 'Notify the partner team', 'New partner account: {person.properties.email}'),
+            emailAction(
+                'partner_welcome',
+                'Send the partner welcome',
+                'Welcome to the partner program',
+                'Your partner resources',
+                'Your partner manager will share the co-marketing kit.'
+            ),
+            setPersonProperty('partner_tag', 'Set the plan tag', 'partner_welcome'),
+        ],
+        record
+    )
+
+    const route = split(
+        'route_by_plan',
+        'Route by plan',
+        [
+            { condition: personCondition('Enterprise', 'plan', 'enterprise'), first: enterprise },
+            { condition: personCondition('Business', 'plan', 'business'), first: business },
+            { condition: personCondition('Pro', 'plan', 'pro'), first: pro },
+            { condition: personCondition('Starter', 'plan', 'starter'), first: starter },
+            { condition: personCondition('Free', 'plan', 'free'), first: free },
+            { condition: personCondition('Trial', 'plan', 'trial'), first: trial },
+            { condition: personCondition('Education', 'plan', 'education'), first: education },
+            { condition: personCondition('Partner', 'plan', 'partner'), first: partner },
+        ],
+        record
+    )
+    const first = run([setPersonProperty('mark_plan_change', 'Mark the plan change', 'plan_changed')], route)
+    actions.unshift({
+        id: 'trigger_node',
+        type: 'trigger',
+        name: 'Plan changed',
+        description: '',
+        config: eventTrigger('plan_changed', 'Plan changed'),
+    } as HogFlowAction)
+    edges.unshift({ from: 'trigger_node', to: first, type: 'continue' })
+
+    return {
+        ...BASE,
+        id: 'example-plan-change-lifecycle',
+        name: 'Plan change lifecycle',
+        description: 'Routes a plan change by plan, region, and contact preference, and records the outcome.',
+        trigger: eventTrigger('plan_changed', 'Plan changed'),
+        variables: [],
+        actions,
+        edges,
+    }
+}
+
+/**
  * Redacted stand-ins for the busiest workflows running in production, matched node for node and
- * edge for edge. Names, filters, channels, addresses, and email bodies are invented.
+ * edge for edge, plus one invented stress case. Names, filters, channels, addresses, and email
+ * bodies are invented.
  */
 export const EXAMPLE_WORKFLOWS: Record<string, HogFlow> = Object.fromEntries(
-    [supportSlaRouting(), renewalWindowAlerts(), pendingTicketCleanup(), addOnPromotionEmails()].map((flow) => [
-        flow.id,
-        flow,
-    ])
+    [
+        supportSlaRouting(),
+        renewalWindowAlerts(),
+        pendingTicketCleanup(),
+        addOnPromotionEmails(),
+        planChangeLifecycle(),
+    ].map((flow) => [flow.id, flow])
 )
 
 export const EXAMPLE_WORKFLOW_IDS = Object.keys(EXAMPLE_WORKFLOWS)

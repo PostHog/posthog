@@ -1,20 +1,35 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
-import { IconArrowRight, IconChevronDown, IconEllipsis } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconEllipsis, IconWarning } from '@posthog/icons'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, type LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 
+import { workflowLogic } from '../../workflowLogic'
 import { getHogFlowBranchColor, useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
 import { HogFlowTreeBranchConnector } from './HogFlowTreeBranchConnector'
-import { getWaitTimeoutLabel, type WorkflowTreeBranch, type WorkflowTreeNode } from './workflowTree'
-import { getWorkflowTreeBranchSummary, getWorkflowTreeOccurrenceKey } from './workflowTreePresentation'
+import type { WorkflowTreeBranch, WorkflowTreeNode, WorkflowTreeSequence } from './workflowTree'
+import {
+    getWorkflowTreeBranchBadge,
+    getWorkflowTreeBranchBadgeStyle,
+    getWorkflowTreeBranchIndex,
+    getWorkflowTreeBranchSummary,
+    getWorkflowTreeNestedPathCount,
+    getWorkflowTreePathHeaderId,
+    getWorkflowTreeStepIds,
+} from './workflowTreePresentation'
+
+// A drag that rests on a closed path opens the path, so a step can be dropped inside it without a
+// click. The grace period tells a drag that still hovers apart from one that left the header.
+const DRAG_OPEN_DELAY_MS = 600
+const DRAG_OPEN_GRACE_MS = 150
 
 export function HogFlowTreeBranch({
     node,
@@ -25,6 +40,7 @@ export function HogFlowTreeBranch({
     onToggleCollapsed,
     onFocusBranch,
     onSelectContinuation,
+    onSetPathsHidden,
     path,
     children,
 }: {
@@ -36,39 +52,52 @@ export function HogFlowTreeBranch({
     onToggleCollapsed: () => void
     onFocusBranch?: (path: HogFlowEdge[]) => void
     onSelectContinuation: (actionId: string, path: HogFlowEdge[]) => void
+    onSetPathsHidden?: (sequence: WorkflowTreeSequence, path: HogFlowEdge[], hidden: boolean) => void
     path: HogFlowEdge[]
     children: ReactNode
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
+    const dragOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const lastDragOverAt = useRef(0)
     const joinAction = node.joinAction
-    const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
+    const branchIndex = getWorkflowTreeBranchIndex(branch, index)
     const pathColor = getHogFlowBranchColor(branchIndex)
+    const branchPath = [...path, branch.edge]
     const isBranchSelected = selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex
     const branchFilters =
         branchIndex !== null && node.action.type === 'conditional_branch'
             ? (node.action.config.conditions[branchIndex]?.filters.properties ?? [])
             : []
-    const percentage =
-        branchIndex !== null && node.action.type === 'random_cohort_branch'
-            ? node.action.config.cohorts[branchIndex]?.percentage
-            : undefined
-    const badge =
-        node.action.type === 'conditional_branch'
-            ? branchIndex === null
-                ? 'Else'
-                : `If #${branchIndex + 1}`
-            : node.action.type === 'wait_until_condition'
-              ? branchIndex === null
-                  ? getWaitTimeoutLabel(node.action.config.max_wait_duration)
-                      ? 'Timeout'
-                      : 'No match'
-                  : 'Match'
-              : branchIndex === null
-                ? 'Fallback'
-                : percentage !== undefined
-                  ? `${percentage}%`
-                  : `${branchIndex + 1}`
+    const stepsNeedingAttention = branchCollapsed
+        ? [...getWorkflowTreeStepIds(branch.sequence)].filter((stepId) => {
+              const validationResult = actionValidationErrorsById[stepId]
+              return validationResult?.valid === false || Object.keys(validationResult?.warnings ?? {}).length > 0
+          }).length
+        : 0
+
+    useEffect(
+        () => () => {
+            if (dragOpenTimer.current) {
+                clearTimeout(dragOpenTimer.current)
+            }
+        },
+        []
+    )
+
+    const onHeaderDragOver = (): void => {
+        lastDragOverAt.current = Date.now()
+        if (!branchCollapsed || dragOpenTimer.current) {
+            return
+        }
+        dragOpenTimer.current = setTimeout(() => {
+            dragOpenTimer.current = null
+            if (Date.now() - lastDragOverAt.current < DRAG_OPEN_GRACE_MS) {
+                onToggleCollapsed()
+            }
+        }, DRAG_OPEN_DELAY_MS)
+    }
 
     const selectContinuation = (): void => {
         if (joinAction) {
@@ -76,6 +105,20 @@ export function HogFlowTreeBranch({
             setSelectedNodeId(joinAction.id)
             onSelectContinuation(joinAction.id, path)
         }
+    }
+
+    const menuItems: LemonMenuItem[] = []
+    if (
+        onFocusBranch &&
+        (branch.sequence.nodes.length > 1 || branch.sequence.nodes.some((child) => child.branches.length > 0))
+    ) {
+        menuItems.push({ label: 'Focus on this path', onClick: () => onFocusBranch(branchPath) })
+    }
+    if (onSetPathsHidden && getWorkflowTreeNestedPathCount(branch.sequence) > 0) {
+        menuItems.push(
+            { label: 'Show all paths inside', onClick: () => onSetPathsHidden(branch.sequence, branchPath, false) },
+            { label: 'Hide all paths inside', onClick: () => onSetPathsHidden(branch.sequence, branchPath, true) }
+        )
     }
 
     return (
@@ -92,6 +135,7 @@ export function HogFlowTreeBranch({
                         'flex min-w-0 items-start gap-2 rounded p-2',
                         isBranchSelected && 'bg-surface-secondary ring-1 ring-primary'
                     )}
+                    onDragOver={onHeaderDragOver}
                 >
                     <LemonButton
                         type="tertiary"
@@ -112,7 +156,7 @@ export function HogFlowTreeBranch({
                                 aria-pressed={isBranchSelected}
                                 // A focused path returns focus here. Every branch header renders this
                                 // button, but the actions menu below it is conditional.
-                                id={`workflow-tree-path-${getWorkflowTreeOccurrenceKey(node.action.id, [...path, branch.edge])}`}
+                                id={getWorkflowTreePathHeaderId(node.action.id, branchPath)}
                                 onClick={() => {
                                     setSelectedNodeId(node.action.id)
                                     setSelectedBranch({
@@ -129,15 +173,9 @@ export function HogFlowTreeBranch({
                                             'shrink-0',
                                             node.action.type === 'conditional_branch' && 'uppercase'
                                         )}
-                                        style={{
-                                            color:
-                                                node.action.type === 'conditional_branch'
-                                                    ? `color-mix(in srgb, ${pathColor} 60%, var(--text-3000))`
-                                                    : pathColor,
-                                            borderColor: pathColor,
-                                        }}
+                                        style={getWorkflowTreeBranchBadgeStyle(node, pathColor)}
                                     >
-                                        {badge}
+                                        {getWorkflowTreeBranchBadge(node, branchIndex)}
                                     </LemonTag>
                                     <span className="break-words whitespace-normal">{branch.label}</span>
                                 </span>
@@ -149,33 +187,37 @@ export function HogFlowTreeBranch({
                             )}
                         </div>
                         {branchCollapsed && (
-                            <p className="mb-0 mt-1 break-words text-xs text-secondary">
-                                {getWorkflowTreeBranchSummary(node, branch)}
-                            </p>
+                            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                                <p className="mb-0 break-words text-xs text-secondary">
+                                    {getWorkflowTreeBranchSummary(node, branch)}
+                                </p>
+                                {stepsNeedingAttention > 0 && (
+                                    <LemonTag
+                                        size="small"
+                                        className="shrink-0"
+                                        icon={<IconWarning className="text-warning" />}
+                                    >
+                                        {stepsNeedingAttention === 1
+                                            ? '1 step needs attention'
+                                            : `${stepsNeedingAttention} steps need attention`}
+                                    </LemonTag>
+                                )}
+                            </div>
                         )}
                     </div>
-                    {onFocusBranch &&
-                        (branch.sequence.nodes.length > 1 ||
-                            branch.sequence.nodes.some((child) => child.branches.length > 0)) && (
-                            <LemonMenu
-                                items={[
-                                    {
-                                        label: 'Focus on this path',
-                                        onClick: () => onFocusBranch([...path, branch.edge]),
-                                    },
-                                ]}
-                            >
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    className="!bg-transparent shrink-0"
-                                    icon={<IconEllipsis />}
-                                    aria-label={`Actions for ${branch.label}`}
-                                    tooltip="Path actions"
-                                    data-attr="workflow-tree-focus-branch"
-                                />
-                            </LemonMenu>
-                        )}
+                    {menuItems.length > 0 && (
+                        <LemonMenu items={menuItems}>
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                className="!bg-transparent shrink-0"
+                                icon={<IconEllipsis />}
+                                aria-label={`Actions for ${branch.label}`}
+                                tooltip="Path actions"
+                                data-attr="workflow-tree-focus-branch"
+                            />
+                        </LemonMenu>
+                    )}
                 </div>
                 <div className={cn('min-w-0 ps-3 ms-2 mt-2', branchCollapsed && 'hidden')}>
                     {children}

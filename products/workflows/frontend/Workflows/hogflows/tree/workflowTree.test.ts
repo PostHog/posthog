@@ -6,9 +6,11 @@ import {
     isWorkflowTreeComplete,
 } from './workflowTree'
 import {
+    collectWorkflowTreeBranchingOccurrences,
     findWorkflowTreePath,
     getWorkflowTreeBranchSummary,
     getWorkflowTreeContinuationPath,
+    getWorkflowTreeDefaultCollapsedBranches,
     getWorkflowTreeStepId,
     getWorkflowTreeStepIds,
 } from './workflowTreePresentation'
@@ -159,7 +161,7 @@ describe('buildWorkflowTree', () => {
             edge('onboarding', 'shared'),
         ])
         expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[1])).toBe(
-            '4 steps · Continue to: shared'
+            '4 steps · 3 paths · Continue to: shared'
         )
         expect(
             findWorkflowTreePath(tree, [
@@ -322,6 +324,50 @@ describe('buildWorkflowTree', () => {
             config: { cohorts: [{ name: 'Loyal users', percentage: 30 }] },
         }
         expect(getWorkflowBranchLabel(cohortAction, edge('split', 'next', edgeType, 0))).toBe(label)
+    })
+
+    it.each([
+        ['default', 1, []],
+        ['closed', 0, []],
+        ['closed', 1, ['condition-branch-0', 'condition-continue-continue']],
+    ] as const)('the %s layout at depth %s starts with these paths closed', (variant, depth, closedPaths) => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [action('trigger', 'trigger'), action('condition', 'conditional_branch'), action('exit', 'exit')],
+                [edge('trigger', 'condition'), edge('condition', 'exit', 'branch', 0), edge('condition', 'exit')]
+            )
+        )
+
+        expect([...getWorkflowTreeDefaultCollapsedBranches(tree.nodes[1], depth, variant)]).toEqual(closedPaths)
+    })
+
+    it('collects nested branching steps with the path that reaches them', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('inner', 'conditional_branch'),
+                    action('nested-step'),
+                    action('shared'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'inner', 'branch', 0),
+                    edge('outer', 'shared'),
+                    edge('inner', 'nested-step', 'branch', 0),
+                    edge('inner', 'shared'),
+                    edge('nested-step', 'shared'),
+                    edge('shared', 'exit'),
+                ]
+            )
+        )
+
+        expect(collectWorkflowTreeBranchingOccurrences(tree).map(({ node, path }) => [node.action.id, path])).toEqual([
+            ['outer', []],
+            ['inner', [edge('outer', 'inner', 'branch', 0)]],
+        ])
     })
 
     it('moves a branching action with all of its paths', () => {

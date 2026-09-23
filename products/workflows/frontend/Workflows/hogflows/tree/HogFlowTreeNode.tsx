@@ -11,11 +11,15 @@ import type { HogFlowEdge } from '../types'
 import { HogFlowTreeBranch } from './HogFlowTreeBranch'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeStep } from './HogFlowTreeStep'
-import type { WorkflowTreeNode } from './workflowTree'
+import { HogFlowTreeSubflowCard } from './HogFlowTreeSubflowCard'
+import type { WorkflowTreeNode, WorkflowTreeSequence } from './workflowTree'
 import {
+    getWorkflowTreeBranchKey,
+    getWorkflowTreeDefaultCollapsedBranches,
     getWorkflowTreeOccurrenceKey,
     getWorkflowTreeStepId,
     WORKFLOW_TREE_BRANCH_LIMIT,
+    type WorkflowTreeLayoutVariant,
     type WorkflowTreeNodeViewState,
 } from './workflowTreePresentation'
 
@@ -29,7 +33,10 @@ export function HogFlowTreeNode({
     showIncomingConnector = true,
     onFocusBranch,
     onSelectContinuation,
+    onSetPathsHidden,
     path,
+    depth,
+    variant,
     viewStates,
     onViewStateChange,
 }: {
@@ -42,17 +49,19 @@ export function HogFlowTreeNode({
     showIncomingConnector?: boolean
     onFocusBranch?: (path: HogFlowEdge[]) => void
     onSelectContinuation: (actionId: string, path: HogFlowEdge[]) => void
+    onSetPathsHidden?: (sequence: WorkflowTreeSequence, path: HogFlowEdge[], hidden: boolean) => void
     path: HogFlowEdge[]
+    // Nesting level inside the current screen. The top level of the workflow, or of a focused path, is 0.
+    depth: number
+    variant: WorkflowTreeLayoutVariant
     viewStates: Record<string, WorkflowTreeNodeViewState>
     onViewStateChange: (key: string, state: WorkflowTreeNodeViewState) => void
 }): JSX.Element {
     const { selectedBranch } = useHogFlowBranchSelection()
     const occurrenceKey = getWorkflowTreeOccurrenceKey(node.action.id, path)
-    const {
-        branchesOpen = true,
-        collapsedBranches = new Set<string>(),
-        showAllBranches = false,
-    } = viewStates[occurrenceKey] ?? {}
+    const { branchesOpen = true, showAllBranches = false } = viewStates[occurrenceKey] ?? {}
+    const collapsedBranches =
+        viewStates[occurrenceKey]?.collapsedBranches ?? getWorkflowTreeDefaultCollapsedBranches(node, depth, variant)
     const nodeRef = useRef<HTMLDivElement>(null)
     const branchContentRef = useRef<HTMLDivElement>(null)
     const branchToggleRef = useRef<HTMLButtonElement>(null)
@@ -69,6 +78,7 @@ export function HogFlowTreeNode({
     const firstHiddenBranchIndex = conditionBranches[WORKFLOW_TREE_BRANCH_LIMIT]?.edge.index
     const joinEdge = node.joinEdges[0]
     const branchNoun = node.action.type === 'conditional_branch' ? 'conditions' : 'paths'
+    const renderAsSubflow = variant === 'drilldown' && depth >= 1 && node.branches.length > 0 && !!onFocusBranch
 
     const toggleBranchCollapsed = (branchKey: string): void => {
         const next = new Set(collapsedBranches)
@@ -103,7 +113,7 @@ export function HogFlowTreeNode({
             action={node.action}
             stepId={getWorkflowTreeStepId(node.action.id, path)}
             collapseControl={
-                node.branches.length > 0 ? (
+                node.branches.length > 0 && !renderAsSubflow ? (
                     <LemonButton
                         type="tertiary"
                         size="small"
@@ -126,19 +136,44 @@ export function HogFlowTreeNode({
         />
     )
 
+    const incomingDropzone = node.incomingEdge && (
+        <HogFlowTreeDropzone
+            active={activeDropzones}
+            draggedActionId={draggedActionId}
+            draggedActionIdRef={draggedActionIdRef}
+            onDragEnd={onDragEnd}
+            edge={node.incomingEdge}
+            showConnector={showIncomingConnector}
+            compact={!showIncomingConnector}
+        />
+    )
+
+    const joinDropzone = joinEdge && (
+        <HogFlowTreeDropzone
+            active={activeDropzones}
+            draggedActionId={draggedActionId}
+            draggedActionIdRef={draggedActionIdRef}
+            onDragEnd={onDragEnd}
+            edge={joinEdge}
+            isBranchJoin
+            joinEdges={node.joinEdges}
+            insertionLabel={`Add step after ${node.action.name} paths`}
+        />
+    )
+
+    if (renderAsSubflow && onFocusBranch) {
+        return (
+            <div ref={nodeRef} className="flex w-full min-w-0 flex-col">
+                {incomingDropzone}
+                <HogFlowTreeSubflowCard node={node} path={path} step={step} onOpenPath={onFocusBranch} />
+                {joinDropzone}
+            </div>
+        )
+    }
+
     return (
         <div ref={nodeRef} className="flex w-full min-w-0 flex-col">
-            {node.incomingEdge && (
-                <HogFlowTreeDropzone
-                    active={activeDropzones}
-                    draggedActionId={draggedActionId}
-                    draggedActionIdRef={draggedActionIdRef}
-                    onDragEnd={onDragEnd}
-                    edge={node.incomingEdge}
-                    showConnector={showIncomingConnector}
-                    compact={!showIncomingConnector}
-                />
-            )}
+            {incomingDropzone}
             {node.branches.length === 0 ? (
                 step
             ) : (
@@ -152,7 +187,7 @@ export function HogFlowTreeNode({
                                 data-workflow-tree-branch-content={node.action.id}
                             >
                                 {visibleBranches.map((branch, index) => {
-                                    const branchKey = `${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`
+                                    const branchKey = getWorkflowTreeBranchKey(branch.edge)
                                     return (
                                         <Fragment key={branchKey}>
                                             <HogFlowTreeBranch
@@ -164,6 +199,7 @@ export function HogFlowTreeNode({
                                                 onToggleCollapsed={() => toggleBranchCollapsed(branchKey)}
                                                 onFocusBranch={onFocusBranch}
                                                 onSelectContinuation={onSelectContinuation}
+                                                onSetPathsHidden={onSetPathsHidden}
                                                 path={path}
                                             >
                                                 {branch.sequence.nodes.map((childNode, childIndex) => (
@@ -178,7 +214,10 @@ export function HogFlowTreeNode({
                                                         showIncomingConnector={childIndex > 0}
                                                         onFocusBranch={onFocusBranch}
                                                         onSelectContinuation={onSelectContinuation}
+                                                        onSetPathsHidden={onSetPathsHidden}
                                                         path={[...path, branch.edge]}
+                                                        depth={depth + 1}
+                                                        variant={variant}
                                                         viewStates={viewStates}
                                                         onViewStateChange={onViewStateChange}
                                                     />
@@ -230,18 +269,7 @@ export function HogFlowTreeNode({
                             </div>
                         )}
                     </div>
-                    {joinEdge && (
-                        <HogFlowTreeDropzone
-                            active={activeDropzones}
-                            draggedActionId={draggedActionId}
-                            draggedActionIdRef={draggedActionIdRef}
-                            onDragEnd={onDragEnd}
-                            edge={joinEdge}
-                            isBranchJoin
-                            joinEdges={node.joinEdges}
-                            insertionLabel={`Add step after ${node.action.name} paths`}
-                        />
-                    )}
+                    {joinDropzone}
                 </>
             )}
         </div>

@@ -1,9 +1,12 @@
 import type { Meta, StoryFn } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, type ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -12,8 +15,10 @@ import { NEW_WORKFLOW, workflowLogic } from '../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 import { EXAMPLE_WORKFLOWS } from './exampleWorkflows'
 import { HogFlowTreeEditor } from './HogFlowTreeEditor'
+import type { WorkflowTreeLayoutVariant } from './workflowTreePresentation'
 
 const COMPLEX_WORKFLOW_ID = 'storybook-complex-workflow'
+const LARGE_WORKFLOW_ID = 'example-plan-change-lifecycle'
 const FEATURE_PREVIEW_DISMISS_KEY = 'workflow-tree-feature-preview'
 
 function ResetFeaturePreviewDismissal({ children, storyId }: { children: ReactNode; storyId: string }): JSX.Element {
@@ -350,13 +355,29 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
     ...EXAMPLE_WORKFLOWS,
 }
 
-const InteractiveWorkflow = ({ id, className }: { id: string; className?: string }): JSX.Element => (
-    <BindLogic logic={workflowLogic} props={{ id }}>
-        <div className={`h-screen ${className ?? ''} [&>div]:!h-full [&>div]:!max-h-none`}>
-            <Workflow id={id} />
-        </div>
-    </BindLogic>
-)
+const InteractiveWorkflow = ({
+    id,
+    className,
+    variant,
+}: {
+    id: string
+    className?: string
+    variant?: WorkflowTreeLayoutVariant
+}): JSX.Element => {
+    // The editor reads its layout variant from the URL, so the story sets the URL the scene would have.
+    useOnMountEffect(() => {
+        if (variant) {
+            router.actions.push(urls.workflow(id, 'workflow'), { tree_variant: variant })
+        }
+    })
+    return (
+        <BindLogic logic={workflowLogic} props={{ id }}>
+            <div className={`h-screen ${className ?? ''} [&>div]:!h-full [&>div]:!max-h-none`}>
+                <Workflow id={id} />
+            </div>
+        </BindLogic>
+    )
+}
 
 export const CustomerOnboardingAndRetention: StoryFn = () => <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} />
 export const NarrowCustomerOnboardingAndRetention: StoryFn = () => (
@@ -368,3 +389,25 @@ export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example
 export const RenewalWindowAlerts: StoryFn = () => <InteractiveWorkflow id="example-renewal-window-alerts" />
 export const PendingTicketCleanup: StoryFn = () => <InteractiveWorkflow id="example-pending-ticket-cleanup" />
 export const AddOnPromotionEmails: StoryFn = () => <InteractiveWorkflow id="example-add-on-promotion-emails" />
+export const PlanChangeLifecycle: StoryFn = () => <InteractiveWorkflow id={LARGE_WORKFLOW_ID} />
+export const PlanChangeLifecycleClosedPaths: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} variant="closed" />
+)
+export const PlanChangeLifecycleDrillDown: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} variant="drilldown" />
+)
+export const PlanChangeLifecycleNavigator: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} variant="navigator" />
+)
+export const NarrowPlanChangeLifecycle: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} className="w-5xl max-w-full" />
+)
+export const NarrowPlanChangeLifecycleClosedPaths: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} variant="closed" className="w-5xl max-w-full" />
+)
+export const NarrowPlanChangeLifecycleDrillDown: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} variant="drilldown" className="w-5xl max-w-full" />
+)
+export const NarrowPlanChangeLifecycleNavigator: StoryFn = () => (
+    <InteractiveWorkflow id={LARGE_WORKFLOW_ID} variant="navigator" className="w-5xl max-w-full" />
+)
