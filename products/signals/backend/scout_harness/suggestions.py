@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import groups
@@ -566,6 +567,9 @@ def read_team_activity(team_id: int, *, window_days: int) -> TeamActivity:
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
             """,
             {"team_ids": team_ids, "window_days": window_days},
+            # A scheduled fleet scan belongs off the interactive cluster: a tick reads one
+            # candidate after another, and the per-tick cap is flag-tunable.
+            workload=Workload.OFFLINE,
             settings={
                 "max_rows_to_read": ACTIVITY_READ_MAX_ROWS,
                 "read_overflow_mode": "throw",

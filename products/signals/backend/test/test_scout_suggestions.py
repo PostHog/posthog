@@ -16,6 +16,7 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.errors import InternalCHQueryError
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -677,13 +678,14 @@ class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual((activity.event_count, activity.active_days, activity.capped), (0, 0, False))
 
-    def test_the_read_carries_a_finite_execution_cap(self):
+    def test_the_read_is_bounded_and_kept_off_the_interactive_cluster(self):
         with patch("products.signals.backend.scout_harness.suggestions.sync_execute", return_value=[(0, 0)]) as execute:
             read_team_activity(self.team.id, window_days=14)
 
-        settings = execute.call_args.kwargs["settings"]
-        self.assertGreater(settings["max_execution_time"], 0)
-        self.assertEqual(settings["timeout_overflow_mode"], "throw")
+        kwargs = execute.call_args.kwargs
+        self.assertEqual(kwargs["workload"], Workload.OFFLINE)
+        self.assertGreater(kwargs["settings"]["max_execution_time"], 0)
+        self.assertEqual(kwargs["settings"]["timeout_overflow_mode"], "throw")
 
     @parameterized.expand([("too_many_rows", 158), ("too_many_rows_or_bytes", 396)])
     def test_a_read_that_hits_the_row_cap_reads_as_capped(self, _name, code):
