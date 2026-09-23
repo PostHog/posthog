@@ -139,7 +139,7 @@ class TestGitHubInstallationWebhook(TestCase):
             user=self.user, kind="github", integration_id=installation_id, config={}, sensitive_config={}
         )
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_deleted_removes_all_rows_and_does_not_call_github(self, mock_client_request, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -148,40 +148,40 @@ class TestGitHubInstallationWebhook(TestCase):
 
         response = self._post({"action": "deleted", "installation": {"id": 12345}})
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         self.assertFalse(Integration.objects.filter(kind="github", integration_id="12345").exists())
         self.assertFalse(UserIntegration.objects.filter(kind="github", integration_id="12345").exists())
         # Inbound side must never call out to GitHub (loop prevention).
         mock_client_request.assert_not_called()
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_deleted_with_no_matching_rows_is_idempotent(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
         response = self._post({"action": "deleted", "installation": {"id": 99999}})
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
 
     @parameterized.expand([("suspend",), ("unsuspend",)])
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_reversible_action_does_not_delete_rows(self, action, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         self._team_integration("12345")
 
         response = self._post({"action": action, "installation": {"id": 12345}})
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
-    def test_missing_installation_id_returns_200(self, mock_get_secret):
+    @patch("posthog.ingress.github.provider.get_instance_setting")
+    def test_missing_installation_id_is_accepted(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
         response = self._post({"action": "deleted"})
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_created_approves_the_requesters_pending_request_by_github_user_id(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         other_user = User.objects.create(email="other-requester@example.com", distinct_id="other-requester-1")
@@ -208,7 +208,7 @@ class TestGitHubInstallationWebhook(TestCase):
             }
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         matching.refresh_from_db()
         self.assertEqual(matching.status, GitHubInstallRequest.Status.APPROVED)
         self.assertEqual(matching.installation_id, "55555")
@@ -220,7 +220,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(someone_else.status, GitHubInstallRequest.Status.PENDING)
         self.assertIsNone(someone_else.installation_id)
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_created_without_a_requester_is_a_noop(self, mock_get_secret):
         # An owner installing for themselves sends no requester, and must not sweep up pending rows.
         mock_get_secret.return_value = self.webhook_secret
@@ -233,11 +233,11 @@ class TestGitHubInstallationWebhook(TestCase):
 
         response = self._post({"action": "created", "installation": {"id": 55555}})
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         pending.refresh_from_db()
         self.assertEqual(pending.status, GitHubInstallRequest.Status.PENDING)
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_installation_repositories_updates_selection_and_invalidates_caches(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         team_row = self._team_integration("12345")
@@ -259,7 +259,7 @@ class TestGitHubInstallationWebhook(TestCase):
             event_type="installation_repositories",
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         team_row.refresh_from_db()
         user_row.refresh_from_db()
         untouched.refresh_from_db()
@@ -270,7 +270,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(untouched.config["repository_selection"], "selected")
         self.assertIsNotNone(untouched.repository_cache_updated_at)
 
-    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_invalid_signature_returns_403_and_keeps_rows(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         self._team_integration("12345")

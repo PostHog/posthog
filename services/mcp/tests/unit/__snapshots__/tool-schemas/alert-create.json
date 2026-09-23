@@ -2214,6 +2214,54 @@
                                 }
                             },
                             "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "instructions": {
+                                    "anyOf": [
+                                        {
+                                            "maxLength": 2000,
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
+                                },
+                                "threshold": {
+                                    "anyOf": [
+                                        {
+                                            "maximum": 1,
+                                            "minimum": 0,
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"
+                                },
+                                "type": {
+                                    "default": "llm",
+                                    "enum": ["llm"],
+                                    "type": "string"
+                                },
+                                "window": {
+                                    "anyOf": [
+                                        {
+                                            "maximum": 400,
+                                            "minimum": 5,
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "How many recent points the model is shown (default: 90)"
+                                }
+                            },
+                            "type": "object"
                         }
                     ],
                     "description": "Detector configuration types"
@@ -2290,7 +2338,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
+            "description": "Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time."
         },
         "skip_weekend": {
             "anyOf": [

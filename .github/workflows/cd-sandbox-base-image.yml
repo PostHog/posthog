@@ -22,6 +22,10 @@ on:
             - 'products/notebooks/backend/kernel_package.py'
     workflow_dispatch:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -82,8 +86,8 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: ubuntu-latest
-        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        runs-on: ubuntu-24.04
+        # `Run migrations` builds the schema from scratch on ubuntu-24.04 with no schema cache and
         # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
         # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
         timeout-minutes: 45
@@ -310,7 +314,7 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 15
+        timeout-minutes: 20
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -345,16 +349,6 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
-            - name: Resolve published agent version
-              id: agent-version
-              run: |
-                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
-                  if [[ -z "$version" || "$version" == "null" ]]; then
-                    echo "Could not resolve the latest @posthog/agent version" >&2
-                    exit 1
-                  fi
-                  echo "version=$version" >> "$GITHUB_OUTPUT"
-
             - parallel:
                   - name: Build and push container image (base)
                     id: build
@@ -365,10 +359,11 @@ jobs:
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
-                        tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
+                        tags: ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
                         platforms: linux/arm64,linux/amd64
+                        # AGENT_VERSION is not passed here: the Dockerfile's ARG default is the
+                        # pinned, reviewed version. Bump it there, not by resolving npm "latest".
                         build-args: |
-                            AGENT_VERSION=${{ steps.agent-version.outputs.version }}
                             COMMIT_HASH=${{ github.sha }}
 
                   - name: Build and push container image (notebook)
@@ -395,6 +390,40 @@ jobs:
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-streamlit:master,ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
+
+            - name: Smoke the installed agent on both architectures
+              if: github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true'
+              env:
+                  IMAGE: ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+              run: |
+                  pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  for platform in linux/amd64 linux/arm64; do
+                    echo "::group::$platform"
+                    installed=$(docker run --rm --platform "$platform" "$IMAGE" \
+                      node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
+                    if [ "$installed" != "$pinned" ]; then
+                      echo "::error::$platform image has @posthog/agent $installed, Dockerfile pins $pinned"
+                      exit 1
+                    fi
+                    docker run --rm --platform "$platform" "$IMAGE" \
+                      /scripts/node_modules/.bin/agent-server --help >/dev/null
+                    echo "@posthog/agent $installed starts on $platform"
+                    echo "::endgroup::"
+                  done
+
+            - name: Promote the smoked base image to :master
+              if: github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
+              env:
+                  IMAGE: ghcr.io/posthog/posthog-sandbox-base
+              run: |
+                  docker buildx imagetools create --tag "$IMAGE:master" "$IMAGE:${{ github.sha }}"
+                  sha_digest=$(docker buildx imagetools inspect "$IMAGE:${{ github.sha }}" --format '{{json .Manifest.Digest}}')
+                  master_digest=$(docker buildx imagetools inspect "$IMAGE:master" --format '{{json .Manifest.Digest}}')
+                  if [ "$sha_digest" != "$master_digest" ]; then
+                    echo "::error::$IMAGE:master is $master_digest, expected $sha_digest"
+                    exit 1
+                  fi
+                  echo "$IMAGE:master -> $master_digest"
 
             - parallel:
                   - name: Build and push container image (pi)
@@ -434,7 +463,7 @@ jobs:
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         permissions: {}

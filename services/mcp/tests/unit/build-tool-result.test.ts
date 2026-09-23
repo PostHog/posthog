@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest'
 import {
     EXEC_BUILT_PAYLOAD,
     STRUCTURED_CONTENT_ONLY_TEXT,
+    UI_APP_RENDER_NOTE,
     estimateResponseTokens,
     markExecPayload,
     buildToolResultPayload,
     isToolCallPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -240,11 +242,12 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
         // Model reads the compact table, not the verbose JSON.
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${UI_APP_RENDER_NOTE}`)
         expect(payload).not.toHaveProperty('structuredContent')
         // The UI app hydrates from _meta since structuredContent was dropped.
         expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
@@ -303,12 +306,14 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
         expect(payload.structuredContent).toMatchObject(handlerResult)
         // The text channel points at structuredContent instead of repeating it.
-        expect(payload.content).toEqual([{ type: 'text', text: STRUCTURED_CONTENT_ONLY_TEXT }])
+        expect(payload.content[0]!.text).toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+        expect(payload.content[0]!.text).toContain(UI_APP_RENDER_NOTE)
         expect(payload.content[0]!.text).not.toContain('Onboarding copy')
         expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
     })
@@ -323,10 +328,13 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
-        expect(estimateResponseTokens(payload)).toBeGreaterThan(estimateTokens(STRUCTURED_CONTENT_ONLY_TEXT))
+        expect(estimateResponseTokens(payload)).toBe(
+            estimateTokens(payload.structuredContent) + estimateTokens(UI_APP_RENDER_NOTE)
+        )
     })
 
     it('keeps the mirrored text when the caller asked for JSON output', () => {
@@ -346,6 +354,40 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
 })
 
 describe('buildToolResultPayload — non-query use cases', () => {
+    it.each([
+        { results: [{ id: 1 }], next: null, count: 1, previous: null },
+        { results: [], next: null, count: 0, previous: null },
+        { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
+    ])('unwraps optimized lists but preserves JSON and widget data: %j', (handlerResult) => {
+        for (const outputFormat of ['optimized', 'json'] as const) {
+            const payload = buildToolResultPayload({
+                handlerResult,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+
+            expect(payload.content[0]!.text).toBe(
+                outputFormat === 'json' ? JSON.stringify(handlerResult) : formatResponse(handlerResult.results)
+            )
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
+        }
+    })
+
+    it.each([
+        { results: [{ id: 1 }], query: { kind: 'HogQLQuery' } },
+        { results: [{ id: 1 }], next: null, previous: null, status: 'ready' },
+        { results: 'not a list', next: null, count: 1, previous: null },
+    ])('preserves non-pagination result objects: %j', (handlerResult) => {
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolName: 'mock-tool',
+            params: { output_format: 'json' },
+        })
+
+        expect(JSON.parse(payload.content[0]!.text)).toEqual(handlerResult)
+    })
+
     it('preserves array handler results', () => {
         const result = [{ id: 'template-1' }]
         Object.defineProperty(result, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {

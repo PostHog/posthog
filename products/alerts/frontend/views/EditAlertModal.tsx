@@ -12,12 +12,11 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertErrorBanner, AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
@@ -36,6 +35,7 @@ import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertInt
 import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
 import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
@@ -71,7 +71,7 @@ type AlertModalProps = AlertModalCommonProps &
         | {
               alert?: never
               alertId?: AlertType['id']
-              insightId: QueryBasedInsightModel['id']
+              insightId: InsightModel['id']
               insightShortId: InsightShortId
               insightLogicProps: InsightLogicProps
           }
@@ -80,7 +80,7 @@ type AlertModalProps = AlertModalCommonProps &
 interface ResolvedAlertModalProps extends AlertModalCommonProps {
     initialAlert?: AlertType
     alertId?: AlertType['id']
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }
@@ -144,6 +144,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const insightAlertKind = insightAlertKindForQuery(query)
     const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
+    const editorCanUseLlmDetector = useFeatureFlag('ALERTS_LLM_DETECTOR')
+    // Scheduled checks run as the alert's creator, so an existing alert is gated on the creator's
+    // access, which only the detail response reports: a list payload carries null there, so the
+    // loaded alert wins over the one passed in. The editor's own flag decides for a new alert.
+    const llmDetectorEnabled =
+        loadedAlert?.llm_detector_available ?? initialAlert?.llm_detector_available ?? editorCanUseLlmDetector
 
     const formLogicProps = {
         alert,
@@ -223,6 +229,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                     ? {
                           calculation_interval: alert.calculation_interval,
                           schedule_restriction: alert.schedule_restriction,
+                          schedule_start_time: alert.schedule_start_time,
                           skip_weekend: alert.skip_weekend,
                           config: supportsOngoingInterval(alert.config)
                               ? { check_ongoing_interval: alert.config.check_ongoing_interval }
@@ -232,6 +239,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 {
                     calculation_interval: alertForm.calculation_interval,
                     schedule_restriction: alertForm.schedule_restriction,
+                    schedule_start_time: alertForm.schedule_start_time,
                     skip_weekend: alertForm.skip_weekend,
                     config: supportsOngoingInterval(alertForm.config)
                         ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
@@ -242,6 +250,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alert,
             alertForm.calculation_interval,
             alertForm.schedule_restriction,
+            alertForm.schedule_start_time,
             alertForm.skip_weekend,
             alertForm.config,
             creatingNewAlert,
@@ -340,6 +349,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
+            llmDetectorEnabled={llmDetectorEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}

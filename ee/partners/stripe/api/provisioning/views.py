@@ -35,6 +35,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -240,7 +241,7 @@ class AccountRequestsView(StripeProvisioningAPIView):
             except (ValueError, TypeError):
                 raise SpecError("invalid_request", "configuration.team_id must be an integer", request_id=request_id)
 
-        existing_user = User.objects.filter(email=email).first()
+        existing_user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
         if existing_user:
             return Response(

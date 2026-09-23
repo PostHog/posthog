@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.18.4 — 2026-09-23
+
+### Patch changes
+
+- [52ffa0e76a3](https://github.com/PostHog/posthog/commit/52ffa0e76a3fbfa5298bb8bcf5743f8c5f44bbcf) Publish release artifacts to releases.posthog.com alongside GitHub Releases. The install script now has a stable URL, https://releases.posthog.com/posthog-cli/install.sh, which always installs the current version. — Thanks @hpouillot!
+
+## 0.18.3 — 2026-09-16
+
+### Patch changes
+
+- [b6486bfe18a](https://github.com/PostHog/posthog/commit/b6486bfe18a1476a5959e6334c916faf79309f2e) Stop reporting expected sourcemap upload outcomes as warnings. Missing releases and skipped empty sourcemaps now use lower log levels when uploads continue. — Thanks @posthog[bot]!
+
 ## 0.18.2 — 2026-09-11
 
 ### Patch changes

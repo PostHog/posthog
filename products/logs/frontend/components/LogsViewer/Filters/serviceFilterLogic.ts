@@ -101,7 +101,7 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
             [] as string[],
             {
                 loadServiceNames: async () => {
-                    const url = combineUrl(`api/environments/${values.currentTeamId}/logs/values`, {
+                    const url = combineUrl(`api/projects/${values.currentTeamId}/logs/values`, {
                         key: 'service.name',
                         attribute_type: 'resource',
                         value: values.search,

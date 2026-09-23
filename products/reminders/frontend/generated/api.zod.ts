@@ -78,6 +78,7 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
+    deleted: zod.boolean().optional(),
 })
 
 export const remindersUpdateBodyTitleMax = 255
@@ -149,6 +150,7 @@ export const RemindersUpdateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
+    deleted: zod.boolean().optional(),
 })
 
 export const remindersPartialUpdateBodyTitleMax = 255
@@ -224,4 +226,5 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
+    deleted: zod.boolean().optional(),
 })

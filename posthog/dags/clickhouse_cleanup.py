@@ -23,8 +23,9 @@ from django.conf import settings
 import dagster
 import psycopg2
 import pydantic
+import psycopg2.extensions
 from clickhouse_driver.client import Client
-from prometheus_client import Counter
+from prometheus_client import Gauge
 from psycopg2.extras import execute_values
 
 from posthog.clickhouse.cleanup_snapshots import (
@@ -48,20 +49,11 @@ from posthog.dags.common.staged_dictionary import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 
 logger = dagster.get_dagster_logger(__name__)
-
-REVIVED_PERSON_COUNTER = Counter(
-    "posthog_clickhouse_cleanup_revived_persons_total",
-    "Persons that came back to life between the snapshot and the sweep, and were excluded",
-)
-
-REVIVED_DISTINCT_ID_COUNTER = Counter(
-    "posthog_clickhouse_cleanup_revived_distinct_ids_total",
-    "Distinct id mappings that came back between the snapshot and the sweep, and were excluded",
-)
 
 PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 
@@ -483,6 +475,13 @@ class CleanupRun:
     # so a snapshot the 14-day TTL reaped mid-run fails the run instead of under-deleting silently.
     persons_count: int = 0
     orphaned_count: int = 0
+    # They ride on the run because the publishing op is the only place that sees a whole sweep.
+    stranded_runs_reaped: int = 0  # clear_removed_cohort_data
+    revived_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    revived_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    queued_for_postgres: int = 0  # persist_deleted_persons
+    pg_queue_conflict_retries: int = 0  # persist_deleted_persons
+    mutation_seconds_max: float = 0.0  # the slowest mutation of either delete op
 
     @classmethod
     def for_run(cls, run_id: str, config: CleanupConfig) -> "CleanupRun":
@@ -569,6 +568,7 @@ def clear_removed_cohort_data(
     """
     run = CleanupRun.for_run(context.run_id, config)
     reaped = reap_stranded_run_assets(context, cluster)
+    run = replace(run, stranded_runs_reaped=reaped)
     context.add_output_metadata(
         {
             "dry_run": dagster.MetadataValue.bool(run.dry_run),
@@ -724,14 +724,15 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
                 "revived_distinct_ids": dagster.MetadataValue.int(revived_ids),
             }
         )
+        run = replace(
+            run,
+            revived_person_count=run.revived_person_count + revived_persons,
+            revived_distinct_id_count=run.revived_distinct_id_count + revived_ids,
+        )
         if not revived_persons and not revived_ids:
             return run
 
         # Reloading is what applies the exclusion, so it only happens when something came back.
-        # Counted twice on purpose: the prometheus counters only surface if this pod is ever
-        # scraped, while the ClickHouse-backed counters survive the run.
-        REVIVED_PERSON_COUNTER.inc(revived_persons)
-        REVIVED_DISTINCT_ID_COUNTER.inc(revived_ids)
         metrics = MetricsClient(cluster)
         if revived_persons:
             _emit(metrics, "clickhouse_cleanup_revived", {"kind": "persons"}, value=revived_persons)
@@ -1088,7 +1089,55 @@ def delete_orphaned_distinct_ids(
     )
     context.add_output_metadata(_delete_metadata(ranges, report))
 
-    return replace(run, distinct_ids_deleted_at=datetime.now(UTC))
+    return replace(
+        run,
+        distinct_ids_deleted_at=datetime.now(UTC),
+        mutation_seconds_max=max(run.mutation_seconds_max, report.seconds_max),
+    )
+
+
+# The drain deletes from this table while we write it, and a lock conflict would otherwise fail
+# the whole weekly sweep.
+PG_QUEUE_CONFLICT_CODES = frozenset({"55P03", "40P01"})
+PG_QUEUE_RETRY_WINDOW_SECONDS = 300.0
+PG_QUEUE_RETRY_BACKOFF_SECONDS = 1.0
+
+
+def _write_queue_page(
+    connection: psycopg2.extensions.connection,
+    cursor: psycopg2.extensions.cursor,
+    page: list[tuple[int, str]],
+    deleted_at: datetime | None,
+) -> int:
+    """Upsert one page, retrying a lock or deadlock conflict. Returns the retries it took."""
+    retries = 0
+    deadline = time.monotonic() + PG_QUEUE_RETRY_WINDOW_SECONDS
+    while True:
+        try:
+            execute_values(
+                cursor,
+                f"""
+                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
+                VALUES %s
+                ON CONFLICT (team_id, person_uuid) DO UPDATE
+                SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
+                WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                """,
+                [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
+                page_size=1000,
+            )
+            return retries
+        except psycopg2.Error as exc:
+            remaining = deadline - time.monotonic()
+            if getattr(exc, "pgcode", None) not in PG_QUEUE_CONFLICT_CODES or remaining <= 0:
+                raise
+            # The failed statement aborted the transaction, so the page starts over. Its WHERE
+            # guard leaves unchanged rows alone, so a replay writes no extra tuple versions.
+            connection.rollback()
+            pause = min(PG_QUEUE_RETRY_BACKOFF_SECONDS * 2**retries, 30.0, remaining)
+            retries += 1
+            logger.warning("queue write conflicted (%s), retry %d in %.1fs", exc.pgcode, retries, pause)
+            time.sleep(pause)
 
 
 @dagster.op
@@ -1142,6 +1191,7 @@ def persist_deleted_persons(
 
     deleted_at = run.distinct_ids_deleted_at
     written = 0
+    conflict_retries = 0
     after: tuple[int, str] | None = None
     try:
         with persons_database.cursor() as cursor:
@@ -1150,6 +1200,9 @@ def persist_deleted_persons(
             # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
             cursor.execute("SET statement_timeout = '120s'")
             cursor.execute("SET lock_timeout = '10s'")
+            # SET is transactional, so without this commit a retry's rollback reverts all three.
+            # The role's own lock_timeout is 0, which would leave the next conflict unbounded.
+            persons_database.commit()
             while True:
                 page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
                 if not page:
@@ -1161,18 +1214,7 @@ def persist_deleted_persons(
                 # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
                 # over millions of rows would leave that many dead tuples for the persons writer to
                 # vacuum.
-                execute_values(
-                    cursor,
-                    f"""
-                    INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
-                    VALUES %s
-                    ON CONFLICT (team_id, person_uuid) DO UPDATE
-                    SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
-                    WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
-                    """,
-                    [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
-                    page_size=1000,
-                )
+                conflict_retries += _write_queue_page(persons_database, cursor, page, deleted_at)
                 # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
                 # the queued set, which is the page.
                 written += len(page)
@@ -1186,8 +1228,13 @@ def persist_deleted_persons(
     finally:
         persons_database.close()
 
-    context.add_output_metadata({"queued_for_postgres": dagster.MetadataValue.int(written)})
-    return run
+    context.add_output_metadata(
+        {
+            "queued_for_postgres": dagster.MetadataValue.int(written),
+            "pg_queue_conflict_retries": dagster.MetadataValue.int(conflict_retries),
+        }
+    )
+    return replace(run, queued_for_postgres=written, pg_queue_conflict_retries=conflict_retries)
 
 
 @dagster.op
@@ -1223,6 +1270,100 @@ def delete_persons(
     )
     context.add_output_metadata(_delete_metadata(ranges, report))
 
+    return replace(run, mutation_seconds_max=max(run.mutation_seconds_max, report.seconds_max))
+
+
+# Pushing replaces every gauge stored under this name, so one push carries the whole set.
+SWEEP_METRICS_JOB = "clickhouse_deletion_sweep"
+
+
+@frozen
+class PublishedGauge:
+    """One published measurement. Named so the metric name and its help text cannot swap."""
+
+    name: str
+    help_text: str
+    value: float
+
+    def __post_init__(self) -> None:
+        # Most of these are counts, and Dagster metadata rejects an int where it wants a float.
+        object.__setattr__(self, "value", float(self.value))
+
+
+def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
+    return [
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_last_success_timestamp_seconds",
+            help_text="Unix time when the sweep last finished deleting persons",
+            value=completed_at,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_snapshot_deleted_persons",
+            help_text="Soft-deleted persons this run snapshotted. Saturates at the max_persons cap",
+            value=run.persons_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_snapshot_orphaned_distinct_ids",
+            help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
+            value=run.orphaned_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_revived_persons",
+            help_text="Persons that came back between the snapshot and the delete, and were excluded",
+            value=run.revived_person_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_revived_distinct_ids",
+            help_text="Distinct id mappings that came back mid-run, and were excluded",
+            value=run.revived_distinct_id_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_queued_for_postgres",
+            help_text="Persons handed to the Postgres cleanup queue by this run",
+            value=run.queued_for_postgres,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_mutation_seconds_max",
+            help_text="Slowest single delete mutation of the run, against mutation_wait_deadline",
+            value=run.mutation_seconds_max,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_pg_queue_conflict_retries",
+            help_text="Queue page upserts retried after a lock or deadlock conflict with the drain",
+            value=run.pg_queue_conflict_retries,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_stranded_runs_reaped",
+            help_text="Finished runs whose leftover dictionaries this run dropped",
+            value=run.stranded_runs_reaped,
+        ),
+    ]
+
+
+@dagster.op
+def publish_sweep_metrics(
+    context: dagster.OpExecutionContext,
+    run: CleanupRun,
+) -> CleanupRun:
+    """Publish what the run measured, so alerting and dashboards can read it.
+
+    Runs after the person delete and before the asset drop. That places it at the point where the
+    sweep has done the work it exists for, and keeps a cleanup failure from also hiding the
+    measurements the run already earned.
+
+    A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
+    ad-hoc run from the Dagster UI mask a sweep that has stopped working.
+    """
+    if run.dry_run:
+        context.log.info("dry run: publishing no metrics")
+        return run
+
+    gauges = _sweep_gauges(run, time.time())
+    with pushed_metrics_registry(SWEEP_METRICS_JOB) as registry:
+        for gauge in gauges:
+            Gauge(gauge.name, gauge.help_text, registry=registry).set(gauge.value)
+
+    context.add_output_metadata({gauge.name: dagster.MetadataValue.float(gauge.value) for gauge in gauges})
     return run
 
 
@@ -1348,6 +1489,8 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
     _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
+# The rows this job writes to person_pg_cleanup_queue are drained by person_pg_cleanup_drain_job,
+# which runs on its own daily schedule rather than in this chain.
 @dagster.job(
     hooks={drop_assets_on_failure},
     tags={
@@ -1374,7 +1517,7 @@ def clickhouse_deletion_sweep_job():
     run = persist_deleted_persons(run)
 
     # Each op takes the previous op's output, which is what keeps the sweeps in sequence.
-    drop_snapshot_assets(delete_persons(run))
+    drop_snapshot_assets(publish_sweep_metrics(delete_persons(run)))
 
 
 # What the sensor launches with. Every field is pinned so a changed default cannot move production,

@@ -175,8 +175,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         calling super() would otherwise leak the token.
 
         Note: a subclass that overrides `dispatch` itself without super() would
-        also bypass this cleanup; in this codebase only `query_coalescer.py`
-        overrides dispatch and it does call super().
+        also bypass this cleanup.
 
         ContextVars in sync Django are thread-local and the same worker thread
         is reused across requests, so a leaked token would let scope from one

@@ -66,6 +66,21 @@ describe('timeSensitiveAuthenticationLogic', () => {
             })
         })
 
+        it('should clear the gate even when the sensitive action throws', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            const onSuccess = jest.fn(() => {
+                throw new Error('sensitive action failed')
+            })
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+
+            logic.actions.setReauthenticationValues({ password: 'test', token: undefined })
+            logic.actions.submitReauthentication()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+        })
+
         it('should handle successful reauthentication', async () => {
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
 
@@ -156,6 +171,55 @@ describe('timeSensitiveAuthenticationLogic', () => {
             await pending
 
             await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+        })
+    })
+
+    describe('SSO re-authentication in a popup', () => {
+        const startPopupAttempt = (): string => {
+            const open = jest.spyOn(window, 'open').mockReturnValue({} as Window)
+            logic.actions.beginSsoReauthentication('google-oauth2')
+            const next = new URL(open.mock.calls[0][0] as string, location.origin).searchParams.get('next')!
+            return new URL(next, location.origin).searchParams.get('attempt')!
+        }
+
+        it.each([
+            ['success', 'own', null, true, false],
+            ['failure', 'own', 'reauth_user_mismatch', false, true],
+            ['a message from another attempt', 'other', null, false, false],
+        ])(
+            'on %s, settles the waiting write only when it succeeded',
+            async (_, source, errorCode, settled, toasted) => {
+                const onSuccess = jest.fn()
+                apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+                const attempt = startPopupAttempt()
+
+                const popup = new BroadcastChannel('posthog-sso-reauth')
+                const acknowledgment = new Promise((resolve) => (popup.onmessage = (event) => resolve(event.data)))
+                popup.postMessage({
+                    type: 'sso_reauth_complete',
+                    attempt: source === 'own' ? attempt : 'someone-else',
+                    error_code: errorCode,
+                })
+                await expectLogic(logic).toDispatchActions(['ssoReauthenticationFinished'])
+
+                expect(onSuccess).toHaveBeenCalledTimes(settled ? 1 : 0)
+                expect(logic.values.showAuthenticationModal).toBe(!settled)
+                expect(lemonToast.error).toHaveBeenCalledTimes(toasted ? 1 : 0)
+                if (source === 'own') {
+                    // The popup waits for this before it closes, so the result is never dropped
+                    expect(await acknowledgment).toEqual({ type: 'sso_reauth_received', attempt })
+                }
+                popup.close()
+            }
+        )
+        it('keeps SAML on the full-page redirect', () => {
+            const open = jest.spyOn(window, 'open')
+            // jsdom reports the page navigation as not implemented
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            logic.actions.beginSsoReauthentication('saml')
+
+            expect(open).not.toHaveBeenCalled()
         })
     })
 

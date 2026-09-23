@@ -7,7 +7,6 @@ import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@p
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
@@ -26,6 +25,8 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { extendLabelsToLongestSeries } from './TrendsLineChart'
 
@@ -808,6 +809,25 @@ describe('TrendsLineChart', () => {
             const legendEl = getInChartLegend(container)
             expect(legendEl.textContent).toContain('Napped')
             expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
+        })
+
+        it('adds series letters when same-named series share a breakdown', async () => {
+            const { container } = renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { showLegend: true },
+                }),
+            })
+
+            await waitFor(() => {
+                const legendText = getInChartLegend(container).textContent
+                expect(legendText).toContain('A Napped · Spike')
+                expect(legendText).toContain('B Napped · Spike')
+            })
         })
 
         it('keeps a toggled-off series listed and dimmed in the legend but out of the tooltip', async () => {

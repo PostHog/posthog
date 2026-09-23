@@ -194,7 +194,11 @@ class TaskProcessingContext:
 
     @property
     def github_read_access(self) -> bool:
-        """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
+        """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
+
+        Independent of ``repositories``: a run that pins repos still clones them, with a token
+        that carries ``contents: read`` and nothing else.
+        """
         return (self.state or {}).get("github_read_access") is True
 
     @property
@@ -283,6 +287,7 @@ class TaskProcessingContext:
         return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
         )
 
     def max_run_duration(self) -> timedelta | None:

@@ -20,6 +20,11 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.artefact_schemas import (
+    # Re-exported so the Slack mention handler can label the task it starts from a report's
+    # notification thread without naming the relationship vocabulary itself.
+    TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
@@ -36,7 +41,7 @@ from products.signals.backend.scout_harness.workflow_runs import (
     # rule, the workflow cooldown, single-flight, dispatch) happens here.
     start_workflow_scout_run as start_workflow_scout_run,
 )
-from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
+from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -161,6 +166,44 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
+    """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
+    from products.signals.backend.slack_report_threads import (
+        report_id_for_slack_thread as report_id_for_slack_thread_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return report_id_for_slack_thread_impl(
+        team_id=team_id, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def report_team_id_for_slack_thread(
+    *, team_ids: Sequence[int], slack_workspace_id: str, channel: str, thread_ts: str
+) -> int | None:
+    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 — avoids importing model layer at facade import time
+        report_team_id_for_slack_thread as report_team_id_for_slack_thread_impl,
+    )
+
+    return report_team_id_for_slack_thread_impl(
+        team_ids=team_ids, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+    from products.signals.backend.models import SignalReport, SignalReportAction
+    from products.signals.backend.task_run_artefacts import record_report_task
+
+    SignalReport.objects.get(team_id=team_id, id=report_id)
+    record_report_task(team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_DISCUSSION)
+    SignalReportAction.record(
+        team_id=team_id,
+        report_id=report_id,
+        user_id=user_id,
+        action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+    )
 
 
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
@@ -753,10 +796,9 @@ def forward_report_discussion_note(
     relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
     returns the note id, or None when nothing was forwarded.
     """
-    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
-        TASK_RUN_TYPE_DISCUSSION,
+    from products.signals.backend.discussion_notes import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        forward_discussion_note,
     )
-    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
 
     if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
         return None
@@ -782,6 +824,47 @@ class SignalSourceSliceOutcomes:
     merged_pr_count: int
 
 
+@frozen
+class SignalSourceSliceReport:
+    """One inbox report a source slice's signals were grouped into."""
+
+    id: str
+    title: str | None
+    status: str
+    created_at: datetime
+
+
+def _live_reports_for_signal_source_slice(
+    team: Team, *, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> tuple[SourceSliceSignalStats, list[SignalSourceSliceReport]]:
+    """The slice's signal stats, plus its reports newest first.
+
+    CH metadata is not authoritative, so only report ids that parse and still exist for this team
+    survive.
+    """
+    stats = fetch_signal_stats_for_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    candidate_ids = []
+    for report_id in stats.report_ids:
+        try:
+            candidate_ids.append(uuid.UUID(report_id))
+        except ValueError:
+            continue
+    if not candidate_ids:
+        return stats, []
+    reports = [
+        SignalSourceSliceReport(
+            id=str(row["id"]), title=row["title"], status=row["status"], created_at=row["created_at"]
+        )
+        for row in SignalReport.objects.filter(team=team, id__in=candidate_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .order_by("-created_at")
+        .values("id", "title", "status", "created_at")
+    ]
+    return stats, reports
+
+
 def get_outcomes_for_signal_source_slice(
     *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
 ) -> SignalSourceSliceOutcomes:
@@ -797,22 +880,10 @@ def get_outcomes_for_signal_source_slice(
         fetch_implementation_prs_for_reports,
     )
 
-    stats = fetch_signal_stats_for_source_slice(
+    stats, reports = _live_reports_for_signal_source_slice(
         team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
     )
-    # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
-    candidate_ids = []
-    for report_id in stats.report_ids:
-        try:
-            candidate_ids.append(uuid.UUID(report_id))
-        except ValueError:
-            continue
-    report_ids = [
-        str(rid)
-        for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids)
-        .exclude(status=SignalReport.Status.DELETED)
-        .values_list("id", flat=True)
-    ]
+    report_ids = [report.id for report in reports]
     prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
     pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
     merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
@@ -822,6 +893,20 @@ def get_outcomes_for_signal_source_slice(
         pr_count=len(pr_urls),
         merged_pr_count=len(merged_pr_urls),
     )
+
+
+def get_reports_for_signal_source_slice(
+    *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> list[SignalSourceSliceReport]:
+    """The same slice as `get_outcomes_for_signal_source_slice`, hydrated instead of counted, newest first.
+
+    Grouping runs after the emitting caller returns, so an empty list means "not grouped yet" as
+    much as "never grouped".
+    """
+    _, reports = _live_reports_for_signal_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    return reports
 
 
 @frozen

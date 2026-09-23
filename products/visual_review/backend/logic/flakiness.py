@@ -214,21 +214,25 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     universe_identifiers = list({key.identifier for key in baseline_hash_by_key})
     universe_baseline_hashes = list(set(baseline_hash_by_key.values()))
 
-    # The window every rate, timestamp and strip tick is measured over. Joined
-    # on the run rather than passed as a list of run ids: an active repo lands
-    # hundreds of default-branch runs in a month, and the same predicate
-    # already serves the neighbouring queries here.
+    # The window every rate, timestamp and strip tick is measured over, passed
+    # to the activity reads as a list of run ids. A join on the run instead lets
+    # the planner scan the whole snapshot table, which holds every repo's
+    # history; anchored on run ids, the reads are index-only scans of
+    # `snapshot_run_result_covering`, one range per run.
     strip_start = today - timedelta(days=FLAKINESS_WINDOW_DAYS - 1)
     rate_start = today - timedelta(days=FLAKINESS_RATE_DAYS - 1)
-    in_window = Q(
-        run__repo_id=repo_id,
-        run__branch__in=run_queries._DEFAULT_BRANCHES,
-        run__status=RunStatus.COMPLETED,
-        # Calendar days, matching the strip. A timestamp cutoff would reach into
-        # the day before the first tick, so `last_flaked_at` could name a day the
-        # strip does not draw.
-        run__created_at__date__gte=strip_start,
+    window_run_ids = list(
+        Run.objects.filter(
+            repo_id=repo_id,
+            branch__in=run_queries._DEFAULT_BRANCHES,
+            status=RunStatus.COMPLETED,
+            # Calendar days, matching the strip. A timestamp cutoff would reach into
+            # the day before the first tick, so `last_flaked_at` could name a day the
+            # strip does not draw.
+            created_at__date__gte=strip_start,
+        ).values_list("id", flat=True)
     )
+    in_window = Q(run_id__in=window_run_ids)
 
     # The rate denominator, per run type, over the same calendar days the
     # numerators are summed over. A timestamp cutoff here instead would cover
@@ -237,13 +241,11 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # reach the numerator. That deflates every rate, and late in the day it can
     # drop a snapshot failing every run below the `broken` band and mark a
     # quarantine decision-ready while its last failure is still inside the span.
+    #
+    # Counted from the captured run ids, so a run that completes between the two
+    # reads cannot join the denominator without its rows joining the numerator.
     rate_runs_by_type: dict[str, int] = dict(
-        Run.objects.filter(
-            repo_id=repo_id,
-            branch__in=run_queries._DEFAULT_BRANCHES,
-            status=RunStatus.COMPLETED,
-            created_at__date__gte=rate_start,
-        )
+        Run.objects.filter(id__in=window_run_ids, created_at__date__gte=rate_start)
         .values("run_type")
         .annotate(run_count=Count("id"))
         .values_list("run_type", "run_count")
@@ -445,6 +447,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
 
     return _FlakinessRaw(
         rows=listed,
+        newest_run_by_type=newest_run_by_type,
         snapshots_by_key=snapshots_by_key,
         tracked_total=tracked_total,
         totals_broken=sum(1 for row in rows if row.state == FlakinessState.BROKEN),
@@ -500,6 +503,7 @@ def _quarantine_only_raw(
     listed = rows[:max_entries]
     return _FlakinessRaw(
         rows=listed,
+        newest_run_by_type={},
         snapshots_by_key={},
         tracked_total=0,
         totals_broken=0,
@@ -540,7 +544,7 @@ def _read_activity(
         queryset.annotate(day=TruncDate("run__created_at"))
         .values("run__run_type", "identifier", "day")
         .annotate(
-            day_count=Count("id"),
+            day_count=Count("*"),
             latest=Max("run__created_at"),
             worst_diff=Max("diff_percentage"),
         )
@@ -769,6 +773,8 @@ class _FlakinessRaw:
     totals_quarantined: int
     totals_needs_decision: int
     by_run_type: dict[str, int]
+    # The runs the scores were read from, so a caller needing them does not query again.
+    newest_run_by_type: dict[str, Run]
     truncated: bool
     generated_at: datetime
 
@@ -786,6 +792,7 @@ class _FlakinessRaw:
             totals_quarantined=0,
             totals_needs_decision=0,
             by_run_type={},
+            newest_run_by_type={},
             truncated=False,
             generated_at=generated_at,
         )

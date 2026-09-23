@@ -39,7 +39,8 @@ export function AccountsTabFilters(): JSX.Element {
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const { customPropertyTaxonomicOptions, relationshipTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
@@ -76,6 +77,7 @@ export function AccountsTabFilters(): JSX.Element {
                 <div className="flex flex-wrap gap-2 items-center">
                     <LemonDropdown
                         closeOnClickInside={false}
+                        onVisibilityChange={(open) => open && loadTagsIfNeeded()}
                         overlay={
                             <div className="p-2 min-w-64">
                                 <LemonInputSelect
@@ -83,6 +85,7 @@ export function AccountsTabFilters(): JSX.Element {
                                     allowCustomValues
                                     value={tagsFilter}
                                     options={(tagsAvailable || []).map((t: string) => ({ key: t, label: t }))}
+                                    loading={tagsLoading}
                                     onChange={(tags) => {
                                         setTagsFilter(tags)
                                         reportFilterChange('tag')
