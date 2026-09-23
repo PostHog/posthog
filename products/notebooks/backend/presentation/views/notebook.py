@@ -676,11 +676,6 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
                 required=False,
             ),
             OpenApiParameter(
-                "search",
-                description="Filter for notebooks whose title or text content matches this full-text search term",
-                required=False,
-            ),
-            OpenApiParameter(
                 "date_from",
                 OpenApiTypes.DATETIME,
                 description="Filter for notebooks created after this date & time",
@@ -690,6 +685,11 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
                 "date_to",
                 OpenApiTypes.DATETIME,
                 description="Filter for notebooks created before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "search",
+                description="Filter for notebooks whose title or text content matches this full-text search term",
                 required=False,
             ),
             OpenApiParameter(
