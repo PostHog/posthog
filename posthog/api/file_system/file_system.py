@@ -43,6 +43,7 @@ from posthog.models.file_system.file_system import (
     split_path,
     surface_q,
 )
+from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
@@ -183,6 +184,15 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 100
 
 
+class FileSystemHomeFolderSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="The user's home folder ID, or null if deleted."
+    )
+    path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The current path of the user's home folder."
+    )
+
+
 class UnfiledFilesQuerySerializer(serializers.Serializer):
     type = serializers.CharField(required=False, allow_blank=True)
 
@@ -264,7 +274,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "link",
         "log_view",
         "undo_delete",
+        "home_folder",
     ]
+
+    @extend_schema(request=None, responses={200: FileSystemHomeFolderSerializer})
+    @action(detail=False, methods=["POST"])
+    def home_folder(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if self.file_system_surface != DEFAULT_SURFACE:
+            raise serializers.ValidationError("Home folders are only available in the project's Files sidebar.")
+        folder = FileSystemHomeFolder.ensure_for_user(team=self.team, user=cast(User, request.user))
+        return Response({"id": str(folder.id) if folder else None, "path": folder.path if folder else None})
 
     @cached_property
     def _denied_short_id_refs(self) -> dict[tuple[str, int], builtins.list[str]]:
