@@ -311,6 +311,8 @@ export interface WorkflowVariable {
     readonly type: 'string' | 'number' | 'boolean'
     /** The default, as a string. A run can override it. */
     readonly default: string
+    /** The label the editor shows for the variable. */
+    readonly label?: string
 }
 
 /**

@@ -885,14 +885,14 @@ describe('@posthog/workflows', () => {
             name: 'With variables',
             status: 'active',
             on: onSchedule(),
-            variables: [{ key: 'plan', type: 'string', default: 'free' }],
+            variables: [{ key: 'plan', type: 'string', default: 'free', label: 'Plan' }],
             steps: path(delay('1d', { name: 'Wait' })),
             exit: { reason: 'Done' },
         })
 
         const { definition } = flow.emit({ env })
         assert.strictEqual(definition.status, 'active')
-        assert.deepStrictEqual(definition.variables, [{ key: 'plan', type: 'string', default: 'free' }])
+        assert.deepStrictEqual(definition.variables, [{ key: 'plan', type: 'string', default: 'free', label: 'Plan' }])
     })
 
     test('wraps every escape-hatch input value, so hog templating resolves', () => {

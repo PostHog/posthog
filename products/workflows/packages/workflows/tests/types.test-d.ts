@@ -146,6 +146,7 @@ workflow({
         { name: 'Manual trigger' }
     ),
     steps: path(wait),
+    variables: [{ key: 'plan', type: 'string', default: 'free', label: 'Plan' }],
     exit: { name: 'Finished', description: 'Done without errors.', reason: 'Done' },
 })
 
