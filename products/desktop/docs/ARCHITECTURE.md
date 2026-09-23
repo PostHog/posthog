@@ -304,13 +304,19 @@ The `posthog-desktop-system-map` feature flag controls access and defaults off i
 Development builds enable the view by default.
 
 The core service at `packages/core/src/system-map/` uses the existing Claude task runner with structured output.
-It requests areas, components, connections, and source citations without code changes.
+It inventories source packages and nested modules before it groups them into areas and components.
+The output includes scan coverage, public operations, connections, unchecked assumptions, and source citations.
+Coverage links source scopes to component IDs and distinguishes reviewed, partly reviewed, and unreviewed source.
+This is an agent report of its reading, not a measured completeness score.
 Shell, file-write, delegation, and MCP tools are disabled for the analysis.
 The result is an agent interpretation of inspected source, not a verified model of runtime behavior.
 The schema rejects duplicate IDs, invalid connections, and absolute or parent-relative source paths.
 
 The map shows areas at low zoom, components at medium zoom, and source paths at high zoom.
 Select a node or use the details list to inspect its source citations and connections.
+Expand **Scan coverage** in the overview to see the source scopes and any gaps.
+Select a component to see its public operations and whether each operation reads state, changes state, or has an unknown effect.
+Connection assumptions have source evidence but remain unchecked. The map does not prove that these conditions hold.
 Analysis uses AI credits, stops after ten minutes, and can be canceled.
 Changing the repository, leaving the view, or switching the authenticated project cancels an active analysis.
 The map is a snapshot held while the view is open. Analyze again after code changes.

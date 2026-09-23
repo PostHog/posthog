@@ -29,6 +29,17 @@ const evidenceSchema = z.object({
 
 export const systemMapOutputSchema = z.object({
   summary: z.string().min(1).max(1000),
+  coverage: z
+    .array(
+      z.object({
+        path,
+        status: z.enum(["reviewed", "partial", "not_reviewed"]),
+        summary: z.string().min(1).max(500),
+        componentIds: z.array(id).max(96),
+      }),
+    )
+    .min(1)
+    .max(100),
   areas: z
     .array(
       z.object({
@@ -42,6 +53,16 @@ export const systemMapOutputSchema = z.object({
               name: z.string().min(1).max(80),
               summary: z.string().min(1).max(500),
               evidence: z.array(evidenceSchema).min(1).max(5),
+              operations: z
+                .array(
+                  z.object({
+                    name: z.string().min(1).max(120),
+                    kind: z.enum(["query", "command", "unknown"]),
+                    summary: z.string().min(1).max(500),
+                    evidence: z.array(evidenceSchema).min(1).max(3),
+                  }),
+                )
+                .max(8),
             }),
           )
           .min(1)
@@ -58,6 +79,14 @@ export const systemMapOutputSchema = z.object({
         kind: z.enum(["imports", "calls", "data", "event"]),
         summary: z.string().min(1).max(500),
         evidence: z.array(evidenceSchema).min(1).max(5),
+        assumptions: z
+          .array(
+            z.object({
+              summary: z.string().min(1).max(500),
+              evidence: z.array(evidenceSchema).min(1).max(3),
+            }),
+          )
+          .max(5),
       }),
     )
     .max(160),
@@ -74,6 +103,30 @@ export const systemMapSchema = systemMapOutputSchema.superRefine((map, ctx) => {
       ids.add(item.id);
     }
     for (const component of area.components) componentIds.add(component.id);
+  }
+  const coveragePaths = new Set<string>();
+  for (const [index, scope] of map.coverage.entries()) {
+    if (coveragePaths.has(scope.path))
+      ctx.addIssue({
+        code: "custom",
+        path: ["coverage", index, "path"],
+        message: "Each source path must have one coverage entry.",
+      });
+    coveragePaths.add(scope.path);
+    if (scope.status === "not_reviewed" && scope.componentIds.length > 0)
+      ctx.addIssue({
+        code: "custom",
+        path: ["coverage", index, "componentIds"],
+        message: "Unreviewed source cannot support a component.",
+      });
+    for (const componentId of scope.componentIds) {
+      if (!componentIds.has(componentId))
+        ctx.addIssue({
+          code: "custom",
+          path: ["coverage", index, "componentIds"],
+          message: `Unknown component: ${componentId}`,
+        });
+    }
   }
   for (const link of map.relationships) {
     if (

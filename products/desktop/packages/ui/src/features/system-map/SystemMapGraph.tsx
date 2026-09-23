@@ -1,28 +1,16 @@
 import { ArrowsInSimple, Minus, Plus, X } from "@phosphor-icons/react";
-import type {
-  SystemMap,
-  SystemMapEvidence,
-} from "@posthog/core/system-map/schemas";
+import type { SystemMap } from "@posthog/core/system-map/schemas";
 import { Button, cn, Input } from "@posthog/quill";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { type ReactElement, useId, useMemo, useState } from "react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 import { layoutSystemMap, mapConnections } from "./layout";
-
-function Evidence({ items }: { items: SystemMapEvidence[] }): ReactElement {
-  return (
-    <ul className="space-y-3">
-      {items.map((item, index) => (
-        <li key={`${item.path}:${item.line}:${index}`}>
-          <code className="break-all text-primary">
-            {item.path}:{item.line}
-          </code>
-          <p className="mt-1 text-muted-foreground">{item.note}</p>
-        </li>
-      ))}
-    </ul>
-  );
-}
+import {
+  ConnectionAssumptions,
+  Evidence,
+  PublicOperations,
+  ScanCoverage,
+} from "./SystemMapDetails";
 
 export function SystemMapGraph({
   map,
@@ -342,6 +330,7 @@ export function SystemMapGraph({
                     </Button>
                   ))}
                 </div>
+                <ScanCoverage map={map} onSelect={select} />
                 {map.limitations.length > 0 && (
                   <section>
                     <h3 className="mb-2 font-medium">Analysis limits</h3>
@@ -377,10 +366,13 @@ export function SystemMapGraph({
               </section>
             )}
             {selectedComponent && (
-              <section>
-                <h3 className="mb-2 font-medium">Source evidence</h3>
-                <Evidence items={selectedComponent.evidence} />
-              </section>
+              <>
+                <section>
+                  <h3 className="mb-2 font-medium">Source evidence</h3>
+                  <Evidence items={selectedComponent.evidence} />
+                </section>
+                <PublicOperations component={selectedComponent} />
+              </>
             )}
             {selected && (
               <section>
@@ -417,6 +409,7 @@ export function SystemMapGraph({
                         </div>
                         <p>{link.summary}</p>
                         <Evidence items={link.evidence} />
+                        <ConnectionAssumptions assumptions={link.assumptions} />
                       </li>
                     ))}
                   </ul>

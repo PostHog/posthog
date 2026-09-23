@@ -12,6 +12,39 @@ const evidence = (path: string, note: string): SystemMapEvidence[] => [
 const map: SystemMap = {
   summary:
     "A parcel service accepts orders, reserves stock, and books deliveries. Delivery events trigger customer notifications.",
+  coverage: [
+    {
+      path: "src/orders",
+      status: "reviewed",
+      summary: "Read the order endpoint and service.",
+      componentIds: ["order-api", "order-service"],
+    },
+    {
+      path: "src/stock",
+      status: "reviewed",
+      summary: "Read reservations and the stock ledger.",
+      componentIds: ["reservations", "ledger"],
+    },
+    {
+      path: "src/delivery",
+      status: "partial",
+      summary: "Read booking and tracking. Retry handlers were not inspected.",
+      componentIds: ["booking", "tracking"],
+    },
+    {
+      path: "src/notifications",
+      status: "reviewed",
+      summary: "Read the delivery event handler.",
+      componentIds: ["delivery-mail"],
+    },
+    {
+      path: "src/returns",
+      status: "not_reviewed",
+      summary:
+        "Found this module in the source listing. Its code was not read.",
+      componentIds: [],
+    },
+  ],
   areas: [
     {
       id: "orders",
@@ -22,6 +55,17 @@ const map: SystemMap = {
           id: "order-api",
           name: "Order API",
           summary: "Validate new orders and pass them to the order service.",
+          operations: [
+            {
+              name: "POST /orders",
+              kind: "command",
+              summary: "Accept a new order request.",
+              evidence: evidence(
+                "src/orders/api.ts",
+                "The route creates an order.",
+              ),
+            },
+          ],
           evidence: evidence(
             "src/orders/api.ts",
             "The create endpoint passes validated input to the order service.",
@@ -31,6 +75,17 @@ const map: SystemMap = {
           id: "order-service",
           name: "Order service",
           summary: "Reserve stock before an order enters delivery.",
+          operations: [
+            {
+              name: "createOrder",
+              kind: "command",
+              summary: "Reserve items and request a parcel booking.",
+              evidence: evidence(
+                "src/orders/service.ts",
+                "The service writes the order and requests delivery.",
+              ),
+            },
+          ],
           evidence: evidence(
             "src/orders/service.ts",
             "The service coordinates stock reservations and delivery requests.",
@@ -47,6 +102,26 @@ const map: SystemMap = {
           id: "reservations",
           name: "Reservations",
           summary: "Reserve items and release canceled reservations.",
+          operations: [
+            {
+              name: "reserveItems",
+              kind: "command",
+              summary: "Reserve the requested stock for an order.",
+              evidence: evidence(
+                "src/stock/reservations.ts",
+                "The function writes a reservation and updates stock.",
+              ),
+            },
+            {
+              name: "getReservation",
+              kind: "query",
+              summary: "Read the current reservation for an order.",
+              evidence: evidence(
+                "src/stock/reservations.ts",
+                "The function reads a reservation without changing it.",
+              ),
+            },
+          ],
           evidence: evidence(
             "src/stock/reservations.ts",
             "Reservation writes update the stock ledger.",
@@ -56,6 +131,7 @@ const map: SystemMap = {
           id: "ledger",
           name: "Stock ledger",
           summary: "Store stock levels and active reservations.",
+          operations: [],
           evidence: evidence(
             "src/stock/ledger.ts",
             "The ledger contains stock and reservation records.",
@@ -72,6 +148,17 @@ const map: SystemMap = {
           id: "booking",
           name: "Parcel booking",
           summary: "Create delivery requests for accepted orders.",
+          operations: [
+            {
+              name: "bookParcel",
+              kind: "command",
+              summary: "Send a booking request to the delivery provider.",
+              evidence: evidence(
+                "src/delivery/booking.ts",
+                "The function sends a request to the provider.",
+              ),
+            },
+          ],
           evidence: evidence(
             "src/delivery/booking.ts",
             "The booking service creates a delivery record.",
@@ -81,6 +168,17 @@ const map: SystemMap = {
           id: "tracking",
           name: "Delivery tracking",
           summary: "Process delivery updates and publish status events.",
+          operations: [
+            {
+              name: "handleDeliveryUpdate",
+              kind: "command",
+              summary: "Publish an event for a delivery update.",
+              evidence: evidence(
+                "src/delivery/tracking.ts",
+                "The handler publishes a status event.",
+              ),
+            },
+          ],
           evidence: evidence(
             "src/delivery/tracking.ts",
             "The handler publishes delivery status events.",
@@ -97,6 +195,18 @@ const map: SystemMap = {
           id: "delivery-mail",
           name: "Delivery messages",
           summary: "Build messages from delivery status events.",
+          operations: [
+            {
+              name: "handleDeliveryEvent",
+              kind: "unknown",
+              summary:
+                "Pass a delivery message to a sender whose implementation was not inspected.",
+              evidence: evidence(
+                "src/notifications/delivery.ts",
+                "The handler calls the injected sender.",
+              ),
+            },
+          ],
           evidence: evidence(
             "src/notifications/delivery.ts",
             "The event handler builds a delivery message.",
@@ -111,6 +221,7 @@ const map: SystemMap = {
       target: "order-service",
       kind: "calls",
       summary: "The API delegates order creation to the service.",
+      assumptions: [],
       evidence: evidence(
         "src/orders/api.ts",
         "createOrder receives the validated order.",
@@ -121,6 +232,16 @@ const map: SystemMap = {
       target: "reservations",
       kind: "calls",
       summary: "Order creation reserves stock before booking a parcel.",
+      assumptions: [
+        {
+          summary:
+            "A successful reservation covers every requested item before booking starts.",
+          evidence: evidence(
+            "src/orders/service.ts",
+            "The caller books the parcel after reserveItems resolves without a second stock check.",
+          ),
+        },
+      ],
       evidence: evidence(
         "src/orders/service.ts",
         "reserveItems must succeed before booking starts.",
@@ -131,6 +252,7 @@ const map: SystemMap = {
       target: "ledger",
       kind: "data",
       summary: "Reservations update stock levels.",
+      assumptions: [],
       evidence: evidence(
         "src/stock/reservations.ts",
         "The reservation transaction writes the ledger.",
@@ -141,6 +263,7 @@ const map: SystemMap = {
       target: "booking",
       kind: "calls",
       summary: "An accepted order creates a parcel booking.",
+      assumptions: [],
       evidence: evidence(
         "src/orders/service.ts",
         "bookParcel receives the accepted order.",
@@ -151,6 +274,7 @@ const map: SystemMap = {
       target: "delivery-mail",
       kind: "event",
       summary: "Delivery status events trigger a message.",
+      assumptions: [],
       evidence: evidence(
         "src/notifications/delivery.ts",
         "The handler subscribes to delivery status changes.",
