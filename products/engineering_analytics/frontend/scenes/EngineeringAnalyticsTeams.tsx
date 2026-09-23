@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -11,13 +10,14 @@ import { CountCell } from '../components/CountCell'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { rowNavigationProps } from '../lib/rowNavigation'
+import { withCurrentScope } from '../lib/scope'
 import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
 
 const FIXED_WINDOW = TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current.toLowerCase()
 
-/** The team's detail page, carrying the active source so it opens scoped the same. */
+/** The team's detail page, carrying the current scope so it opens scoped the same. */
 function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
-    return combineUrl(urls.engineeringAnalyticsTeam(ownerTeam), sourceId ? { source: sourceId } : {}).url
+    return withCurrentScope(urls.engineeringAnalyticsTeam(ownerTeam), sourceId)
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
@@ -91,7 +91,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-            <Section id="team-ci-health" title="Team CI health">
+            <Section id="team-ci-health" title="Owned tests by team">
                 {teamsFailed ? (
                     <CIAnalyticsLoadError onRetry={loadTeams} loading={teamsLoading} />
                 ) : (
