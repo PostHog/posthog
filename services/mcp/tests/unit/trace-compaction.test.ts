@@ -138,6 +138,9 @@ describe('compactTrace summary detail', () => {
                 createdAt: '2026-09-02T11:30:23Z',
                 properties: {
                     $ai_model: 'gpt-4',
+                    $ai_temperature: 0.7,
+                    $ai_stream: false,
+                    $ai_effort: 'high',
                     $ai_latency: 1.5,
                     $ai_time_to_first_token: 0.3,
                     $ai_request_cost_usd: 0.02,
@@ -161,6 +164,11 @@ describe('compactTrace summary detail', () => {
 
         const properties = result.events[0].properties
         expect(properties.$ai_model).toBe('gpt-4')
+        // How the model was called is a scalar setting, not conversation
+        // content, so a survey of it does not have to fall back to full detail.
+        expect(properties.$ai_temperature).toBe(0.7)
+        expect(properties.$ai_stream).toBe(false)
+        expect(properties.$ai_effort).toBe('high')
         expect(properties.$ai_latency).toBe(1.5)
         // Cost and latency are what a summary survey is for, so the scalars it
         // reads stay whole rather than being omitted as content.
