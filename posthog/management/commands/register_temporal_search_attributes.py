@@ -46,6 +46,46 @@ def _open_channel() -> grpc.Channel:
     return grpc.insecure_channel(target)
 
 
+def register_search_attributes(operator_service: OperatorServiceStub, namespace: str, dry_run: bool) -> None:
+    # Match the Temporal SDK clients, which send the target namespace in this header on every request.
+    rpc_metadata = (("temporal-namespace", namespace),)
+
+    # List existing attributes
+    resp = operator_service.ListSearchAttributes(
+        ops.ListSearchAttributesRequest(namespace=namespace),
+        timeout=_RPC_TIMEOUT_SECONDS,
+        metadata=rpc_metadata,
+    )
+    existing = set(resp.custom_attributes.keys())
+
+    # Find which ones need registering
+    to_register = {}
+    for key in POSTHOG_SEARCH_ATTRIBUTES:
+        if key.name in existing:
+            logger.info("Already registered", attribute=key.name)
+        else:
+            to_register[key.name] = _resolve_type(key)
+
+    if not to_register:
+        logger.info("All search attributes already registered")
+        return
+
+    if dry_run:
+        for name, typ in to_register.items():
+            logger.info("Would register", attribute=name, type=enums.IndexedValueType.Name(typ))
+        return
+
+    logger.info(f"Registering {len(to_register)} search attribute(s)", attributes=list(to_register.keys()))
+
+    operator_service.AddSearchAttributes(
+        ops.AddSearchAttributesRequest(namespace=namespace, search_attributes=to_register),
+        timeout=_RPC_TIMEOUT_SECONDS,
+        metadata=rpc_metadata,
+    )
+
+    logger.info("Done")
+
+
 class Command(BaseCommand):
     help = "Register PostHog custom search attributes in Temporal"
     # A setup step in CI, dev runs and preview environments. The command never touches the ORM or the
@@ -67,46 +107,5 @@ class Command(BaseCommand):
 
     def handle(self, **options):
         logger.setLevel(logging.INFO)
-        namespace = options["namespace"]
-        dry_run = options["dry_run"]
-
-        # Match the Temporal SDK clients, which send the target namespace in this header on every request.
-        rpc_metadata = (("temporal-namespace", namespace),)
-
         with _open_channel() as channel:
-            operator_service = OperatorServiceStub(channel)
-
-            # List existing attributes
-            resp = operator_service.ListSearchAttributes(
-                ops.ListSearchAttributesRequest(namespace=namespace),
-                timeout=_RPC_TIMEOUT_SECONDS,
-                metadata=rpc_metadata,
-            )
-            existing = set(resp.custom_attributes.keys())
-
-            # Find which ones need registering
-            to_register = {}
-            for key in POSTHOG_SEARCH_ATTRIBUTES:
-                if key.name in existing:
-                    logger.info("Already registered", attribute=key.name)
-                else:
-                    to_register[key.name] = _resolve_type(key)
-
-            if not to_register:
-                logger.info("All search attributes already registered")
-                return
-
-            if dry_run:
-                for name, typ in to_register.items():
-                    logger.info("Would register", attribute=name, type=enums.IndexedValueType.Name(typ))
-                return
-
-            logger.info(f"Registering {len(to_register)} search attribute(s)", attributes=list(to_register.keys()))
-
-            operator_service.AddSearchAttributes(
-                ops.AddSearchAttributesRequest(namespace=namespace, search_attributes=to_register),
-                timeout=_RPC_TIMEOUT_SECONDS,
-                metadata=rpc_metadata,
-            )
-
-            logger.info("Done")
+            register_search_attributes(OperatorServiceStub(channel), options["namespace"], options["dry_run"])
