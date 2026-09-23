@@ -148,19 +148,19 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
 def _purge_stale_buffer_then_mark_initial_sync_complete(
     schema_id: str, team_id: int, logger: FilteringBoundLogger
 ) -> None:
-    # cdc.buffer pulls in pipeline_v3, whose package __init__ imports common.load, which imports
-    # this module back — a true cycle only a deferred import breaks.
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix  # noqa: PLC0415
+    # cdc.source_manager pulls in pipeline_v3, whose package __init__ imports common.load, which
+    # imports this module back — a true cycle only a deferred import breaks.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
+        purge_buffer_predating_snapshot,
+    )
 
-    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    # About to flip a CDC schema snapshot→streaming: anything in the prefix predates the snapshot
-    # that just landed — a leftover from before a TRUNCATE, a re-enable, or this run's own capture
-    # tail — and merging it after the flip would resurrect rows the snapshot wiped. The ingress lane
-    # cannot write here until the flip commits; the shadow lane writes on its flag alone, so a
-    # concurrent capture tick is the one remaining writer, and the consumer's position guard covers
-    # what it leaves. Strict because a survived stale file corrupts the table.
+    schema = (
+        ExternalDataSchema.objects.exclude(deleted=True).select_related("source").get(id=schema_id, team_id=team_id)
+    )
+    # About to flip a CDC schema snapshot→streaming: buffer files from before the snapshot started
+    # (a leftover from before a TRUNCATE or a re-enable) would resurrect rows the snapshot wiped.
     if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
-        purge_buffer_prefix(team_id, str(schema_id), logger, strict=True)
+        purge_buffer_predating_snapshot(schema, logger)
     mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
 
 

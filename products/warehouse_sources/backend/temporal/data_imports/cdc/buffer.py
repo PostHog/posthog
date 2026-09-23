@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import re
 import time
+import datetime as dt
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -326,6 +327,30 @@ class CDCBufferWriter:
             remaining.remove(key)
             remaining.append(final_key)
         return remaining
+
+
+def purge_buffer_files_before(team_id: int, schema_id: str, cutoff: dt.datetime, logger: FilteringBoundLogger) -> int:
+    """Remove the buffer files S3 last modified before `cutoff` and keep the rest. Returns how many went.
+
+    Propagates failures: a stale file that survives is merged over the snapshot it predates. A file
+    with no modification time is kept, because deleting it could drop changes the snapshot missed.
+    """
+    prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
+    s3 = get_s3_client()
+    try:
+        entries = s3.ls(prefix, detail=True, refresh=True)
+    except FileNotFoundError:
+        return 0
+    removed = 0
+    for entry in entries:
+        modified = entry.get("LastModified")
+        if entry.get("type") == "directory" or not isinstance(modified, dt.datetime) or modified >= cutoff:
+            continue
+        with suppress(FileNotFoundError):
+            s3.rm(entry["Key"])
+        removed += 1
+    logger.info("cdc_buffer_files_before_snapshot_purged", schema_id=schema_id, removed=removed)
+    return removed
 
 
 def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:

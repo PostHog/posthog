@@ -41,9 +41,15 @@ was: the base class is the single-table path with extract-method seams, and `Lan
 `SourceResponse.lanes`. The load queue, the producer and the loader carry nothing about lanes at
 all, so a single-table run finalizes exactly as before.
 
-Schemas still snapshotting stay on legacy extraction until their first sync completes. A source
-with a mix runs hybrid — some schemas buffered, the rest unchanged — and keeps its backpressure
-guard for the legacy ones.
+A table still taking its snapshot is captured to the buffer too. Its sync runs the snapshot, and the
+consumer starts reading the buffer once the snapshot completes, from the first change after the
+snapshot started. The snapshot run stamps `cdc_snapshot_started_at` in `sync_type_config`, and the
+hand-over to streaming deletes only the buffer files S3 modified before that stamp, less a
+five-minute margin for clock skew. Replaying every later change over the snapshot converges on the
+source's state, because the merge is an upsert by primary key. A TRUNCATE resets the table to
+snapshot, purges its buffer, and drops that run's pending changes for it, because a change from
+before a TRUNCATE would bring back rows. A table that still has legacy deferred runs keeps the
+legacy path until they flush.
 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the

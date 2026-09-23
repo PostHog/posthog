@@ -1894,6 +1894,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             )
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
+        if schema.is_cdc and schema.cdc_mode == "snapshot":
+            from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+                record_snapshot_start,
+            )
+
+            record_snapshot_start(schema, restart=inputs.reset_pipeline)
         require_ssl = source_requires_ssl(schema.source, config)
         table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
 

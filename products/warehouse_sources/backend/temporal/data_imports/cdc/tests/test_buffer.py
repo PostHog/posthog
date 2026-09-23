@@ -1,5 +1,6 @@
 import io
 import random
+import datetime as dt
 from contextlib import contextmanager
 from typing import cast
 
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     build_buffer_file_name,
     get_buffer_prefix,
     parse_buffer_file_name,
+    purge_buffer_files_before,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
 
@@ -348,3 +350,23 @@ class TestCDCBufferWriter:
         writer, _files = self._writer_with_captured_files()
         writer._s3.ls = MagicMock(side_effect=FileNotFoundError)
         assert writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=1) == 0
+
+
+class TestPurgeBufferFilesBefore:
+    def test_only_files_modified_before_the_cutoff_go(self):
+        cutoff = dt.datetime(2026, 1, 1, 0, 10, tzinfo=dt.UTC)
+        s3 = MagicMock()
+        s3.ls.return_value = [
+            {"Key": "b/old", "type": "file", "LastModified": cutoff - dt.timedelta(seconds=1)},
+            {"Key": "b/at_cutoff", "type": "file", "LastModified": cutoff},
+            {"Key": "b/new", "type": "file", "LastModified": cutoff + dt.timedelta(minutes=1)},
+            {"Key": "b/unknown", "type": "file"},
+        ]
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.get_s3_client", return_value=s3
+        ):
+            removed = purge_buffer_files_before(1, "schema", cutoff, MagicMock())
+
+        assert removed == 1
+        assert [call.args[0] for call in s3.rm.call_args_list] == ["b/old"]

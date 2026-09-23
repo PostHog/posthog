@@ -3665,7 +3665,7 @@ class TestBufferedIngressCapture:
     # keep today's transforms and sourcebatch dispatch, and a buffer failure must fail the run —
     # the slot is about to advance past those changes.
 
-    def _run(self, MockBufferWriter, events, schemas, source, capture: dict | None = None):
+    def _run(self, MockBufferWriter, events, schemas, source, capture: dict | None = None, truncated=()):
         with (
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections"),
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob") as MockJob,
@@ -3706,6 +3706,7 @@ class TestBufferedIngressCapture:
                 events,
             )
             mock_get_adapter.return_value.parse_cdc_config.return_value.ingest_mode = "buffered"
+            mock_reader.truncated_tables = list(truncated)
             if capture is not None:
                 capture["reader_ref"] = mock_reader
                 capture["complete_schema_run"] = mock_complete
@@ -3734,18 +3735,31 @@ class TestBufferedIngressCapture:
         mock_reader.confirm_position.assert_called_once_with("0/200")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
-    def test_an_ineligible_schema_on_a_flipped_source_keeps_the_legacy_path(self, MockBufferWriter):
+    def test_a_schema_taking_its_snapshot_is_captured_to_the_buffer_not_deferred(self, MockBufferWriter):
         source = _make_source()
-        # No table yet, so the buffer has nothing to merge its changes into.
-        seeding = _make_schema("events", cdc_mode="streaming", source=source)
+        seeding = _make_schema("events", cdc_mode="snapshot", source=source)
         seeding.initial_sync_complete = False
         events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
 
         _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [seeding], source)
 
+        MockBufferWriter.return_value.write_batch.assert_called_once()
+        mock_s3.write_batch.assert_not_called()
+        mock_producer.send_batch_notification.assert_not_called()
+        assert "cdc_deferred_runs" not in seeding.sync_type_config
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_truncate_drops_the_tables_pending_changes_and_purges_strictly(self, MockBufferWriter, mock_purge):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        self._run(MockBufferWriter, events, [schema], source, truncated=["users"])
+
         MockBufferWriter.return_value.write_batch.assert_not_called()
-        mock_s3.write_batch.assert_called_once()
-        mock_producer.send_batch_notification.assert_called_once()
+        assert mock_purge.call_args.kwargs["strict"] is True
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
@@ -3825,15 +3839,9 @@ class TestBufferedIngressCapture:
         # tick would erase a failing consumer run within a minute and hide a buffer backlog.
         source = _make_source()
         buffered = _make_schema("users", cdc_mode="streaming", source=source)
-        legacy = _make_schema("events", cdc_mode="streaming", source=source)
-        legacy.initial_sync_complete = False
-        events = [
-            _make_event(op="I", position="0/100", columns={"id": 1}),
-            _make_event(op="I", position="0/100", table="events", columns={"id": 1}),
-        ]
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
         captured: dict = {}
 
-        self._run(MockBufferWriter, events, [buffered, legacy], source, capture=captured)
+        self._run(MockBufferWriter, events, [buffered], source, capture=captured)
 
-        repainted = [call.args[0].name for call in captured["complete_schema_run"].call_args_list]
-        assert repainted == ["events"]
+        captured["complete_schema_run"].assert_not_called()

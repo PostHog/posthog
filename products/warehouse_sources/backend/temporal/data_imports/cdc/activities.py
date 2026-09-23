@@ -73,8 +73,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    SNAPSHOT_STARTED_AT_KEY,
+    captures_to_buffer,
     consolidated_resource_name,
-    serves_buffered_lane,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
@@ -965,7 +966,7 @@ class CDCExtractActivity:
             self._buffered_table_names = {
                 s.name
                 for s in self.cdc_schemas
-                if serves_buffered_lane(s) and not s.sync_type_config.get("cdc_deferred_runs")
+                if captures_to_buffer(s) and not s.sync_type_config.get("cdc_deferred_runs")
             }
             if self._buffered_table_names:
                 self.log.info(
@@ -1438,7 +1439,7 @@ class CDCExtractActivity:
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
-        removes = ["cdc_last_log_position"]
+        removes = ["cdc_last_log_position", SNAPSHOT_STARTED_AT_KEY]
         if clear_deferred_runs:
             removes.append("cdc_deferred_runs")
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
@@ -1449,10 +1450,16 @@ class CDCExtractActivity:
             removes=removes,
             extra_model_fields={"initial_sync_complete": False},
         )
-        # The reset invalidates every buffered change file: the table is wiped and
-        # re-seeded through the snapshot lane the buffer never sees, and the filename
-        # contract has no way to express that discontinuity. Best-effort purge.
-        purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema))
+        # The re-seeding snapshot starts after this run, so it covers every change this run read.
+        # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
+        if self.batcher is not None:
+            self.batcher.discard(schema.name)
+        purge_buffer_prefix(
+            schema.team_id,
+            str(schema.id),
+            self._schema_log(schema),
+            strict=schema.name in self._buffered_table_names,
+        )
         if clear_deferred_runs:
             self._emit_deferred_runs_depth()
 

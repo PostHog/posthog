@@ -22,12 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
+    SNAPSHOT_STARTED_AT_KEY,
     CDCLane,
     CDCSourceManager,
     ReplayFilter,
     build_output_lanes,
+    captures_to_buffer,
     consumes_buffer,
     has_batches_in_flight,
+    record_snapshot_start,
     scheduled_sync_consumes_buffer,
     served_lanes,
     serves_buffered_lane,
@@ -41,6 +44,9 @@ _PREFIX = f"bucket/cdc_producer/{_TEAM_ID}/{_SCHEMA_ID}"
 _NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
 # Older than any completed-run start minus the clock-skew margin.
 _OLD_MTIME = _NOW - dt.timedelta(hours=2)
+
+
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
 
 
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
@@ -287,6 +293,49 @@ class TestServedLanes:
         # no query reads — the companion is keyed on `name`, like its snapshot seed.
         schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
         assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
+
+
+class TestSnapshotCapture:
+    @parameterized.expand(
+        [
+            ("streaming", {}, True),
+            ("snapshotting", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True),
+            ("not_cdc", {"is_cdc": False}, False),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}, False),
+        ]
+    )
+    def test_a_table_taking_its_snapshot_is_still_captured(self, _name, overrides, captured):
+        assert captures_to_buffer(_schema(**overrides)) is captured
+
+    @parameterized.expand(
+        [
+            ("first_start", {}, False, "now"),
+            ("retry_keeps_the_first_start", {SNAPSHOT_STARTED_AT_KEY: "earlier"}, False, "earlier"),
+            ("reset_restarts", {SNAPSHOT_STARTED_AT_KEY: "earlier"}, True, "now"),
+        ]
+    )
+    def test_the_start_is_stamped_once_per_snapshot(self, _name, config, restart, expected):
+        schema = _schema(job_inputs={"cdc_ingest_mode": "buffered"})
+        stamped: dict = dict(config)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+                side_effect=lambda *_args, mutate, **_kw: mutate(stamped),
+            ),
+            patch(f"{_MODULE}.timezone.now", return_value=MagicMock(isoformat=lambda: "now")),
+        ):
+            record_snapshot_start(schema, restart=restart)
+
+        assert stamped[SNAPSHOT_STARTED_AT_KEY] == expected
+
+    def test_a_legacy_source_stamps_nothing(self):
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"
+        ) as update:
+            record_snapshot_start(_schema(job_inputs={}), restart=True)
+
+        update.assert_not_called()
 
 
 class TestBufferedGating:

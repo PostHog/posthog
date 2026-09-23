@@ -122,6 +122,11 @@ class ChangeEventBatcher:
         self._estimated_bytes = 0
         return result
 
+    def discard(self, table_name: str) -> None:
+        """Drop a table's pending events so no later flush writes them."""
+        events = self._events.pop(table_name, [])
+        self._estimated_bytes -= sum(self._estimate_event_bytes(event) for event in events)
+
     @property
     def event_count(self) -> int:
         return sum(len(events) for events in self._events.values())
