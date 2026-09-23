@@ -55,6 +55,7 @@ function trim (str, char) {
     }
     return str.slice(start, end)
 }
+function splitByString (separator, str, maxSplits) { if (str === null || str === undefined) { return null } if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
 function reverse (value) { return value === null || value === undefined ? null : value.split('').reverse().join('') }
 function replaceOne (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replace(searchValue, replaceValue) }
 function replaceAll (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replaceAll(searchValue, replaceValue) }
@@ -62,7 +63,9 @@ function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
 function length (value) { return value === null || value === undefined ? null : value.length }
 function keys (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return Array.from(obj.keys()) } else if (obj instanceof Map) { return Array.from(obj.keys()) } return Object.keys(obj) } return [] }
+function arrayStringConcat (arr, separator = '') { if (!Array.isArray(arr)) { return '' } return arr.join(separator) }
 function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < (arr ?? []).length; i++) { result = func(result, arr[i]) } return result }
+function arrayPopFront (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(1) }
 function arrayMap (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
 function arrayFilter (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
@@ -136,5 +139,7 @@ print(arrayMap(__lambda((x) => x), null));
 print(arrayFilter(__lambda((x) => (x == "a")), null));
 print(arrayCount(__lambda((x) => (x == "a")), null));
 print(arrayReduce(__lambda((acc, x) => (acc + x)), null, 0));
+print(splitByString(" ", null));
+print(arrayStringConcat(arrayPopFront(splitByString(" ", null)), " "));
 print((length(null) > 3));
 print((length(null) < 3));

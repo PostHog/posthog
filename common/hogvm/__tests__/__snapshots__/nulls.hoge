@@ -11,4 +11,6 @@
 "lambda", 1, 0, 3, 36, 0, 38, 53, 0, 31, 2, "arrayMap", 2, 2, "print", 1, 35, 52, "lambda", 1, 0, 6, 32, "a", 36, 0, 11,
 38, 53, 0, 31, 2, "arrayFilter", 2, 2, "print", 1, 35, 52, "lambda", 1, 0, 6, 32, "a", 36, 0, 11, 38, 53, 0, 31, 2,
 "arrayCount", 2, 2, "print", 1, 35, 52, "lambda", 2, 0, 6, 36, 1, 36, 0, 6, 38, 53, 0, 31, 33, 0, 2, "arrayReduce", 3,
-2, "print", 1, 35, 33, 3, 31, 2, "length", 1, 13, 2, "print", 1, 35, 33, 3, 31, 2, "length", 1, 15, 2, "print", 1, 35]
+2, "print", 1, 35, 32, " ", 31, 2, "splitByString", 2, 2, "print", 1, 35, 32, " ", 31, 2, "splitByString", 2, 2,
+"arrayPopFront", 1, 32, " ", 2, "arrayStringConcat", 2, 2, "print", 1, 35, 33, 3, 31, 2, "length", 1, 13, 2, "print", 1,
+35, 33, 3, 31, 2, "length", 1, 15, 2, "print", 1, 35]

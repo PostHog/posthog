@@ -847,6 +847,7 @@ class TestBytecodeExecute:
             "return replaceOne(null, 'a', 'b');",
             "return replaceAll(null, 'a', 'b');",
             "return trim(null);",
+            "return splitByString(' ', null);",
         ):
             assert self._run_program(program) is None, program
 

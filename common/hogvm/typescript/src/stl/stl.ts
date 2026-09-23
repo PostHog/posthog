@@ -1100,6 +1100,9 @@ export const STL: Record<string, STLFunction> = {
     },
     splitByString: {
         fn: ([separator, str, maxSplits = undefined]) => {
+            if (str === null || str === undefined) {
+                return null
+            }
             if (maxSplits === undefined || maxSplits === null) {
                 return str.split(separator)
             }

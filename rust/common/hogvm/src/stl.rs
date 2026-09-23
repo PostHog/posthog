@@ -811,6 +811,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     ));
                 }
                 // splitByString(separator, string[, max])
+                if matches!(args[1].deref(&vm.heap)?, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
                 let sep: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let s: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let parts: Vec<HogValue> = if args.len() > 2 {

@@ -337,9 +337,11 @@ def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     return args[0].rstrip(char)
 
 
-def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list | None:
     separator = args[0]
     string = args[1]
+    if string is None:
+        return None
     if len(args) > 2 and args[2] is not None:
         parts = string.split(separator, args[2])
         if len(parts) > args[2]:

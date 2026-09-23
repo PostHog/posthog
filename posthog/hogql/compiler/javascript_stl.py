@@ -311,7 +311,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "splitByString": [
-        "function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }",
+        "function splitByString (separator, str, maxSplits) { if (str === null || str === undefined) { return null } if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }",
         [],
     ],
     "generateUUIDv4": [
