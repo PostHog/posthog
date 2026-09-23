@@ -380,6 +380,9 @@ class ClickHouseClient:
             # as format placeholders
             escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
             query = query % escaped_parameters
+            # HogQL prints the empty-object sentinel '{}' inline for every property read on the native-JSON
+            # events table, and the formatter would auto-number it to '{0}'. An empty pair is never a placeholder.
+            query = re.sub(r"(?<!\{)\{\}(?!\})", "{{}}", query)
             query = KeywordOnlyFormatter().format(query, **format_parameters)
         else:
             query = query % format_parameters
