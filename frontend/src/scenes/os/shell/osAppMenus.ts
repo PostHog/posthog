@@ -163,27 +163,44 @@ function newItemsOf(app: OsApp, featureFlags: FeatureFlags): OsAppMenuItem[] {
         .map((item) => ({ label: itemName(item).replace(/^New /, ''), href: item.href as string }))
 }
 
+function pagesOf(app: OsApp, featureFlags: FeatureFlags): OsAppMenuPage[] | undefined {
+    return OS_APP_MENU_PAGES[app.key]?.filter((page) => !page.flag || !!featureFlags[page.flag])
+}
+
+/**
+ * The links each app claims pages with: its own link and every page its menu lists. The dock and the
+ * menu bar both resolve a window's app from these, so they agree on it.
+ */
+export function osAppClaims(apps: OsApp[], featureFlags: FeatureFlags): OsApp[] {
+    return apps.flatMap((app) => [
+        app,
+        ...(pagesOf(app, featureFlags) ?? []).map((page): OsApp => ({ ...app, href: page.href })),
+    ])
+}
+
 /**
  * The menu of the app a window shows, or null when no app claims the window's path. An app claims its
  * own link and every page it lists, and the longest match wins (see `osAppForPath`). Only the apps in
  * `apps` claim pages, so an app behind a feature flag that is off, or without access, gets no menu.
+ * `previousKey` is the app the window showed before, for a page that several apps could claim.
  */
-export function osAppMenuFor(path: string | null, apps: OsApp[], featureFlags: FeatureFlags): OsAppMenu | null {
+export function osAppMenuFor(
+    path: string | null,
+    apps: OsApp[],
+    featureFlags: FeatureFlags,
+    previousKey?: string
+): OsAppMenu | null {
     if (!path) {
         return null
     }
-    const pagesOf = (app: OsApp): OsAppMenuPage[] | undefined =>
-        OS_APP_MENU_PAGES[app.key]?.filter((page) => !page.flag || !!featureFlags[page.flag])
-    const claims = apps.flatMap((app) => [
-        app,
-        ...(pagesOf(app) ?? []).map((page): OsApp => ({ ...app, href: page.href })),
-    ])
-    const ownerKey = (href: string): string | null => osAppForPath(href, claims)?.key ?? null
-    const app = apps.find((candidate) => candidate.key === ownerKey(path))
+    const claims = osAppClaims(apps, featureFlags)
+    const ownerKey = (href: string, previous?: string): string | null =>
+        osAppForPath(href, claims, previous)?.key ?? null
+    const app = apps.find((candidate) => candidate.key === ownerKey(path, previousKey))
     if (!app) {
         return null
     }
-    const pages = pagesOf(app) ?? [{ label: app.name, href: app.href }]
+    const pages = pagesOf(app, featureFlags) ?? [{ label: app.name, href: app.href }]
     return {
         app,
         pages,

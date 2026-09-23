@@ -1,0 +1,39 @@
+// A full-bleed app tile like a macOS app icon. The product color fills the tile, light falls from the top,
+// and the glyph is white. Apps without a product color get a graphite tile, like the macOS system apps.
+.OsAppIcon {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    color: white;
+
+    // The fallback sits in var() rather than on the class, because an inline color that names an
+    // undefined variable would otherwise drop the whole background.
+    background:
+        linear-gradient(180deg, rgb(255 255 255 / 16%) 0%, rgb(255 255 255 / 0%) 45%, rgb(0 0 0 / 22%) 100%),
+        var(--os-app-icon-color, var(--color-gray-500));
+
+    // The macOS icon grid rounds a tile by about 22.5% of its side, so the radius scales with every size.
+    border-radius: 22.5%;
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 35%),
+        inset 0 0 0 1px rgb(0 0 0 / 8%),
+        0 1px 2px rgb(0 0 0 / 20%),
+        0 2px 6px rgb(0 0 0 / 12%);
+
+    // The product icon comes wrapped in a span, which fills the tile so the glyph can size against it.
+    > span {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+    }
+
+    svg {
+        width: 58%;
+        height: 58%;
+        filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 30%));
+    }
+}

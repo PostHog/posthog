@@ -2,8 +2,8 @@ import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { OsAppIcon } from '../icons/OsAppIcon'
 import type { OsApp } from './osAppCatalog'
-import { OsAppIcon } from './OsAppIcon'
 import { osAppPreviewLogic } from './osAppPreviewLogic'
 
 export function OsAppPreviewBar({ app }: { app: OsApp }): JSX.Element {
@@ -14,7 +14,7 @@ export function OsAppPreviewBar({ app }: { app: OsApp }): JSX.Element {
             className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-primary bg-surface-secondary px-3 py-1 text-xs"
             data-attr="os-app-preview-bar"
         >
-            <OsAppIcon app={app} size="custom" className="size-5 rounded [&_svg]:size-3" />
+            <OsAppIcon app={app} size="custom" className="size-5" />
             <span className="min-w-0 flex-1 truncate">
                 Previewing <strong>{app.name}</strong>. Install it to add it to your desktop.
             </span>

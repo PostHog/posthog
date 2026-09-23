@@ -1,6 +1,6 @@
 import { OsApp } from '../store/osAppCatalog'
 import { OsWindowState } from '../windows/osWindowsLogic'
-import { osAppForPath, osDockClickAction, osDockItems } from './osDockItems'
+import { OS_DOCK_STORE_KEY, OsDockItem, osAppForPath, osDockClick, osDockItems } from './osDockItems'
 
 const app = (key: string, href: string): OsApp => ({
     key,
@@ -17,7 +17,8 @@ const productAnalytics = app('Product analytics', '/insights')
 const sessionReplay = app('Session replay', '/replay/home')
 const clusters = app('Clusters', '/ai-observability/clusters')
 const llmAnalytics = app('LLM analytics', '/ai-observability/dashboard')
-const apps = [productAnalytics, sessionReplay, clusters, llmAnalytics]
+const surveys = app('Surveys', '/surveys')
+const apps = [productAnalytics, sessionReplay, clusters, llmAnalytics, surveys]
 
 const osWindow = (id: string, path: string, extra: Partial<OsWindowState> = {}): OsWindowState => ({
     id,
@@ -31,51 +32,100 @@ const osWindow = (id: string, path: string, extra: Partial<OsWindowState> = {}):
     ...extra,
 })
 
+type Row = [key: string, title: string, windowIds: string[], pinned: boolean, focused: boolean, minimized: boolean]
+const rows = (items: OsDockItem[]): Row[] =>
+    items.map((item) => [item.key, item.title, item.windowIds, item.pinned, item.focused, item.minimized])
+
 describe('osDockItems', () => {
-    it('shows one item per open window in the order they opened, and marks the focused one', () => {
+    it('shows one item per open app in the order its first window opened, and a window no app claims on its own', () => {
         const windows = [
-            osWindow('w1', '/project/1/insights/abc', { zIndex: 3 }),
+            osWindow('w1', '/project/1/insights/abc', { zIndex: 4 }),
             osWindow('w2', '/project/1/replay/xyz?filters=1', { zIndex: 1, minimized: true }),
             osWindow('w3', '/project/1/persons/abc', { zIndex: 2 }),
+            osWindow('w4', '/project/1/insights/new', { zIndex: 3 }),
         ]
 
-        const dock = osDockItems(windows, 'w1', apps)
-
-        expect(
-            dock.windows.map((item) => [item.windowId, item.title, item.app?.key ?? null, item.focused, item.minimized])
-        ).toEqual([
-            ['w1', 'Title w1', 'Product analytics', true, false],
-            ['w2', 'Title w2', 'Session replay', false, true],
-            ['w3', 'Title w3', null, false, false],
+        expect(rows(osDockItems(windows, 'w1', apps, []).apps)).toEqual([
+            ['Product analytics', 'Product analytics', ['w1', 'w4'], false, true, false],
+            ['Session replay', 'Session replay', ['w2'], false, false, true],
+            ['window:w3', 'Title w3', ['w3'], false, false, false],
         ])
     })
 
-    it('shows only the App Store when no window is open', () => {
-        expect(osDockItems([], null, apps)).toEqual({
-            store: { windowId: null, focused: false, minimized: false },
-            windows: [],
-        })
+    it('drops an app when its last window closes, and moves a window to the app it navigates to', () => {
+        const before = [osWindow('w1', '/project/1/insights/abc'), osWindow('w2', '/project/1/surveys')]
+        const after = [osWindow('w2', '/project/1/replay/home')]
+
+        expect(osDockItems(before, 'w2', apps, []).apps.map((item) => item.key)).toEqual([
+            'Product analytics',
+            'Surveys',
+        ])
+        expect(osDockItems(after, 'w2', apps, []).apps.map((item) => item.key)).toEqual(['Session replay'])
     })
 
-    it('puts the top App Store window on the App Store item, not in the window list', () => {
+    it('keeps pinned apps first in pin order with or without a window, and hides pins no known app matches', () => {
+        const windows = [osWindow('w1', '/project/1/insights'), osWindow('w2', '/project/1/replay/home')]
+
+        const dock = osDockItems(windows, null, apps, ['Surveys', 'Removed app', 'Session replay'])
+
+        expect(rows(dock.apps)).toEqual([
+            ['Surveys', 'Surveys', [], true, false, false],
+            ['Session replay', 'Session replay', ['w2'], true, false, false],
+            ['Product analytics', 'Product analytics', ['w1'], false, false, false],
+        ])
+    })
+
+    it('shows only the App Store when no window is open and nothing is pinned', () => {
+        const dock = osDockItems([], null, apps, [])
+
+        expect(rows([dock.store])).toEqual([[OS_DOCK_STORE_KEY, 'App Store', [], false, false, false]])
+        expect(dock.apps).toEqual([])
+    })
+
+    it('puts every App Store window on the App Store item', () => {
         const windows = [
             osWindow('w1', '/project/1/app-store/surveys', { zIndex: 1, minimized: true }),
-            osWindow('w2', '/project/1/app-store', { zIndex: 2 }),
-            osWindow('w3', '/project/1/insights', { zIndex: 3 }),
+            osWindow('w2', '/project/1/insights', { zIndex: 3 }),
+            osWindow('w3', '/project/1/app-store', { zIndex: 2, minimized: true }),
         ]
 
-        const dock = osDockItems(windows, 'w3', apps)
+        const dock = osDockItems(windows, 'w2', apps, [])
 
-        expect(dock.store).toEqual({ windowId: 'w2', focused: false, minimized: false })
-        expect(dock.windows.map((item) => item.windowId)).toEqual(['w1', 'w3'])
+        expect(rows([dock.store])).toEqual([[OS_DOCK_STORE_KEY, 'App Store', ['w1', 'w3'], false, false, true]])
+        expect(dock.apps.map((item) => item.key)).toEqual(['Product analytics'])
     })
 
     it.each([
-        ['restores a minimized window', { focused: false, minimized: true }, 'restore'],
-        ['focuses a window in the background', { focused: false, minimized: false }, 'focus'],
-        ['minimizes the focused window', { focused: true, minimized: false }, 'minimize'],
-    ] as const)('%s on click', (_, state, expected) => {
-        expect(osDockClickAction(state)).toEqual(expected)
+        ['opens an app with no window', [], null, { action: 'open' }],
+        [
+            'restores the top window when every window is minimized',
+            [
+                osWindow('a', '/insights', { zIndex: 1, minimized: true }),
+                osWindow('b', '/insights/new', { zIndex: 2, minimized: true }),
+            ],
+            null,
+            { action: 'restore', windowId: 'b' },
+        ],
+        [
+            'focuses the top visible window when the app is in the background',
+            [
+                osWindow('a', '/insights', { zIndex: 1 }),
+                osWindow('b', '/insights/new', { zIndex: 3, minimized: true }),
+                osWindow('other', '/surveys', { zIndex: 2 }),
+            ],
+            'other',
+            { action: 'focus', windowId: 'a' },
+        ],
+        [
+            'minimizes the focused window when the app is in front',
+            [osWindow('a', '/insights', { zIndex: 1 }), osWindow('b', '/insights/new', { zIndex: 2 })],
+            'b',
+            { action: 'minimize', windowId: 'b' },
+        ],
+    ] as const)('%s on click', (_, windows, focusedId, expected) => {
+        const item = osDockItems([...windows], focusedId, apps, ['Product analytics']).apps[0]
+
+        expect(osDockClick(item, [...windows])).toEqual(expected)
     })
 
     it.each([

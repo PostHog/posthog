@@ -5,9 +5,9 @@ import { IconArrowLeft } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { OsAppIcon } from '../icons/OsAppIcon'
 import { OsAppActions } from './OsAppActions'
 import { OS_JOB_TITLE, OsAppStatus } from './osAppCatalog'
-import { OsAppIcon } from './OsAppIcon'
 import { osAppStoreSceneLogic } from './osAppStoreSceneLogic'
 import { OsAppTags } from './OsAppTags'
 

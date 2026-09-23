@@ -1,9 +1,9 @@
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { OsAppIcon } from '../icons/OsAppIcon'
 import { OsAppActions } from './OsAppActions'
 import type { OsApp } from './osAppCatalog'
-import { OsAppIcon } from './OsAppIcon'
 import { OsAppTags } from './OsAppTags'
 
 /** One app on the store front page. The name links to its listing. */
