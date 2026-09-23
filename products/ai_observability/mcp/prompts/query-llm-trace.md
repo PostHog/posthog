@@ -88,6 +88,8 @@ If the trace is old, provide a date range to help the query find it efficiently:
 
   Everything else is removed, not shortened: prompts, outputs, tool arguments and results, span states, person properties, request metadata, and any custom property. `_omittedFields` and `_omittedProperties` count what was removed at each level, and a summarized trace carries `_detail: { "mode": "summary" }`.
 
+  `tools` and `$ai_tools_called` return tool names only. If either arrives holding structured entries rather than names, summary mode keeps the names and drops the rest, so it never returns tool arguments or results.
+
 For an overview, explicitly request `detail: "summary"`, find the events that matter from their metadata, then re-run with `detail: "full"` if you need to read the content. Keep relevant date and property filters when requesting full detail.
 
 # Response size

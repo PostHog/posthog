@@ -233,8 +233,34 @@ describe('compactTrace summary detail', () => {
         ) as any
 
         const error = result.events[0].properties.$ai_error as string
-        expect(error.length).toBeLessThanOrEqual(SUMMARY_VALUE_CHAR_LIMIT + 200)
+        const retained = error.slice(0, error.indexOf('… [truncated'))
+        expect(JSON.stringify(retained).length).toBeLessThanOrEqual(SUMMARY_VALUE_CHAR_LIMIT)
         expect(error).toContain('truncated')
+    })
+
+    it('reduces structured tool metadata to names at trace and event level', () => {
+        const result = compactTrace(
+            {
+                id: 'trace-1',
+                tools: [{ name: 'search', arguments: { key: secret } }],
+                events: [
+                    {
+                        id: 'e1',
+                        properties: {
+                            $ai_tools_called: ['search', { name: 'lookup', result: 'buyer@example.com' }],
+                        },
+                    },
+                ],
+            },
+            MAX_SUMMARY_CHARS,
+            'summary'
+        ) as any
+
+        expect(result.events[0].properties.$ai_tools_called).toEqual(['search'])
+        expect(result.tools).toEqual([])
+        const serialized = JSON.stringify(result)
+        expect(serialized).not.toContain(secret)
+        expect(serialized).not.toContain('buyer@example.com')
     })
 
     it('returns far less than the same trace at full detail', () => {

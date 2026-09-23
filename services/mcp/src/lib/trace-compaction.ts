@@ -1,22 +1,18 @@
 /**
  * Bounds the size of LLM trace results before they are serialized toward the MCP
- * client, and keeps conversation content out of summary responses.
- * `query-llm-trace` returns every event in a trace at every nesting depth, and
- * each event carries its full `properties` — entire LLM prompts, completions,
- * and tool payloads. Left unbounded these responses have reached tens of
- * millions of tokens, which exhausts the calling agent's context window, and
- * they put raw conversation and profile content in front of an agent that only
- * needed to navigate the trace.
+ * client. `query-llm-trace` returns every event in a trace at every nesting
+ * depth, and each event carries its full `properties` — entire LLM prompts,
+ * completions, and tool payloads. Left unbounded these responses have reached
+ * tens of millions of tokens, which exhausts the calling agent's context window.
  *
- * Two layers keep that in check. `summary` detail applies a fixed metadata
- * allowlist: identity, timing, model, spend, tool names, and errors survive, and
- * every other field is dropped and counted, so prompts, completions, tool
- * payloads, person properties, and request metadata never reach the client. On
- * top of that, compaction walks the result within a character budget,
- * truncating long string values and dropping content that doesn't fit, and stops
- * traversing once the budget is spent so it never materializes a full clone of a
- * pathological trace. A final pass measures the real encoded output and shrinks
- * again if the walk's estimate was wrong, so the response cannot breach the cap.
+ * Two layers keep that in check. `summary` detail keeps a fixed metadata
+ * allowlist and drops every other field, so conversation and profile content
+ * stays out of a summary response. On top of that, compaction
+ * walks the result within a character budget, truncating long string values and
+ * dropping content that doesn't fit, and stops traversing once the budget is
+ * spent so it never materializes a full clone of a pathological trace. A final
+ * pass measures the real encoded output and shrinks again if the walk's estimate
+ * was wrong, so the response cannot breach the cap.
  *
  * Compaction is a client-boundary safeguard only — the underlying query and the
  * PostHog UI still have the complete, untruncated trace. Everything it shortens
@@ -42,17 +38,10 @@ export const MAX_TRACE_CHARS = 500_000
  */
 export const MAX_SUMMARY_CHARS = 120_000
 
-/**
- * Ceiling on a single allowlisted metadata value in a summary. Every allowlisted
- * field is short by nature, so this only binds on a malformed one.
- */
+/** Ceiling on one allowlisted value, because nothing stops a customer sending a megabyte in it. */
 export const SUMMARY_VALUE_CHAR_LIMIT = 600
 
-/**
- * How much of an event reaches the client. `summary` returns the metadata
- * allowlist and nothing else. `full` keeps all properties, bounded by the
- * compaction budget.
- */
+/** How much of an event reaches the client: the metadata allowlist, or every property. */
 export type TraceDetail = 'summary' | 'full'
 
 // Share of the budget the non-event trace fields may spend, so an oversized
@@ -82,12 +71,8 @@ const MAX_FIT_PASSES = 4
 const FIT_HEADROOM = 1.2
 
 /**
- * The only event properties a summary returns. These are the fields an agent
- * needs to navigate a trace: tree position, timing, model, spend, tool names,
- * and failures. Everything else is treated as content and is dropped, so a
- * property that carries prompts, completions, tool arguments, tool results, or
- * request metadata cannot reach the client through a summary. A new property in
- * the taxonomy is therefore excluded until it is added here on purpose.
+ * The only event properties a summary returns. Every other property is treated
+ * as content, so one the taxonomy gains later stays out until it is added here.
  */
 const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
@@ -123,13 +108,9 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_metric_value',
 ])
 
-/** The only event fields outside `properties` a summary returns. */
 const SUMMARY_EVENT_FIELDS = new Set(['id', 'event', 'createdAt', 'sentiment'])
 
-/**
- * The only trace-level fields a summary returns. `inputState` and `outputState`
- * hold the conversation the trace ran on, so they are absent by design.
- */
+/** `inputState` and `outputState` hold the conversation, so they are absent by design. */
 const SUMMARY_TRACE_FIELDS = new Set([
     'id',
     'createdAt',
@@ -150,11 +131,7 @@ const SUMMARY_TRACE_FIELDS = new Set([
     'totalLatency',
 ])
 
-/**
- * The only person fields a summary returns. `properties` holds the profile —
- * email, name, company, and any custom attribute the customer set — so a
- * summary returns the identifiers and nothing else.
- */
+/** The only person fields a summary returns, because `properties` holds the profile. */
 const SUMMARY_PERSON_FIELDS = new Set(['uuid', 'distinct_id', 'created_at'])
 
 const SUMMARY_NOTE =
@@ -324,10 +301,26 @@ function fitToEncodedBudget(budget: number, compact: (walkBudget: number) => unk
 }
 
 /**
- * Keep the allowlisted members of `source` and count the rest. The count is the
- * agent's signal that a full-detail read has more, without naming a key that is
- * itself unvetted input.
+ * `$ai_tools_called` and the trace's `tools` are documented as tool names, but a
+ * caller can put the arguments and results a summary withholds in them instead.
+ * Only names survive; `undefined` drops the field so the caller counts it.
  */
+const SUMMARY_TOOL_NAME_FIELDS = new Set(['$ai_tools_called', 'tools'])
+
+function toolNames(value: unknown): unknown {
+    if (typeof value === 'string') {
+        return compactValue(value, SUMMARY_VALUE_CHAR_LIMIT).value
+    }
+    if (!Array.isArray(value)) {
+        return undefined
+    }
+    return compactValue(
+        value.filter((member) => typeof member === 'string'),
+        SUMMARY_VALUE_CHAR_LIMIT
+    ).value
+}
+
+/** Counting the dropped keys rather than naming them keeps caller text out of the response. */
 function allowlistedFields(
     source: Record<string, unknown>,
     allowed: ReadonlySet<string>,
@@ -336,12 +329,15 @@ function allowlistedFields(
     const out: Record<string, unknown> = {}
     let omitted = 0
     for (const [key, value] of Object.entries(source)) {
-        if (allowed.has(key)) {
-            // Bound the value too: an allowlisted field is short by nature, but
-            // nothing stops a customer from sending a megabyte of it.
-            assignKey(out, key, compactValue(value, SUMMARY_VALUE_CHAR_LIMIT).value)
-        } else {
+        const kept = !allowed.has(key)
+            ? undefined
+            : SUMMARY_TOOL_NAME_FIELDS.has(key)
+              ? toolNames(value)
+              : compactValue(value, SUMMARY_VALUE_CHAR_LIMIT).value
+        if (kept === undefined) {
             omitted++
+        } else {
+            assignKey(out, key, kept)
         }
     }
     if (omitted > 0) {
@@ -369,7 +365,6 @@ function summarizeEvent(event: unknown): unknown {
     return out
 }
 
-/** Reduce the trace-level fields to the allowlist, person included. */
 function summarizeTraceFields(fields: Record<string, unknown>): Record<string, unknown> {
     const { person, ...rest } = fields
     const out = allowlistedFields(rest, SUMMARY_TRACE_FIELDS, '_omittedFields')

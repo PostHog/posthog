@@ -133,7 +133,7 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every property in full, subject to response size limits. Existing callers that omit `detail` keep this behavior.
-- `"summary"` returns a fixed metadata allowlist: identifiers, timing, model, tokens, costs, tool names called, and errors. Prompts, outputs, tool payloads, span states, person properties, and request metadata are removed, and `_omittedFields` and `_omittedProperties` count what went. A summarized trace carries `_detail: { "mode": "summary" }`. `query-llm-trace` documents the allowlist in full.
+- `"summary"` returns a fixed metadata allowlist: identifiers, timing, model, tokens, costs, tool names called, and errors. Prompts, outputs, tool payloads, span states, person properties, and request metadata are removed, and `_omittedFields` and `_omittedProperties` count what went. The tool fields carry names only, never arguments or results. A summarized trace carries `_detail: { "mode": "summary" }`. `query-llm-trace` documents the allowlist in full.
 
 Request `detail: "summary"` when finding candidate traces from their metadata; read the one you picked with `query-llm-trace` and `detail: "full"` when you need its content.
 
