@@ -79,6 +79,7 @@ _PATCH_ID_ACK_BEFORE_COMPLETION = "tasks-task-management-ack-before-completion"
 _PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION = "tasks-task-management-ack-before-completion-sandbox-generation"
 _PATCH_ID_CLOSED_CHILD_FOLLOWUP_RECOVERY = "tasks-task-management-closed-child-followup-recovery"
 _PATCH_ID_CLOSED_CHILD_COMPLETION_RECOVERY = "tasks-task-management-closed-child-completion-recovery"
+_PATCH_ID_MERGE_QUEUE_SKIP = "tasks-task-management-merge-queue-skip-2026-09"
 _PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY = "tasks-task-management-closed-child-ack-retry-recovery"
 _PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY = "tasks-task-management-clear-steer-on-sandbox-boundary"
 _PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY = "tasks-task-management-bounded-sandbox-replacement-recovery"
@@ -1256,7 +1257,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 "task_management_ci_skipped_pr_closed", extra={"run_id": self._run_id, "pr_url": pr_context.pr_url}
             )
             return CIFollowUpDecision.SKIP
-        if pr_context.merge_queue_push_would_eject:
+        if pr_context.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_in_merge_queue",
                 extra={"run_id": self._run_id, "pr_url": pr_context.pr_url},
