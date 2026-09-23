@@ -856,11 +856,12 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and "enabled" not in update_fields:
         return
-    # Call-time import: scout_harness reaches the tasks facade contracts (pydantic-heavy), which
-    # must not load in every process at django.setup() just to wire this receiver.
-    from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed  # noqa: PLC0415
-
     try:
+        # Call-time import inside the guard: scout_harness reaches the tasks facade contracts
+        # (pydantic-heavy), which must not load in every process at django.setup() just to wire
+        # this receiver, and an import failure must not fail the config write either.
+        from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed  # noqa: PLC0415
+
         mark_stale_if_fleet_changed(instance.team_id)
     except Exception:
         logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)
