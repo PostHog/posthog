@@ -223,6 +223,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             sentiment_lookup = SentimentEvaluationLookup(
                 by_trace_id=load_trace_sentiment_evaluations(
                     team=self.team,
+                    user=self.user,
                     trace_ids=result_trace_ids,
                     timings=self.timings,
                     modifiers=self.modifiers,

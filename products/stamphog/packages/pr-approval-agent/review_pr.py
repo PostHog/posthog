@@ -31,7 +31,6 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
@@ -59,11 +58,11 @@ from gates import (
 )
 from gateway import analytics_extra_properties
 from github import (
-    TRUSTED_REACTOR_BOTS,
     CommitProvenance,
     PRData,
     check_team_membership,
     fetch_pr,
+    is_in_flight_bot_eyes,
     pr_provenance,
     provenance_evidence,
     write_pr_diff,
@@ -165,23 +164,6 @@ def _is_retryable_error(err_msg: str) -> bool:
 # workflow job timeout.
 BOT_REVIEW_WAIT_BUDGET_SECONDS = 300
 BOT_REVIEW_POLL_SECONDS = 30
-
-# A bot 👀 much older than any real review is a crashed reviewer, not an
-# in-flight one — reactions never expire and a human can't remove another
-# app's reaction, so without this cutoff a wedged bot would make every run
-# WAIT forever. Reactions missing a timestamp count as fresh (fail toward
-# waiting).
-BOT_EYES_MAX_AGE_SECONDS = 45 * 60
-
-
-def _reaction_age_seconds(created_at: str | None) -> float:
-    if not created_at:
-        return 0.0
-    try:
-        created = datetime.fromisoformat(created_at)
-    except ValueError:
-        return 0.0
-    return (datetime.now(UTC) - created).total_seconds()
 
 
 # ── Gate result ──────────────────────────────────────────────────
@@ -320,15 +302,7 @@ class Pipeline:
 
     def _in_flight_bot_reviewers(self) -> list[str]:
         """Allowlisted reviewer bots with a fresh 👀 reaction on the PR."""
-        return sorted(
-            {
-                r["user"]
-                for r in self.pr.pr_reactions
-                if r["emoji"] == "👀"
-                and r["user"].lower() in TRUSTED_REACTOR_BOTS
-                and _reaction_age_seconds(r.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
-            }
-        )
+        return sorted({r["user"] for r in self.pr.pr_reactions if is_in_flight_bot_eyes(r)})
 
     def _handle_in_flight_bot_reviews(self) -> str | None:
         """Wait out the reviewer-bot 👀 race; WAIT if a bot is still reviewing.
