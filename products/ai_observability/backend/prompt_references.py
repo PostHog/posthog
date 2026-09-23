@@ -136,13 +136,6 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
     if not references:
         return
 
-    if len(references) > MAX_PROMPT_REFERENCES:
-        raise _reference_error(
-            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
-            "Remove some references and try again.",
-            "too_many_references",
-        )
-
     referenced_by = get_active_referencing_parent_names(team_id, prompt_name)
     if referenced_by:
         raise _reference_error(
@@ -168,6 +161,16 @@ def validate_reference_targets(team_id: int, *, prompt_name: str, prompt_payload
     references = sorted(set(all_references), key=lambda r: (r.name, r.version or 0, r.label or ""))
     if not references:
         return
+
+    # Checked here rather than only at publish so content written before the
+    # cap existed cannot activate more references through a label.
+    if len(references) > MAX_PROMPT_REFERENCES:
+        raise _reference_error(
+            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
+            "Remove some references and try again.",
+            "too_many_references",
+        )
+
     # Resolution splices content at every occurrence, so the assembled-size
     # check has to weigh a repeated tag once per occurrence.
     occurrence_counts = Counter(all_references)
