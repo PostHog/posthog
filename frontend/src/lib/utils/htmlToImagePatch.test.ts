@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs'
+import { resourceToDataURL } from 'html-to-image/lib/dataurl'
 import { resolveUrl } from 'html-to-image/lib/util'
 import { dirname, join } from 'path'
 
@@ -28,6 +29,11 @@ import { dirname, join } from 'path'
 // so nothing in this repo loads it.
 describe('html-to-image patch', () => {
     const packageRoot = dirname(dirname(require.resolve('html-to-image')))
+    afterEach(() => {
+        jest.restoreAllMocks()
+        document.body.innerHTML = ''
+    })
+
     const STYLESHEET = 'https://app-static-prod.posthog.com/static/index-46THL72U.css'
 
     // Expectations are written out rather than computed, so the assertion does not restate the
@@ -50,4 +56,33 @@ describe('html-to-image patch', () => {
 
         expect(source).not.toMatch(/createElement\(['"]base['"]\)/)
     })
+
+    it.each(['AbortError', 'TypeError'])(
+        'retries an image after %s without caching its placeholder',
+        async (errorName) => {
+            // The shared Jest setup uses Node's Blob, which jsdom's FileReader cannot read.
+            const iframe = document.createElement('iframe')
+            document.body.appendChild(iframe)
+            const { Blob } = iframe.contentWindow as Window & typeof globalThis
+            const url = `https://example.com/${errorName}.png`
+            const placeholder = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+            const fetch = jest
+                .spyOn(global, 'fetch')
+                .mockRejectedValueOnce(new DOMException('Resource unavailable', errorName))
+                .mockResolvedValue({
+                    status: 200,
+                    blob: async () => new Blob(['recovered'], { type: 'image/png' }),
+                } as Response)
+            jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+            expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: placeholder })).toBe(placeholder)
+            expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: placeholder })).toBe(
+                'data:image/png;base64,cmVjb3ZlcmVk'
+            )
+            expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: placeholder })).toBe(
+                'data:image/png;base64,cmVjb3ZlcmVk'
+            )
+            expect(fetch).toHaveBeenCalledTimes(2)
+        }
+    )
 })

@@ -15,3 +15,11 @@ Opening the heatmap menu while access is loading does not enable heatmaps. A con
 This is a toolbar UI gate. The rollout flag does not add entitlement enforcement to the heatmap data endpoints.
 
 The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request pending to cover the loading state. Its screenshot test waits for “Checking plan access…” to appear and sets `waitForLoadersToDisappear: false` so the visible spinner does not time out the test.
+
+## Screenshot capture
+
+Saving a heatmap uses the browser's current page to capture screenshots at several widths.
+Images that cannot load or decode and canvases that cannot be read leave blank areas without changing the layout.
+Image fetches stop after 15 seconds; this does not bound stylesheet loading or the whole capture.
+Failed resource fetches are not cached, so later widths and save attempts can load a recovered resource.
+Successfully loaded resources remain cached.
