@@ -147,3 +147,35 @@ def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None)
     if slack_user_id:
         updates["slack_actor_slack_user_id"] = slack_user_id
     return updates
+
+
+def record_task_actor(*, team_id: int, task_id: Any, user_uuid: Any) -> None:
+    """Note that this person has sent the task's agent a message.
+
+    Called once per message and idempotent on ``(task, user_uuid)``, so the common case is
+    one indexed read that finds the row already there.
+
+    Never raises. This runs just before the message goes to the sandbox, and a roster is
+    bookkeeping: losing a row leaves a name off a list, while raising here would fail a
+    delivery the person is waiting on.
+    """
+    from products.tasks.backend.models import TaskActor  # noqa: PLC0415 — model import stays off this path
+
+    if not user_uuid:
+        return
+    try:
+        TaskActor.objects.for_team(team_id).get_or_create(
+            task_id=task_id, user_uuid=user_uuid, defaults={"team_id": team_id}
+        )
+    except Exception:
+        logger.warning("Failed to record task actor for task %s", task_id, exc_info=True)
+
+
+def get_task_actor_uuids(task_id: Any, team_id: int) -> list[str]:
+    """Every person who has sent this task's agent a message."""
+    from products.tasks.backend.models import TaskActor  # noqa: PLC0415 — model import stays off this path
+
+    return [
+        str(value)
+        for value in TaskActor.objects.for_team(team_id).filter(task_id=task_id).values_list("user_uuid", flat=True)
+    ]

@@ -312,6 +312,7 @@ __all__ = [
     "set_task_run_summary",
     "set_task_title",
     "slack_actor_state_updates",
+    "task_actor_uuids",
     "signal_report_queryset",
     "signal_task_run_peer_message",
     "signal_task_run_user_message",
@@ -1905,6 +1906,15 @@ def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None)
     )
 
     return _slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
+
+
+def task_actor_uuids(task_id: str | UUID, team_id: int) -> list[str]:
+    """Every person who has sent this task's agent a message."""
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        get_task_actor_uuids,
+    )
+
+    return get_task_actor_uuids(task_id, team_id)
 
 
 def set_task_run_created_at_for_seeding(
@@ -4503,6 +4513,7 @@ def signal_task_run_user_message(
     actor_user_id: int | None = None,
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
+    message_source: str | None = None,
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
@@ -4549,7 +4560,13 @@ def signal_task_run_user_message(
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     accepted_at = django_timezone.now()
     try:
-        context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
+        context: dict[str, Any] | None = None
+        if actor_slack_user_id or message_source:
+            context = {}
+            if actor_slack_user_id:
+                context["actor_slack_user_id"] = actor_slack_user_id
+            if message_source:
+                context["message_source"] = message_source
         signal_task_followup_message(
             workflow_id or run.workflow_id,
             content,

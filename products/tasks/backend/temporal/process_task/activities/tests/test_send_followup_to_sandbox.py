@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
@@ -161,6 +161,7 @@ class TestSendFollowupToSandbox(BaseTest):
             auth_token=None,
             timeout=1800,
             message_id=None,
+            sender_user_uuid=ANY,
             steer=True,
         )
         mock_publish.assert_not_called()

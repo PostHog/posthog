@@ -3388,6 +3388,35 @@ class AgentPeerMessage(TeamScopedRootMixin):
         return f"Peer message {self.id}: run {self.sender_run_id} → run {self.target_run_id} ({self.outcome})"
 
 
+class TaskActor(TeamScopedRootMixin):
+    """Someone who has sent this task's agent a message.
+
+    One row per person per task. Per-message attribution does not live here: the sender
+    rides along with the message as ``_meta.senderUserUuid``, so the agent and the stream
+    both carry it without a row. What they cannot answer is "who has worked this task",
+    because the control plane keeps no message log to scan, which is what this is for.
+
+    Identity is the PostHog user uuid rather than a ``User`` foreign key: a deleted user
+    would take the attribution with it under ``SET_NULL``, and the uuid is what the API
+    and MCP tools address a member by.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # db_constraint=False: an FK constraint on that hot table locks it and stalls deploys.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # db_index=False: the unique constraint below leads with this column.
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="actors", db_index=False)
+    user_uuid = models.UUIDField()
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_actor"
+        constraints = [models.UniqueConstraint(fields=["task", "user_uuid"], name="task_actor_task_user_unique")]
+
+    def __str__(self):
+        return f"Actor {self.user_uuid} on task {self.task_id}"
+
+
 class TaskArtifact(TeamScopedRootMixin, UUIDModel):
     class ArtifactType(models.TextChoices):
         SLACK_MESSAGE = "slack_message", "Slack message"

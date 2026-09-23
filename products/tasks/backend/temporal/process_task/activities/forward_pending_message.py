@@ -15,6 +15,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
     is_slack_interaction_state,
+    record_task_actor,
 )
 
 logger = get_logger(__name__)
@@ -142,6 +143,9 @@ def forward_pending_user_message(run_id: str) -> None:
             measure_task_run_cpu_attribution,
         )
 
+        sender_user_uuid = str(actor_user.uuid) if actor_user is not None else None
+        record_task_actor(team_id=task_run.team_id, task_id=task_run.task_id, user_uuid=sender_user_uuid)
+
         cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
         result = send_user_message(
             task_run,
@@ -150,6 +154,7 @@ def forward_pending_user_message(run_id: str) -> None:
             auth_token=auth_token,
             timeout=PENDING_MESSAGE_TIMEOUT_SECONDS,
             message_id=pending_message_id,
+            sender_user_uuid=sender_user_uuid,
         )
         logger.info(
             "forward_pending_message_attempted",

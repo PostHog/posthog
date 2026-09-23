@@ -42,6 +42,29 @@ describe("isSteerMeta", () => {
 });
 
 describe("promptToClaude", () => {
+  it("tells the agent who sent the message", () => {
+    const result = promptToClaude({
+      sessionId: "session-1",
+      prompt: [{ type: "text", text: "rerun the failing test" }],
+      _meta: { senderUserUuid: "018f3c2a-0000-7000-8000-000000000001" },
+    });
+
+    const blocks = result.message.content as { text?: string }[];
+    const text = blocks.map((block) => block.text ?? "").join("\n");
+    expect(text).toContain("018f3c2a-0000-7000-8000-000000000001");
+    expect(text).toContain("rerun the failing test");
+  });
+
+  it("says nothing about a sender when the message carries none", () => {
+    // A run with no sender on the prompt must not grow an empty attribution block.
+    const result = promptToClaude({
+      sessionId: "session-1",
+      prompt: [{ type: "text", text: "rerun the failing test" }],
+    });
+
+    expect(result.message.content.length).toBe(1);
+  });
+
   it("maps file resource_link to workspace path + Read guidance", () => {
     const result = promptToClaude({
       sessionId: "session-1",
