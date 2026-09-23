@@ -29,6 +29,12 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
 
 
+class ObservationVerdict(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    INCONCLUSIVE = "inconclusive", "Inconclusive"
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
@@ -118,11 +124,6 @@ class ReplayObservation(UUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Unused since the media backfill sweep was removed: nothing writes them and nothing reads them. Dropped
-    # in a follow-up migration, so do not build on them.
-    media_render_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
-    media_render_attempted_at = models.DateTimeField(null=True, blank=True)
-
     class Meta:
         constraints = [
             # Succeeded rows are sticky; admin deletes to re-trigger. A backfill may retake a failed row.
@@ -149,12 +150,6 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            # Served the media backfill's cross-team walk, which is gone. Dropped in a follow-up migration.
-            models.Index(
-                fields=["-created_at"],
-                name="rlo_succeeded_created_idx",
-                condition=models.Q(status="succeeded"),
-            ),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",

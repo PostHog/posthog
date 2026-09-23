@@ -58,6 +58,7 @@ from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
+    SWEEP_READ_BUDGET_BYTES_24H,
     build_apply_scanner_workflow_id,
     on_demand_priority,
 )
@@ -66,7 +67,11 @@ from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
-from products.signals.backend.facade.api import SignalSourceSliceOutcomes, SignalSourceSliceReport
+from products.signals.backend.facade.api import (
+    SignalSourceSliceOutcomes,
+    SignalSourceSlicePullRequest,
+    SignalSourceSliceReport,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -942,7 +947,7 @@ class TestReplayScannerTags(_VisionAPITestCase):
 
     def _tag_names(self, scanner_id: str) -> list[str]:
         return sorted(
-            TaggedItem.objects.for_objects(ReplayScanner, [scanner_id]).values_list("tag__name", flat=True),
+            TaggedItem.objects.filter(replay_scanner_id=scanner_id).values_list("tag__name", flat=True),
         )
 
     @parameterized.expand(
@@ -3936,6 +3941,19 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertIs(resp.json()["limit_reached"], True)
         self.assertEqual(resp.json()["credits_used_against_limit"], cost)
 
+    def test_sweep_throttle_factor_follows_the_frequent_sweeps_reads_and_the_override(self) -> None:
+        scanner = self._create_scanner()
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0).isoformat()
+        # Deep-pass reads have their own budget, so they must not slow the sweep the status reports.
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            fast_read_bytes_by_hour={hour: 3 * SWEEP_READ_BUDGET_BYTES_24H},
+            deep_read_bytes_by_hour={hour: 100 * SWEEP_READ_BUDGET_BYTES_24H},
+        )
+        self.assertEqual(self.client.get(f"{self.scanners_url}{scanner.id}/").json()["sweep_throttle_factor"], 3)
+
+        ReplayScanner.objects.filter(pk=scanner.pk).update(sweep_throttle_factor_override=1)
+        self.assertEqual(self.client.get(f"{self.scanners_url}{scanner.id}/").json()["sweep_throttle_factor"], 1)
+
     def test_limit_fields_are_per_row_on_the_list_endpoint(self) -> None:
         # The page's budgets are computed once and cached on the shared serializer context, so a lookup
         # keyed on the wrong scanner would give every row the first row's answer.
@@ -5131,7 +5149,18 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
         # Wiring guard: the endpoint must query the signals facade for this scanner's slice and
         # serialize the outcome counts; a dropped extra filter would return team-wide numbers.
         scanner = self._create_scanner()
-        outcomes = SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
+        created_at = datetime(2026, 5, 1, tzinfo=UTC)
+        outcomes = SignalSourceSliceOutcomes(
+            signal_count=5,
+            report_count=2,
+            pr_count=1,
+            merged_pr_count=1,
+            reports=[
+                SignalSourceSliceReport(id="r-new", title="Checkout stalls", status="ready", created_at=created_at),
+                SignalSourceSliceReport(id="r-old", title=None, status="potential", created_at=created_at),
+            ],
+            pull_requests=[SignalSourceSlicePullRequest(url="https://github.com/example/app/pull/1", merged=True)],
+        )
         with patch(
             "products.replay_vision.backend.api.scanners.get_outcomes_for_signal_source_slice",
             return_value=outcomes,
@@ -5144,11 +5173,28 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
             "reports_contributed": 2,
             "prs_opened": 1,
             "prs_merged": 1,
+            "reports": [
+                {"id": "r-new", "title": "Checkout stalls", "status": "ready"},
+                {"id": "r-old", "title": None, "status": "potential"},
+            ],
+            "pull_requests": [{"url": "https://github.com/example/app/pull/1", "merged": True}],
         }
         kwargs = mock_outcomes.call_args.kwargs
         assert kwargs["source_product"] == "replay_vision"
         assert kwargs["source_type"] == "scanner_finding"
         assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}
+
+    def test_denied_without_inbox_read_access(self) -> None:
+        # Scopes only gate API keys, so a session member denied inbox access must not read the
+        # report titles and PR links this response carries.
+        scanner = self._create_scanner()
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "task",
+        ):
+            response = self.client.get(f"{self.scanners_url}{scanner.id}/self_driving_stats/")
+
+        assert response.status_code == 403, response.json()
 
 
 class TestObservationSignalReportsAPI(_VisionAPITestCase):

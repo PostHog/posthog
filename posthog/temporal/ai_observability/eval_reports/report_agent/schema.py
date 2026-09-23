@@ -120,6 +120,15 @@ class Citation:
         )
 
 
+def citation_wrappers(cited_id: str) -> tuple[str, ...]:
+    """Every inline wrapper the delivery renderer turns into a citation link.
+
+    The renderer and the dead-identifier guard must agree on this list. A guard that
+    accepts fewer wrappers rejects prose the renderer would have linked correctly.
+    """
+    return (f"`` `{cited_id}` ``", f"`{cited_id}`", f"<{cited_id}>")
+
+
 @dataclass
 class ReportSection:
     """A titled markdown section of the narrative. Title is agent-chosen."""

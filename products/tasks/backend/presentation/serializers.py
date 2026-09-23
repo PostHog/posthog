@@ -14,14 +14,17 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
+from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
+from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
@@ -103,6 +106,10 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
     return task_runtime == tasks_facade.TaskRuntime.PI
 
 
+def _is_desktop_app_grant(request: Request) -> bool:
+    return get_oauth_client_id(request) in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS and is_interactive_desktop_grant(request)
+
+
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
     request = context.get("request")
     if request is None:
@@ -119,8 +126,15 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
                 raise serializers.ValidationError(
                     {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
                 )
-    if access == "own-subscription" and is_sandbox_oauth_request(request):
-        raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
+    if access == "own-subscription" and not _is_desktop_app_grant(request):
+        raise serializers.ValidationError(
+            {
+                "claude_model_access": (
+                    "Only PostHog Desktop can start a run on your Claude plan. "
+                    "Start the task from Desktop, or drop this setting to use PostHog credits."
+                )
+            }
+        )
 
 
 def request_distinct_id(context: dict[str, Any]) -> str | None:
@@ -893,6 +907,9 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
+            # sets the origin from outside, so reserve it before anything starts depending on it.
+            tasks_facade.TaskOriginProduct.AUTORESEARCH,
             # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
             # behind its own rate limits and daily cap.
@@ -3340,8 +3357,9 @@ class TaskRunPreferencesFieldMixin(serializers.Serializer):
         help_text=(
             "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
             "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
-            "keep their billing choice and new runs use the PostHog gateway."
+            "sent in flight and never stored on PostHog servers. Only PostHog Desktop can select "
+            "'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep "
+            "their billing choice and new runs use the PostHog gateway."
         ),
     )
 
