@@ -37,7 +37,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_RESERVED_VARIANT_KEY_PREFIX
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -921,31 +921,21 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _reserved_variant_keys(filters: dict) -> set[str]:
-    """The `multivariate.variants[].key` values that start with the prefix the ingest cleaner keeps for sentinels such as `$false`."""
-    multivariate = filters.get("multivariate")
-    if not isinstance(multivariate, dict):
-        return set()
-    variants = multivariate.get("variants")
-    if not isinstance(variants, list):
-        return set()
-    return {
-        variant["key"]
-        for variant in variants
-        if isinstance(variant, dict)
-        and isinstance(variant.get("key"), str)
-        and variant["key"].startswith(FEATURE_FLAG_RESERVED_VARIANT_KEY_PREFIX)
-    }
-
-
-def _new_reserved_variant_keys(filters: dict, stored_filters: dict) -> set[str]:
-    """Reserved keys the request adds. A key the flag already stores stays allowed, so the reservation cannot lock a
-    customer out of a flag they created before it existed.
+def _uses_reserved_variant_key(filters: dict) -> bool:
+    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
-    return _reserved_variant_keys(filters) - _reserved_variant_keys(stored_filters)
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return False
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return False
+    return any(
+        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+    )
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -1864,10 +1854,9 @@ class FeatureFlagSerializer(
         validated_data["filters"] = document
 
     def _validate_filters_inner(self, filters, operation: str):
-        stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
-        if _new_reserved_variant_keys(filters, stored_filters):
+        if _uses_reserved_variant_key(filters):
             raise serializers.ValidationError(
-                f"Variant keys can't start with {FEATURE_FLAG_RESERVED_VARIANT_KEY_PREFIX}. That prefix is reserved.",
+                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
                 code="reserved_variant_key",
             )
 

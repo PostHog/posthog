@@ -8,11 +8,7 @@ from rest_framework.exceptions import ErrorDetail
 
 from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 
-from products.feature_flags.backend.api.feature_flag import (
-    FeatureFlagSerializer,
-    _new_reserved_variant_keys,
-    _reject_serde_unsafe_filters,
-)
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, _reject_serde_unsafe_filters
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPERTY_TYPES, FeatureFlagFiltersSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
@@ -478,21 +474,14 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
 
 
 class TestReservedVariantKey(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("sentinel_log_only", FEATURE_FLAG_FALSE_VARIANT_SENTINEL, set()),
-            ("sentinel_full", FEATURE_FLAG_FALSE_VARIANT_SENTINEL, {"*"}),
-            ("prefix_log_only", "$control", set()),
-            ("prefix_full", "$control", {"*"}),
-        ]
-    )
-    def test_reserved_prefix_is_rejected_as_a_variant_key(self, _name: str, key: str, enforced_rules: set[str]) -> None:
+    @parameterized.expand([("log_only", set()), ("full", {"*"})])
+    def test_false_sentinel_is_rejected_as_a_variant_key(self, _name: str, enforced_rules: set[str]) -> None:
         filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {
                 "variants": [
                     {"key": "control", "rollout_percentage": 50},
-                    {"key": key, "rollout_percentage": 50},
+                    {"key": FEATURE_FLAG_FALSE_VARIANT_SENTINEL, "rollout_percentage": 50},
                 ]
             },
         }
@@ -500,14 +489,3 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
-
-    @parameterized.expand(
-        [
-            ("stored_key_kept", ["$80", "control"], set()),
-            ("new_key_added", ["$80", "$control"], {"$control"}),
-        ]
-    )
-    def test_a_stored_reserved_key_stays_allowed(self, _name: str, request_keys: list[str], rejected: set[str]) -> None:
-        stored = {"multivariate": {"variants": [{"key": "$80", "rollout_percentage": 100}]}}
-        requested = {"multivariate": {"variants": [{"key": key, "rollout_percentage": 50} for key in request_keys]}}
-        assert _new_reserved_variant_keys(requested, stored) == rejected

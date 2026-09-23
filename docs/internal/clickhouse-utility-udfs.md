@@ -4,7 +4,7 @@
 Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphabetically using case-sensitive string order.
 This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates and expands dotted keys.
 A flag value that is the JSON string `"false"` (a variant named false) is stored as `$false`, so it stays distinct from a flag that was evaluated and switched off (JSON `false`, which the typed map stores as `false`).
-Variant keys that start with `$` are reserved for such sentinels; the flag API rejects new ones, and a flag that already stores one keeps it.
+`$false` is a reserved variant key; the flag API rejects it.
 Flag values and person-property ordering follow the existing cleanup rules.
 
 Invalid scalar and array `$feature_flags` values are replaced with an empty map and retained in
