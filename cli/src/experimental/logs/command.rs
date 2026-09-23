@@ -16,7 +16,7 @@ pub enum ImportSource {
     /// Read from Grafana Loki. Credentials come from LOKI_BEARER_TOKEN, or LOKI_USERNAME and
     /// LOKI_PASSWORD for Grafana Cloud.
     Loki {
-        /// Path to the import config. See `posthog-cli exp logs import loki --help` for the shape.
+        /// Path to the import config. Its shape is documented in cli/src/experimental/logs/README.md.
         #[arg(long)]
         config: PathBuf,
 

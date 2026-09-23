@@ -61,7 +61,12 @@ tuning:
 ```
 
 Extractor types are `label`, `structured_metadata`, `json_field`, `regex` (with a `group`), and
-`literal`. Only `severity` takes a list, where the first rule that yields a value wins.
+`literal`.
+
+Every field takes either one extractor or a list of them, and the first rule that yields a value
+wins. `severity` is the field where that matters most, since a level can sit in a label on some
+streams and inside the JSON body on others, but `service_name`, `trace_id`, `span_id` and each
+`extra_attributes` entry accept a list on the same terms.
 
 `resource_labels` lists the labels that identify the resource; every other label becomes a
 per-record attribute. Omit the key to treat every label as a resource attribute.
