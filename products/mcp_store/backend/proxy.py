@@ -365,6 +365,48 @@ def _evaluate_tool_call(
     return None
 
 
+def _requested_tool_names(data: dict[str, Any] | list[Any]) -> set[str]:
+    names: set[str] = set()
+    for item in data if isinstance(data, list) else [data]:
+        if not _is_tools_call(item):
+            continue
+        params = item.get("params") or {}
+        name = params.get("name") if isinstance(params, dict) else None
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def _tools_by_name(installation: MCPServerInstallation, requested: set[str]) -> dict[str, MCPServerInstallationTool]:
+    """The installation's tool rows, re-listed from upstream on a miss.
+
+    These rows are the policy registry rather than a performance cache: a call
+    whose tool has no row cannot be resolved against policy, so it is refused.
+    An installation whose connect-time listing never landed therefore refuses
+    every call until a person presses "Refresh tools". Re-listing once on a miss
+    repairs that without waiting for them, and covers a tool the upstream server
+    renamed after the last listing.
+    """
+    tools = {t.tool_name: t for t in installation.tools.all()}
+    if not requested - tools.keys():
+        return tools
+
+    from .tools import resync_installation_tools  # noqa: PLC0415 — tools.py imports this module
+
+    if resync_installation_tools(installation):
+        tools = {t.tool_name: t for t in installation.tools.all()}
+    missing = requested - tools.keys()
+    if missing:
+        logger.warning(
+            "MCP tool call refers to an unregistered tool",
+            installation_id=str(installation.id),
+            url=installation.url,
+            missing_tools=sorted(missing),
+            registered_tool_count=len(tools),
+        )
+    return tools
+
+
 def enforce_tool_approval(
     installation: MCPServerInstallation,
     data: dict[str, Any] | list[Any],
@@ -382,7 +424,7 @@ def enforce_tool_approval(
         if not any(_is_tools_call(item) for item in data):
             return None
         # Pre-fetch the installation's tools once to avoid N queries on batched tools/call.
-        tools_by_name = {t.tool_name: t for t in installation.tools.all()}
+        tools_by_name = _tools_by_name(installation, _requested_tool_names(data))
         responses: list[dict[str, Any]] = []
         any_blocked = False
         any_passthrough = False
@@ -423,7 +465,7 @@ def enforce_tool_approval(
 
     if not _is_tools_call(data):
         return None
-    tools_by_name = {t.tool_name: t for t in installation.tools.all()}
+    tools_by_name = _tools_by_name(installation, _requested_tool_names(data))
     blocked = _evaluate_tool_call(tools_by_name, data, policy_context, audit_entries)
     if blocked is None:
         return None

@@ -939,6 +939,18 @@ class TestCallMemberServerTool(BaseTest):
     def _call(self, name: str = "list_events", **kwargs):
         return call_member_server_tool(self.team.id, self.user.id, self.HOST, name, {"limit": 5}, **kwargs)
 
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_a_tool_with_no_row_is_listed_before_the_call_is_refused(self, mock_call, mock_fetch) -> None:
+        # A connection whose connect-time listing never landed holds no rows, and
+        # without a re-listing it refuses every call for the life of the connection.
+        self._installation()
+        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+
+        # Freshly listed tools are opt-in, so policy answers the call now.
+        assert self._call().status == "needs_approval"
+        mock_call.assert_not_called()
+
     @patch(
         "products.mcp_store.backend.facade.api.call_upstream_tool",
         return_value={"content": [{"type": "text", "text": "3 events"}], "isError": False},

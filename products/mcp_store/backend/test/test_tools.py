@@ -23,6 +23,7 @@ from products.mcp_store.backend.tools import (
     ToolsFetchError,
     call_upstream_tool,
     fetch_upstream_tools,
+    resync_installation_tools,
     sync_installation_tools,
 )
 
@@ -515,3 +516,33 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.description == "new description"
         assert "properties" in tool.input_schema
         assert tool.approval_state == "approved"
+
+
+class TestResyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
+    def _installation(self) -> MCPServerInstallation:
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url=f"https://mcp-{uuid.uuid4().hex[:8]}.example.com/mcp",
+            display_name="Test",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-test"},
+        )
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_upstream_is_listed_once_per_throttle_window(self, mock_fetch):
+        # Callers re-list on a miss, so without the throttle an agent looping on a
+        # name the server does not have opens one handshake per call.
+        installation = self._installation()
+        mock_fetch.return_value = [{"name": "search"}]
+
+        assert resync_installation_tools(installation) is True
+        assert resync_installation_tools(installation) is False
+        assert mock_fetch.call_count == 1
+        assert installation.tools.filter(tool_name="search").exists()
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", side_effect=ToolsFetchError("upstream down"))
+    def test_failed_listing_is_reported_rather_than_raised(self, _mock_fetch):
+        # This runs inside the proxy request path, where raising turns a refused
+        # tool call into a 500.
+        assert resync_installation_tools(self._installation()) is False

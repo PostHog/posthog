@@ -2,7 +2,8 @@
 
 The proxy enforces per-tool approval (`approved` / `needs_approval` / `do_not_use`)
 against these cached rows — so they need to stay reasonably fresh. Refresh happens
-on successful install/reconnect and on-demand via the UI's "Refresh tools" button.
+on successful install/reconnect, on-demand via the UI's "Refresh tools" button, and
+through `resync_installation_tools` when a caller names a tool that has no row.
 """
 
 import json
@@ -13,6 +14,7 @@ from django.utils import timezone
 import httpx
 import structlog
 
+from posthog.redis import get_client
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 
@@ -46,6 +48,10 @@ HANDSHAKE_TIMEOUT = 10
 # discovery handshake. Still well under the proxy's 180s: this path serves an
 # interactive agent, and a worker blocked for minutes is worse than a retry.
 CALL_TIMEOUT = 60
+
+# Bounds how often a cache miss can reach upstream, so a caller looping on a
+# name the server does not have cannot open a handshake per call.
+RESYNC_THROTTLE_SECONDS = 60
 
 
 class ToolsFetchError(Exception):
@@ -449,3 +455,32 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
         row.save(update_fields=["removed_at", "updated_at"])
 
     return list(installation.tools.all())
+
+
+def resync_installation_tools(installation: MCPServerInstallation) -> bool:
+    """Re-list an installation's tools on a cache miss, at most once per window.
+
+    Returns whether the rows were refreshed, so the caller knows to re-read them.
+    A refusal to call a tool is only correct while the rows describe the upstream
+    server.
+    """
+    key = f"mcp_store:tools_resync:{installation.id}"
+    try:
+        if not get_client().set(key, 1, nx=True, ex=RESYNC_THROTTLE_SECONDS):
+            return False
+    except Exception:
+        # Fail closed: an unbounded re-listing is worse than none.
+        logger.exception("mcp_store tools re-listing throttle unavailable", installation_id=str(installation.id))
+        return False
+
+    try:
+        sync_installation_tools(installation)
+    except ToolsFetchError as exc:
+        logger.warning(
+            "mcp_store tools re-listing failed",
+            installation_id=str(installation.id),
+            url=installation.url,
+            error=str(exc),
+        )
+        return False
+    return True
