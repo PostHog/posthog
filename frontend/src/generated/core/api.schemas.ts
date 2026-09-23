@@ -3915,6 +3915,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -4349,18 +4362,6 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
-/**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
- */
-export type OrganizationDefaultExperimentStatsMethodEnumApi =
-    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
-
-export const OrganizationDefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
-} as const
-
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
@@ -4431,11 +4432,6 @@ export interface OrganizationApi {
     readonly is_ai_training_cta_shown: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa: boolean
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
