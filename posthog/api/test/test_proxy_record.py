@@ -380,7 +380,7 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not ProxyRecord.objects.filter(organization=self.organization, domain="fail.example.com").exists()
 
-    @override_settings(PROXY_BASE_CNAME="", CLOUDFLARE_PROXY_ENABLED=False)
+    @override_settings(PROXY_BASE_CNAME="")
     @patch("posthog.api.proxy_record.sync_connect")
     def test_create_refuses_when_the_proxy_infrastructure_is_not_configured(self, mock_sync_connect):
         response = self.client.post(
@@ -393,7 +393,7 @@ class TestProxyRecordAPI(APIBaseTest):
         assert not ProxyRecord.objects.filter(organization=self.organization).exists()
         mock_sync_connect.assert_not_called()
 
-    @override_settings(PROXY_BASE_CNAME="", CLOUDFLARE_PROXY_ENABLED=False)
+    @override_settings(PROXY_BASE_CNAME="")
     @patch("posthog.api.proxy_record.sync_connect")
     def test_retry_refuses_when_the_proxy_infrastructure_is_not_configured(self, mock_sync_connect):
         record = ProxyRecord.objects.create(

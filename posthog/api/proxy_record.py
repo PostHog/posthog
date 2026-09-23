@@ -36,11 +36,11 @@ from posthog.temporal.proxy_service.cloudflare import (
     get_custom_hostname_by_domain,
     update_cloudflare_proxy_root_redirect,
 )
-from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
+from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname, use_cloudflare_proxy
 
 
 def proxy_base_cname() -> str:
-    return settings.CLOUDFLARE_PROXY_BASE_CNAME if settings.CLOUDFLARE_PROXY_ENABLED else settings.PROXY_BASE_CNAME
+    return settings.CLOUDFLARE_PROXY_BASE_CNAME if use_cloudflare_proxy() else settings.PROXY_BASE_CNAME
 
 
 def is_managed_proxy_provisioning_available() -> bool:
@@ -377,15 +377,15 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "Once the CNAME is configured, the proxy will be automatically verified and provisioned.",
     )
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        domain = serializer.validated_data["domain"]
-
         if not is_managed_proxy_provisioning_available():
             return Response(
                 {"detail": PROVISIONING_UNAVAILABLE_DETAIL},
                 status=status.HTTP_501_NOT_IMPLEMENTED,
             )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        domain = serializer.validated_data["domain"]
 
         queryset = self.organization.proxy_records.order_by("-created_at")
 
