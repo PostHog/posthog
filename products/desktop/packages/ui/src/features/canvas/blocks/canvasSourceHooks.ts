@@ -112,6 +112,10 @@ export function useCanvasSourceAutosave(canvasId: string): void {
             latest.setConflict(canvasId, result.currentVersionId);
             return;
           }
+          queryClient.setQueryData(
+            trpc.dashboards.source.queryKey({ id: canvasId }),
+            { project, currentVersionId: result.currentVersionId },
+          );
           latest.markSaved(
             canvasId,
             snapshot.files,
