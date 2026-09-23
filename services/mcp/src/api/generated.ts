@@ -65112,6 +65112,15 @@ export namespace Schemas {
       SearchOpportunity: 'search_opportunity',
     } as const;
 
+    export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
+
+
+    export const SignalSourceSyncStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
     /**
      * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
      */
@@ -65126,11 +65135,8 @@ export namespace Schemas {
       config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
-      /**
-         * Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.
-         * @nullable
-         */
-      readonly status: string | null;
+      /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
+      readonly status: SignalSourceSyncStatusEnum | null;
     }
 
     export interface PaginatedSignalSourceConfigList {
@@ -66721,6 +66727,17 @@ export namespace Schemas {
     }
 
     /**
+     * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.
+     */
+    export type TicketSessionContext = {
+      /** Page the reporter was on. */
+      readonly current_url?: string;
+      /** Replay of the session the ticket came from. */
+      readonly replay_url?: string;
+      [key: string]: unknown;
+     };
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface Ticket {
@@ -66768,7 +66785,8 @@ export namespace Schemas {
       readonly unread_customer_count: number;
       /** @nullable */
       readonly session_id: string | null;
-      readonly session_context: unknown;
+      /** Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version. */
+      readonly session_context: TicketSessionContext;
       /**
          * SLA deadline set via workflows. Null means no SLA.
          * @nullable
@@ -75155,11 +75173,8 @@ export namespace Schemas {
       config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
-      /**
-         * Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.
-         * @nullable
-         */
-      readonly status?: string | null;
+      /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
+      readonly status?: SignalSourceSyncStatusEnum | null;
     }
 
     /**
@@ -101187,6 +101202,60 @@ export namespace Schemas {
     }
 
     /**
+     * Span attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanAttributes = {[key: string]: string};
+
+    /**
+     * Resource attributes of the emitting service. Keys are whatever the instrumentation set.
+     */
+    export type _SpanResourceAttributes = {[key: string]: string};
+
+    /**
+     * One span row as the query and trace actions return it.
+     *
+     * The runner assembles these from HogQL result columns by position, so the key set is fixed even
+     * though the values come from a query. `trace_start` and `trace_duration` are the sort keys the
+     * trace list orders on, carried in the row rather than recomputed by the caller.
+     */
+    export interface _Span {
+      /** Span's own UUID. */
+      uuid: string;
+      /** Trace this span belongs to. */
+      trace_id: string;
+      /** Span's ID within the trace. */
+      span_id: string;
+      /** Parent span's ID. Empty for a root span. */
+      parent_span_id: string;
+      /** Span name, which is the operation it represents. */
+      name: string;
+      /** OpenTelemetry span kind. */
+      kind: number;
+      /** Service that emitted the span. */
+      service_name: string;
+      /** OpenTelemetry status code: 0 unset, 1 ok, 2 error. */
+      status_code: number;
+      /** When the span started. */
+      timestamp: string;
+      /** When the span ended. */
+      end_time: string;
+      /** Span duration in nanoseconds. */
+      duration_nano: number;
+      /** Whether the span has no parent in the trace. */
+      is_root_span: boolean;
+      /** 1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean. */
+      matched_filter: number;
+      /** Start of the whole trace, for ordering traces by recency. */
+      trace_start: string;
+      /** Duration of the whole trace in nanoseconds. Falls back to this span's duration. */
+      trace_duration: number;
+      /** Span attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanAttributes;
+      /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
+      resource_attributes: _SpanResourceAttributes;
+    }
+
+    /**
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
@@ -101250,6 +101319,43 @@ export namespace Schemas {
       operator: _SpanPropertyFilterOperatorEnum;
       /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
       value?: unknown;
+    }
+
+    /**
+     * One node of the aggregated call tree. Mirrors `SpanTreeNode` in posthog.schema.
+     */
+    export interface _SpanTreeNode {
+      /** Span name for this node. */
+      name: string;
+      /** Service that emitted the spans. */
+      service_name: string;
+      /** Parent node's span name. The literal `<ROOT>` for a root node, which is how a client finds the roots. */
+      parent_name: string;
+      /** Parent node's service. Empty string at the root. */
+      parent_service: string;
+      /** Spans aggregated into this node. */
+      count: number;
+      /** How many of them reported an error status. */
+      error_count: number;
+      /** Sum of durations in nanoseconds. */
+      total_duration_nano: number;
+      /** Mean duration in nanoseconds. */
+      avg_duration_nano: number;
+      /** Median duration in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th percentile duration in nanoseconds. */
+      p95_duration_nano: number;
+      /** 99th percentile duration in nanoseconds. */
+      p99_duration_nano: number;
+      /** 99.9th percentile duration in nanoseconds. */
+      p999_duration_nano: number;
+      /** Mean nanoseconds from the parent's start to this node's start. Zero at the root. */
+      avg_start_offset_nano: number;
+      /**
+         * Mean calls per parent invocation. Null at the root.
+         * @nullable
+         */
+      calls_per_parent_invocation: number | null;
     }
 
     export interface _SymbolSetDownloadResponse {
@@ -101380,6 +101486,58 @@ export namespace Schemas {
        * * `line` - line
        * * `symbol` - symbol */
       granularity: GranularityEnum;
+    }
+
+    /**
+     * Span attributes. Keys are whatever the instrumentation set.
+     */
+    export type _TraceSpanAttributes = {[key: string]: string};
+
+    /**
+     * Resource attributes of the emitting service. Keys are whatever the instrumentation set.
+     */
+    export type _TraceSpanResourceAttributes = {[key: string]: string};
+
+    /**
+     * A span in a single trace. The trace action adds self time, which the list does not compute.
+     */
+    export interface _TraceSpan {
+      /** Span's own UUID. */
+      uuid: string;
+      /** Trace this span belongs to. */
+      trace_id: string;
+      /** Span's ID within the trace. */
+      span_id: string;
+      /** Parent span's ID. Empty for a root span. */
+      parent_span_id: string;
+      /** Span name, which is the operation it represents. */
+      name: string;
+      /** OpenTelemetry span kind. */
+      kind: number;
+      /** Service that emitted the span. */
+      service_name: string;
+      /** OpenTelemetry status code: 0 unset, 1 ok, 2 error. */
+      status_code: number;
+      /** When the span started. */
+      timestamp: string;
+      /** When the span ended. */
+      end_time: string;
+      /** Span duration in nanoseconds. */
+      duration_nano: number;
+      /** Whether the span has no parent in the trace. */
+      is_root_span: boolean;
+      /** 1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean. */
+      matched_filter: number;
+      /** Start of the whole trace, for ordering traces by recency. */
+      trace_start: string;
+      /** Duration of the whole trace in nanoseconds. Falls back to this span's duration. */
+      trace_duration: number;
+      /** Span attributes. Keys are whatever the instrumentation set. */
+      attributes: _TraceSpanAttributes;
+      /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
+      resource_attributes: _TraceSpanResourceAttributes;
+      /** Span duration minus the time spent in its children, in nanoseconds. */
+      self_time_nano: number;
     }
 
     export interface _TracingAggregationQueryBody {
@@ -101576,6 +101734,20 @@ export namespace Schemas {
       query: _TracingDurationHistogramQueryBody;
     }
 
+    export interface _TracingDurationHistogramRow {
+      /** Lower bound of the duration bucket in nanoseconds. */
+      bucket_ns: number;
+      /** Service the count belongs to. */
+      service: string;
+      /** Spans in this bucket for this service. */
+      count: number;
+    }
+
+    export interface _TracingDurationHistogramResponse {
+      /** One row per duration bucket and service. */
+      results: _TracingDurationHistogramRow[];
+    }
+
     export interface _TracingErrorCountsRequest {
       /**
          * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
@@ -101733,6 +101905,28 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingQueryResponse {
+      /** Matching spans, ordered by the requested column. */
+      results: _Span[];
+      /** Whether a further page exists. */
+      hasMore: boolean;
+      /**
+         * Cursor for the next page, or null on the last page. Pass it back as the query's `after`. Always null when ordering by duration, which pages by offset instead.
+         * @nullable
+         */
+      nextCursor: string | null;
+    }
+
+    export interface _TracingServiceName {
+      /** Service name. */
+      name: string;
+    }
+
+    export interface _TracingServiceNamesResponse {
+      /** Services that emitted spans in the window. */
+      results: _TracingServiceName[];
+    }
+
     export interface _TracingSparklineQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -101751,6 +101945,20 @@ export namespace Schemas {
       query: _TracingSparklineQueryBody;
     }
 
+    export interface _TracingSparklineRow {
+      /** Start of the time bucket. */
+      time: string;
+      /** Service the count belongs to. */
+      service: string;
+      /** Spans in this bucket for this service. */
+      count: number;
+    }
+
+    export interface _TracingSparklineResponse {
+      /** One row per time bucket and service, ordered by time. */
+      results: _TracingSparklineRow[];
+    }
+
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
@@ -101761,6 +101969,18 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+    }
+
+    export interface _TracingTraceResponse {
+      /** Spans in the trace, earliest first. */
+      results: _TraceSpan[];
+      /** Whether a further page of spans exists. */
+      hasMore: boolean;
+      /**
+         * Offset for the next page, or null on the last page.
+         * @nullable
+         */
+      nextOffset: number | null;
     }
 
     export interface _TracingTreeQueryBody {
@@ -101781,6 +102001,16 @@ export namespace Schemas {
     export interface _TracingTreeRequest {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
+    }
+
+    export interface _TracingTreeResponse {
+      /** Call tree nodes for the requested window. */
+      results: _SpanTreeNode[];
+      /**
+         * Nodes for the comparison window when compareFilter.compare is true. Null when no comparison was requested, and an empty list when one was requested and matched no spans.
+         * @nullable
+         */
+      compare: _SpanTreeNode[] | null;
     }
 
     export type BillingSpendRetrieveParams = {
