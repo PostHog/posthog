@@ -158,6 +158,19 @@ class TestGetPrBabysitSnapshotActivity:
         assert snapshot.merge_queue_push_would_eject is True
 
     @pytest.mark.django_db
+    def test_merged_pr_skips_the_queue_read(self, test_task_run):
+        test_task_run.output = {"pr_url": PR_URL}
+        test_task_run.save(update_fields=["output"])
+
+        integration = self._integration_returning({"success": True, "url": PR_URL, "state": "merged"})
+        integration.get_pull_request_merge_queue_state.side_effect = RuntimeError("comments unavailable")
+        with patch(f"{GET_PR_BABYSIT_SNAPSHOT_MODULE}.get_github_integration", return_value=integration):
+            snapshot = self._run(self._ctx(run_id=str(test_task_run.id)))
+
+        assert snapshot is not None
+        assert snapshot.is_terminal
+
+    @pytest.mark.django_db
     def test_raises_transient_error_when_github_call_raises(self, test_task_run):
         test_task_run.output = {"pr_url": PR_URL}
         test_task_run.save(update_fields=["output"])

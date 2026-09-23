@@ -154,7 +154,9 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             if not pull_request.get("success"):
                 return None
             fingerprint = compute_pr_fingerprint(pull_request)
-            push_would_eject = merge_queue_push_would_eject(github_integration, pr_url)
+            push_would_eject = pull_request.get("state") not in ("closed", "merged") and merge_queue_push_would_eject(
+                github_integration, pr_url
+            )
         except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
             # A GitHub rate limit (its own 429) or our egress budget shedding the call is a
             # normal, recoverable condition — not a fault. Keep it retryable but skip error
