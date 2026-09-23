@@ -79,6 +79,18 @@ pub enum CompiledRegex {
     InvalidPattern,
 }
 
+impl CompiledRegex {
+    pub fn new(pattern: &str) -> Self {
+        match fancy_regex::RegexBuilder::new(pattern)
+            .backtrack_limit(crate::properties::property_matching::REGEX_BACKTRACK_LIMIT)
+            .build()
+        {
+            Ok(regex) => Self::Compiled(regex),
+            Err(_) => Self::InvalidPattern,
+        }
+    }
+}
+
 impl std::fmt::Debug for CompiledRegex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -8,7 +8,6 @@ use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use dateparser::parse as parse_date;
-use fancy_regex::RegexBuilder;
 use semver::{Version, VersionReq};
 use serde_json::Value;
 
@@ -396,19 +395,15 @@ pub(crate) fn match_property_input(
             // - None: prepare_regex() was not called, compile on-the-fly (fallback
             //   for cohort property filters and test code)
             let compiled;
-            let regex: &fancy_regex::Regex = match property.compiled_regex {
-                Some(CompiledRegex::Compiled(regex)) => regex,
-                Some(CompiledRegex::InvalidPattern) => return Ok(false),
-                None => match RegexBuilder::new(&to_string_representation(value))
-                    .backtrack_limit(REGEX_BACKTRACK_LIMIT)
-                    .build()
-                {
-                    Ok(regex) => {
-                        compiled = regex;
-                        &compiled
-                    }
-                    Err(_) => return Ok(false),
-                },
+            let compiled_regex = match property.compiled_regex {
+                Some(compiled_regex) => compiled_regex,
+                None => {
+                    compiled = CompiledRegex::new(&to_string_representation(value));
+                    &compiled
+                }
+            };
+            let CompiledRegex::Compiled(regex) = compiled_regex else {
+                return Ok(false);
             };
 
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
@@ -650,7 +645,7 @@ pub(crate) fn match_property_input(
             // Both the person value and the filter value are interpreted in the
             // team timezone (naive strings) or by their explicit offset, so the two
             // sides agree with each other and with HogQL/ClickHouse cohort evaluation.
-            let parsed_date = determine_parsed_date_for_property_matching_at(
+            let parsed_date = determine_parsed_date_for_property_matching(
                 match_value,
                 team_timezone,
                 context.evaluation_time,
@@ -663,7 +658,7 @@ pub(crate) fn match_property_input(
             }
 
             if let Some(override_value) = value.as_str() {
-                let override_date = match parse_date_string_in_tz_at(
+                let override_date = match parse_date_string_in_tz(
                     override_value,
                     team_timezone,
                     context.evaluation_time,
@@ -738,18 +733,13 @@ const NAIVE_DATETIME_FORMATS: &[&str] = &[
 /// Values that carry an explicit offset (a trailing `Z` or `±HH:MM`) are honored
 /// as written, mirroring ClickHouse's `parseDateTime64BestEffort`, which respects
 /// the embedded offset regardless of the team timezone.
-#[cfg(test)]
-fn parse_date_string_in_tz(date_str: &str, team_timezone: Tz) -> Option<DateTime<Utc>> {
-    parse_date_string_in_tz_at(date_str, team_timezone, None)
-}
-
-fn parse_date_string_in_tz_at(
+fn parse_date_string_in_tz(
     date_str: &str,
     team_timezone: Tz,
     now: Option<DateTime<Utc>>,
 ) -> Option<DateTime<Utc>> {
     // Relative dates ("-7d", "-30d", …) are anchored to "now" in the team timezone.
-    if let Some(date) = relative_date::parse_relative_date_in_tz_at(date_str, team_timezone, now) {
+    if let Some(date) = relative_date::parse_relative_date_in_tz(date_str, team_timezone, now) {
         return Some(date);
     }
 
@@ -774,15 +764,7 @@ fn parse_date_string_in_tz_at(
     parse_date(date_str).ok()
 }
 
-#[cfg(test)]
 fn determine_parsed_date_for_property_matching(
-    value: Option<&Value>,
-    team_timezone: Tz,
-) -> Option<DateTime<Utc>> {
-    determine_parsed_date_for_property_matching_at(value, team_timezone, None)
-}
-
-fn determine_parsed_date_for_property_matching_at(
     value: Option<&Value>,
     team_timezone: Tz,
     now: Option<DateTime<Utc>>,
@@ -795,7 +777,7 @@ fn determine_parsed_date_for_property_matching_at(
             return parse_float_timestamp(num);
         }
         // Otherwise interpret the string in the team timezone, like the filter side.
-        return parse_date_string_in_tz_at(date_str, team_timezone, now);
+        return parse_date_string_in_tz(date_str, team_timezone, now);
     }
 
     if let Some(num) = value.as_number() {
@@ -2734,11 +2716,17 @@ mod test_match_properties {
             .with_timezone(&Utc);
         let timestamp_number = 1836277747;
         let timestamp_string = timestamp_number.to_string();
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_number)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_string)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
     }
 
@@ -2748,13 +2736,19 @@ mod test_match_properties {
             .unwrap()
             .with_timezone(&Utc);
         let timestamp_number = 1836277747.86753;
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_number)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_number)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
 
         let timestamp_string = "1836277747.86753";
-        let date =
-            determine_parsed_date_for_property_matching(Some(&json!(timestamp_string)), Tz::UTC);
+        let date = determine_parsed_date_for_property_matching(
+            Some(&json!(timestamp_string)),
+            Tz::UTC,
+            None,
+        );
         assert_eq!(date, Some(expected_date));
     }
 
@@ -2764,7 +2758,7 @@ mod test_match_properties {
         // value like this is interpreted in the team timezone; this test passes
         // Tz::UTC, so the result lands at UTC midnight.
         let date_string = "2025-12-19T00:00:00.000";
-        let date = parse_date_string_in_tz(date_string, Tz::UTC);
+        let date = parse_date_string_in_tz(date_string, Tz::UTC, None);
         assert!(
             date.is_some(),
             "Should be able to parse ISO 8601 with milliseconds"
@@ -2782,13 +2776,13 @@ mod test_match_properties {
     #[test]
     fn test_parse_iso8601_with_variable_millisecond_precision() {
         // Test 1 digit milliseconds
-        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.5", Tz::UTC).is_some());
+        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.5", Tz::UTC, None).is_some());
 
         // Test 2 digit milliseconds
-        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.12", Tz::UTC).is_some());
+        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.12", Tz::UTC, None).is_some());
 
         // Test 3 digit milliseconds (existing case)
-        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.123", Tz::UTC).is_some());
+        assert!(parse_date_string_in_tz("2025-12-19T00:00:00.123", Tz::UTC, None).is_some());
     }
 
     #[test]

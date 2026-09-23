@@ -1,18 +1,19 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use fancy_regex::RegexBuilder;
 use serde_json::Value;
 use uuid::Uuid;
 
 use super::config_v2::{Config, Outcome, RolloutMiss};
 use super::flag_matching_utils::calculate_hash;
 use super::flag_request::MAX_DISTINCT_ID_LEN;
+use super::v1_bucketing::is_in_rollout;
+use crate::handler::canonical_log::truncate_chars;
 use crate::properties::property_matching::{
     match_property_input, FlagMatchingError, PropertyMatchInput, PropertyMatchingContext,
-    REGEX_BACKTRACK_LIMIT,
 };
 use crate::properties::property_models::{
     CompiledRegex, OperatorType, ESTIMATED_COMPILED_REGEX_BYTES,
@@ -100,24 +101,17 @@ impl<'a> Evaluator<'a> {
                 rule.targeting
                     .iter()
                     .map(|predicate| {
-                        if !matches!(
+                        matches!(
                             predicate.operator,
                             OperatorType::Regex | OperatorType::NotRegex
-                        ) {
-                            return None;
-                        }
-                        let pattern = predicate.value.as_ref().and_then(Value::as_str);
-                        Some(
-                            match pattern.and_then(|pattern| {
-                                RegexBuilder::new(pattern)
-                                    .backtrack_limit(REGEX_BACKTRACK_LIMIT)
-                                    .build()
-                                    .ok()
-                            }) {
-                                Some(regex) => CompiledRegex::Compiled(regex),
-                                None => CompiledRegex::InvalidPattern,
-                            },
                         )
+                        .then(|| {
+                            predicate
+                                .value
+                                .as_ref()
+                                .and_then(Value::as_str)
+                                .map_or(CompiledRegex::InvalidPattern, CompiledRegex::new)
+                        })
                     })
                     .collect()
             })
@@ -127,19 +121,16 @@ impl<'a> Evaluator<'a> {
 
     /// Uses the same per-pattern estimate as v1 preparation; compiled engine allocations are opaque.
     pub fn estimated_heap_bytes(&self) -> usize {
+        let slots: usize = self.regexes.iter().map(Vec::capacity).sum();
+        let compiled = self
+            .regexes
+            .iter()
+            .flatten()
+            .filter(|regex| matches!(regex, Some(CompiledRegex::Compiled(_))))
+            .count();
         self.regexes.capacity() * std::mem::size_of::<Vec<Option<CompiledRegex>>>()
-            + self
-                .regexes
-                .iter()
-                .map(|rule| {
-                    rule.capacity() * std::mem::size_of::<Option<CompiledRegex>>()
-                        + rule
-                            .iter()
-                            .filter(|regex| matches!(regex, Some(CompiledRegex::Compiled(_))))
-                            .count()
-                            * ESTIMATED_COMPILED_REGEX_BYTES
-                })
-                .sum::<usize>()
+            + slots * std::mem::size_of::<Option<CompiledRegex>>()
+            + compiled * ESTIMATED_COMPILED_REGEX_BYTES
     }
 
     pub fn evaluate(&self, context: &EvaluationContext<'_>) -> Result<Evaluation, EvaluationError> {
@@ -153,19 +144,23 @@ impl<'a> Evaluator<'a> {
         context: &EvaluationContext<'_>,
         mut hash: impl FnMut(&str, &str) -> Result<f64, EvaluationError>,
     ) -> Result<Evaluation, EvaluationError> {
-        let subject = truncate_subject(context.person_identifier);
+        let subject = truncate_chars(context.person_identifier, MAX_DISTINCT_ID_LEN);
         let matching =
             PropertyMatchingContext::new(context.timezone, context.use_explicit_exact_matching)
                 .at_time(context.now);
+        // Unavailable properties fail only once a predicate is reached.
+        let person_properties = match context.properties {
+            PersonProperties::Complete(properties) => Some((properties, false)),
+            PersonProperties::Partial(properties) => Some((properties, true)),
+            PersonProperties::Unavailable => None,
+        };
         let mut hashes = HashMap::new();
-        for (index, rule) in self.config.rules.iter().enumerate() {
-            let mut matches = true;
-            for (predicate, regex) in rule.targeting.iter().zip(&self.regexes[index]) {
-                let (properties, partial) = match context.properties {
-                    PersonProperties::Complete(properties) => (properties, false),
-                    PersonProperties::Partial(properties) => (properties, true),
-                    PersonProperties::Unavailable => return Err(EvaluationError::MissingContext),
-                };
+        'rules: for (index, (rule, regexes)) in
+            self.config.rules.iter().zip(&self.regexes).enumerate()
+        {
+            for (predicate, regex) in rule.targeting.iter().zip(regexes) {
+                let (properties, partial) =
+                    person_properties.ok_or(EvaluationError::MissingContext)?;
                 if partial && !properties.contains_key(&predicate.key) {
                     return Err(EvaluationError::MissingContext);
                 }
@@ -193,13 +188,14 @@ impl<'a> Evaluator<'a> {
                     FlagMatchingError::InvalidRegexPattern => EvaluationError::InvalidRegex,
                 })?;
                 if matched == predicate.negation {
-                    matches = false;
-                    break;
+                    continue 'rules;
                 }
             }
-            if !matches {
-                continue;
-            }
+            let matched_rule = |kind| MatchedRule {
+                id: rule.id,
+                index,
+                kind,
+            };
             let (kind, value) = match &rule.outcome {
                 Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, *value),
                 Outcome::PercentageRollout {
@@ -208,32 +204,22 @@ impl<'a> Evaluator<'a> {
                     on_rollout_miss,
                     seed,
                 } => {
-                    let included = if subject.is_empty() {
-                        false
-                    } else if *rollout_percentage == 100.0 {
-                        true
-                    } else {
-                        let hash = match hashes.get(seed.as_str()) {
-                            Some(value) => *value,
-                            None => {
-                                let value = hash(seed, subject)?;
-                                hashes.insert(seed.as_str(), value);
-                                value
+                    let included = !subject.is_empty()
+                        && is_in_rollout(*rollout_percentage, || {
+                            match hashes.entry(seed.as_str()) {
+                                Entry::Occupied(entry) => Ok(*entry.get()),
+                                Entry::Vacant(entry) => {
+                                    hash(seed, subject).map(|value| *entry.insert(value))
+                                }
                             }
-                        };
-                        hash <= rollout_percentage / 100.0
-                    };
+                        })?;
                     if !included {
                         match on_rollout_miss {
                             RolloutMiss::Continue => continue,
                             RolloutMiss::ReturnDefault => {
                                 return Ok(Evaluation::RolloutMiss {
                                     value: self.config.default_value,
-                                    rule: MatchedRule {
-                                        id: rule.id,
-                                        index,
-                                        kind: RuleKind::PercentageRollout,
-                                    },
+                                    rule: matched_rule(RuleKind::PercentageRollout),
                                 })
                             }
                         }
@@ -243,25 +229,13 @@ impl<'a> Evaluator<'a> {
             };
             return Ok(Evaluation::TargetingMatch {
                 value,
-                rule: MatchedRule {
-                    id: rule.id,
-                    index,
-                    kind,
-                },
+                rule: matched_rule(kind),
             });
         }
         Ok(Evaluation::NoRuleMatch {
             value: self.config.default_value,
         })
     }
-}
-
-fn truncate_subject(subject: &str) -> &str {
-    let end = subject
-        .char_indices()
-        .nth(MAX_DISTINCT_ID_LEN)
-        .map_or(subject.len(), |(index, _)| index);
-    &subject[..end]
 }
 
 #[cfg(test)]

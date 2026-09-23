@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::flags::config_v2::Config;
 use crate::flags::evaluate_v2::{
     Evaluation, EvaluationContext, EvaluationError, MatchedRule, PersonProperties, RuleKind,
 };
@@ -29,16 +30,20 @@ pub fn read(case: &Value) -> FeatureFlag {
     })).unwrap()
 }
 
+pub fn config(flag: &FeatureFlag) -> &Config {
+    flag.filters
+        .non_v1
+        .as_ref()
+        .unwrap()
+        .parsed_v2
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+}
+
 pub fn properties(case: &Value) -> HashMap<String, Value> {
-    case["context"]["properties"]
-        .as_object()
-        .map(|object| {
-            object
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect()
-        })
-        .unwrap_or_default()
+    serde_json::from_value(case["context"]["properties"].clone()).unwrap_or_default()
 }
 
 pub fn context<'a>(

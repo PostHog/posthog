@@ -77,12 +77,9 @@ The comparison is inclusive, including hash zero at 0%.
 An empty subject always misses; a nonempty subject at 100% bypasses hashing.
 Repeated seeds reuse their hash within one evaluation.
 The evaluator has no database access, writes, events, identity allocation, or gate decisions.
-Experiment/variant/holdout/group/cohort/dependency families and non-boolean values remain unsupported.
 Public response projection and mixed-format service-cache/fallback integration require separate consumers.
-The evaluator corpus pins contract 2.2.0 from harness release 1.8.0 at revision `6054eaa7972980ceb3b991f9535b488880978ddc`.
-The vendored directory contains the subset listed in `SOURCE.json`.
-Its README, manifest, and checksum index retain the upstream bytes and describe the full upstream package.
-The integrity test verifies the source index digest and each selected file against that index; the directory is not a complete source distribution.
+Evaluator fixtures from harness release 1.8.0 are pinned under contract version 2.2.0.
+`SOURCE.json` lists the vendored subset; its README, manifest, and checksum index keep the upstream bytes, and the integrity test checks each vendored file against that index.
 Rollback can remove this dormant consumer while retaining the format-aware readers and rejection required by stored data.
 
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.

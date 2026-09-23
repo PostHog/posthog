@@ -34,7 +34,7 @@ pub fn parse_relative_date(date_str: &str) -> Option<DateTime<Utc>> {
     parse_relative_date_naive(date_str, Utc::now().naive_utc()).map(|naive| naive.and_utc())
 }
 
-/// Parse a relative date string anchored to the current wall clock in `tz`,
+/// Parse a relative date string anchored to `now` (default: the current wall clock) in `tz`,
 /// returning the resulting instant in UTC.
 ///
 /// This mirrors HogQL's `relative_date_parse(value, team.timezone_info)`: the
@@ -43,11 +43,7 @@ pub fn parse_relative_date(date_str: &str) -> Option<DateTime<Utc>> {
 /// the subtraction on the naive wall clock (rather than on an absolute UTC
 /// instant) is what makes "in the last N days" land on the same local day
 /// boundary in both engines.
-pub fn parse_relative_date_in_tz(date_str: &str, tz: Tz) -> Option<DateTime<Utc>> {
-    parse_relative_date_in_tz_at(date_str, tz, None)
-}
-
-pub(crate) fn parse_relative_date_in_tz_at(
+pub fn parse_relative_date_in_tz(
     date_str: &str,
     tz: Tz,
     now: Option<DateTime<Utc>>,

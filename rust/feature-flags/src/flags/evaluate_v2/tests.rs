@@ -12,16 +12,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
         .filter(|case| case["family"] == "white_box")
     {
         let flag = corpus::read(&case);
-        let config = flag
-            .filters
-            .non_v1
-            .as_ref()
-            .unwrap()
-            .parsed_v2
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap();
+        let config = corpus::config(&flag);
         let evaluator = Evaluator::new(config);
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
@@ -107,16 +98,7 @@ fn regex_execution_errors_are_not_inverted_by_negation() {
     for negation in [false, true] {
         case["config"]["rules"][0]["targeting"]["properties"][0]["negation"] = json!(negation);
         let flag = corpus::read(&case);
-        let config = flag
-            .filters
-            .non_v1
-            .as_ref()
-            .unwrap()
-            .parsed_v2
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap();
+        let config = corpus::config(&flag);
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
         assert_eq!(
@@ -135,16 +117,7 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
         .unwrap();
     case["config"]["rules"][0]["targeting"]["properties"][0]["value"] = json!("sensitive-pattern");
     let flag = corpus::read(&case);
-    let config = flag
-        .filters
-        .non_v1
-        .as_ref()
-        .unwrap()
-        .parsed_v2
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .unwrap();
+    let config = corpus::config(&flag);
     let evaluator = Evaluator::new(config);
     let properties = corpus::properties(&case);
     let context = corpus::context(&case, &properties);

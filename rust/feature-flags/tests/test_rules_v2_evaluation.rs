@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use feature_flags::flags;
-use feature_flags::flags::config_v2::ParseError;
+use feature_flags::flags::config_v2::{Outcome, ParseError};
 use feature_flags::flags::evaluate_v2::Evaluator;
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
+use feature_flags::flags::flag_request::MAX_DISTINCT_ID_LEN;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -118,8 +119,8 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
             rejected += 1;
             continue;
         }
-        let parsed = retained.parsed_v2.as_ref().unwrap();
-        let evaluator = Evaluator::new(parsed.as_ref().unwrap());
+        let config = corpus::config(&cached[0]);
+        let evaluator = Evaluator::new(config);
         let properties = corpus::properties(&case);
         let properties_before = properties.clone();
         let context = corpus::context(&case, &properties);
@@ -138,30 +139,32 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         assert_eq!(serde_json::to_value(&cached[0]).unwrap(), before, "{id}");
         assert_eq!(properties, properties_before);
         if let Some(evidence) = case.get("hash_evidence") {
-            let rule = parsed
-                .as_ref()
-                .unwrap()
+            let (seed, rollout_percentage) = config
                 .rules
                 .iter()
                 .find_map(|rule| match &rule.outcome {
-                    flags::config_v2::Outcome::PercentageRollout {
+                    Outcome::PercentageRollout {
                         seed,
                         rollout_percentage,
                         ..
-                    } => Some((seed, *rollout_percentage)),
+                    } => Some((seed, rollout_percentage)),
                     _ => None,
                 })
                 .unwrap();
-            let subject: String = context.person_identifier.chars().take(200).collect();
+            let subject: String = context
+                .person_identifier
+                .chars()
+                .take(MAX_DISTINCT_ID_LEN)
+                .collect();
             assert_eq!(subject, evidence["identifier"]);
-            let hash = calculate_hash(&format!("{}.", rule.0), &subject, "").unwrap();
+            let hash = calculate_hash(&format!("{seed}."), &subject, "").unwrap();
             assert_eq!(
                 format!("{:016x}", hash.to_bits()),
                 evidence["hash01_binary64_hex"],
                 "{id}"
             );
             assert_eq!(
-                format!("{:016x}", (rule.1 / 100.0).to_bits()),
+                format!("{:016x}", (rollout_percentage / 100.0).to_bits()),
                 evidence["threshold_binary64_hex"],
                 "{id}"
             );
@@ -203,18 +206,7 @@ async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed(
     eligible.team_id = team.id;
     eligible.key = "eligible-v2".to_string();
     eligible.active = true;
-    let evaluator = Evaluator::new(
-        eligible
-            .filters
-            .non_v1
-            .as_ref()
-            .unwrap()
-            .parsed_v2
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap(),
-    );
+    let evaluator = Evaluator::new(corpus::config(&eligible));
     assert_eq!(
         corpus::result_json(
             evaluator.evaluate(&corpus::context(&cases[0], &corpus::properties(&cases[0])))
