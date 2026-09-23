@@ -220,14 +220,19 @@ describe('billingUsageLogic loader', () => {
         toastErrorSpy.mockRestore()
     })
 
-    it('handles query-size errors without failing the loader', async () => {
+    it.each([
+        {
+            case: 'a query-size error',
+            answer: [400, { code: BILLING_USAGE_QUERY_TOO_LARGE_CODE, detail: 'Select a product.' }],
+            pageError: { code: BILLING_USAGE_QUERY_TOO_LARGE_CODE, detail: 'Select a product.' },
+            toasts: 0,
+        },
+        { case: 'a server error', answer: [500, { detail: 'A server error occurred.' }], pageError: null, toasts: 1 },
+    ])('handles $case without failing the loader', async ({ answer, pageError, toasts }) => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': () => [
-                    400,
-                    { code: BILLING_USAGE_QUERY_TOO_LARGE_CODE, detail: 'Select a product.' },
-                ],
+                '/api/organizations/@current/billing/usage/timeseries/': () => answer as [number, unknown],
             },
         })
 
@@ -242,11 +247,8 @@ describe('billingUsageLogic loader', () => {
             .toNotHaveDispatchedActions(['loadBillingUsageFailure'])
             .toFinishAllListeners()
 
-        expect(logic.values.billingUsageError).toEqual({
-            code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
-            detail: 'Select a product.',
-        })
-        expect(toastErrorSpy).not.toHaveBeenCalled()
+        expect(logic.values.billingUsageError).toEqual(pageError)
+        expect(toastErrorSpy).toHaveBeenCalledTimes(toasts)
     })
 })
 

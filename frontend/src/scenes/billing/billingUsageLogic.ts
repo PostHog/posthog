@@ -541,8 +541,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         actions.setBillingUsageError(isActionable ? billingUsageError : null)
                         if (!isActionable) {
                             lemonToast.error('Failed to load billing usage. Please try again or contact support.')
-                            throw error
                         }
+                        // The toast or the page names the failure, so it does not also go to error tracking.
                         return null
                     }
                 },

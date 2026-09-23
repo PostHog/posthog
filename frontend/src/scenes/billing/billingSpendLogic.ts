@@ -470,8 +470,8 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         actions.setBillingSpendError(isActionable ? spendError : null)
                         if (!isActionable) {
                             lemonToast.error('Failed to load billing spend, please try again or contact support.')
-                            throw error
                         }
+                        // The toast or the page names the failure, so it does not also go to error tracking.
                         return null
                     }
                 },
