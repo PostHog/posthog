@@ -35,13 +35,16 @@ function formatLabel(dateRange: DateRange, now: dayjs.Dayjs): string {
 }
 
 export function AnomaliesDatePicker(): JSX.Element {
-    const { dateRange } = useValues(logsAnomaliesLogic)
+    const { dateRange, seriesBandsLoading } = useValues(logsAnomaliesLogic)
     const { setDateRange, stepDateRange } = useActions(logsAnomaliesLogic)
     const [open, setOpen] = useState(false)
     const now = dayjs()
     const oldest = oldestAllowedStart(now)
     const canStepBack = !!stepAnomaliesWindow(dateRange, -1, now)
     const canStepForward = !!stepAnomaliesWindow(dateRange, 1, now)
+    // Every control here starts a band query, and the backend runs it synchronously. Without this a
+    // run of quick clicks starts a query per click, and only the last answer is wanted.
+    const loadingReason = seriesBandsLoading ? 'The chart is still loading' : undefined
 
     const bandDays = anomaliesWindowDays(dateRange, now)
     const bandFirstMs = bandDays?.firstMs
@@ -57,10 +60,11 @@ export function AnomaliesDatePicker(): JSX.Element {
             return { disabledReason: `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired` }
         }
         if (!bandDays) {
-            return {}
+            return { disabledReason: loadingReason }
         }
         const dayMs = day.valueOf()
         return {
+            disabledReason: loadingReason,
             isStart: dayMs === bandDays.firstMs,
             isBetween: dayMs > bandDays.firstMs && dayMs < bandDays.lastMs,
             isEnd: dayMs === bandDays.lastMs,
@@ -80,7 +84,7 @@ export function AnomaliesDatePicker(): JSX.Element {
                 icon={<IconChevronLeft />}
                 tooltip="Previous window"
                 disabledReason={
-                    canStepBack ? undefined : `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired`
+                    canStepBack ? loadingReason : `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired`
                 }
                 onClick={() => stepDateRange(-1)}
                 data-attr="logs-anomalies-date-previous"
@@ -112,6 +116,7 @@ export function AnomaliesDatePicker(): JSX.Element {
                                             : 'tertiary'
                                     }
                                     fullWidth
+                                    disabledReason={loadingReason}
                                     onClick={() => select({ date_from: option.dateFrom, date_to: null })}
                                 >
                                     {option.label}
@@ -136,7 +141,7 @@ export function AnomaliesDatePicker(): JSX.Element {
                 type="secondary"
                 icon={<IconChevronRight />}
                 tooltip="Next window"
-                disabledReason={canStepForward ? undefined : 'This window already ends now'}
+                disabledReason={canStepForward ? loadingReason : 'This window already ends now'}
                 onClick={() => stepDateRange(1)}
                 data-attr="logs-anomalies-date-next"
             />
