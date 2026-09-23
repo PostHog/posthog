@@ -11,7 +11,7 @@ Work the steps in order. Each step ends when its check holds. [references/steps.
 
 ## 1. Install the package and scaffold a file
 
-- Add `@posthog/workflows` as a devDependency of the package that holds the workflow files. Inside the PostHog monorepo the entry is `"@posthog/workflows": "workspace:*"`. The CLI needs Node 22.12 or newer.
+- Add `@posthog/workflows` as a devDependency of the package that holds the workflow files. The package is not on npm yet, so this works only inside the PostHog monorepo, where the entry is `"@posthog/workflows": "workspace:*"`. The CLI needs Node 22.12 or newer.
 - Run `posthog-workflows init flows/onboarding.ts`. It writes a starter file with the key and the name taken from the file name, and refuses to overwrite a file that exists.
 - The CLI evaluates the TypeScript itself, so there is no build step. Keep your own `tsc` running over the file, because the loader does not type-check.
 
@@ -82,13 +82,13 @@ Two jobs in the repository that owns the workflow files, both plain commands, so
 
 ```yaml
 - name: Check workflows # on pull_request, no secret
-  run: npx posthog-workflows check flows/onboarding.ts
+  run: pnpm exec posthog-workflows check flows/onboarding.ts
 - name: Push workflows # on push to the default branch
   env:
     POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
     POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID }}
     POSTHOG_CLI_HOST: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
-  run: npx posthog-workflows push flows/onboarding.ts
+  run: pnpm exec posthog-workflows push flows/onboarding.ts
 ```
 
 - Filter the triggers to the paths that hold the files, so unrelated pull requests skip the job. Give the push job one concurrency group with cancellation off, so two pushes never race and the newest commit wins.
