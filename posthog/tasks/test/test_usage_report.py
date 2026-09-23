@@ -64,6 +64,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
+    apply_usage_counter_metadata,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -79,7 +80,7 @@ from posthog.tasks.usage_report import (
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.usage_counters import UsageCounter, UsageCounterQuery
+from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.models.batch_export import (
@@ -3340,6 +3341,50 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         query = cast(UsageCounterQuery, QUERY_INDEX[UsageCounter.CDP_INVOCATIONS].fn)
         assert dict(query(period.start, period.end)) == {3: 5, 4: 3}
+
+        base_record = {
+            "schema_version": 1,
+            "record_id": "invocation-a",
+            "producer_id": "producer-a",
+            "team_id": 3,
+            "organization_id": self.org_1.id,
+            "usage_key": "cdp_billable_invocations",
+            "unit": "invocations",
+            "quantity": 2,
+            "timestamp": period.start + timedelta(hours=1),
+            "inserted_at": period.start + timedelta(hours=1),
+        }
+        corrected = {**base_record, "quantity": 5, "inserted_at": period.start + timedelta(hours=2)}
+        records = [
+            base_record,
+            corrected,
+            corrected,
+            {**base_record, "producer_id": "producer-b"},
+            {**base_record, "team_id": 4, "record_id": "invocation-b", "quantity": 3},
+            {**base_record, "usage_key": "workflow_emails_sent", "quantity": 90},
+            {**base_record, "timestamp": period.start - timedelta(days=1), "quantity": 100},
+            {**base_record, "record_id": "at-end", "timestamp": period.end, "quantity": 500},
+        ]
+        sync_execute(
+            """
+            INSERT INTO sharded_billing_usage_records
+            (schema_version, record_id, producer_id, team_id, organization_id, usage_key, unit, quantity, timestamp, inserted_at)
+            VALUES
+            """,
+            records,
+        )
+        with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
+            plan = UsageCounterService().resolve_plan(period, caller="daily_report")
+        counter_report = UsageCounterService().fetch_report(period, plan=plan)
+        assert counter_report.realtime_counters == {"cdp_billable_invocations_in_period": {str(self.org_1.id): 10}}
+        apply_usage_counter_metadata(
+            all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()
+        )
+        with_shadow = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert with_shadow["cdp_billable_invocations_in_period"] == 8
+        assert with_shadow["realtime_counters"] == {"cdp_billable_invocations_in_period": 10}
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")

@@ -9,6 +9,7 @@ elsewhere so these stay easy to read and mock in tests.
 import json
 import time
 import asyncio
+import dataclasses
 from itertools import batched
 from typing import Any
 
@@ -19,7 +20,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.tasks.usage_report import get_instance_metadata
+from posthog.tasks.usage_report import apply_usage_counter_metadata, get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
@@ -31,6 +32,7 @@ from posthog.temporal.usage_report.aggregator import (
     get_org_user_counts,
     iter_chunk_lines,
     load_all_data,
+    load_usage_counter_report,
     sort_org_reports,
 )
 from posthog.temporal.usage_report.metrics import (
@@ -59,7 +61,9 @@ from posthog.temporal.usage_report.types import (
     EnqueuePointerInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
+    WorkflowContext,
 )
+from posthog.usage_counters import UsageCounterPlan, UsageCounterService
 from posthog.utils import DayRange, get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +75,32 @@ SQS_POINTER_VERSION = 2
 # stream and the new pointer stream don't clash while both flows run side by
 # side. Billing opts in by reading from this queue once it's ready.
 SQS_QUEUE_NAME = "usage_reports_v2"
+
+
+@activity.defn(name="plan-usage-counters")
+async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
+    return await sync_to_async(UsageCounterService().resolve_plan)(
+        DayRange(start=ctx.period_start, end=ctx.period_end),
+        caller="usage_reports_v2",
+    )
+
+
+@activity.defn(name="fetch-usage-counter-report")
+async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result:
+    async with Heartbeater():
+        if ctx.usage_counter_plan is None:
+            raise ValueError("Fetching usage counters requires a resolved plan")
+        started = time.monotonic()
+        report = await database_sync_to_async_pool(UsageCounterService().fetch_report)(
+            DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan
+        )
+        key = queries_key(ctx, "usage_counters")
+        await sync_to_async(write_json)(key, dataclasses.asdict(report))
+        return RunQueryToS3Result(
+            query_name="usage_counters",
+            s3_key=key,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
 
 
 @activity.defn(name="run-usage-report-query")
@@ -131,6 +161,8 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
         ):
             all_data = await sync_to_async(load_all_data)(inputs.query_results)
             add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
+            counter_report = await sync_to_async(load_usage_counter_report)(inputs)
+            all_data.update({field: dict(rows) for field, rows in counter_report.counts.items()})
 
             @database_sync_to_async
             def aggregate_per_org() -> dict[str, Any]:
@@ -143,6 +175,14 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 return org_reports
 
             org_reports = await aggregate_per_org()
+
+            apply_usage_counter_metadata(
+                org_reports,
+                counter_report,
+                caller="usage_reports_v2",
+                date=inputs.ctx.date_str,
+                organization_ids=inputs.ctx.organization_ids,
+            )
 
             instance_metadata = await database_sync_to_async(get_instance_metadata)(
                 DayRange(start=inputs.ctx.period_start, end=inputs.ctx.period_end)

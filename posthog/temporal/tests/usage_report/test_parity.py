@@ -17,8 +17,10 @@ import gzip
 import json
 import base64
 import asyncio
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from unittest import mock
@@ -27,11 +29,17 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from posthog.models import Organization, Team
+from posthog.tasks import usage_report
 from posthog.tasks.usage_report import send_all_org_usage_reports
-from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
+from posthog.temporal.usage_report.activities import (
+    aggregate_and_chunk_org_reports,
+    fetch_usage_counter_report,
+    plan_usage_counters,
+)
 from posthog.temporal.usage_report.queries import QUERIES
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, AggregateResult, RunQueryToS3Result, WorkflowContext
+from posthog.usage_counters import UsageCounter
 from posthog.utils import get_previous_day
 
 
@@ -173,9 +181,11 @@ def _decode_temporal_chunks(s3: dict[str, bytes], chunk_keys: list[str]) -> dict
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("mode", ["legacy", "both", "realtime"])
 def test_end_to_end_parity_celery_task_vs_temporal_activity(
     activity_environment: Any,
     monkeypatch: pytest.MonkeyPatch,
+    mode: str,
 ) -> None:
     """Both production paths must produce the same per-org bytes for the
     same `all_data` snapshot. Drift here is what billing's parity check
@@ -187,15 +197,22 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     `has_non_zero_usage` gate, so we compare only the orgs Celery actually
     sends.
     """
+    shadow_enabled = mode == "both"
     org_a = Organization.objects.create(name="E2E Parity A")
     org_b = Organization.objects.create(name="E2E Parity B")
     team_a1 = Team.objects.create(organization=org_a, name="A1")
     team_a2 = Team.objects.create(organization=org_a, name="A2")
     team_b = Team.objects.create(organization=org_b, name="B")
+    idle_org = Organization.objects.create(name="Idle")
+    idle_team = Team.objects.create(organization=idle_org, name="Idle")
+    deleted_org_id = str(uuid4())
+    excluded_org_id = str(uuid4())
+    organization_ids = [str(org_a.id), str(org_b.id), str(idle_org.id), deleted_org_id]
 
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
+    seeded["teams_with_cdp_billable_invocations_in_period"] = {team_a1.id: 11, team_a2.id: 13}
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)
@@ -203,34 +220,78 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # Don't let the Celery task short-circuit on the kill-switch flag,
     # and silence the start/end PostHog `capture` calls.
     monkeypatch.setattr("posthoganalytics.feature_enabled", lambda *a, **kw: False)
+    monkeypatch.setattr("django.conf.settings.CLOUD_DEPLOYMENT", "US")
+    monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"cdp-invocations:{mode}")
+    capture = mock.Mock()
+    monkeypatch.setattr("posthoganalytics.capture", capture)
+    monkeypatch.setattr("posthog.tasks.usage_report.ph_scoped_capture", lambda **kw: nullcontext(capture))
+    scan = mock.Mock(
+        return_value=[
+            (team_a1.id, org_a.id, "cdp_billable_invocations", 7),
+            (team_a2.id, org_a.id, "cdp_billable_invocations", 9),
+            (idle_team.id, idle_org.id, "cdp_billable_invocations", 4),
+            (987654, deleted_org_id, "cdp_billable_invocations", 6),
+            (987655, excluded_org_id, "cdp_billable_invocations", 23),
+        ]
+    )
+    monkeypatch.setattr("posthog.tasks.usage_report.sync_execute", scan)
     monkeypatch.setattr("posthog.tasks.usage_report.get_ph_client", lambda *a, **kw: mock.MagicMock())
     # Skip the heavy gather queries — both paths use this same `seeded`
     # dict, just shaped differently for each entry point.
     monkeypatch.setattr(
         "posthog.tasks.usage_report._get_all_usage_data_as_team_rows",
-        lambda *a, **kw: seeded,
+        lambda begin, end, counter_report: {
+            **seeded,
+            **{field: dict(rows) for field, rows in counter_report.counts.items()},
+        },
     )
 
+    for counter, query_name in (
+        (UsageCounter.CDP_INVOCATIONS, "get_teams_with_cdp_billable_invocations_in_period"),
+        (UsageCounter.WORKFLOW_EMAILS, "get_teams_with_workflow_emails_sent_in_period"),
+        (UsageCounter.WORKFLOW_PUSH, "get_teams_with_workflow_push_sent_in_period"),
+        (UsageCounter.WORKFLOW_SMS, "get_teams_with_workflow_sms_sent_in_period"),
+        (UsageCounter.WORKFLOW_INVOCATIONS, "get_teams_with_workflow_billable_invocations_in_period"),
+    ):
+        monkeypatch.setattr(usage_report, query_name, mock.Mock(return_value=list(seeded[counter].items())))
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_feature_flag_requests_count_in_period",
+        lambda begin, end, kind: list(
+            seeded[
+                UsageCounter.FEATURE_FLAG_REQUESTS
+                if kind == usage_report.FlagRequestType.DECIDE
+                else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+            ].items()
+        ),
+    )
+    monkeypatch.setattr("posthoganalytics.get_feature_flag", mock.Mock(return_value="legacy"))
+
     # ---- Celery path ----
-    send_all_org_usage_reports(at=celery_at.isoformat(), skip_capture_event=True)
+    send_all_org_usage_reports(at=celery_at.isoformat(), skip_capture_event=True, organization_ids=organization_ids)
     celery_per_org = _decode_celery_sqs_messages(sqs_messages)
 
     # ---- Temporal path ----
     ctx = WorkflowContext(
         run_id="e2e-parity-test",
-        workflow_started_at=period.start,
+        workflow_started_at=celery_at,
         period_start=period.start,
         period_end=period.end,
         date_str=period.start.strftime("%Y-%m-%d"),
-        organization_ids=None,
+        organization_ids=organization_ids,
+        report_completeness="complete",
     )
-    query_results = _seed_temporal_query_files(s3, ctx, seeded)
+    ctx.usage_counter_plan = asyncio.run(activity_environment.run(plan_usage_counters, ctx))
+    query_results = [
+        result for result in _seed_temporal_query_files(s3, ctx, seeded) if result.query_name not in UsageCounter
+    ]
+    counter_result = asyncio.run(activity_environment.run(fetch_usage_counter_report, ctx))
     # The activity is async; the test is sync so DB setup can use the
     # ORM directly. `asyncio.run` drives the activity in a fresh loop.
     result: AggregateResult = asyncio.run(
         activity_environment.run(
             aggregate_and_chunk_org_reports,
-            AggregateInputs(ctx=ctx, query_results=query_results),
+            AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
         )
     )
     temporal_per_org = _decode_temporal_chunks(s3, result.chunk_keys)
@@ -271,6 +332,32 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 999_999
     assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
     assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
+    assert temporal_per_org[str(org_a.id)]["cdp_billable_invocations_in_period"] == (16 if mode == "realtime" else 24)
+    assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
+    assert (str(idle_org.id) in celery_per_org) == (mode == "realtime")
+    assert scan.call_count == (0 if mode == "legacy" else 2)
+    if shadow_enabled:
+        assert temporal_per_org[str(org_a.id)]["realtime_counters"] == {"cdp_billable_invocations_in_period": 16}
+        assert temporal_per_org[str(org_b.id)]["realtime_counters"] == {"cdp_billable_invocations_in_period": 0}
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["cdp_billable_invocations_in_period"] == "both"
+        missing_events = [
+            call.kwargs
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "usage counter shadow missing organizations"
+        ]
+        assert len(missing_events) == 2
+        assert {event["properties"]["caller"] for event in missing_events} == {"daily_report", "usage_reports_v2"}
+        for event in missing_events:
+            assert event["properties"]["organizations"] == {
+                str(idle_org.id): {"cdp_billable_invocations_in_period": 4},
+                deleted_org_id: {"cdp_billable_invocations_in_period": 6},
+            }
+    elif mode == "realtime":
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["cdp_billable_invocations_in_period"] == "realtime"
+        assert "realtime_counters" not in temporal_per_org[str(org_a.id)]
+    else:
+        assert "usage_sources" not in temporal_per_org[str(org_a.id)]
+        assert "realtime_counters" not in temporal_per_org[str(org_a.id)]
 
 
 @pytest.mark.django_db(transaction=True)

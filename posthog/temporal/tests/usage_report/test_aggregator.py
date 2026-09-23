@@ -11,9 +11,10 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from unittest.mock import patch
 
-from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
+from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters, apply_usage_counter_metadata
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
@@ -21,9 +22,18 @@ from posthog.temporal.usage_report.aggregator import (
     filter_orgs_with_usage,
     iter_chunk_lines,
     load_all_data,
+    load_usage_counter_report,
     sort_org_reports,
 )
-from posthog.temporal.usage_report.types import Manifest, ReportCompleteness, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.types import (
+    AggregateInputs,
+    Manifest,
+    ReportCompleteness,
+    RunQueryToS3Result,
+    WorkflowContext,
+)
+from posthog.usage_counters import UsageCounterService
+from posthog.utils import DayRange
 
 
 def _ctx(run_id: str = "abc", report_completeness: ReportCompleteness = "partial") -> WorkflowContext:
@@ -148,6 +158,54 @@ def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -
     add_pre_sandbox_compute_patch_defaults(all_data, results)
 
     assert all_data == {}
+
+
+@pytest.mark.parametrize(
+    "state", ["zero", "failed_scan", "missing_result", "missing_object", "invalid_json", "legacy", "partial"]
+)
+def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
+    ctx = _ctx(report_completeness="partial" if state == "partial" else "complete")
+    if state != "legacy":
+        with patch("posthoganalytics.get_feature_flag", return_value="both"):
+            ctx.usage_counter_plan = UsageCounterService().resolve_plan(
+                DayRange(start=ctx.period_start, end=ctx.period_end),
+                caller="usage_reports_v2",
+            )
+    result = RunQueryToS3Result(query_name="usage_counters", s3_key="shadow.json", duration_ms=1)
+    payload = json.dumps(
+        {
+            "counts": {"teams_with_cdp_billable_invocations_in_period": [[1, 12]]},
+            "usage_sources": {"cdp_billable_invocations_in_period": "both"},
+            "realtime_counters": None if state == "failed_scan" else {"cdp_billable_invocations_in_period": {}},
+        }
+    ).encode()
+    with patch(
+        "posthog.storage.object_storage.read_bytes", return_value=b"invalid" if state == "invalid_json" else payload
+    ) as read:
+        if state == "missing_object":
+            read.side_effect = FileNotFoundError("missing")
+        inputs = AggregateInputs(
+            ctx=ctx, query_results=[], counter_result=None if state in {"missing_result", "legacy"} else result
+        )
+        if state in {"missing_result", "missing_object", "invalid_json"}:
+            with pytest.raises((ValueError, FileNotFoundError)):
+                load_usage_counter_report(inputs)
+            return
+        counter_report = load_usage_counter_report(inputs)
+        if state != "legacy":
+            assert counter_report.counts == {"teams_with_cdp_billable_invocations_in_period": [(1, 12)]}
+    org = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
+    apply_usage_counter_metadata({"org-a": org}, counter_report, caller="usage_reports_v2", date=ctx.date_str)
+    assert org.cdp_billable_invocations_in_period == 12
+    if state == "legacy":
+        assert org.usage_sources is None
+        read.assert_not_called()
+    else:
+        assert org.usage_sources is not None
+        assert org.usage_sources["cdp_billable_invocations_in_period"] == "both"
+    assert org.realtime_counters == (
+        {"cdp_billable_invocations_in_period": 0} if state in {"zero", "partial"} else None
+    )
 
 
 # ---- iter_chunk_lines ----------------------------------------------------
@@ -277,6 +335,11 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
         "with-events": _empty_org_report("with-events", event_count_in_period=1),
         "with-recordings": _empty_org_report("with-recordings", recording_count_in_period=1),
         "idle": _empty_org_report("idle"),
+        "shadow-only": _empty_org_report(
+            "shadow-only",
+            usage_sources={"cdp_billable_invocations_in_period": "both"},
+            realtime_counters={"cdp_billable_invocations_in_period": 50},
+        ),
         # Counters not in `has_non_zero_usage` (dashboard counts, query
         # bytes read, etc.) must not keep an org in.
         "non-billable-only": _empty_org_report("non-billable-only", dashboard_count=10, query_app_bytes_read=5_000_000),

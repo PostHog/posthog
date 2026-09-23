@@ -43,9 +43,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_synced_in_period,
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
-    get_usage_counter_service,
 )
-from posthog.usage_counters import UsageCounter
+from posthog.usage_counters import UsageCounter, UsageCounterService
 from posthog.utils import get_current_day
 
 logger = structlog.get_logger(__name__)
@@ -1108,11 +1107,13 @@ def update_all_orgs_billing_quotas(
     """
     total_start = time()
     period = get_current_day()
-    counters = get_usage_counter_service()
+    service = UsageCounterService()
+    plan = service.resolve_plan(period, caller="quota_limiting")
 
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
+    counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
@@ -1145,28 +1146,12 @@ def update_all_orgs_billing_quotas(
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
             _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period.start, period.end)
         ),
-        "teams_with_decide_requests_count": convert_team_usage_rows_to_dict(
-            _timed_query(
-                "decide_requests",
-                counters.get,
-                UsageCounter.FEATURE_FLAG_REQUESTS,
-                period.start,
-                period.end,
-            )
-        ),
-        "teams_with_local_evaluation_requests_count": convert_team_usage_rows_to_dict(
-            _timed_query(
-                "local_evaluation_requests",
-                counters.get,
-                UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
-                period.start,
-                period.end,
-            )
+        "teams_with_decide_requests_count": dict(counter_report.counts[UsageCounter.FEATURE_FLAG_REQUESTS]),
+        "teams_with_local_evaluation_requests_count": dict(
+            counter_report.counts[UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS]
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
-        "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
-            _timed_query("cdp_invocations", counters.get, UsageCounter.CDP_INVOCATIONS, period.start, period.end)
-        ),
+        "teams_with_cdp_trigger_events_metrics": dict(counter_report.counts[UsageCounter.CDP_INVOCATIONS]),
         "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
             _timed_query("rows_exported", get_teams_with_rows_exported_in_period, period.start, period.end)
         ),
@@ -1194,17 +1179,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": convert_team_usage_rows_to_dict(
             sandbox_compute_usage.memory_mib_seconds
         ),
-        "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("workflow_emails", counters.get, UsageCounter.WORKFLOW_EMAILS, period.start, period.end)
-        ),
-        "teams_with_workflow_push_sent_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("workflow_push", counters.get, UsageCounter.WORKFLOW_PUSH, period.start, period.end)
-        ),
-        "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
-            _timed_query(
-                "workflow_invocations", counters.get, UsageCounter.WORKFLOW_INVOCATIONS, period.start, period.end
-            )
-        ),
+        "teams_with_workflow_emails_sent_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_EMAILS]),
+        "teams_with_workflow_push_sent_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_PUSH]),
+        "teams_with_workflow_destinations_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_INVOCATIONS]),
         "teams_with_replay_vision_credits_used_in_period": convert_team_usage_rows_to_dict(
             _timed_query(
                 "replay_vision_credits",

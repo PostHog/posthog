@@ -18,6 +18,7 @@ from django.db.models.functions import Coalesce
 
 import requests
 import structlog
+import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -43,12 +44,21 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.usage_counters import UsageCounter, UsageCounterService
+from posthog.usage_counters import (
+    SHADOW_MISSING_ORGS,
+    UsageCounterCaller,
+    UsageCounterMode,
+    UsageCounterReport,
+    UsageCounterService,
+    UsageRecordTotal,
+    validate_usage_record_window,
+)
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.batch_exports.backend.billing import exclude_non_billable_runs
@@ -423,6 +433,8 @@ class OrgReport(UsageReportCounters):
     organization_user_count: int
     team_count: int
     teams: dict[str, UsageReportCounters]
+    usage_sources: dict[str, UsageCounterMode] | None = dataclasses.field(default=None, kw_only=True)
+    realtime_counters: dict[str, int] | None = dataclasses.field(default=None, kw_only=True)
 
 
 @dataclasses.dataclass
@@ -2913,31 +2925,41 @@ def convert_team_usage_rows_to_dict(
     return team_id_map
 
 
-def get_usage_counter_service() -> UsageCounterService:
-    return UsageCounterService(
-        {
-            UsageCounter.CDP_INVOCATIONS: get_teams_with_cdp_billable_invocations_in_period,
-            UsageCounter.FEATURE_FLAG_REQUESTS: lambda b, e: get_teams_with_feature_flag_requests_count_in_period(
-                b, e, FlagRequestType.DECIDE
-            ),
-            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: lambda b, e: (
-                get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.LOCAL_EVALUATION)
-            ),
-            UsageCounter.WORKFLOW_EMAILS: get_teams_with_workflow_emails_sent_in_period,
-            UsageCounter.WORKFLOW_PUSH: get_teams_with_workflow_push_sent_in_period,
-            UsageCounter.WORKFLOW_SMS: get_teams_with_workflow_sms_sent_in_period,
-            UsageCounter.WORKFLOW_INVOCATIONS: get_teams_with_workflow_billable_invocations_in_period,
-        }
-    )
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_usage_records_in_period(
+    period: DayRange, usage_keys: tuple[str, ...], caller: UsageCounterCaller
+) -> list[UsageRecordTotal]:
+    validate_usage_record_window(period)
+    with tags_context(product=Product.BILLING, feature=Feature.USAGE_REPORT, usage_report=f"{caller}_usage_counters"):
+        rows = sync_execute(
+            """
+            SELECT team_id, organization_id, usage_key, sum(quantity)
+            FROM billing_usage_records FINAL
+            WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+              AND usage_key IN %(usage_keys)s
+            GROUP BY team_id, organization_id, usage_key
+            """,
+            {"begin": period.start, "end": period.end, "usage_keys": usage_keys},
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.BILLING,
+            settings={**CH_BILLING_SETTINGS, "do_not_merge_across_partitions_select_final": 1},
+        )
+    return [
+        UsageRecordTotal(team_id=team_id, organization_id=str(org_id), usage_key=key, quantity=quantity)
+        for team_id, org_id, key, quantity in rows
+    ]
 
 
-def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
+def _get_all_usage_data(
+    period_start: datetime, period_end: datetime, counter_report: UsageCounterReport | None = None
+) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
     """
 
-    counters = get_usage_counter_service()
+    counter_report = counter_report or UsageCounterService().fetch_report(DayRange(start=period_start, end=period_end))
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
@@ -2957,6 +2979,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     token_credits = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
     return {
+        **counter_report.counts,
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
@@ -3029,12 +3052,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_replay_vision_observation_count_in_period": get_teams_with_replay_vision_observation_count_in_period(
             period_start, period_end
-        ),
-        "teams_with_decide_requests_count_in_period": counters.get(
-            UsageCounter.FEATURE_FLAG_REQUESTS, period_start, period_end
-        ),
-        "teams_with_local_evaluation_requests_count_in_period": counters.get(
-            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, period_start, period_end
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
         "teams_with_dashboard_count": list(
@@ -3196,9 +3213,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
-        "teams_with_cdp_billable_invocations_in_period": counters.get(
-            UsageCounter.CDP_INVOCATIONS, period_start, period_end
-        ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
@@ -3213,14 +3227,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
-        "teams_with_workflow_emails_sent_in_period": counters.get(
-            UsageCounter.WORKFLOW_EMAILS, period_start, period_end
-        ),
-        "teams_with_workflow_push_sent_in_period": counters.get(UsageCounter.WORKFLOW_PUSH, period_start, period_end),
-        "teams_with_workflow_sms_sent_in_period": counters.get(UsageCounter.WORKFLOW_SMS, period_start, period_end),
-        "teams_with_workflow_billable_invocations_in_period": counters.get(
-            UsageCounter.WORKFLOW_INVOCATIONS, period_start, period_end
-        ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],
         "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
@@ -3240,12 +3246,14 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     }
 
 
-def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
+def _get_all_usage_data_as_team_rows(
+    period_start: datetime, period_end: datetime, counter_report: UsageCounterReport | None = None
+) -> dict[str, Any]:
     """
     Gets all usage data for the specified period as a map of team_id -> value. This makes it faster
     to access the data than looping over all_data to find what we want.
     """
-    all_data = _get_all_usage_data(period_start, period_end)
+    all_data = _get_all_usage_data(period_start, period_end, counter_report)
     # convert it to a map of team_id -> value
     for key, rows in all_data.items():
         all_data[key] = convert_team_usage_rows_to_dict(rows)
@@ -3531,10 +3539,10 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
+def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport | None = None) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
-    all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
+    all_data = _get_all_usage_data_as_team_rows(period.start, period.end, counter_report)
 
     logger.info("Querying all teams")
 
@@ -3563,10 +3571,54 @@ def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: Instanc
 
 
 def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str, Any]:
-    return {
+    report = {
         **dataclasses.asdict(full_report),
         "has_non_zero_usage": has_non_zero_usage(full_report),
     }
+    for field in ("usage_sources", "realtime_counters"):
+        if report[field] is None:
+            del report[field]
+    return report
+
+
+def apply_usage_counter_metadata(
+    org_reports: dict[str, OrgReport],
+    counter_report: UsageCounterReport,
+    *,
+    caller: UsageCounterCaller,
+    date: str,
+    organization_ids: list[str] | None = None,
+) -> None:
+    if not counter_report.usage_sources:
+        return
+    for org_id, report in org_reports.items():
+        report.usage_sources = counter_report.usage_sources
+        report.realtime_counters = (
+            {field: totals.get(org_id, 0) for field, totals in counter_report.realtime_counters.items()}
+            if counter_report.realtime_counters is not None
+            else None
+        )
+    if counter_report.realtime_counters is None:
+        return
+
+    reported = {org_id for org_id, report in org_reports.items() if has_non_zero_usage(report)}
+    missing: dict[str, dict[str, int]] = {}
+    for field, totals in counter_report.realtime_counters.items():
+        for org_id, count in totals.items():
+            if count and org_id not in reported and (not organization_ids or org_id in organization_ids):
+                missing.setdefault(org_id, {})[field] = count
+    try:
+        SHADOW_MISSING_ORGS.labels(caller=caller).set(len(missing))
+        if missing:
+            logger.warning("usage_counter_shadow_missing_organizations", caller=caller, date=date, count=len(missing))
+            with ph_scoped_capture(region=get_instance_region() or "US") as capture:
+                capture(
+                    distinct_id="internal_billing_events",
+                    event="usage counter shadow missing organizations",
+                    properties={"caller": caller, "date": date, "organizations": missing},
+                )
+    except Exception:
+        logger.exception("usage_counter_shadow_diagnostics_failed", caller=caller, date=date)
 
 
 def build_org_reports(all_data: dict[str, Any], period_start: datetime) -> dict[str, OrgReport]:
@@ -3622,7 +3674,6 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     organization_ids: Optional[list[str]] = None,
 ) -> None:
-    import posthoganalytics
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
@@ -3655,7 +3706,10 @@ def send_all_org_usage_reports(
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
-    org_reports = _get_all_org_reports(period=period)
+    service = UsageCounterService()
+    plan = service.resolve_plan(period, caller="daily_report")
+    counter_report = service.fetch_report(period, plan=plan)
+    org_reports = _get_all_org_reports(period=period, counter_report=counter_report)
 
     if organization_ids:
         original_count = len(org_reports)
@@ -3673,6 +3727,14 @@ def send_all_org_usage_reports(
     if organization_ids:
         filtering_properties["requested_org_count"] = len(organization_ids)
         filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
+
+    apply_usage_counter_metadata(
+        org_reports,
+        counter_report,
+        caller="daily_report",
+        date=period.start.strftime("%Y-%m-%d"),
+        organization_ids=organization_ids,
+    )
 
     query_time_duration = (datetime.now() - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")

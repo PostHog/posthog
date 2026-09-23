@@ -26,6 +26,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.usage_report.activities import (
     aggregate_and_chunk_org_reports,
     enqueue_pointer_message,
+    fetch_usage_counter_report,
+    plan_usage_counters,
     run_query_to_s3,
 )
 from posthog.temporal.usage_report.metrics import get_workflow_finished_metric, record_workflow_latency
@@ -45,6 +47,7 @@ from posthog.temporal.usage_report.types import (
 QUERY_CONCURRENCY = 4
 SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -99,6 +102,15 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
+                ctx.usage_counter_plan = await workflow.execute_activity(
+                    plan_usage_counters,
+                    ctx,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=common.RetryPolicy(maximum_attempts=3),
+                )
+                counter_names = {counter.value for counter in ctx.usage_counter_plan.modes}
+                queries = [spec for spec in queries if spec.name not in counter_names]
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={
@@ -116,6 +128,11 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             # but a small batch shortens wall-clock substantially without
             # overwhelming the databases.
             sem = asyncio.Semaphore(QUERY_CONCURRENCY)
+            counter_task = (
+                asyncio.create_task(self._fetch_counter_report(ctx, sem))
+                if ctx.usage_counter_plan is not None
+                else None
+            )
 
             async def _run_with_sem(spec: QuerySpec) -> RunQueryToS3Result:
                 async with sem:
@@ -124,10 +141,11 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             query_results: list[RunQueryToS3Result] = list(
                 await asyncio.gather(*(_run_with_sem(spec) for spec in queries))
             )
+            counter_result = await counter_task if counter_task else None
 
             agg = await workflow.execute_activity(
                 aggregate_and_chunk_org_reports,
-                AggregateInputs(ctx=ctx, query_results=query_results),
+                AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
                 start_to_close_timeout=timedelta(minutes=60),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
@@ -188,6 +206,16 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 record_workflow_latency(workflow.now() - started_at, status=status)
             except Exception:
                 workflow.logger.warning("Failed to record usage-reports workflow metrics", exc_info=True)
+
+    async def _fetch_counter_report(self, ctx: WorkflowContext, sem: asyncio.Semaphore) -> RunQueryToS3Result:
+        async with sem:
+            return await workflow.execute_activity(
+                fetch_usage_counter_report,
+                ctx,
+                start_to_close_timeout=timedelta(minutes=120),
+                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
+                heartbeat_timeout=timedelta(minutes=2),
+            )
 
     async def _run_query(self, ctx: WorkflowContext, spec: QuerySpec) -> RunQueryToS3Result:
         return await workflow.execute_activity(

@@ -1,0 +1,272 @@
+from datetime import UTC, datetime, timedelta, timezone
+from itertools import product
+
+import time_machine
+from unittest.mock import Mock, patch
+
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
+
+from posthog.tasks import usage_report
+from posthog.usage_counters import (
+    SHADOW_FAILURES,
+    UsageCounter,
+    UsageCounterCaller,
+    UsageCounterMode,
+    UsageCounterService,
+    UsageRecordTotal,
+    _mode_cache,
+    resolve_modes,
+    validate_usage_record_window,
+)
+from posthog.utils import DayRange
+
+
+class TestUsageCounterReport(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        _mode_cache.clear()
+        self.addCleanup(_mode_cache.clear)
+        self.legacy = {counter: Mock(return_value=[]) for counter in UsageCounter}
+        self.records = Mock(return_value=[])
+        patches = {
+            "get_teams_with_cdp_billable_invocations_in_period": self.legacy[UsageCounter.CDP_INVOCATIONS],
+            "get_teams_with_feature_flag_requests_count_in_period": Mock(
+                side_effect=lambda begin, end, kind: self.legacy[
+                    UsageCounter.FEATURE_FLAG_REQUESTS
+                    if kind == usage_report.FlagRequestType.DECIDE
+                    else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                ](begin, end)
+            ),
+            "get_teams_with_workflow_emails_sent_in_period": self.legacy[UsageCounter.WORKFLOW_EMAILS],
+            "get_teams_with_workflow_push_sent_in_period": self.legacy[UsageCounter.WORKFLOW_PUSH],
+            "get_teams_with_workflow_sms_sent_in_period": self.legacy[UsageCounter.WORKFLOW_SMS],
+            "get_teams_with_workflow_billable_invocations_in_period": self.legacy[UsageCounter.WORKFLOW_INVOCATIONS],
+            "get_usage_records_in_period": self.records,
+        }
+        patcher = patch.multiple(usage_report, **patches)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @parameterized.expand([("counts", False, False), ("zero", True, False), ("comparison_failure", False, True)])
+    @override_settings(USAGE_COUNTER_REALTIME_MODES="")
+    def test_fetch_report_uses_resolved_plan_and_preserves_legacy_counts(
+        self, _name: str, empty: bool, fails: bool
+    ) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        rows = (
+            []
+            if empty
+            else [
+                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=4),
+                UsageRecordTotal(team_id=2, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=5),
+            ]
+        )
+        records_query = self.records
+        records_query.return_value = rows
+        records_query.side_effect = RuntimeError("unavailable") if fails else None
+        legacy_query = self.legacy[UsageCounter.CDP_INVOCATIONS]
+        legacy_query.return_value = [(1, 12)]
+        email_query = self.legacy[UsageCounter.WORKFLOW_EMAILS]
+        email_query.return_value = [(1, 3)]
+        service = UsageCounterService()
+        failures_before = SHADOW_FAILURES.labels(caller="daily_report", stage="scan")._value.get()
+        with patch(
+            "posthoganalytics.get_feature_flag",
+            side_effect=lambda name, distinct_id: "both" if name.endswith("cdp-invocations") else "legacy",
+        ) as flag:
+            plan = service.resolve_plan(period, caller="daily_report")
+            flag.side_effect = None
+            flag.return_value = "legacy"
+            report = service.fetch_report(period, plan=plan)
+            assert flag.call_count == len(UsageCounter)
+
+        assert report.counts == {
+            **{counter.value: [] for counter in UsageCounter},
+            UsageCounter.CDP_INVOCATIONS.value: [(1, 12)],
+            UsageCounter.WORKFLOW_EMAILS.value: [(1, 3)],
+        }
+        assert report.usage_sources == {
+            **{counter.value.removeprefix("teams_with_"): "legacy" for counter in UsageCounter},
+            "cdp_billable_invocations_in_period": "both",
+        }
+        assert report.realtime_counters == (
+            None if fails else {"cdp_billable_invocations_in_period": {} if empty else {"org-a": 9}}
+        )
+        records_query.assert_called_once_with(period, ("cdp_billable_invocations",), "daily_report")
+        legacy_query.assert_called_once_with(period.start, period.end)
+        email_query.assert_called_once_with(period.start, period.end)
+        assert SHADOW_FAILURES.labels(caller="daily_report", stage="scan")._value.get() == failures_before + int(fails)
+        with self.assertRaisesRegex(ValueError, "across periods"):
+            service.fetch_report(
+                DayRange(start=period.start + timedelta(days=1), end=period.end + timedelta(days=1)), plan=plan
+            )
+
+    @override_settings(USAGE_COUNTER_REALTIME_MODES="")
+    def test_legacy_report_without_plan_does_not_query_records(self) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        self.records.side_effect = AssertionError("unexpected scan")
+        self.legacy[UsageCounter.CDP_INVOCATIONS].return_value = [(1, 12)]
+        with patch("posthoganalytics.get_feature_flag") as flag:
+            report = UsageCounterService().fetch_report(period)
+        assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [(1, 12)]
+        assert report.usage_sources is None
+        assert report.realtime_counters is None
+        self.records.assert_not_called()
+        flag.assert_not_called()
+
+    @parameterized.expand([("legacy",), ("both",)])
+    def test_authoritative_query_failure_fails_report(self, mode: str) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        self.legacy[UsageCounter.CDP_INVOCATIONS].side_effect = RuntimeError("legacy unavailable")
+        service = UsageCounterService()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
+            patch("posthoganalytics.get_feature_flag", return_value="legacy"),
+        ):
+            plan = service.resolve_plan(period, caller="daily_report")
+        with self.assertRaisesRegex(RuntimeError, "legacy unavailable"):
+            service.fetch_report(period, plan=plan)
+
+    @parameterized.expand(
+        [
+            ("cross_midnight", 25, UTC),
+            ("offset_crosses_utc_midnight", 24, timezone(timedelta(hours=-5))),
+            ("naive", 24, None),
+            ("empty", 0, UTC),
+        ]
+    )
+    def test_rejects_invalid_scan_windows(self, _name: str, hours: int, tz: timezone | None) -> None:
+        start = datetime(2026, 5, 4, tzinfo=tz)
+        with self.assertRaises(ValueError):
+            validate_usage_record_window(DayRange(start=start, end=start + timedelta(hours=hours)))
+
+    @parameterized.expand(
+        [(None,), (False,), (True,), ("legacy",), ("both",), ("realtime",), ("invalid",), (RuntimeError("offline"),)]
+    )
+    @override_settings(USAGE_COUNTER_REALTIME_MODES="")
+    def test_flag_selects_query_mode_or_defaults_to_legacy(self, flag_value: str | bool | None | Exception) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        records_query = self.records
+        records_query.return_value = [
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9)
+        ]
+        self.legacy[UsageCounter.CDP_INVOCATIONS].return_value = [(1, 12)]
+        service = UsageCounterService()
+        with patch(
+            "posthoganalytics.get_feature_flag",
+            side_effect=lambda name, distinct_id: flag_value if name.endswith("cdp-invocations") else "legacy",
+        ) as flag:
+            if isinstance(flag_value, Exception):
+                flag.side_effect = flag_value
+            plan = service.resolve_plan(period, caller="daily_report")
+            report = service.fetch_report(period, plan=plan)
+            assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [(1, 9 if flag_value == "realtime" else 12)]
+            assert (report.realtime_counters is not None) == (flag_value == "both")
+            assert records_query.call_count == int(flag_value in ("both", "realtime"))
+            assert flag.call_count == len(UsageCounter)
+
+    @parameterized.expand([("both", True), ("legacy", False), ("unknown", False)])
+    def test_local_override_does_not_consult_flag_service(self, mode: str, enabled: bool) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        service = UsageCounterService()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
+            patch("posthoganalytics.get_feature_flag") as flag,
+        ):
+            plan = service.resolve_plan(period, caller="daily_report")
+            assert (service.fetch_report(period, plan=plan).realtime_counters is not None) == enabled
+            assert all(call.args[0] != "usage-counter-realtime-cdp-invocations" for call in flag.call_args_list)
+
+    @parameterized.expand(
+        list(product(UsageCounterMode, ("daily_report", "usage_reports_v2", "quota_limiting"), (0, 1)))
+    )
+    @time_machine.travel("2026-05-04T12:00:00Z", tick=False)
+    def test_mode_selects_queries_for_every_caller_and_day(
+        self, mode: UsageCounterMode, caller: UsageCounterCaller, days_ago: int
+    ) -> None:
+        start = datetime(2026, 5, 4, tzinfo=UTC) - timedelta(days=days_ago)
+        period = DayRange(start=start, end=start + timedelta(days=1))
+        legacy = self.legacy[UsageCounter.CDP_INVOCATIONS]
+        legacy.return_value = [(1, 12)]
+        records = self.records
+        records.return_value = [
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9)
+        ]
+        service = UsageCounterService()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES=f"cdp-invocations:{mode}"),
+            patch("posthoganalytics.get_feature_flag", return_value="legacy"),
+        ):
+            plan = service.resolve_plan(period, caller=caller)
+        report = service.fetch_report(period, plan=plan)
+        assert set(report.counts) == {counter.value for counter in UsageCounter}
+        assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [
+            (1, 9 if mode == UsageCounterMode.REALTIME else 12)
+        ]
+        assert legacy.call_count == int(mode != UsageCounterMode.REALTIME)
+        assert records.call_count == int(mode != UsageCounterMode.LEGACY)
+        assert report.realtime_counters == (
+            {"cdp_billable_invocations_in_period": {"org-a": 9}} if mode == UsageCounterMode.BOTH else None
+        )
+        if mode == UsageCounterMode.REALTIME:
+            records.side_effect = RuntimeError("records unavailable")
+            with self.assertRaisesRegex(RuntimeError, "records unavailable"):
+                service.fetch_report(period, plan=plan)
+
+    @override_settings(USAGE_COUNTER_REALTIME_MODES="")
+    def test_mode_cache_expires_without_changing_existing_plan(self) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        service = UsageCounterService()
+        with (
+            patch("posthog.usage_counters.time.monotonic", return_value=100) as clock,
+            patch("posthoganalytics.get_feature_flag", return_value="both") as flag,
+        ):
+            modes = resolve_modes("daily_report")
+            assert modes == dict.fromkeys(UsageCounter, UsageCounterMode.BOTH)
+            plan = service.resolve_plan(period, caller="daily_report")
+            flag.return_value = "realtime"
+            assert resolve_modes("usage_reports_v2") == modes
+            assert resolve_modes("quota_limiting") == modes
+            assert flag.call_count == len(UsageCounter)
+            clock.return_value = 161
+            assert resolve_modes("daily_report") == dict.fromkeys(UsageCounter, UsageCounterMode.REALTIME)
+            assert flag.call_count == 2 * len(UsageCounter)
+            with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:legacy"):
+                assert resolve_modes("daily_report")[UsageCounter.CDP_INVOCATIONS] == UsageCounterMode.LEGACY
+            report = service.fetch_report(period, plan=plan)
+            assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == []
+            assert report.realtime_counters == {
+                counter.value.removeprefix("teams_with_"): {} for counter in UsageCounter
+            }
+
+    @parameterized.expand([(False,), (True,)])
+    def test_mixed_sources_share_one_scan_and_preserve_authoritative_failure(self, fails: bool) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        cdp_legacy = self.legacy[UsageCounter.CDP_INVOCATIONS]
+        cdp_legacy.return_value = [(1, 12)]
+        email_legacy = self.legacy[UsageCounter.WORKFLOW_EMAILS]
+        email_legacy.side_effect = AssertionError("unexpected legacy email query")
+        records = self.records
+        records.return_value = [
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9),
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=3),
+        ]
+        records.side_effect = RuntimeError("records unavailable") if fails else None
+        service = UsageCounterService()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both,workflow-emails:realtime"),
+            patch("posthoganalytics.get_feature_flag", return_value="legacy"),
+        ):
+            plan = service.resolve_plan(period, caller="daily_report")
+        if fails:
+            with self.assertRaisesRegex(RuntimeError, "records unavailable"):
+                service.fetch_report(period, plan=plan)
+        else:
+            report = service.fetch_report(period, plan=plan)
+            assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [(1, 12)]
+            assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [(1, 3)]
+            assert report.realtime_counters == {"cdp_billable_invocations_in_period": {"org-a": 9}}
+        records.assert_called_once_with(period, ("cdp_billable_invocations", "workflow_emails_sent"), "daily_report")
+        email_legacy.assert_not_called()

@@ -18,6 +18,8 @@ from typing import Any
 from django.conf import settings
 from django.db.models import Count
 
+from pydantic import TypeAdapter
+
 from posthog.models import OrganizationMembership, Team
 from posthog.tasks.usage_report import (
     InstanceMetadata,
@@ -31,7 +33,8 @@ from posthog.tasks.usage_report import (
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.temporal.usage_report.storage import bucket, read_json
-from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.types import AggregateInputs, Manifest, RunQueryToS3Result, WorkflowContext
+from posthog.usage_counters import UsageCounterReport
 
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
@@ -39,6 +42,14 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
 )
+
+
+def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
+    if inputs.counter_result is None:
+        if inputs.ctx.usage_counter_plan is not None:
+            raise ValueError("The usage counter report is missing")
+        return UsageCounterReport(counts={})
+    return TypeAdapter(UsageCounterReport).validate_python(read_json(inputs.counter_result.s3_key))
 
 
 def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, int]]:
