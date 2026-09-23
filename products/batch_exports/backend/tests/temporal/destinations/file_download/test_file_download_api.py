@@ -806,6 +806,7 @@ class TestFileDownloadHogQL:
             ).aget(id=response.json()["id"])
 
         assert run.data_interval_start == run.data_interval_end
+        assert run.data_interval_end is not None
         assert before <= run.data_interval_end <= after
         on_demand = run.batch_export_on_demand
         assert on_demand is not None
@@ -874,6 +875,13 @@ class TestFileDownloadHogQL:
                 await asyncio.sleep(2)
 
         assert files is not None and len(files) == 1
+        run = await BatchExportRun.objects.aget(id=run_id, batch_export_on_demand__team_id=team.pk)
+        if run.data_interval_start is None or run.data_interval_end is None:
+            file_download = await BatchExportFileDownload.objects.aget(id=files[0], team_id=team.pk)
+            assert file_download.key == (
+                f"batch-exports/{run.batch_export_on_demand_id}/{run.id}/"
+                f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}-0.parquet"
+            )
         response = await async_client.get(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run_id}/download/{files[0]}",
         )
