@@ -29,10 +29,20 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
-// A status the author listed as non-failure must reach the return below, so a workflow step can
-// store it in a variable and branch on it. Every other error status still fails the step.
-if (empty(inputs.non_failure_status_codes) and res.status >= 400) {
-  throw Error(f'Webhook failed with status {res.status}: {res.body}');
+// A listed status must reach the return below, so a workflow step can store it and branch on it.
+// The match follows the executor's rules (exact codes, and the 4xx and 5xx wildcards). The executor
+// also fails an unlisted status, but only this throw puts the response body in the step error.
+if (res.status >= 400) {
+  let nonFailure := false
+  for (let code in inputs.non_failure_status_codes ?? []) {
+    let entry := lower(toString(code))
+    if (entry == toString(res.status) or (entry == '4xx' and res.status < 500) or (entry == '5xx' and res.status >= 500 and res.status < 600)) {
+      nonFailure := true
+    }
+  }
+  if (not nonFailure) {
+    throw Error(f'Webhook failed with status {res.status}: {res.body}');
+  }
 }
 
 if (inputs.debug) {

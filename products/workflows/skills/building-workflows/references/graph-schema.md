@@ -60,7 +60,7 @@ Use **only** these `type` values — they are the complete supported set. An unk
 
 - Write `{ "filters": { "properties": [<cond>] } }` on each condition, **never** `{ "properties": [<cond>] }` directly on the condition object. The bare form saves but the visual editor flags it and the branch compiles to a constant, so it never evaluates your condition.
 - `conditional_branch` conditions are **property-only** (person/group `<cond>`s, plus workflow variables). Event/action filters are rejected here ("Event filters are not allowed in conditionals").
-- A condition reads a workflow variable with a `workflow_variable` `<cond>`: `{"type": "workflow_variable", "key": "<variable key>", "operator": "exact", "value": 200}`. The key is the variable key, without a `variables.` prefix.
+- A condition reads a workflow variable with a `workflow_variable` `<cond>`: `{"type": "workflow_variable", "key": "<variable key>", "operator": "exact", "value": 404}`. The key is the variable key, without a `variables.` prefix.
 - `wait_until_condition` is event-aware: its `condition.filters` and each `events?[].filters` may also carry `events`/`actions`. An entry naming neither an event nor an action is dropped (it would match everything).
 - `source` is optional (defaults to `events`). Never send `bytecode`; the server compiles it from `properties`.
 
@@ -128,19 +128,38 @@ A step writes its result into a run-scoped variable with `output_variable`, and 
 Rules that decide whether this works:
 
 - **Declare the key in the workflow's top-level `variables`** (`workflows-update`, entries of `{key, label, type, default}`). Storing works without it, but the editor's branch and input pickers only offer declared variables.
-- **All variables of one run share a 5 KB budget.** A step that pushes the total past it fails with "Total variable size ... exceeds 5KB limit". Use `result_path` to store the one field you need, never a whole HTTP response body.
-- **A failed step stores nothing.** The variable keeps its earlier value, so a branch after a failure reads stale data unless the step is made to succeed (see below).
+- **All variables of one run share a 5 KB budget.** A step that pushes the total past it fails with "Total variable size ... exceeds 5KB limit". Use `result_path` to store the one field you need, never a whole HTTP response body. A `template-webhook` step returns the response body, so an `output_variable` on it without `result_path` fails the step when the response is large.
+- **A failed step stores nothing.** The variable keeps its earlier value: its declared default, or `null` when it has none. The engine reads a `0` or `false` default as `null`. A branch can use this to detect the failure (see below).
 - Which fields a step returns depends on the template. Read them from a `workflows-test-run` result rather than guessing.
 
 ### Branching on an HTTP response
 
-A `function` step on `template-webhook` fails the whole step on any 4xx or 5xx, so by default there is nothing to branch on. To handle a status instead of failing on it:
+A `function` step on `template-webhook` fails on any 4xx or 5xx, a timeout, or a connection error. To notify someone when the call did not work, branch on success and let every failure take the other path:
 
-1. List the codes in the step's `non_failure_status_codes` input: `"inputs": { "non_failure_status_codes": { "value": [404, "5xx"] } }`. Entries are integers from 400 to 599, or the wildcards `4xx` and `5xx`. Anything else is rejected, so a success code cannot be listed here.
-2. Store the status with `output_variable: {"key": "signup_status", "result_path": "status"}`. The step returns `{status, body}`.
-3. Branch with a `workflow_variable` condition on `signup_status`.
+1. Store the status with `output_variable: {"key": "signup_status", "result_path": "status"}`. The step returns `{status, body}`.
+2. Declare `signup_status` in the top-level `variables` with no default, so it stays `null` until the step succeeds.
+3. Give the `conditional_branch` one condition with two filters, which must both match:
 
-A retriable status (408, 429, 500, 502, 503, or 504) is retried first, so the branch reads the last attempt's status. A status outside the list still fails the step, and `on_error` decides what happens next.
+   ```json
+   {
+     "filters": {
+       "properties": [
+         { "type": "workflow_variable", "key": "signup_status", "operator": "gte", "value": 200 },
+         { "type": "workflow_variable", "key": "signup_status", "operator": "lt", "value": 400 }
+       ]
+     }
+   }
+   ```
+
+   Its `branch` edge at `index: 0` is the success path, and its `continue` edge takes every failure.
+
+4. Leave the webhook step's `on_error` unset or set it to `continue`. A failed step then continues to the branch with the variable still `null`, and the branch takes the `continue` edge. `on_error: abort` stops the run at the failed step, so the branch never runs.
+
+Do not branch on `exact 200`. Many endpoints answer 201, 202, or 204 when they succeed, and those runs would take the failure path.
+
+To route one error status on its own path, list it in the step's `non_failure_status_codes` input: `"inputs": { "non_failure_status_codes": { "value": [404, "5xx"] } }`. Entries are integers from 400 to 599, or the wildcards `4xx` and `5xx`. Anything else is rejected, so a success code cannot be listed here. A listed status finishes the step instead of failing it, so the variable holds that status, and a separate condition such as `exact 404` can match it.
+
+A retriable status (408, 429, 500, 502, 503, or 504) is retried first, so the branch reads the last attempt's status. A status outside the list still fails the step.
 
 ## `function*` inputs
 
@@ -248,4 +267,4 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - [ ] All durations match `^\d*\.?\d+[dhms]$` and dodge the silent per-unit clamp.
 - [ ] Every `delay` sets exactly one of `delay_duration` and `delay_until`, and no `delay_until` carries hand-written `bytecode`.
 - [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.
-- [ ] Every `output_variable` key is declared in the workflow's top-level `variables`, and stores one field (`result_path`) rather than a whole response.
+- [ ] Every `output_variable` key is declared in the workflow's top-level `variables`, and stores one field (`result_path`) rather than a whole response. A branch on an HTTP status checks the success range (`gte 200` and `lt 400`), never `exact 200`.
