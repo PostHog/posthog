@@ -14,9 +14,9 @@ from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_
 _MODULE = "products.review_hog.backend.reviewer.sandbox.direct_llm"
 
 
-def _api_error(status: int) -> APIStatusError:
+def _api_error(status: int, message: str = "boom") -> APIStatusError:
     request = httpx.Request("POST", "http://gateway/review_hog/v1/messages")
-    return APIStatusError("boom", response=httpx.Response(status, request=request), body=None)
+    return APIStatusError(message, response=httpx.Response(status, request=request), body=None)
 
 
 def _mock_client(final_message: AsyncMock, *, open_error: Exception | None = None) -> AsyncMock:
@@ -164,3 +164,30 @@ async def test_stage_labels_both_gateway_dialects() -> None:
 
     assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
     assert client.messages.stream.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,expected,unexpected",
+    [
+        ("prompt is too long:\n 1 > 0 maximum", "prompt is too long: 1 > 0 maximum", "\n"),
+        ("y" * 900, "y" * 500 + "... (truncated)", "y" * 501),
+        ("", "no provider message", "None"),
+    ],
+    ids=["single_line", "truncated", "absent"],
+)
+async def test_api_error_keeps_the_provider_message(message: str, expected: str, unexpected: str) -> None:
+    # A 4xx is non-retryable, so the ApplicationError is the only record of the failure. Dropping
+    # the provider text leaves a bare status that cannot be root-caused from error tracking.
+    client = _mock_client(AsyncMock(), open_error=_api_error(400, message))
+
+    with (
+        patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _call()
+
+    raised = str(exc_info.value)
+    assert expected in raised
+    assert unexpected not in raised
+    assert "(status=400)" in raised
