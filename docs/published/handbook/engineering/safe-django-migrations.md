@@ -317,6 +317,8 @@ operations = [
 
 Several keys on one table go in one operation, `DropForeignKey("posthog_mymodel", column=["owner_id", "team_id"])`, so they share one lock phase. Keep that operation alone in its migration, next to the state-only `untrack_field` at most. Keys on other tables, and any other schema change to the same table, go in migrations of their own. The migration risk analyzer blocks a migration that runs two `DropForeignKey` operations, or one beside other database operations.
 
+When the keys point at several busy parents, one lock phase has to win every parent at once, which can fail on every retry under load. Set `atomic = False` on the migration instead and give each key its own `DropForeignKey`. Each one then locks one parent and the child in a transaction of its own, and a retry skips the keys already dropped. List the migration in `atomic_false_acknowledged_migrations.txt`, because `AtomicFalsePolicy` asks for that.
+
 **`deprecate_field()` is not an option for a foreign key.** It writes no migration, so there is nowhere for the constraint drop to live, and the hidden column leaves exactly the orphan described above. Use `untrack_field()` with `DropForeignKey`.
 
 ### If you must drop the column
