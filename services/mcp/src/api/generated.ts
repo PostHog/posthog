@@ -36566,6 +36566,11 @@ export namespace Schemas {
       success: boolean;
     }
 
+    export interface ErrorTrackingIssueNotFound {
+      /** Why the issue could not be found, and what to try next. */
+      detail: string;
+    }
+
     /**
      * * `last_seen` - last_seen
      * * `first_seen` - first_seen
