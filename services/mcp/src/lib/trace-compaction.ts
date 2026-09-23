@@ -38,13 +38,11 @@ export const MAX_TRACE_CHARS = 500_000
  */
 export const MAX_SUMMARY_CHARS = 120_000
 
-/** How much of each previewed value a summary keeps. */
-export const SUMMARY_PREVIEW_CHARS = 600
-
 /**
  * How much of an event's content reaches the client. `summary` keeps identity,
- * timing, model, cost, tool, and error metadata verbatim and previews everything
- * else. `full` keeps all properties, bounded by the compaction budget.
+ * timing, model, cost, tool, and error metadata and omits the content, so a
+ * survey of a trace never carries prompts or completions. `full` keeps every
+ * retained property, bounded by the compaction budget.
  */
 export type TraceDetail = 'summary' | 'full'
 
@@ -75,9 +73,9 @@ const MAX_FIT_PASSES = 4
 const FIT_HEADROOM = 1.2
 
 /**
- * Event properties that stay verbatim in a summary. These are the fields an
- * agent needs to navigate a trace: tree position, timing, model, spend, tool
- * calls, and failures. Everything else is content and gets previewed.
+ * Event properties that stay in a summary. These are the fields an agent needs
+ * to navigate a trace: tree position, timing, model, spend, tool calls, and
+ * failures. Everything else is content and is omitted, name only.
  */
 const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
@@ -106,10 +104,13 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
 ])
 
 /** Trace-level fields that carry conversation content rather than metadata. */
-const SUMMARY_PREVIEWED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
+const SUMMARY_OMITTED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
+
+/** Names of the content fields a summary leaves out, reported in place of their values. */
+export const SUMMARY_OMITTED_KEYS_FIELD = '_summaryOmittedKeys'
 
 const SUMMARY_NOTE =
-    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts, outputs, and custom properties, or open the trace in PostHog.'
+    'Event content is omitted; only the names of the omitted properties are listed. Re-run this tool with detail: "full" for prompts and outputs, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))
@@ -119,7 +120,7 @@ function minItemBudgetFor(budget: number): number {
     return Math.min(MIN_ITEM_BUDGET, Math.floor(Math.max(0, budget) * SMALL_BUDGET_MIN_ITEM_RATIO))
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -149,7 +150,7 @@ function encodedStringLength(value: string): number {
  * would set the clone's prototype instead of creating an own property and drop
  * the value from serialization.
  */
-function assignKey(target: Record<string, unknown>, key: string, value: unknown): void {
+export function assignKey(target: Record<string, unknown>, key: string, value: unknown): void {
     if (key === '__proto__') {
         Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true })
     } else {
@@ -274,14 +275,9 @@ function fitToEncodedBudget(budget: number, compact: (walkBudget: number) => unk
     return serializedLength(out) <= budget ? out : fallback
 }
 
-/** Shorten one value to a preview an agent can scan without reading it in full. */
-function previewValue(value: unknown): unknown {
-    return compactValue(value, SUMMARY_PREVIEW_CHARS).value
-}
-
 function summarizeEvent(event: unknown): unknown {
     if (!isRecord(event)) {
-        return previewValue(event)
+        return event
     }
     const out: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(event)) {
@@ -290,30 +286,41 @@ function summarizeEvent(event: unknown): unknown {
             continue
         }
         const properties: Record<string, unknown> = {}
+        const omitted: string[] = []
         for (const [propertyKey, propertyValue] of Object.entries(value)) {
-            assignKey(
-                properties,
-                propertyKey,
-                SUMMARY_METADATA_PROPERTIES.has(propertyKey) ? propertyValue : previewValue(propertyValue)
-            )
+            // `_`-prefixed names are this pipeline's own annotations, such as the
+            // list of properties redaction withheld. They carry no content.
+            if (SUMMARY_METADATA_PROPERTIES.has(propertyKey) || propertyKey.startsWith('_')) {
+                assignKey(properties, propertyKey, propertyValue)
+            } else {
+                omitted.push(propertyKey)
+            }
+        }
+        if (omitted.length > 0) {
+            assignKey(properties, SUMMARY_OMITTED_KEYS_FIELD, omitted)
         }
         assignKey(out, 'properties', properties)
     }
     return out
 }
 
-/** Preview the trace-level fields that carry conversation content. */
+/** Leave out the trace-level fields that carry conversation content. */
 function summarizeTraceFields(fields: Record<string, unknown>): void {
-    for (const key of SUMMARY_PREVIEWED_TRACE_FIELDS) {
+    const omitted: string[] = []
+    for (const key of SUMMARY_OMITTED_TRACE_FIELDS) {
         if (key in fields) {
-            assignKey(fields, key, previewValue(fields[key]))
+            delete fields[key]
+            omitted.push(key)
         }
+    }
+    if (omitted.length > 0) {
+        assignKey(fields, SUMMARY_OMITTED_KEYS_FIELD, omitted)
     }
     assignKey(fields, '_detail', { mode: 'summary', note: SUMMARY_NOTE })
 }
 
 /**
- * Compact a single trace to fit `budget` characters, previewing event content
+ * Compact a single trace to fit `budget` characters, dropping event content
  * first when `detail` is `summary`. Non-event fields are
  * budgeted first (so a huge `inputState` can't starve the events), then events
  * are filled in until the budget runs out; the first event is compacted to fit

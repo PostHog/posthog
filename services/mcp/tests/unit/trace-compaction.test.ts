@@ -148,7 +148,7 @@ describe('compactTrace summary detail', () => {
         ],
     }
 
-    it('keeps navigation metadata verbatim and previews everything else', () => {
+    it('keeps navigation metadata verbatim and leaves out everything else', () => {
         const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
         const properties = result.events[0].properties
@@ -156,19 +156,20 @@ describe('compactTrace summary detail', () => {
         expect(properties.$ai_latency).toBe(1.5)
         expect(properties.$ai_tools_called).toEqual(['search'])
         expect(properties.$ai_is_error).toBe(false)
-        expect(properties.$ai_input).toContain('truncated')
-        expect(properties.$ai_output_choices).toContain('truncated')
-        expect(properties.custom_payload).toContain('truncated')
+        expect(properties.$ai_input).toBeUndefined()
+        expect(properties.$ai_output_choices).toBeUndefined()
+        expect(properties.custom_payload).toBeUndefined()
+        expect(properties._summaryOmittedKeys).toEqual(['$ai_input', '$ai_output_choices', 'custom_payload'])
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
         expect(result.totalCost).toBe(0.42)
         expect(result._detail.mode).toBe('summary')
     })
 
-    it('previews a structured prompt with readable content, not an empty shell', () => {
-        // `$ai_input` is an array of message objects, so a preview only helps if the
-        // walk's per-item allowances leave room to descend into it.
+    it('carries no fragment of a prompt, however it is structured', () => {
+        // A summary is for a cost or latency survey. Neither a plain string nor a
+        // message array may leak a readable piece of the conversation into one.
         const messages = [
-            { role: 'system', content: 's'.repeat(2_000) },
+            { role: 'system', content: 'You are a helpful assistant.' },
             { role: 'user', content: 'Why did the checkout funnel drop?' },
         ]
 
@@ -178,10 +179,15 @@ describe('compactTrace summary detail', () => {
             'summary'
         ) as any
 
-        const preview = result.events[0].properties.$ai_input
-        expect(preview[0].role).toBe('system')
-        expect(preview[0].content).toContain('sss')
-        expect(preview[0].content).toContain('truncated')
+        expect(JSON.stringify(result)).not.toContain('checkout funnel')
+        expect(result.events[0].properties._summaryOmittedKeys).toEqual(['$ai_input'])
+    })
+
+    it('leaves out trace-level input and output state', () => {
+        const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
+
+        expect(result.inputState).toBeUndefined()
+        expect(result._summaryOmittedKeys).toEqual(['inputState'])
     })
 
     it('returns far less than the same trace at full detail', () => {
