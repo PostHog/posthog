@@ -58,6 +58,7 @@ import {
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
 import { SKILLS_WORKSPACE_CLIENT } from "@posthog/core/skills/identifiers";
 import type { SkillsWorkspaceClient } from "@posthog/core/skills/teamSkillsService";
+import { SYSTEM_MAP_AGENT } from "@posthog/core/system-map/systemMapService";
 import {
   TASK_CREATION_EFFECTS,
   TASK_CREATION_HOST,
@@ -184,6 +185,7 @@ container.bind(HOST_LOGGER).toConstantValue(hostLog);
 container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+container.bind(SYSTEM_MAP_AGENT).toConstantValue(hostTrpcClient.agent);
 
 container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
   captureScreenshot: () =>

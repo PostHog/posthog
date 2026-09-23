@@ -118,6 +118,12 @@ import {
   type UserNameProvider,
 } from "@posthog/core/speech/identifiers";
 import {
+  SYSTEM_MAP_AGENT,
+  SYSTEM_MAP_SERVICE,
+  type SystemMapAgent,
+  type SystemMapService,
+} from "@posthog/core/system-map/systemMapService";
+import {
   TASK_CREATION_EFFECTS,
   TASK_CREATION_HOST,
   WORKSPACE_SETUP_SAGA,
@@ -303,6 +309,8 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [SYSTEM_MAP_AGENT]: SystemMapAgent;
+  [SYSTEM_MAP_SERVICE]: SystemMapService;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;

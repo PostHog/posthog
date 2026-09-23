@@ -7,6 +7,7 @@ import { onboardingModule } from "@posthog/core/onboarding/onboarding.module";
 import { setupCoreModule } from "@posthog/core/setup/setup.module";
 import { skillsCoreModule } from "@posthog/core/skills/skills.module";
 import { speechCoreModule } from "@posthog/core/speech/speech.module";
+import { systemMapCoreModule } from "@posthog/core/system-map/system-map.module";
 import { CONTRIBUTION } from "@posthog/di/contribution";
 import { agentUiModule } from "@posthog/ui/features/agent/agent.module";
 import { authUiModule } from "@posthog/ui/features/auth/auth.module";
@@ -53,6 +54,7 @@ export function registerDesktopContributions(): void {
     provisioningUiModule,
     settingsUiModule,
     setupCoreModule,
+    systemMapCoreModule,
     setupUiModule,
     skillsCoreModule,
     speechCoreModule,
