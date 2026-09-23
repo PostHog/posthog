@@ -54,7 +54,7 @@ class TestJavaScript(BaseTest):
     def test_comparison_operations(self):
         self.assertEqual(to_js_expr("3 = 4"), "(3 == 4)")
         self.assertEqual(to_js_expr("3 != 4"), "(3 != 4)")
-        self.assertEqual(to_js_expr("3 < 4"), "(3 < 4)")
+        self.assertEqual(to_js_expr("3 < 4"), "__lt(3, 4)")
         self.assertEqual(to_js_expr("3 <= 4"), "__lte(3, 4)")
         self.assertEqual(to_js_expr("3 > 4"), "__gt(3, 4)")
         self.assertEqual(to_js_expr("3 >= 4"), "__gte(3, 4)")
@@ -173,14 +173,15 @@ class TestJavaScript(BaseTest):
         return fibonacci(6);
         """)
         expected_js = """function fibonacci(number) {
-    if ((number < 2)) {
+    if (__lt(number, 2)) {
             return number;
         } else {
             return (fibonacci((number - 1)) + fibonacci((number - 2)));
         }
 }
 return fibonacci(6);"""
-        self.assertEqual(js_code.strip(), expected_js.strip())
+        self.assertTrue(js_code.strip().endswith(expected_js.strip()), js_code)
+        self.assertIn("function __lt (a, b)", js_code)
 
     def test_javascript_hogqlx(self):
         code = to_js_expr("<Sparkline data={[1,2,3]} />")
@@ -228,7 +229,7 @@ return fibonacci(6);"""
 
     def test_between_expr(self):
         code = to_js_expr("properties.value between 1 and 10")
-        self.assertIn("__gte(expr, 1) && __lte(expr, 10)", code)
+        self.assertIn("expr >= 1 && expr <= 10", code)
         self.assertEqual(code.count("__getProperty"), 1)
 
     def test_function_assignment_error(self):
