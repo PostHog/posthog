@@ -558,6 +558,7 @@ The AI assistant uses the MCP tools to query phrocs directly and provide you wit
 Set `TYPESAFE_API_KEY` in `.env.local` and restart the backend to try Jev in the Apps tab.
 Local development enables the demo through `DEBUG`; cloud access uses the existing `ml-inference-decisions` flag and US-only decisions API.
 The search field says "Jev apps" and evaluates each visible app using the same descriptions and examples as its tooltip.
+Jev treats the search as autocomplete input and infers likely meanings from partial words and unfinished phrases.
 Hover an app in either the Starred section or the app catalog to see its description and example.
 Results appear in relevance order, with scores below 0.5 hidden.
 An empty search restores the grouped catalog; a failed Jev request shows name matches and an availability message.
