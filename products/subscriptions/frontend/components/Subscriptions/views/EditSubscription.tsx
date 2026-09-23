@@ -114,7 +114,7 @@ function LastDeliveryStatus({
 interface EditSubscriptionProps {
     id: number
     insightShortId?: InsightShortId
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     onCancel: () => void
     onDelete: () => void
 }
@@ -207,7 +207,7 @@ function DashboardInsightsField({
     dashboard,
     onDefaultsApplied,
 }: {
-    dashboard: DashboardType<any>
+    dashboard: DashboardType
     onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (

@@ -575,11 +575,21 @@ def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
     return deleted
 
 
-def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:
+MAX_JOBS_PER_SOURCE = 100
+
+
+def list_jobs_for_source(
+    source_id: UUID, team_id: int, limit: int = MAX_JOBS_PER_SOURCE
+) -> list[contracts.ExternalDataJob]:
+    """The source's newest jobs, most recent first, at most `MAX_JOBS_PER_SOURCE` of them.
+
+    The cap is not optional in effect: a busy source runs millions of jobs, so an unbounded
+    read here would scan and sort that whole history to serve one caller.
+    """
     qs = (
         _ExternalDataJob.objects.select_related("schema", "pipeline")
         .filter(team_id=team_id, pipeline_id=source_id)
-        .order_by("-created_at")
+        .order_by("-created_at")[: min(max(limit, 1), MAX_JOBS_PER_SOURCE)]
     )
     return [_to_job(j) for j in qs]
 

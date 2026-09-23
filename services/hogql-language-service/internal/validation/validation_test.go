@@ -36,6 +36,71 @@ func schema() *catalog.PreparedCatalog {
 	}})
 }
 
+func traversalSchema() *catalog.PreparedCatalog {
+	return catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"events": {Fields: map[string]catalog.Field{
+				"event": {Type: "String"}, "person": {Type: "lazy", Relation: "person"},
+				"session": {Type: "lazy", Relation: "session"},
+			}},
+			"sessions": {Fields: map[string]catalog.Field{"session_id": {Type: "String"}}},
+		},
+		Relations: map[string]catalog.RelationDefinition{
+			"person": {Fields: map[string]catalog.Field{
+				"email": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "person"},
+				"manager": {Type: "lazy", Relation: "person"}, "payload": {Type: "JSON"},
+			}},
+			"session": {Table: "sessions"},
+		},
+		Properties: map[string][]catalog.Property{"person": {{Name: "plan", ValueType: "String"}}},
+	})
+}
+
+func TestValidateTraversalRelations(t *testing.T) {
+	for _, query := range []string{
+		"SELECT e.person.email FROM events AS e",
+		"SELECT person.email FROM events",
+		"SELECT e.person.properties.plan FROM events AS e",
+		"SELECT e.person.manager.email FROM events AS e",
+		"SELECT e.person.properties.plan.nested FROM events AS e",
+		"SELECT e.person.payload.unknown FROM events AS e",
+		"SELECT e.session.session_id FROM events AS e",
+	} {
+		result := Validate(traversalSchema(), query)
+		if !result.Valid || strings.Join(result.TableNames, ",") != "events" {
+			t.Fatalf("query %q returned %#v", query, result)
+		}
+	}
+	for _, test := range []struct {
+		query, code, value string
+	}{
+		{"SELECT e.person.emali FROM events AS e", "unknown_field", "emali"},
+		{"SELECT e.person.properties.paln FROM events AS e", "unknown_property", "paln"},
+		{"SELECT e.person.properties.paln.nested FROM events AS e", "unknown_property", "paln"},
+		{"SELECT e.person.missing.email FROM events AS e", "unknown_field", "missing"},
+	} {
+		result := Validate(traversalSchema(), test.query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != test.code {
+			t.Fatalf("query %q returned %#v", test.query, result)
+		}
+		if got := test.query[result.Diagnostics[0].Start:result.Diagnostics[0].End]; got != test.value {
+			t.Fatalf("query %q diagnostic covered %q", test.query, got)
+		}
+	}
+}
+
+func TestTraversalRelationHopLimit(t *testing.T) {
+	parts := make([]string, querylimits.MaxRelationTraversalHops+1)
+	for index := range parts {
+		parts[index] = "manager"
+	}
+	query := "SELECT e.person." + strings.Join(parts, ".") + ".email FROM events AS e"
+	result := Validate(traversalSchema(), query)
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" || result.Diagnostics[0].Message != querylimits.ErrRelationTraversalTooDeep.Error() {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestValidateDoesNotShareBindingsAcrossStatements(t *testing.T) {
 	result := Validate(schema(), "SELECT person_id FROM warehouse_orders; SELECT person_id FROM warehouse_people")
 	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {

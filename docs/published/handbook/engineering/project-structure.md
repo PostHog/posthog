@@ -47,6 +47,11 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/queries` – Query builder and data visualization components
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
+The app-level Files scene lives in `src/scenes/project-files` and reuses the project tree from `src/layout/panel-layout/ProjectTree`.
+Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
+Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
+Creating an item from a starred folder uses the original folder's full path, including its parent folders.
+
 ### `posthog`
 
 The Django backend application. Key subdirectories:

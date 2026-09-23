@@ -19,6 +19,7 @@ The legacy implementation separates these requests in `infiniteListLogic.ts`; th
 Event-only insight editors and closed breakdown pickers do not load the action list.
 Action series load their definitions to resolve names and event-scoped properties.
 Opening an event picker that offers Actions loads the list; later opens reuse the shared cache.
+When an insight series picker opens on Suggested series, the current selection is the first and selected item. All events follows it.
 The classic popover unmounts after its close transition and starts with a fresh search when reopened.
 
 ## Typing and rendering

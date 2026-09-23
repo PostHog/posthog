@@ -201,9 +201,9 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             raise PreflightError("The Docker daemon is not reachable. Start Docker and retry.")
 
     def start(self, stack: ExitStack) -> None:
-        # Verify posthog-sandbox-base is fresh (rebuilding when @posthog/agent published a
-        # newer version or the Dockerfile changed) before any case grabs a sandbox, so a
-        # stale image can't break the whole run. Imported here because it pulls in Django.
+        # Verify posthog-sandbox-base is fresh (rebuilding when the Dockerfile or its
+        # agent pin changed) before any case grabs a sandbox, so a stale image can't
+        # break the whole run. Imported here because it pulls in Django.
         from products.tasks.backend.logic.services.docker_sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
             ensure_fresh_base_image,
             ensure_template_image,
