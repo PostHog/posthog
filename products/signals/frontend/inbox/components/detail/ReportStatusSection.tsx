@@ -64,9 +64,6 @@ export function ReportStatusSection({
                 {pullRequests.map((pullRequest, index) => {
                     const prUrl = safeHttpUrl(pullRequest.url)
                     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
-                    const reviewDecision = pullRequest.review_decision
-                        ? REVIEW_DECISIONS[pullRequest.review_decision]
-                        : 'Review unavailable'
                     const isOpen = pullRequest.state === 'open' || pullRequest.state === 'draft'
 
                     return (
@@ -90,14 +87,12 @@ export function ReportStatusSection({
                             <StatusRow label="Status">
                                 {PULL_REQUEST_STATES[pullRequest.state] ?? PULL_REQUEST_STATES.unknown}
                             </StatusRow>
-                            {isOpen && <StatusRow label="Review">{reviewDecision}</StatusRow>}
-                            {pullRequest.state === 'merged' && (
+                            {isOpen && pullRequest.review_decision && (
+                                <StatusRow label="Review">{REVIEW_DECISIONS[pullRequest.review_decision]}</StatusRow>
+                            )}
+                            {pullRequest.state === 'merged' && pullRequest.merged_at && (
                                 <StatusRow label="Merged">
-                                    {pullRequest.merged_at ? (
-                                        <TZLabel time={pullRequest.merged_at} timestampStyle="absolute" />
-                                    ) : (
-                                        <span className="text-tertiary">Time unavailable</span>
-                                    )}
+                                    <TZLabel time={pullRequest.merged_at} timestampStyle="absolute" />
                                 </StatusRow>
                             )}
                         </div>
