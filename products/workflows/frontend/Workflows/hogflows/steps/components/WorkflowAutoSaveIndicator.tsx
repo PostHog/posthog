@@ -19,6 +19,7 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
         autoSaveBlockedByValidation,
         externallyEdited,
         lastSavedAt,
+        isCodeManaged,
     } = useValues(workflowLogic)
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -43,6 +44,9 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
                 </LemonButton>
             </span>
         )
+    }
+    if (workflowChanged && isCodeManaged) {
+        return <span className="text-xs text-warning whitespace-nowrap">Managed by code. Changes are not saved</span>
     }
     if (workflowChanged && autoSaveBlockedByValidation) {
         return <span className="text-xs text-warning whitespace-nowrap">Auto-save paused: name your workflow</span>

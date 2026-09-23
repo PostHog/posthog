@@ -35,7 +35,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         workflow,
         originalWorkflow,
         canEditWorkflow,
-        workflowEditDisabledReason,
+        isCodeManaged,
+        workflowSaveDisabledReason,
         hasUnsavedChanges,
         hasStagedDraft,
         draftActionPending,
@@ -212,7 +213,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             })
                                         }
                                         size="small"
-                                        disabledReason={hasUnsavedChanges ? 'Save changes first' : undefined}
+                                        // A code-managed workflow saves only its status here, and the
+                                        // edits in the form survive the save, so they do not block it.
+                                        disabledReason={
+                                            hasUnsavedChanges && !isCodeManaged ? 'Save changes first' : undefined
+                                        }
                                         className="transition-colors duration-300 ease-in-out"
                                         data-attr="workflow-launch"
                                     >
@@ -313,8 +318,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         disabledReason={
                                             // Ownership first: naming the file is more useful than
                                             // telling someone their unsaved changes cannot be saved.
-                                            workflowEditDisabledReason
-                                                ? workflowEditDisabledReason
+                                            workflowSaveDisabledReason
+                                                ? workflowSaveDisabledReason
                                                 : workflowHasErrors
                                                   ? 'Some fields still need work'
                                                   : isCreatedFromTemplate
