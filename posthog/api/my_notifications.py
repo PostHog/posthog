@@ -1,4 +1,6 @@
+import operator
 from datetime import datetime, timedelta
+from functools import reduce
 from typing import Any, Optional
 
 from django.db.models import Q
@@ -111,13 +113,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _scope_filter(items_per_scope: dict[str, set[str]]) -> Optional[Q]:
         """One OR branch per scope that actually has items, so empty scopes cost nothing."""
         branches = [Q(scope=scope, item_id__in=item_ids) for scope, item_ids in items_per_scope.items() if item_ids]
-        if not branches:
-            return None
-
-        combined = branches[0]
-        for branch in branches[1:]:
-            combined |= branch
-        return combined
+        return reduce(operator.or_, branches) if branches else None
 
     def _deduplicated_notebook_activity_ids(self, user: User, since: datetime) -> list[str]:
         """Notebooks save while you type, so one logical edit logs several activities."""
@@ -180,14 +176,12 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         with timer("construct_query"):
             owned_filter = self._scope_filter(owned_items)
             changed_filter = self._scope_filter(changed_items)
-
-            interesting = None
-            if owned_filter is not None:
-                interesting = owned_filter
             if changed_filter is not None:
                 # don't want to see creation of these things since that was before the user edited these things
                 changed_filter = Q(activity__in=INTERESTING_CHANGES) & changed_filter
-                interesting = changed_filter if interesting is None else interesting | changed_filter
+
+            filters = [f for f in (owned_filter, changed_filter) if f is not None]
+            interesting = reduce(operator.or_, filters) if filters else None
 
             other_peoples_changes = (
                 self.queryset.none()
