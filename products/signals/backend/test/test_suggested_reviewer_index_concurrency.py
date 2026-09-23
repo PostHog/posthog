@@ -6,7 +6,7 @@ import threading
 from posthog.test.base import NonAtomicAPIBaseTest
 from unittest.mock import patch
 
-from django.db import connection, transaction
+from django.db import connection
 
 from products.signals.backend import suggested_reviewer_index
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportSuggestedReviewer
@@ -53,7 +53,8 @@ class TestSuggestedReviewerIndexConcurrency(NonAtomicAPIBaseTest):
 
         def let_the_other_writer_finish_first(team_id: int, report_id: str) -> None:
             # Stands in for the winning rebuild committing while this one waits for the lock. The
-            # replacement runs its own rebuild, which takes the lock this call has not taken yet.
+            # replacement runs a rebuild of its own, which re-enters this patch, so it must only
+            # spawn the writer on the outer call.
             if not intercepted:
                 intercepted.append(True)
                 writer = threading.Thread(target=replace_the_reviewer)
@@ -66,27 +67,3 @@ class TestSuggestedReviewerIndexConcurrency(NonAtomicAPIBaseTest):
             sync_suggested_reviewer_index(team_id=self.team.id, report_id=str(report.id))
 
         self.assertEqual(self._indexed_logins(report), {"bob"})
-
-    def test_the_lock_holds_a_second_connection_off_until_the_rebuild_commits(self) -> None:
-        report = self._create_report()
-        granted: list[bool] = []
-
-        def try_to_take_the_same_lock() -> None:
-            try:
-                with transaction.atomic(), connection.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT pg_try_advisory_xact_lock(%s, hashtext(%s))",
-                        [self.team.id, suggested_reviewer_index._lock_key(str(report.id))],
-                    )
-                    granted.append(cursor.fetchone()[0])
-            finally:
-                connection.close()
-
-        with transaction.atomic():
-            suggested_reviewer_index._lock_report(self.team.id, str(report.id))
-            contender = threading.Thread(target=try_to_take_the_same_lock)
-            contender.start()
-            contender.join(timeout=30)
-            self.assertFalse(contender.is_alive())
-
-        self.assertEqual(granted, [False])

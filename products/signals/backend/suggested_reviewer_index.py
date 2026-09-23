@@ -77,10 +77,6 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
     return rows
 
 
-def _lock_key(report_id: str) -> str:
-    return f"signals_suggested_reviewer_index:{report_id}"
-
-
 def _lock_report(team_id: int, report_id: str) -> None:
     """Hold one report's rebuild slot until the surrounding transaction ends.
 
@@ -92,7 +88,7 @@ def _lock_report(team_id: int, report_id: str) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
-            [team_id, _lock_key(report_id)],
+            [team_id, f"signals_suggested_reviewer_index:{report_id}"],
         )
 
 
