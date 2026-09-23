@@ -90,6 +90,13 @@ class TestExternalTicketAPI(BaseTest):
         after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels)
         self.assertEqual(after, before + 1)
 
+    def test_authenticated_requests_increment_the_per_team_legacy_counter(self):
+        labels = {"team_id": str(self.team.id)}
+        before = REGISTRY.get_sample_value("posthog_conversations_external_ticket_legacy_team_total", labels) or 0
+        self.client.get(self.url, **self._auth_headers())
+        after = REGISTRY.get_sample_value("posthog_conversations_external_ticket_legacy_team_total", labels)
+        self.assertEqual(after, before + 1)
+
     # -- GET ticket -------------------------------------------------------
 
     def test_get_ticket_returns_all_fields(self):
