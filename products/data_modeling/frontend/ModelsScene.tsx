@@ -19,10 +19,10 @@ import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery 
 
 import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
 
-import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
+import { ModelsLineageTab } from './lineage/ModelsLineageTab'
+import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
-import { ModelsLineageTab } from './tabs/ModelsLineageTab'
-import { ModelsOverviewTab } from './tabs/ModelsOverviewTab'
+import { ViewsTab } from './ViewsTab'
 
 export const scene: SceneExport = {
     component: ModelsScene,

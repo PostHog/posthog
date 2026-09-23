@@ -4,7 +4,8 @@ import { Field, Form } from 'kea-forms'
 import { LemonBanner, LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic'
+
+import { expressionModalLogic } from '../logics/expressionModalLogic'
 
 export function ExpressionModal(): JSX.Element {
     const {
