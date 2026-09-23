@@ -313,8 +313,10 @@ export class ToolExecutor {
                 originalTool,
                 requestMeta,
                 // The SDK mints a handle only when nothing was carried, so a client that already
-                // has a session keeps it and never sees the prompt-back.
-                sessionId: requestContext.sessionId ?? requestContext.mcpSessionId,
+                // has a session keeps it and never sees the prompt-back. Same order as
+                // `getEffectiveSessionUuid`, so a wrapper app that sends the conversation header
+                // keeps its own handle instead of having a minted one replace it per call.
+                sessionId: requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId,
             })
             return {
                 analyticsMeta: {
