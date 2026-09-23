@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Literal, Optional, cast
@@ -13,6 +14,8 @@ from posthog.dataclasses import frozen
 from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 @frozen
@@ -113,7 +116,7 @@ class QueryDateRange:
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR):
+            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR) or self.date_to_is_calendar_day:
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
                 if self.interval_type == IntervalType.HOUR:
@@ -124,6 +127,16 @@ class QueryDateRange:
                     date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
 
         return self._clip_incomplete_period(date_to)
+
+    @cached_property
+    def date_to_is_calendar_day(self) -> bool:
+        """Whether `date_to` names a calendar day with no time of day, such as `2026-09-01`.
+
+        Such a bound covers the whole day, so the range must end at the last moment of that day. If
+        it ends at midnight instead, a range that asks for one day returns no data.
+        """
+        date_to = self._date_range.date_to if self._date_range else None
+        return bool(date_to and CALENDAR_DAY_RE.fullmatch(date_to.strip()))
 
     def _clip_incomplete_period(self, date_to: datetime) -> datetime:
         """Clip date_to to the end of the last complete interval when the range reaches into the
