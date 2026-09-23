@@ -13,6 +13,7 @@ import { createMockSubscription, mockBasicUser, mockIntegration, mockSlackChanne
 import { DashboardType, InsightShortId, Realm, SubscriptionType } from '~/types'
 
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
+import { MAX_SELECTED_CONTEXTS } from './utils'
 
 type StoryArgs = SubscriptionsModalProps & {
     formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit' | 'long-ai-prompt'
@@ -196,7 +197,11 @@ const AI_REPORT_MAX_CONTEXT = {
     title: 'Product health report',
     contexts: [
         ...AI_REPORT_MIXED_CONTEXT.contexts,
-        { insight_id: 13, insight_short_id: 'ins13', insight_name: 'Weekly retention' },
+        ...Array.from({ length: MAX_SELECTED_CONTEXTS - AI_REPORT_MIXED_CONTEXT.contexts.length }, (_, index) => ({
+            insight_id: 13 + index,
+            insight_short_id: `ins${13 + index}`,
+            insight_name: `Saved insight ${index + 1}`,
+        })),
     ],
 }
 

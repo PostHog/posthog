@@ -491,6 +491,7 @@ function SubscriptionContentStep({
 }): JSX.Element {
     const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
         useActions(subscriptionLogic(logicProps))
+    const { contextInsightCounts, contextReadTotal } = useValues(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -517,6 +518,8 @@ function SubscriptionContentStep({
                 <AiPromptFields
                     compactAnalysisWindow
                     contexts={subscription.contexts}
+                    contextInsightCounts={contextInsightCounts}
+                    contextReadTotal={contextReadTotal}
                     contextsEnabled={aiContextsEnabled}
                     prompt={subscription.prompt}
                     targetType={subscription.target_type}

@@ -10,7 +10,7 @@ import type {
     SubscriptionInsightContextApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { MAX_CONTEXTS } from './utils'
+import { CONTEXT_READ_BUDGET, MAX_SELECTED_CONTEXTS } from './utils'
 
 const CONTEXT_GROUP_TYPES = [TaxonomicFilterGroupType.Dashboards, TaxonomicFilterGroupType.Insights]
 
@@ -23,6 +23,8 @@ interface PickableContextItem {
 
 interface SubscriptionContextPickerProps {
     contexts: SubscriptionContextApi[]
+    insightCounts?: Record<number, number | null>
+    readTotal?: number | null
     onAdd: (context: SubscriptionContextApi) => void
     onRemove: (context: SubscriptionContextApi) => void
 }
@@ -35,7 +37,26 @@ function isInsightContext(context: SubscriptionContextApi): context is Subscript
     return 'insight_id' in context
 }
 
-export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: SubscriptionContextPickerProps): JSX.Element {
+function readCountLabel(contexts: SubscriptionContextApi[], readTotal: number | null | undefined): string | null {
+    if (!contexts.length) {
+        return null
+    }
+    if (typeof readTotal !== 'number') {
+        return `Each report reads up to ${CONTEXT_READ_BUDGET} insights from this context.`
+    }
+    if (readTotal > CONTEXT_READ_BUDGET) {
+        return `Each report reads ${CONTEXT_READ_BUDGET} of the ${readTotal} insights in this context.`
+    }
+    return `Each report reads ${readTotal} ${readTotal === 1 ? 'insight' : 'insights'} from this context.`
+}
+
+export function SubscriptionContextPicker({
+    contexts,
+    insightCounts,
+    readTotal,
+    onAdd,
+    onRemove,
+}: SubscriptionContextPickerProps): JSX.Element {
     const handleChange = (
         value: string | number,
         groupType: TaxonomicFilterGroupType,
@@ -59,60 +80,79 @@ export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: Subscri
     }
 
     const disabledReason =
-        contexts.length >= MAX_CONTEXTS
-            ? `You can add up to ${MAX_CONTEXTS} dashboards and insights. Remove one to add another.`
+        contexts.length >= MAX_SELECTED_CONTEXTS
+            ? `You can add up to ${MAX_SELECTED_CONTEXTS} dashboards and insights. Remove one to add another.`
             : undefined
+    const readCount = readCountLabel(contexts, readTotal)
 
     return (
-        <div className="flex flex-wrap items-center gap-1 min-w-0" data-attr="ai-subscription-context-list">
-            <TaxonomicPopover
-                key={disabledReason ? 'context-limit-reached' : 'context-available'}
-                groupType={TaxonomicFilterGroupType.Dashboards}
-                groupTypes={CONTEXT_GROUP_TYPES}
-                onChange={handleChange}
-                selectedProperties={{
-                    [TaxonomicFilterGroupType.Dashboards]: contexts
-                        .filter(isDashboardContext)
-                        .map((context) => context.dashboard_id),
-                    [TaxonomicFilterGroupType.Insights]: contexts
-                        .filter(isInsightContext)
-                        .map((context) => context.insight_short_id),
-                }}
-                closeOnChange={false}
-                placeholder="Add context"
-                size="small"
-                type="secondary"
-                width={400}
-                data-attr="ai-subscription-context-picker"
-                disabledReason={disabledReason}
-            />
-            {contexts.map((context) => {
-                const isDashboard = isDashboardContext(context)
-                const name = isDashboard ? context.dashboard_name : context.insight_name
-                const url = isDashboard ? `/dashboard/${context.dashboard_id}` : `/insights/${context.insight_short_id}`
-                const key = isDashboard ? `dashboard:${context.dashboard_id}` : `insight:${context.insight_id}`
+        <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-1 min-w-0" data-attr="ai-subscription-context-list">
+                <TaxonomicPopover
+                    key={disabledReason ? 'context-limit-reached' : 'context-available'}
+                    groupType={TaxonomicFilterGroupType.Dashboards}
+                    groupTypes={CONTEXT_GROUP_TYPES}
+                    onChange={handleChange}
+                    selectedProperties={{
+                        [TaxonomicFilterGroupType.Dashboards]: contexts
+                            .filter(isDashboardContext)
+                            .map((context) => context.dashboard_id),
+                        [TaxonomicFilterGroupType.Insights]: contexts
+                            .filter(isInsightContext)
+                            .map((context) => context.insight_short_id),
+                    }}
+                    closeOnChange={false}
+                    placeholder="Add context"
+                    size="small"
+                    type="secondary"
+                    width={400}
+                    data-attr="ai-subscription-context-picker"
+                    disabledReason={disabledReason}
+                />
+                {contexts.map((context) => {
+                    const isDashboard = isDashboardContext(context)
+                    const name = isDashboard ? context.dashboard_name : context.insight_name
+                    const insightCount = isDashboard ? insightCounts?.[context.dashboard_id] : undefined
+                    const label = typeof insightCount === 'number' ? `${name} (${insightCount})` : name
+                    const url = isDashboard
+                        ? `/dashboard/${context.dashboard_id}`
+                        : `/insights/${context.insight_short_id}`
+                    const key = isDashboard ? `dashboard:${context.dashboard_id}` : `insight:${context.insight_id}`
 
-                return (
-                    <Tooltip key={key} title={name}>
-                        <LemonTag
-                            icon={isDashboard ? <IconDashboard /> : <IconGraph />}
-                            className="flex items-center text-secondary max-w-48"
-                            data-attr="ai-subscription-context"
+                    return (
+                        <Tooltip
+                            key={key}
+                            title={
+                                typeof insightCount === 'number'
+                                    ? `${name}: ${insightCount} ${insightCount === 1 ? 'insight' : 'insights'}`
+                                    : name
+                            }
                         >
-                            <Link to={url} target="_blank" className="truncate min-w-0 flex-1">
-                                {name}
-                            </Link>
-                            <LemonButton
-                                icon={<IconX />}
-                                onClick={() => onRemove(context)}
-                                aria-label={`Remove ${name}`}
-                                size="xsmall"
-                                className="LemonTag__right-button"
-                            />
-                        </LemonTag>
-                    </Tooltip>
-                )
-            })}
+                            <LemonTag
+                                icon={isDashboard ? <IconDashboard /> : <IconGraph />}
+                                className="flex items-center text-secondary max-w-48"
+                                data-attr="ai-subscription-context"
+                            >
+                                <Link to={url} target="_blank" className="truncate min-w-0 flex-1">
+                                    {label}
+                                </Link>
+                                <LemonButton
+                                    icon={<IconX />}
+                                    onClick={() => onRemove(context)}
+                                    aria-label={`Remove ${name}`}
+                                    size="xsmall"
+                                    className="LemonTag__right-button"
+                                />
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                })}
+            </div>
+            {readCount ? (
+                <div className="text-xs text-secondary" data-attr="ai-subscription-context-read-count">
+                    {readCount}
+                </div>
+            ) : null}
         </div>
     )
 }

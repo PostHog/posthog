@@ -262,6 +262,8 @@ export function EditSubscription({
         summaryQuota,
         testDeliveryLoading,
         storedTeamsWebhookHost,
+        contextInsightCounts,
+        contextReadTotal,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const {
@@ -460,6 +462,8 @@ export function EditSubscription({
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
                                     contexts={subscription.contexts}
+                                    contextInsightCounts={contextInsightCounts}
+                                    contextReadTotal={contextReadTotal}
                                     contextsEnabled={Boolean(aiContextsEnabled)}
                                     prompt={subscription.prompt}
                                     targetType={subscription.target_type}

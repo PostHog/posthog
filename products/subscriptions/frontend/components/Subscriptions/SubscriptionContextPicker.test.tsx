@@ -7,6 +7,7 @@ import { useState } from 'react'
 import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionContextPicker } from './SubscriptionContextPicker'
+import { CONTEXT_READ_BUDGET, MAX_SELECTED_CONTEXTS } from './utils'
 
 interface MockTaxonomicPopoverProps {
     closeOnChange?: boolean
@@ -138,8 +139,8 @@ function renderPicker(
     return render(<SubscriptionContextPicker contexts={contexts} onAdd={onAdd} onRemove={onRemove} />)
 }
 
-function StatefulPicker(): JSX.Element {
-    const [contexts, setContexts] = useState<SubscriptionContextApi[]>([])
+function StatefulPicker({ initialContexts = [] }: { initialContexts?: SubscriptionContextApi[] }): JSX.Element {
+    const [contexts, setContexts] = useState<SubscriptionContextApi[]>(initialContexts)
 
     return (
         <SubscriptionContextPicker
@@ -200,8 +201,12 @@ describe('SubscriptionContextPicker', () => {
         expect(onRemove).toHaveBeenNthCalledWith(2, INSIGHT_CONTEXT)
     })
 
-    it('keeps one picker open until the third selection, then closes and disables additions', async () => {
-        render(<StatefulPicker />)
+    it('keeps the picker open across selections, then closes and disables at the cap', async () => {
+        const prefilled: SubscriptionContextApi[] = Array.from({ length: MAX_SELECTED_CONTEXTS - 2 }, (_, index) => ({
+            dashboard_id: 100 + index,
+            dashboard_name: `Prefilled dashboard ${index}`,
+        }))
+        render(<StatefulPicker initialContexts={prefilled} />)
         await userEvent.click(screen.getByText('Add context'))
         await userEvent.click(screen.getByTestId('pick-dashboard'))
 
@@ -209,17 +214,50 @@ describe('SubscriptionContextPicker', () => {
 
         await userEvent.click(screen.getByTestId('pick-insight'))
 
-        expect(screen.getByTestId('taxonomic-options')).toBeInTheDocument()
-
-        await userEvent.click(screen.getByTestId('pick-second-dashboard'))
-
         expect(screen.queryByTestId('taxonomic-options')).not.toBeInTheDocument()
         expect(screen.getByText('Add context')).toBeDisabled()
         expect(screen.getByText('Add context')).toHaveAttribute(
             'title',
-            'You can add up to 3 dashboards and insights. Remove one to add another.'
+            `You can add up to ${MAX_SELECTED_CONTEXTS} dashboards and insights. Remove one to add another.`
         )
-        expect(screen.queryByTestId('pick-second-insight')).not.toBeInTheDocument()
         expect(document.querySelector('[data-attr="ai-subscription-context-list"]')).toHaveClass('flex-wrap', 'min-w-0')
+    })
+
+    it.each([
+        [
+            'unknown counts fall back to the budget copy',
+            undefined,
+            undefined,
+            `Each report reads up to ${CONTEXT_READ_BUDGET} insights from this context.`,
+        ],
+        [
+            'a known total within the budget is stated exactly',
+            { 7: 4 },
+            5,
+            'Each report reads 5 insights from this context.',
+        ],
+        [
+            'a total over the budget states what gets read',
+            { 7: CONTEXT_READ_BUDGET + 5 },
+            CONTEXT_READ_BUDGET + 6,
+            `Each report reads ${CONTEXT_READ_BUDGET} of the ${CONTEXT_READ_BUDGET + 6} insights in this context.`,
+        ],
+    ])('shows the read counter: %s', (_name, insightCounts, readTotal, expected) => {
+        render(
+            <SubscriptionContextPicker
+                contexts={[DASHBOARD_CONTEXT, INSIGHT_CONTEXT]}
+                insightCounts={insightCounts}
+                readTotal={readTotal}
+                onAdd={jest.fn()}
+                onRemove={jest.fn()}
+            />
+        )
+
+        expect(screen.getByText(expected)).toBeInTheDocument()
+        if (insightCounts?.[7] !== undefined) {
+            expect(screen.getByText(`Activation overview (${insightCounts[7]})`)).toBeInTheDocument()
+        } else {
+            expect(screen.getByText('Activation overview')).toBeInTheDocument()
+        }
     })
 })

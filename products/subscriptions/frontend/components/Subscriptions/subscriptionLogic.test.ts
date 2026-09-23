@@ -21,7 +21,7 @@ import type { SubscriptionContextApi } from 'products/subscriptions/frontend/gen
 
 import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
 import { subscriptionLogic, SubscriptionLogicProps } from './subscriptionLogic'
-import { MAX_CONTEXTS } from './utils'
+import { MAX_SELECTED_CONTEXTS } from './utils'
 
 jest.mock('posthog-js')
 
@@ -845,7 +845,15 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.insight).toBeUndefined()
     })
 
-    it('keeps generated context values typed, rejects duplicates, and caps additions in the listener', async () => {
+    it('keeps generated context values typed, rejects duplicates, caps additions, and totals reads', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const dashboards = new URL(request.url).searchParams.get('dashboards')
+                    return [200, { count: dashboards === `[${DASHBOARD_CONTEXT.dashboard_id}]` ? 4 : 2, results: [] }]
+                },
+            },
+        })
         const contextLogic = subscriptionLogic({ id: 'new' })
         contextLogic.mount()
         router.actions.push('/subscriptions/new')
@@ -854,38 +862,33 @@ describe('subscriptionLogic', () => {
         contextLogic.actions.addContext(DASHBOARD_CONTEXT)
         contextLogic.actions.addContext(DASHBOARD_CONTEXT)
         contextLogic.actions.addContext(INSIGHT_CONTEXT)
-        contextLogic.actions.addContext({
-            insight_id: 13,
-            insight_short_id: 'retention-trend',
-            insight_name: 'Retention trend',
-        })
+        for (let index = 0; (contextLogic.values.subscription.contexts ?? []).length < MAX_SELECTED_CONTEXTS; index++) {
+            contextLogic.actions.addContext({
+                insight_id: 100 + index,
+                insight_short_id: `filler-${index}`,
+                insight_name: `Filler ${index}`,
+            })
+        }
         contextLogic.actions.addContext({
             dashboard_id: 14,
             dashboard_name: 'Overflow dashboard',
         })
         await expectLogic(contextLogic).toFinishListeners()
 
-        expect(contextLogic.values.subscription.contexts).toEqual([
-            DASHBOARD_CONTEXT,
-            INSIGHT_CONTEXT,
-            {
-                insight_id: 13,
-                insight_short_id: 'retention-trend',
-                insight_name: 'Retention trend',
-            },
-        ])
-        expect(contextLogic.values.subscription.contexts).toHaveLength(MAX_CONTEXTS)
+        const contexts = contextLogic.values.subscription.contexts
+        expect(contexts).toHaveLength(MAX_SELECTED_CONTEXTS)
+        expect(contexts[0]).toEqual(DASHBOARD_CONTEXT)
+        expect(contexts[1]).toEqual(INSIGHT_CONTEXT)
+        expect(contexts.some((context) => 'dashboard_id' in context && context.dashboard_id === 14)).toBe(false)
+        expect(contextLogic.values.contextInsightCounts).toEqual({ [DASHBOARD_CONTEXT.dashboard_id]: 4 })
+        expect(contextLogic.values.contextReadTotal).toBe(4 + MAX_SELECTED_CONTEXTS - 1)
 
         contextLogic.actions.removeContext(INSIGHT_CONTEXT)
         await expectLogic(contextLogic).toFinishListeners()
-        expect(contextLogic.values.subscription.contexts).toEqual([
-            DASHBOARD_CONTEXT,
-            {
-                insight_id: 13,
-                insight_short_id: 'retention-trend',
-                insight_name: 'Retention trend',
-            },
-        ])
+        const remaining = contextLogic.values.subscription.contexts
+        expect(remaining).toHaveLength(MAX_SELECTED_CONTEXTS - 1)
+        expect(remaining[0]).toEqual(DASHBOARD_CONTEXT)
+        expect(remaining.some((context) => 'insight_id' in context && context.insight_id === 7)).toBe(false)
         contextLogic.unmount()
     })
 

@@ -22,6 +22,7 @@ import type {
 
 import { SubscriptionContextPicker } from './SubscriptionContextPicker'
 import {
+    MAX_SELECTED_CONTEXTS,
     type AiSubscriptionDisplayOption,
     getAiSubscriptionDisplayOptionState,
     getAiSubscriptionDisplaySummary,
@@ -116,6 +117,8 @@ const AI_DISPLAY_OPTIONS: { option: AiSubscriptionDisplayOption; label: string; 
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
     contexts: SubscriptionContextApi[]
+    contextInsightCounts?: Record<number, number | null>
+    contextReadTotal?: number | null
     contextsEnabled: boolean
     prompt?: string | null
     targetType?: SubscriptionType['target_type'] | null
@@ -134,6 +137,8 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 export function AiPromptFields({
     compactAnalysisWindow = false,
     contexts,
+    contextInsightCounts,
+    contextReadTotal,
     contextsEnabled,
     prompt,
     targetType,
@@ -158,12 +163,14 @@ export function AiPromptFields({
                 <LemonField
                     name="contexts"
                     label="Context"
-                    info="Add up to three dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt."
+                    info={`Add up to ${MAX_SELECTED_CONTEXTS} dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt.`}
                     className="gap-1 min-w-0"
                 >
                     {() => (
                         <SubscriptionContextPicker
                             contexts={contexts}
+                            insightCounts={contextInsightCounts}
+                            readTotal={contextReadTotal}
                             onAdd={onAddContext}
                             onRemove={onRemoveContext}
                         />
