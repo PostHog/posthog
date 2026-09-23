@@ -300,6 +300,7 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
     },
     play: async () => {
+        await waitFor(() => expect(terminalDockLogic.isMounted()).toBe(true))
         terminalDockLogic.actions.setDockOpen(true)
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
     },
