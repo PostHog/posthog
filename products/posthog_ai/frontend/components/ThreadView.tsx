@@ -3,14 +3,14 @@ import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { runStreamLogic } from '../logics/runStreamLogic'
+import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
 import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
-import { ContextUsageBar } from './ContextUsageBar'
+import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
@@ -53,6 +53,7 @@ function estimateThreadItemHeight(item: ThreadDisplayItem): number {
 }
 
 interface ThreadViewProps {
+    scrollRestorationKey?: string
     /**
      * Pass `false` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows then
      * render in document flow, unchanged from the pre-virtualized layout. Defaults to virtualized.
@@ -85,6 +86,7 @@ interface ThreadViewProps {
  * header/footer rows.
  */
 export function ThreadView({
+    scrollRestorationKey,
     virtualized = true,
     showContextUsage = false,
     renderTurnTrailer,
@@ -108,6 +110,9 @@ export function ThreadView({
         pendingPermissionRequest,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
+    // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
+    // still going, so it keeps the softer title.
+    const runEnded = isTerminalRunStatus(currentRunStatus)
     const displayItems = useMemo(() => {
         const standaloneToolIds = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
@@ -157,8 +162,8 @@ export function ThreadView({
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
-    // working, where the thinking line takes the footer. `ContextUsageBar` self-hides without data.
-    const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
+    // working, where the thinking line takes the footer. `ContextUsageChip` self-hides without data.
+    const showContextUsageFooter = showContextUsage && streamPhase === 'idle' && !!contextUsage
     const footer = useMemo(
         () =>
             showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus || footerExtra ? (
@@ -229,6 +234,7 @@ export function ThreadView({
                         toolInvocations={toolInvocations}
                         turnComplete={turnComplete}
                         turnCancelled={turnCancelled}
+                        runEnded={runEnded}
                     />
                 </VirtualizedThread.Row>
             )
@@ -244,11 +250,14 @@ export function ThreadView({
             turnTrailers,
             pendingPermissionRequest,
             currentRunStatus,
+            runEnded,
         ]
     )
 
     return (
         <VirtualizedThread.Root
+            key={scrollRestorationKey}
+            scrollRestorationKey={scrollRestorationKey}
             items={displayItems}
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
@@ -315,9 +324,14 @@ const ThreadFooter = memo(function ThreadFooter({
     return (
         <div className="flex flex-col gap-1.5">
             {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
-            {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
+            {showThinking && (
+                <ThinkingIndicator
+                    progress={thinkingPhase === 'provisioning' ? null : currentProgress}
+                    phase={thinkingPhase}
+                />
+            )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
-            {showContextUsage && <ContextUsageBar />}
+            {showContextUsage && <ContextUsageChip />}
             {extra}
         </div>
     )

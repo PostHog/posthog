@@ -35,7 +35,11 @@ _LAZY = {
     "Config": "sources.common.config",
     "IntegrationAccountListingError": "sources.common.integration_accounts",
     "filter_integration_accounts": "sources.common.integration_accounts",
+    "DATABASE_HOST_NOT_ALLOWED_GUIDANCE": "sources.common.mixins",
+    "HostNotAllowedError": "sources.common.mixins",
     "OAuthMixin": "sources.common.mixins",
+    "pinned_host_kwargs": "sources.common.mixins",
+    "TemporaryHostResolutionError": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",
@@ -82,6 +86,7 @@ _LAZY = {
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
     "connect_trino": "sources.trino.trino",
+    "is_posthog_managed_trino_host": "sources.trino.trino",
     "trino_error_to_message": "sources.trino.trino",
 }
 

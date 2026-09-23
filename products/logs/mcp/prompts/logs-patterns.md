@@ -12,7 +12,7 @@ This is the fastest way to understand what a log stream is _saying_ without read
 
 - To triage an unfamiliar or noisy stream: mine the last hour, scan the top templates by `estimated_count`, and look for anything with a non-zero error share in `severity_counts`.
 - To find what's new or dominant during an incident window: mine with `severityLevels: ["error", "fatal"]` and a `dateRange` covering the incident.
-- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_regex` (see below) → read the raw rows with `query-logs`.
+- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_patterns`, or `match_regex` and `match_literal` when it is empty (see below) → read the raw rows with `query-logs`.
 - To quantify repetition before proposing log sampling or cleanup: `volume_share_pct` tells you how much of the stream one template accounts for.
 
 ## Pick the right tool
@@ -24,23 +24,28 @@ This is the fastest way to understand what a log stream is _saying_ without read
 
 # Reading the response
 
-- `pattern` — the mined template. Masked tokens: `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied.
+- `source` reports what was used: `stored_patterns` for exact stored-pattern aggregation followed by Drain3 grouping, or `body_mining` for body masking and Drain3. Include this distinction in your answer.
+- `pattern_version` identifies the version used for stored patterns. `fallback_reason` explains body mining: flag disabled, insufficient version coverage, an empty window, or comparison mode.
+- The `logs_patterns_query_v2` flag enables the stored-pattern path only when one version supplies nonempty patterns for at least 99% of **all** matching rows. This is the dominant version, not necessarily the newest.
+- On the stored-pattern path, `represented_count` counts the rows in the returned groups. `remainder_count` accounts for other versions, unstamped rows, the long tail and groups outside the display limit. Report this remainder rather than implying the returned groups cover everything.
+- `pattern` — the template. Body mining masks `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied. Stored patterns use the ingestion vocabulary instead: `<N>`, `<TIMESTAMP>`, `<KLOGTIME>`, `<UUID>`, `<IP>`, `<HOST>`, `<HEX>`, `<ID>`, `<EMAIL>`, `<JSON_ARRAY>`, and `<JSON:keys>` for a JSON body reduced to its key set.
 - `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.
-- `severity_counts` — sampled occurrences per severity. A template split across `info` and `error` often means the same code path logging both outcomes.
+- `severity_counts` — occurrences per severity, never extrapolated: sample counts when `sampled` is true, exact counts over every matching row otherwise. A template split across `info` and `error` often means the same code path logging both outcomes.
 - `services` — up to 4 service names the pattern was seen in.
-- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Null when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
-- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null.
+- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Always null on the stored-pattern path, which pivots with `match_patterns` instead, and null on the mining path when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
+- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null. Also null on the stored-pattern path.
 
 Mining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.
 
 ## Pivoting to a pattern's raw lines
 
-To fetch the lines behind a pattern, call `query-logs` with a message filter in `filterGroup`:
+To fetch the lines behind a pattern, call `query-logs` with the appropriate filters in `filterGroup`:
 
+- If `match_patterns` is nonempty, use **both** exact filters instead of a message predicate: `{ "key": "pattern", "value": ["<canonical member>", "..."], "operator": "exact", "type": "log" }` and `{ "key": "pattern_version", "value": 3, "operator": "exact", "type": "log" }`. Substitute the returned members and version, and combine the filters with AND. Keep the original time range and filters. Do not narrow these exact groups using example services or severities.
 - If `match_regex` is set: `{ "key": "message", "value": "<match_regex>", "operator": "regex", "type": "log" }`
 - Else if `match_literal` is set: `{ "key": "message", "value": "<match_literal>", "operator": "icontains", "type": "log" }`
 
-Also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.
+For body-mined patterns, also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.
 
 # Parameters
 

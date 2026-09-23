@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { type ReactNode, useEffect, useRef } from 'react'
 
+import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -24,28 +25,28 @@ export function ToolOutput({ children }: { children: ReactNode }): JSX.Element {
                 {truncated ? '\n…' : ''}
             </pre>
             {text !== undefined && (
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-1">
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
+                        icon={<IconCopy />}
+                        tooltip="Copy"
                         data-attr="tool-output-copy"
                         onClick={() => void copyToClipboard(text, 'tool text')}
-                    >
-                        Copy {truncated ? 'full text' : 'text'}
-                    </LemonButton>
+                    />
                     {truncated && (
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
+                            icon={<IconExternal />}
+                            tooltip="Open full text in a new tab"
                             data-attr="tool-output-open"
                             onClick={() => {
                                 const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
                                 urls.current.push(url)
                                 window.open(url, '_blank', 'noopener,noreferrer')
                             }}
-                        >
-                            Open full text in new tab
-                        </LemonButton>
+                        />
                     )}
                 </div>
             )}

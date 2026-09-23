@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
@@ -328,7 +328,12 @@ pub struct SentinelContext {
     /// rebalances. Distinct from the offset ledger's generations, which move
     /// per partition and stamp offset accounting rather than stream order.
     assignment_epoch: Option<AssignmentEpoch>,
+    /// Called with the revoked `(topic, partition)` pairs, so the scheduler
+    /// can drop their queued messages before the new owner replays them.
+    revoke_hook: OnceLock<RevokeHook>,
 }
+
+type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
 
 impl SentinelContext {
     pub fn new(
@@ -341,7 +346,14 @@ impl SentinelContext {
             key_sentinel,
             topic_offset_ledger,
             assignment_epoch: None,
+            revoke_hook: OnceLock::new(),
         }
+    }
+
+    /// Wire the revocation hook; a second call is ignored. Settable after
+    /// construction because the rdkafka consumer only hands out `&self`.
+    pub fn set_revoke_hook(&self, hook: RevokeHook) {
+        let _ = self.revoke_hook.set(hook);
     }
 
     /// Wire the process-wide assignment epoch. Call before the context is
@@ -419,6 +431,17 @@ impl ConsumerContext for SentinelContext {
                 // us after re-assignment) from the last commit — every per-key
                 // baseline is stale.
                 self.key_sentinel.clear();
+                // The hook must run after the ledger forget above: it stamps
+                // each revocation with the bumped generation so only older
+                // poll slices are stripped.
+                if let Some(hook) = self.revoke_hook.get() {
+                    let partitions: Vec<(String, i32)> = tpl
+                        .elements()
+                        .iter()
+                        .map(|e| (e.topic().to_string(), e.partition()))
+                        .collect();
+                    hook(&partitions);
+                }
             }
             Rebalance::Assign(_) => {}
             Rebalance::Error(err) => {

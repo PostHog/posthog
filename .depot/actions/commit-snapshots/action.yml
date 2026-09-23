@@ -1,0 +1,200 @@
+# Depot mirror of .github/actions/commit-snapshots. Only the CI report steps differ. On Depot CI
+# github.token is the Depot Code Access token that every Depot job shares, and it must not write,
+# so the section posts with inputs.ci-report-token. An empty token skips the section, because an
+# empty GITHUB_TOKEN leaves the ambient one in place. A checkout whose update-ci-report.mjs does
+# not adopt tests-posthog[bot] comments skips it too, because it would add a comment per write.
+name: Commit Aggregated Snapshots
+description: Applies snapshot patches, counts changes, commits, and updates the CI report
+
+inputs:
+    workflow-type:
+        description: 'Workflow type (storybook, playwright, or backend)'
+        required: true
+    patch-path:
+        description: 'Path where patch artifacts are already downloaded (e.g., /tmp/snapshot-patches/)'
+        required: true
+    snapshot-path:
+        description: 'Path to snapshot directory (e.g., frontend/__snapshots__/ or playwright/)'
+        required: true
+    commit-message:
+        description: 'Commit message for snapshot changes'
+        required: true
+    pr-number:
+        description: 'Pull request number'
+        required: true
+    repository:
+        description: 'Repository name (owner/repo)'
+        required: true
+    commit-sha:
+        description: 'Commit SHA that was tested'
+        required: true
+    branch-name:
+        description: 'Branch name'
+        required: true
+    github-token:
+        description: 'GitHub token for authentication'
+        required: true
+    ci-report-token:
+        description: 'GitHub token that posts the CI report section; empty skips the section'
+        required: false
+        default: ''
+    extra-files:
+        description: 'Additional file paths to include in the commit (space-separated)'
+        required: false
+        default: ''
+
+outputs:
+    committed:
+        description: 'Whether snapshots were committed (true/false)'
+        value: ${{ steps.commit.outputs.committed }}
+    changes:
+        description: 'JSON object with change counts'
+        value: ${{ steps.commit.outputs.changes }}
+
+runs:
+    using: composite
+    steps:
+        - name: Apply snapshot patches
+          shell: bash
+          env:
+              PATCH_PATH: ${{ inputs.patch-path }}
+          run: |
+              # Apply all patch files from the provided patch directory
+              # Patches handle A/M/D automatically including binary files
+              if [ -d "$PATCH_PATH" ]; then
+                PATCHES=$(find "$PATCH_PATH" -name "*.patch" | sort)
+                if [ -n "$PATCHES" ]; then
+                  echo "::group::Applying snapshot patches"
+                  echo "Applying patches from $PATCH_PATH..."
+                  for patch in $PATCHES; do
+                    if git apply --check "$patch" 2>/dev/null; then
+                      echo "Applying $patch"
+                      git apply --index "$patch"
+                    elif git apply --reverse --check "$patch" 2>/dev/null; then
+                      echo "Skipping $patch (already applied)"
+                    else
+                      echo "::warning::Patch $patch could not be applied — skipping"
+                    fi
+                  done
+                  echo "::endgroup::"
+                else
+                  echo "No patch files found in $PATCH_PATH"
+                fi
+              else
+                echo "Patch directory $PATCH_PATH does not exist"
+              fi
+
+        - name: Configure git
+          shell: bash
+          run: |
+              git config --global --add safe.directory '*'
+
+        - name: Verify branch hasn't advanced
+          id: verify
+          shell: bash
+          env:
+              BRANCH_NAME: ${{ inputs.branch-name }}
+              TESTED_SHA: ${{ inputs.commit-sha }}
+          run: |
+              echo "::group::Verifying branch hasn't advanced"
+              # Check if the remote branch HEAD still matches the commit we tested
+              CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH_NAME" | cut -f1)
+
+              if [ "$TESTED_SHA" != "$CURRENT_SHA" ]; then
+                echo "branch-advanced=true" >> $GITHUB_OUTPUT
+                echo "current-sha=$CURRENT_SHA" >> $GITHUB_OUTPUT
+                echo "::warning::⏭️ Branch advanced during workflow - snapshot commit skipped"
+                echo "   Tested:  $TESTED_SHA"
+                echo "   Current: $CURRENT_SHA"
+              else
+                echo "branch-advanced=false" >> $GITHUB_OUTPUT
+                echo "::notice::✅ Branch HEAD matches tested commit - proceeding with snapshot commit"
+              fi
+              echo "::endgroup::"
+
+        - name: Post skipped snapshot update to CI report
+          if: steps.verify.outputs.branch-advanced == 'true' && inputs.ci-report-token != ''
+          shell: bash
+          env:
+              GITHUB_TOKEN: ${{ inputs.ci-report-token }}
+              TESTED_SHA: ${{ inputs.commit-sha }}
+              CURRENT_SHA: ${{ steps.verify.outputs.current-sha }}
+              WORKFLOW_TYPE: ${{ inputs.workflow-type }}
+              REPOSITORY: ${{ inputs.repository }}
+          run: |
+              grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs || { echo "Skipping snapshot section: this checkout predates Depot CI authorship"; exit 0; }
+              node .github/scripts/post-snapshot-section.mjs \
+                "$WORKFLOW_TYPE" \
+                "skip" \
+                '{}' \
+                "$REPOSITORY" \
+                "$TESTED_SHA" \
+                "$CURRENT_SHA"
+
+        - name: Count changes and disable auto-merge
+          id: commit
+          if: steps.verify.outputs.branch-advanced == 'false'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+              SNAPSHOT_PATH: ${{ inputs.snapshot-path }}
+              PR_NUMBER: ${{ inputs.pr-number }}
+          run: |
+              CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh $SNAPSHOT_PATH)
+              echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
+              echo "Snapshot changes: $CHANGES_JSON"
+
+              TOTAL=$(echo "$CHANGES_JSON" | jq -r '.total')
+              if [ "$TOTAL" -gt 0 ]; then
+                # Disable auto-merge BEFORE committing
+                # This ensures auto-merge is disabled even if workflow gets cancelled after push
+                gh pr merge --disable-auto $PR_NUMBER || echo "Auto-merge was not enabled"
+                echo "::notice::🔒 Auto-merge disabled - snapshot changes require manual review"
+                echo "committed=true" >> $GITHUB_OUTPUT
+              else
+                echo "No snapshot changes to commit"
+                echo "committed=false" >> $GITHUB_OUTPUT
+              fi
+
+        - name: Commit snapshots via GitHub API (signed)
+          id: ghcommit
+          if: steps.commit.outputs.committed == 'true'
+          uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+          with:
+              commit_message: ${{ inputs.commit-message }}
+              repo: ${{ inputs.repository }}
+              branch: ${{ inputs.branch-name }}
+              file_pattern: '${{ inputs.snapshot-path }} ${{ inputs.extra-files }}'
+          env:
+              GITHUB_TOKEN: ${{ inputs.github-token }}
+
+        - name: Post snapshot section to CI report comment
+          if: steps.commit.outputs.committed == 'true' && inputs.ci-report-token != ''
+          shell: bash
+          env:
+              GITHUB_TOKEN: ${{ inputs.ci-report-token }}
+              SNAPSHOT_SHA: ${{ steps.ghcommit.outputs.commit-hash }}
+              COMMIT_SHA: ${{ inputs.commit-sha }}
+              WORKFLOW_TYPE: ${{ inputs.workflow-type }}
+              CHANGES: ${{ steps.commit.outputs.changes }}
+              REPOSITORY: ${{ inputs.repository }}
+          run: |
+              grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs || { echo "Skipping snapshot section: this checkout predates Depot CI authorship"; exit 0; }
+              if [ -f .github/scripts/post-snapshot-section.mjs ]; then
+                  node .github/scripts/post-snapshot-section.mjs \
+                    "$WORKFLOW_TYPE" \
+                    "update" \
+                    "$CHANGES" \
+                    "$REPOSITORY" \
+                    "$COMMIT_SHA" \
+                    "$SNAPSHOT_SHA"
+              else
+                  echo "Skipping snapshot section — script not present on this checkout"
+              fi
+
+        - name: Fail workflow to signal snapshot changes
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          run: |
+              echo "::notice::Snapshots were updated and committed. Workflow fails to prevent auto-merge and signal review needed."
+              exit 1

@@ -6,6 +6,20 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** DRF code for `PostHogFeatureFlagPermission` (posthog/permissions.py). Keep in sync with the backend. */
+export const FEATURE_FLAG_REQUIRED_ERROR_CODE = 'feature_flag_required'
+
+/**
+ * A 403 from a feature flag gate rather than from access control: the flag behind the product
+ * is not on for this user yet. Early access enrollment reaches the server as an ingested person
+ * property, so this is also what the seconds right after enabling a feature preview look like,
+ * while the browser already evaluates the flag as on.
+ */
+export function isFeatureFlagGatedError(error: unknown): boolean {
+    const failure = error as { status?: number; code?: string | null } | null
+    return failure?.status === 403 && failure?.code === FEATURE_FLAG_REQUIRED_ERROR_CODE
+}
+
 /** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
 export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 
@@ -159,6 +173,11 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   the user is told by whatever the caller renders for an empty result. Reporting these is what
  *   floods the project: grouping is stack-based, so every loader that meets the same connectivity
  *   blip opens an issue of its own, and one bad minute on a user's network manufactures dozens.
+ * - a 2xx response whose body stream failed mid-read. The server already answered successfully, so
+ *   the truncation happened on the wire, not in application code. These group the same stack-based
+ *   way, so one flaky connection opens an issue per endpoint it touched. `api.ts` captures each one
+ *   as a `client_request_failure` with `failure_reason: 'response_body_read'`, so a persistent
+ *   truncation regression is still visible in aggregate without an issue per endpoint.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -172,6 +191,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  */
 export function shouldReportApiFailure(error: unknown): boolean {
     if (isBrowserNetworkFailure(error)) {
+        return false
+    }
+    if (error instanceof ResponseBodyReadError) {
         return false
     }
     if (error === null || typeof error !== 'object') {
@@ -195,6 +217,24 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     return !isApprovalRequiredError(failure)
+}
+
+/**
+ * The readable message a failure carries, whether it arrived as a parsed error response body or as
+ * a value something in the request path threw. Returns undefined when nothing readable is there, so
+ * the caller falls back to its own wording instead of printing `[object Object]`.
+ */
+export function readableErrorMessage(error: unknown): string | undefined {
+    if (typeof error === 'string') {
+        return error || undefined
+    }
+    if (error === null || typeof error !== 'object') {
+        return undefined
+    }
+    const failure = error as Record<string, unknown>
+    return [failure.error, failure.detail, failure.message].find(
+        (value): value is string => typeof value === 'string' && value.length > 0
+    )
 }
 
 export class ApiError extends Error {
@@ -236,12 +276,9 @@ export class ApiError extends Error {
             }
         }
 
-        const errorData = data && typeof data === 'object' ? (data as Record<string, unknown>) : null
-        const responseMessage = [errorData?.error, errorData?.detail, errorData?.message].find(
-            (value): value is string => typeof value === 'string'
-        )
+        const errorData = data && typeof data === 'object' ? data : null
 
-        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        return new ApiError(readableErrorMessage(errorData) || fallbackMessage, response.status, response.headers, data)
     }
 
     /**
@@ -308,5 +345,19 @@ export class NetworkError extends ApiError {
         // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
         this.name = 'NetworkError'
         this.cause = cause
+    }
+}
+
+/**
+ * A 2xx response whose body stream failed part way through, after the server had already answered
+ * successfully: a dropped connection or a proxy hiccup truncating a chunked response, not an
+ * application defect. It extends `ApiError` so that every existing catch path degrades as before.
+ */
+export class ResponseBodyReadError extends ApiError {
+    constructor(message: string) {
+        super(message)
+        // Sets the `type` posthog-js reports in `$exception_list`, which error tracking grouping
+        // rules match on.
+        this.name = 'ResponseBodyReadError'
     }
 }

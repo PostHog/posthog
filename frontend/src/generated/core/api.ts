@@ -23,6 +23,7 @@ import type {
     ExportedAssetCreateApi,
     ExportsListParams,
     FileSystemApi,
+    FileSystemDestroyParams,
     FileSystemListParams,
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
@@ -73,6 +74,7 @@ import type {
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
+    ProjectApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
@@ -80,6 +82,8 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    ToolbarEntitlementsApi,
+    TwoFactorStatusApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -957,6 +961,24 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsCancelDeletionCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/cancel-deletion/`
+}
+
+/**
+ * Cancel a scheduled project deletion and restore access to the project.
+ */
+export const organizationsProjectsCancelDeletionCreate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectApi> => {
+    return apiMutator<ProjectApi>(getOrganizationsProjectsCancelDeletionCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/change_organization/`
 }
@@ -1276,54 +1298,6 @@ export const organizationsProjectsIsGeneratingDemoDataRetrieve = async (
     )
 }
 
-export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
-}
-
-/**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const organizationsProjectsLogsConfigRetrieve = async (
-    organizationId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsLogsConfigRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
-}
-
-/**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const organizationsProjectsLogsConfigPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsLogsConfigPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
-        }
-    )
-}
-
 export const getOrganizationsProjectsResetTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/reset_token/`
 }
@@ -1344,6 +1318,30 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl = (
+    organizationId: string,
+    id: number
+) => {
+    return `/api/organizations/${organizationId}/projects/${id}/rotate_heatmaps_screenshot_secret/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
         }
     )
 }
@@ -1631,12 +1629,29 @@ export const fileSystemPartialUpdate = async (
     })
 }
 
-export const getFileSystemDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/file_system/${id}/`
+export const getFileSystemDestroyUrl = (projectId: string, id: string, params?: FileSystemDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/${id}/`
 }
 
-export const fileSystemDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFileSystemDestroyUrl(projectId, id), {
+export const fileSystemDestroy = async (
+    projectId: string,
+    id: string,
+    params?: FileSystemDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFileSystemDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
     })
@@ -2543,6 +2558,17 @@ export const revokeLeakedKeyCreate = async (
     })
 }
 
+export const getUserToolbarEntitlementsRetrieveUrl = () => {
+    return `/api/user/toolbar_entitlements/`
+}
+
+export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getUsersListUrl = (params?: UsersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -3276,10 +3302,13 @@ export const getUsersTwoFactorStatusRetrieveUrl = (uuid: string) => {
 }
 
 /**
- * Get current 2FA status including backup codes if enabled
+ * Get current 2FA status, including how many backup codes are left.
  */
-export const usersTwoFactorStatusRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
+export const usersTwoFactorStatusRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<TwoFactorStatusApi> => {
+    return apiMutator<TwoFactorStatusApi>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
         ...options,
         method: 'GET',
     })

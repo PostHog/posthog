@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
@@ -14,7 +14,7 @@ class TestDashboardButtonTiles(APIBaseTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_button_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -31,7 +31,7 @@ class TestDashboardButtonTiles(APIBaseTest):
         assert tile["button_tile"]["style"] == "primary"
         assert tile["button_tile"]["created_by"]["id"] == self.user.id
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_button_tile_with_pathname(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -43,7 +43,7 @@ class TestDashboardButtonTiles(APIBaseTest):
         assert len(dashboard_json["tiles"]) == 1
         assert dashboard_json["tiles"][0]["button_tile"]["url"] == "/dashboards"
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_button_tile_with_custom_placement_and_style(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -167,7 +167,7 @@ class TestDashboardButtonTiles(APIBaseTest):
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_duplicate_button_tile_via_dashboard_duplication(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="Click")
+        _, dashboard_json = self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="Click")
 
         new_dashboard_id, new_dashboard_json = self.dashboard_api.create_dashboard(
             {"name": "duplicated", "use_dashboard": dashboard_id}
@@ -176,4 +176,5 @@ class TestDashboardButtonTiles(APIBaseTest):
         assert len(new_dashboard_json["tiles"]) == 1
         assert new_dashboard_json["tiles"][0]["button_tile"]["url"] == "https://example.com"
         assert new_dashboard_json["tiles"][0]["button_tile"]["text"] == "Click"
-        assert new_dashboard_json["tiles"][0]["id"] != dashboard_id
+        assert new_dashboard_id != dashboard_id
+        assert new_dashboard_json["tiles"][0]["id"] != dashboard_json["tiles"][0]["id"]

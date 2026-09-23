@@ -35,11 +35,13 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee import settings
+from ee.api.google_oauth_diagnostics import fetch_userinfo_with_diagnostics
 from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
@@ -48,7 +50,6 @@ saml_logger = structlog.get_logger("posthog.auth.saml")
 
 
 def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[str, Any]:
-    from posthog.models.user import User
 
     ctx: dict[str, Any] = {
         "masked_email": mask_email(email),
@@ -56,7 +57,7 @@ def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[s
     }
 
     try:
-        user = User.objects.filter(email__iexact=email).first()
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user:
             ctx["user_id"] = str(user.id)
             if organization_id:
@@ -426,6 +427,15 @@ class CustomGoogleOAuth2(GoogleOAuth2):
             extra_args["login_hint"] = email
 
         return extra_args
+
+    def user_data(self, access_token: str, *args: Any, **kwargs: Any) -> Any:
+        parent_user_data = super().user_data
+        return fetch_userinfo_with_diagnostics(
+            self,
+            access_token,
+            kwargs.get("response") or {},
+            lambda: parent_user_data(access_token, *args, **kwargs),
+        )
 
     def get_user_id(self, details, response):
         """

@@ -259,6 +259,42 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it.each([
+    { serviceTier: "flex", expected: { serviceTier: "flex" } },
+    { serviceTier: undefined, expected: {} },
+  ])(
+    "sends serviceTier $serviceTier on thread/start",
+    async ({ serviceTier, expected }) => {
+      const stub = makeStubRpc({
+        initialize: {},
+        "thread/start": { thread: { id: "thr_1" } },
+      });
+      const { client } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/bundle/codex" },
+        model: "gpt-5.5",
+        serviceTier,
+        rpcFactory: stub.factory,
+      });
+
+      await agent.initialize(init);
+      await agent.newSession({
+        cwd: "/repo",
+        _meta: { environment: "cloud" },
+      } as unknown as NewSessionRequest);
+
+      const threadStart = stub.requests.find(
+        (r) => r.method === "thread/start",
+      );
+      expect(threadStart?.params).toMatchObject(expected);
+      // Unset must omit the key entirely: an explicit null clears the tier codex
+      // would otherwise take from its own config.
+      expect(Object.hasOwn(threadStart?.params as object, "serviceTier")).toBe(
+        serviceTier !== undefined,
+      );
+    },
+  );
+
   it("surfaces subagent activity while isolating its lifecycle state", async () => {
     const stub = makeStubRpc({
       initialize: {},

@@ -4,7 +4,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -12,7 +12,7 @@ from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     CONTEXT_LAYER_INTERNAL_SCOPE,
@@ -38,6 +38,8 @@ from posthog.temporal.oauth import (
     scout_mcp_scopes,
     scout_scope_posture,
 )
+
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 _WIZARD_CLIENT_ID = "wizard-test-client-id"
 
@@ -160,6 +162,9 @@ class TestResolveScopes(SimpleTestCase):
                 "llm_skill:write",
                 "warehouse_view:write",
             ),
+            # The scanner grant's exclusions live in the scanner API, so the token still has to
+            # carry the whole scope object for the rest of that surface to work.
+            ("scanner_grant", "signals_scout", "replay_scanner:write", "alert:write"),
         ]
     )
     def test_scout_posture_adds_only_the_granted_write_scopes(
@@ -428,6 +433,17 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         assert "task:read" in scopes
         assert "task:write" in scopes
 
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_slack_run_scope_is_added_without_narrowing_scopes(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, include_slack_run_scope=True)
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert SLACK_RUN_SCOPE in scopes
+        assert "task:read" in scopes
+
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):
     def _create_wizard_app(self, scopes: list[str]) -> OAuthApplication:
@@ -477,6 +493,20 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
         assert set(access_token.scope.split()) == set(scopes)
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.temporal.oauth.security_shadow_check")
+    def test_mint_records_a_shadow_access_check(self, shadow: MagicMock) -> None:
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        create_wizard_oauth_access_token_for_user(user, team.id)
+
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(team.organization_id),)
+        assert shadow.call_args.kwargs == {"call_site": "wizard_mint"}
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:

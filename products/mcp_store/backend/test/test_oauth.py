@@ -18,6 +18,7 @@ from products.mcp_store.backend.oauth import (
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
+    TokenRefreshRejectedError,
     _resolve_issuer,
     _validate_endpoints_bound_to_issuer,
     discover_oauth_metadata,
@@ -149,7 +150,10 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.json.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp) as mock_post:
+        with (
+            patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
+            patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp) as mock_post,
+        ):
             result = refresh_oauth_token(
                 token_url="https://example.com/token",
                 refresh_token="old-refresh",
@@ -190,10 +194,24 @@ class TestRefreshOauthToken(SimpleTestCase):
         assert call_kwargs["allow_redirects"] is False
         assert call_kwargs["data"]["resource"] == "https://mcp.example.com/"
 
-    def test_http_error_raises_token_refresh_error(self):
+    @parameterized.expand(
+        [
+            ("invalid_grant", 400, {"error": "invalid_grant"}, True),
+            ("invalid_client", 401, {"error": "invalid_client"}, True),
+            ("request_timeout", 408, {}, False),
+            ("temporarily_unavailable", 400, {"error": "temporarily_unavailable"}, False),
+            ("too_many_requests", 429, {}, False),
+            ("unauthorized_without_oauth_error", 401, {}, False),
+            ("server_error", 500, {}, False),
+        ]
+    )
+    def test_http_error_separates_a_rejected_grant_from_a_transient_failure(
+        self, _name: str, status_code: int, response_data: dict[str, str], expect_rejected: bool
+    ) -> None:
         mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        mock_resp.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized", response=mock_resp)
+        mock_resp.status_code = status_code
+        mock_resp.json.return_value = response_data
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=mock_resp)
 
         with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
             with self.assertRaises(TokenRefreshError) as ctx:
@@ -202,7 +220,8 @@ class TestRefreshOauthToken(SimpleTestCase):
                     refresh_token="bad-refresh",
                     client_id="my-client",
                 )
-            self.assertIn("Token refresh request failed", str(ctx.exception))
+
+        assert isinstance(ctx.exception, TokenRefreshRejectedError) is expect_rejected
 
     def test_missing_access_token_raises_token_refresh_error(self):
         mock_resp = MagicMock()
@@ -1161,7 +1180,8 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert ctx.client_secret == "template-secret"
         assert ctx.token_endpoint_auth_method == expected_auth_method
 
-    def test_template_backed_install_uses_instance_credential_source(self):
+    @parameterized.expand([("slack_app", "SLACK_APP"), ("slack_dev_app", "SLACK_DEV_APP")])
+    def test_template_backed_install_uses_instance_credential_source(self, source: str, prefix: str) -> None:
         template = MCPServerTemplate.objects.create(
             name="Slack",
             url="https://mcp.slack.test.example/mcp",
@@ -1172,7 +1192,7 @@ class TestResolveInstallationOauthContext(BaseTest):
                 "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
                 "token_endpoint_auth_methods_supported": ["client_secret_post"],
             },
-            oauth_credentials_source="slack_app",
+            oauth_credentials_source=source,
             oauth_credentials={},
             created_by=self.user,
         )
@@ -1186,14 +1206,20 @@ class TestResolveInstallationOauthContext(BaseTest):
         )
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            override_instance_config(f"{prefix}_CLIENT_ID", "slack-client"),
+            override_instance_config(f"{prefix}_CLIENT_SECRET", "slack-secret"),
         ):
             ctx = resolve_installation_oauth_context(installation)
 
         assert ctx.client_id == "slack-client"
         assert ctx.client_secret == "slack-secret"
         assert ctx.token_endpoint_auth_method == "client_secret_post"
+
+        if source == "slack_dev_app":
+            with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
+                with self.assertRaisesRegex(ValueError, "not available for this project"):
+                    resolve_installation_oauth_context(installation)
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —
@@ -1266,7 +1292,12 @@ class TestResolveInstallationOauthContext(BaseTest):
 
 
 class TestSourceBackedOauthMetadataBinding(BaseTest):
-    def _installation(self) -> MCPServerInstallation:
+    def _installation(
+        self,
+        *,
+        token_endpoint: str = "https://attacker.example.com/token",
+        oauth_credentials_source: str = "slack_app",
+    ) -> MCPServerInstallation:
         template = MCPServerTemplate.objects.create(
             name="Slack",
             url="https://mcp.slack.test.example/mcp",
@@ -1274,10 +1305,10 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
             oauth_metadata={
                 "issuer": "https://mcp.slack.com",
                 "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
-                "token_endpoint": "https://attacker.example.com/token",
+                "token_endpoint": token_endpoint,
                 "token_endpoint_auth_methods_supported": ["client_secret_post"],
             },
-            oauth_credentials_source="slack_app",
+            oauth_credentials_source=oauth_credentials_source,
             created_by=self.user,
         )
         return MCPServerInstallation.objects.create(
@@ -1308,6 +1339,47 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
             )
 
         mock_post.assert_not_called()
+
+    @parameterized.expand(["exchange", "refresh"])
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.record_slack_api_response")
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_slack_dev_token_requests_are_recorded(self, operation, mock_post, record_response, _allow):
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.headers = {}
+        response.json.return_value = {"access_token": "access-token", "refresh_token": "refresh-token"}
+        mock_post.return_value = response
+        installation = self._installation(
+            token_endpoint="https://slack.com/api/oauth.v2.user.access",
+            oauth_credentials_source="slack_dev_app",
+        )
+
+        with (
+            override_instance_config("SLACK_DEV_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_DEV_APP_CLIENT_SECRET", "slack-secret"),
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+        ):
+            if operation == "exchange":
+                exchange_oauth_token(
+                    installation=installation,
+                    code="auth-code",
+                    pkce_verifier="pkce-verifier",
+                    redirect_uri="https://app.posthog.com/callback",
+                    is_https=lambda url: url.startswith("https://"),
+                )
+            else:
+                refresh_installation_token(installation)
+
+        record_response.assert_called_once_with(
+            response,
+            source="mcp_store_oauth",
+            workspace_id=None,
+            app_id="slack_dev_app",
+            method="POST",
+            endpoint="oauth.v2.user.access",
+        )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
@@ -1540,3 +1612,153 @@ class TestExchangeOauthToken(BaseTest):
                 is_https=lambda url: url.startswith("https://"),
             )
             assert result["access_token"] == "abc"
+
+
+class TestRefreshInstallationToken(BaseTest):
+    def _make_installation(self, **kwargs) -> MCPServerInstallation:
+        template = MCPServerTemplate.objects.create(
+            name="Refreshable",
+            url="https://mcp.refreshable.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.refreshable.example.com/token"},
+            oauth_credentials={"client_id": "client", "client_secret": "secret"},
+            created_by=self.user,
+        )
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "template": template,
+            "url": template.url,
+            "auth_type": "oauth",
+            "sensitive_configuration": {"access_token": "tok", "refresh_token": "refresh"},
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The fixture token endpoint is not a resolvable host; the SSRF guard is not
+        # what these tests are about.
+        patcher = patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _post_answering(status_code: int, response_data: dict[str, str] | None = None) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = response_data or {}
+        response.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=response)
+        return response
+
+    @staticmethod
+    def _post_failing(error: Exception) -> MagicMock:
+        response = MagicMock()
+        response.status_code = 200
+        response.raise_for_status.side_effect = error
+        return response
+
+    @parameterized.expand([("invalid_grant", 400), ("invalid_client", 401)])
+    def test_provider_rejecting_the_grant_flags_reauth(self, oauth_error: str, status_code: int) -> None:
+        installation = self._make_installation()
+
+        with patch(
+            "products.mcp_store.backend.oauth.requests.post",
+            return_value=self._post_answering(status_code, {"error": oauth_error}),
+        ):
+            with self.assertRaises(TokenRefreshRejectedError):
+                refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        # EncryptedJSONField stringifies scalars, so every reader of the flag tests truthiness.
+        assert installation.sensitive_configuration["needs_reauth"]
+
+    def test_rejection_of_a_token_a_concurrent_refresh_replaced_leaves_the_connection_alone(self) -> None:
+        # Providers that rotate refresh tokens reject every loser of a concurrent refresh,
+        # because the winner already consumed the token they all sent. Acting on that would
+        # flag a working connection and write the consumed credentials over the fresh ones.
+        installation = self._make_installation()
+
+        def _win_the_race_then_reject(*args, **kwargs):
+            winner = MCPServerInstallation.objects.get(pk=installation.pk)
+            winner.sensitive_configuration = {"access_token": "fresh", "refresh_token": "rotated"}
+            winner.save(update_fields=["sensitive_configuration", "updated_at"])
+            raise TokenRefreshRejectedError("Token refresh rejected by the provider")
+
+        with patch("products.mcp_store.backend.oauth.refresh_oauth_token", side_effect=_win_the_race_then_reject):
+            with self.assertRaises(TokenRefreshRejectedError):
+                refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+        assert installation.sensitive_configuration["access_token"] == "fresh"
+        assert installation.sensitive_configuration["refresh_token"] == "rotated"
+
+    @parameterized.expand(
+        [
+            ("request_timeout", 408, {}),
+            ("temporarily_unavailable", 400, {"error": "temporarily_unavailable"}),
+            ("too_many_requests", 429, {}),
+            ("server_error", 500, {}),
+            ("bad_gateway", 502, {}),
+            ("gateway_timeout", 504, {}),
+        ]
+    )
+    def test_provider_outage_leaves_the_connection_alone(
+        self, _name: str, status_code: int, response_data: dict[str, str]
+    ) -> None:
+        installation = self._make_installation()
+
+        with patch(
+            "products.mcp_store.backend.oauth.requests.post",
+            return_value=self._post_answering(status_code, response_data),
+        ):
+            with self.assertRaises(TokenRefreshError) as ctx:
+                refresh_installation_token(installation)
+
+        assert not isinstance(ctx.exception, TokenRefreshRejectedError)
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+
+    @parameterized.expand(
+        [
+            ("connection_error", requests.ConnectionError("connection reset")),
+            ("timeout", requests.Timeout("timed out")),
+        ]
+    )
+    def test_network_failure_leaves_the_connection_alone(self, _name: str, error: Exception) -> None:
+        installation = self._make_installation()
+
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_failing(error)):
+            with self.assertRaises(TokenRefreshError) as ctx:
+                refresh_installation_token(installation)
+
+        assert not isinstance(ctx.exception, TokenRefreshRejectedError)
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+
+    def test_missing_refresh_token_flags_reauth(self) -> None:
+        # No refresh token means no refresh will ever succeed; only a new authorization can.
+        installation = self._make_installation(sensitive_configuration={"access_token": "tok"})
+
+        with self.assertRaises(TokenRefreshRejectedError):
+            refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        assert installation.sensitive_configuration["needs_reauth"]
+
+    def test_successful_refresh_clears_a_stale_reauth_flag(self) -> None:
+        installation = self._make_installation(
+            sensitive_configuration={"access_token": "tok", "refresh_token": "refresh", "needs_reauth": True},
+        )
+        response = MagicMock()
+        response.status_code = 200
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"access_token": "fresh", "expires_in": 3600}
+
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=response):
+            refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+        assert installation.sensitive_configuration["access_token"] == "fresh"

@@ -276,7 +276,7 @@ export default function Canvas() {
   }
 
   return (
-    <div className="h-screen overflow-y-auto bg-background">
+    <div className="min-h-screen bg-background">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">

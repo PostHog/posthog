@@ -38,3 +38,24 @@ def positional_index(node: ast.Expr) -> int | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
         return node.value
     return None
+
+
+def constant_integer(node: ast.Expr | None) -> int | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        return node.value
+    if not isinstance(node, ast.ArithmeticOperation):
+        return None
+    left = constant_integer(node.left)
+    right = constant_integer(node.right)
+    if left is None or right is None or not (-(2**63) <= left < 2**63 and -(2**63) <= right < 2**63):
+        return None
+    match node.op:
+        case ast.ArithmeticOperationOp.Add:
+            result = left + right
+        case ast.ArithmeticOperationOp.Sub:
+            result = left - right
+        case ast.ArithmeticOperationOp.Mult:
+            result = left * right
+        case _:
+            return None
+    return result if -(2**63) <= result < 2**63 else None

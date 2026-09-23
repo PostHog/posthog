@@ -5,6 +5,7 @@ from django.apps import apps
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -112,17 +113,19 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, created_by=self.user, name="Bug hunts")
         self._create_access_control(
-            resource="session_recording_playlist", resource_id=str(playlist.id), access_level="none"
+            resource="session_recording_playlist", resource_id=str(playlist.id), access_level="editor"
         )
         self._create_access_control(
-            resource="session_recording", access_level="editor", organization_member=self.other_membership
+            resource="session_recording", access_level="none", organization_member=self.other_membership
         )
 
         changes = self._changes()
 
         member_changes = [change for change in changes if change.subject.type == "member"]
         assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
-        assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("editor", "none")
+        # Legacy: the member's parent-resource rule blocks the object. Most-specific: the object's
+        # own default row decides first, so the member's parent rule no longer reaches it.
+        assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("none", "editor")
 
     @parameterized.expand(
         [
@@ -228,6 +231,65 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
 
         response = self.client.get("/api/projects/@current/access_control_resolution_preview")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_accept_requires_org_admin(self):
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="admin")
+
+        response = self.client.post("/api/projects/@current/access_control_resolution_accept")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.organization.refresh_from_db()
+        assert not self.organization.uses_most_specific_access_resolution
+
+    def test_accept_rejects_project_scoped_credentials(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped", user=self.user, secure_value=hash_key_value(key), scoped_teams=[self.team.id], scopes=["*"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/access_control_resolution_accept",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.organization.refresh_from_db()
+        assert not self.organization.uses_most_specific_access_resolution
+
+    def test_accept_switches_the_organization_and_logs_it(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+
+        response = self.client.post("/api/projects/@current/access_control_resolution_accept")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"uses_most_specific_access_resolution": True}
+        self.organization.refresh_from_db()
+        assert self.organization.uses_most_specific_access_resolution
+        log = ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).latest("created_at")
+        assert log.activity == "updated"
+        assert log.detail is not None
+        assert any(
+            change["field"] == "most-specific access resolution" and change["after"] is True
+            for change in log.detail["changes"]
+        )
+
+    def test_accept_is_idempotent(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        logs_before = ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).count()
+
+        response = self.client.post("/api/projects/@current/access_control_resolution_accept")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (
+            ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).count() == logs_before
+        )
 
     def test_returns_changes_and_summary(self):
         self.membership.level = OrganizationMembership.Level.ADMIN

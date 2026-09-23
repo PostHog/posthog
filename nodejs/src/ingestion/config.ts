@@ -26,6 +26,9 @@ import {
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
 
+/** Default for FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: '' excludes nobody, so the allowlist alone decides. */
+export const DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS = ''
+
 // =============================================================================
 // Infrastructure sub-config types
 // These group CommonConfig keys by infrastructure concern for use in server
@@ -168,6 +171,9 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // The saga's per-source move guard in SYNC mode; an over-limit source
+    // comes back skipped_move_limit for the merge-mode policy.
+    PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -245,6 +251,8 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams held back from the personless default even when the allowlist is '*': '' for none, '*' to disable the default for every team, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: string
     /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
@@ -365,6 +373,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
@@ -408,6 +417,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
         EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called fork into the flag_evaluations ClickHouse table.

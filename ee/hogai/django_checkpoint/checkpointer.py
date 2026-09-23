@@ -19,6 +19,7 @@ from langgraph.checkpoint.base import (
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer, _msgpack_ext_hook_to_json
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
+from prometheus_client import Counter
 
 from posthog.sync import database_sync_to_async
 
@@ -27,6 +28,34 @@ from products.posthog_ai.backend.models.assistant import (
     ConversationCheckpointBlob,
     ConversationCheckpointWrite,
 )
+
+# A checkpoint written before a message type left the schema still holds that message. Every member of
+# the message union rejects the unknown literal, so the whole state fails to validate and the
+# conversation reads as unsupported. `ai/router` held the 2025 router node's insight-type pick, such as
+# "trends"; no surface rendered it, and the visualization message after it carries what the pick produced.
+RETIRED_MESSAGE_TYPES = frozenset({"ai/router"})
+
+MESSAGES_CHANNEL = "messages"
+
+RETIRED_MESSAGES_DROPPED_COUNTER = Counter(
+    "max_ai_retired_checkpoint_messages_dropped_total",
+    "Messages dropped on checkpoint load because the schema no longer has their type.",
+    labelnames=["message_type"],
+)
+
+
+def drop_retired_messages(messages: Any) -> Any:
+    """Remove messages whose type the schema dropped, so the rest of the conversation still loads."""
+    if not isinstance(messages, list):
+        return messages
+    kept = []
+    for message in messages:
+        message_type = message.get("type") if isinstance(message, dict) else None
+        if message_type in RETIRED_MESSAGE_TYPES:
+            RETIRED_MESSAGES_DROPPED_COUNTER.labels(message_type=message_type).inc()
+            continue
+        kept.append(message)
+    return kept
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -162,6 +191,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 if channel_values is not None
                 else {}
             )
+
+            if MESSAGES_CHANNEL in channel_values:
+                channel_values[MESSAGES_CHANNEL] = drop_retired_messages(channel_values[MESSAGES_CHANNEL])
 
             # langgraph-checkpoint dropped `pending_sends` from the Checkpoint TypedDict in 2.1, but the langgraph runtime still consumes it via `.get()`, so keep emitting it as an extra key
             checkpoint_dict = cast(

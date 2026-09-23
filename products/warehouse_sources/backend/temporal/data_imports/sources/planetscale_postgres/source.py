@@ -1,8 +1,7 @@
 import re
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -13,7 +12,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
@@ -129,7 +127,7 @@ class PlanetScalePostgresSource(PostgresSource):
         ]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLANET_SCALE_POSTGRES,
+            name=ExternalDataSourceType.PLANETSCALEPOSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql", "postgresql", "postgres", "planetscale"],
             label="PlanetScale Postgres",
@@ -163,6 +161,7 @@ class PlanetScalePostgresSource(PostgresSource):
         slot_name: str | None = None,
         publication_name: str | None = None,
         require_ssl: bool = True,
+        team_id: int | None = None,
     ) -> list[str]:
         # PSBouncer accepts normal connections, so the generic checks would pass — but logical
         # replication doesn't work through it. Fail fast without connecting.
@@ -175,4 +174,5 @@ class PlanetScalePostgresSource(PostgresSource):
             slot_name=slot_name,
             publication_name=publication_name,
             require_ssl=require_ssl,
+            team_id=team_id,
         )

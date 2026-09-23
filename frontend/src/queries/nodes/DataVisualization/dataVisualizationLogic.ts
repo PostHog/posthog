@@ -17,6 +17,7 @@ import type { BreakPointFunction } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
@@ -57,9 +58,11 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
+import { humanizeEventColumnValue } from './eventColumnLabels'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -538,8 +541,12 @@ export function applyVisualizationType(
     let yAxis = chartSettings.yAxis ? [...chartSettings.yAxis] : []
     const selectedYAxis = yAxis.map((series) => ({ name: series.column }))
 
-    if (visualizationType === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
+    if (PIE_DISPLAY_TYPES.includes(visualizationType) && chartSettings.pie?.sliceContent === undefined) {
         chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
+    }
+
+    if (visualizationType === ChartDisplayType.ActionsDonut && chartSettings.pie?.showTotal === undefined) {
+        chartSettings.pie = { ...chartSettings.pie, showTotal: true }
     }
 
     if (visualizationType === ChartDisplayType.Metric) {
@@ -636,6 +643,7 @@ export interface dataVisualizationLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     responseError: string | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
@@ -829,6 +837,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => Column[]
         numericalColumns: (columns: Column[]) => Column[]
@@ -856,6 +865,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[],
             chartSettings: ChartSettings,
@@ -877,6 +887,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => AxisSeries<string> | null
@@ -896,6 +907,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => AxisSeries<any>[]
@@ -915,6 +927,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             chartSettings: ChartSettings
         ) => TableDataCell<any>[][]
@@ -949,6 +962,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => ChartDisplayType
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
@@ -1607,7 +1621,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n: any) => n[column.dataIndex]),
+                    data: data.map((n: any) => humanizeEventColumnValue(column.name, n[column.dataIndex])),
                 }
             },
         ],

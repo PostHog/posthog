@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Literal, get_args
 
 ## API Scopes
@@ -40,6 +40,7 @@ APIScopeObject = Literal[
     "customer_profile_config",
     "data_catalog",
     "data_catalog_approval",
+    "data_deletion",
     "dashboard",
     "event_filter",
     "dashboard_template",
@@ -87,6 +88,7 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
+    "mcp_registry",
     "metrics",
     "notebook",
     "organization",
@@ -110,6 +112,7 @@ APIScopeObject = Literal[
     "signal_scout_internal",
     "signal_scout_report",
     "signal_scratchpad_internal",
+    "slack_run",
     "stamphog",
     "streamlit_app",
     "subscription",
@@ -136,9 +139,9 @@ APIScopeObject = Literal[
 ]
 
 
-# Server-only provenance marker for OAuth tokens minted for PostHog's built-in
-# agents. It is hidden from user-controlled scope selectors below.
+# Server-only provenance markers hidden from user-controlled scope selectors.
 MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
+SLACK_RUN_SCOPE = "slack_run:read"
 
 APIScopeActions = Literal[
     "read",
@@ -193,6 +196,9 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # pipeline's research and implementation runs need durable memory, and granting it
         # through the scout object would hand them `emit_signal` and `record_output` too.
         "signal_scratchpad_internal",
+        # Marks tokens minted for Slack tasks so spend policy does not depend on the
+        # caller-selected LLM gateway product route.
+        "slack_run",
     }
 )
 
@@ -515,6 +521,45 @@ def clamp_scopes_to_ceiling(
         granted = resource_requested & allowed
 
     return sorted(granted | always_allowed)
+
+
+# How many real scopes a request has to carry before its trailing fragment reads as a cut
+# URL rather than as a junk token. A false positive costs the app's whole ceiling, while a
+# missed one only costs a short consent list, so the bar sits well above the length any
+# deliberate request reaches by accident.
+MIN_SCOPES_BEFORE_TRUNCATION = 20
+
+
+def is_truncated_scope_request(requested: Sequence[str]) -> bool:
+    """Whether a `scope` list looks cut off mid-token rather than merely stale.
+
+    A client pinning a retired or renamed scope is routine, and `clamp_scopes_to_ceiling`
+    drops those one at a time. A cut-off request is a different failure: something in the
+    path truncated the authorization URL, so the last token is a fragment and every scope
+    after it is gone, with no way to tell how many. Dropping the fragment the same way
+    hands the user a short consent list and a half-working client, with no error anywhere.
+
+    The signal is a final token that is a strict prefix of a real scope, with every token
+    before it a real scope. A fragment can only ever be last, because the cut takes the
+    rest of the string with it, and requiring a clean head keeps a client with one stale
+    scope from reading as truncated. `requested` must preserve request order.
+
+    The head also has to be long: `MIN_SCOPES_BEFORE_TRUNCATION` real scopes have to come
+    through before a trailing fragment counts. Scope names are short common words, so a
+    two-token request like `openid insight` prefixes a real scope by coincidence, and
+    reading that as truncation hands the caller the app's whole ceiling. A URL that was
+    actually cut carries most of the list before the cut, so the length is what separates
+    the two.
+    """
+    if len(requested) <= MIN_SCOPES_BEFORE_TRUNCATION:
+        return False
+
+    *head, tail = requested
+    known = ALL_SCOPES | ALWAYS_ALLOWED_SCOPES | {"*"}
+    if not tail or tail in known or not all(scope in known for scope in head):
+        return False
+
+    return any(scope.startswith(tail) for scope in known)
 
 
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:

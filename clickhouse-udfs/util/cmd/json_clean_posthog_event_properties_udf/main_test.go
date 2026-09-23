@@ -92,6 +92,9 @@ func TestEventPropertyRulesCoverComplexSchemaPaths(t *testing.T) {
 		normalizationObjectArray: {
 			"$exception_list",
 		},
+		normalizationObject: {
+			"$feature_flags",
+		},
 	}
 
 	for want, paths := range tests {
@@ -121,8 +124,13 @@ func TestProcessLinePreservesScalarPropertiesAndNormalizesComplexProperties(t *t
 	}
 }
 
-func TestProcessLineQuarantinesInvalidExceptionList(t *testing.T) {
+func TestProcessLineQuarantinesInvalidComplexProperties(t *testing.T) {
 	tests := map[string]string{
+		`{"$feature_flags":"not-a-map","kept":"value"}`: `{"$feature_flags":{},"kept":"value","$unparseable_properties":"{\"$feature_flags\":\"not-a-map\"}"}`,
+		`{"$feature_flags":["flag"]}`:                   `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":[\"flag\"]}"}`,
+		`{"$feature_flags":true}`:                       `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":true}"}`,
+		`{"$feature_flags":42}`:                         `{"$feature_flags":{},"$unparseable_properties":"{\"$feature_flags\":42}"}`,
+		`{"$feature_flags":null}`:                       `{}`,
 		`{"$unparseable_properties":"spoofed","$exception_list":"[redacted]","kept":"value"}`: `{"$exception_list":[],"kept":"value","$unparseable_properties":"{\"$exception_list\":\"[redacted]\"}"}`,
 		`{"$exception_list":[1]}`:  `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":[1]}"}`,
 		`{"$exception_list":true}`: `{"$exception_list":[],"$unparseable_properties":"{\"$exception_list\":true}"}`,

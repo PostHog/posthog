@@ -81,8 +81,7 @@ CREATE TABLE posthog.events (
   dmat_string_9 Nullable(String),
   historical_migration Bool,
   properties_group_ai_large Map(String, String),
-  mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name',
-  mat_$ai_experiment_id Nullable(String) COMMENT 'column_materializer::properties::$ai_experiment_id'
+  mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name'
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events', sipHash64(distinct_id));
 CREATE TABLE posthog.person_distinct_id_overrides (
   team_id Int64,
@@ -295,6 +294,7 @@ CREATE TABLE posthog.raw_sessions_v3 (
   screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
+  flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
   flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -302,7 +302,8 @@ CREATE TABLE posthog.raw_sessions_v3 (
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool),
   INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-  INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+  INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+  INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/sessions/noshard/posthog.raw_sessions_v3', '{shard}-{replica}') ORDER BY (team_id, session_timestamp, session_id_v7) PARTITION BY toYYYYMM(session_timestamp) SETTINGS index_granularity = 8192, storage_policy = 's3_tiered';
 CREATE TABLE posthog.sessions (
   session_id String,

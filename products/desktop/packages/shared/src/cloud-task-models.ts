@@ -1,6 +1,7 @@
 import type { Adapter } from "./adapter";
 import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
+import { labelForModel } from "./model-catalog";
 import {
   customModelMeta,
   modelHarnessMeta,
@@ -52,9 +53,9 @@ export interface CloudTaskModePreset {
   description: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
+export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 
 export const BLOCKED_GATEWAY_MODEL_IDS = [
   "gpt-5-mini",
@@ -197,18 +198,6 @@ export function isCloudflareModelId(modelId: string): boolean {
   return modelId.startsWith("@cf/");
 }
 
-export function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
-export function isGlm53ModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3";
-}
-
-export function isGlm53FlashModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
-}
-
 export function isCloudflareModel(model: GatewayModel): boolean {
   return isCloudflareModelId(model.id) || model.owned_by === "cloudflare";
 }
@@ -298,12 +287,10 @@ function formatProviderModelName(modelId: string): string {
   return [head, ...tail].join(" ");
 }
 
-const MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
-};
-
 export function formatGatewayModelName(model: GatewayModel): string {
-  const displayName = MODEL_DISPLAY_NAMES[model.id];
+  // The catalog names the models whose derived name reads wrong, so web and desktop show
+  // the same string for them; everything else still goes through the formatters below.
+  const displayName = labelForModel(model.id);
   if (displayName) {
     return displayName;
   }
@@ -350,11 +337,6 @@ export function adapterForModelId(modelId: string): Adapter {
     ? "codex"
     : "claude";
 }
-
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 function buildModelSelectOptions(
   models: readonly GatewayModel[],

@@ -1,4 +1,8 @@
 import { Meta } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import type { Mocks } from '~/mocks/utils'
 
@@ -80,6 +84,24 @@ export const MCPAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateS
     'needs-setup',
     { mocks: mcpSignalMocks(false) }
 )
+
+export const MCPAnalyticsNeedsSetupNarrow: ProductEmptyStateStory = productEmptyStateStory(
+    mcpAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: mcpSignalMocks(false), containerWidth: 520 }
+)
+
+export const MCPAnalyticsAgentPrompt: ProductEmptyStateStory = {
+    ...MCPAnalyticsNeedsSetup,
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, snapshotTargetSelector: 'body' },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await within(canvasElement).findByRole('button', { name: 'Install with your agent' })
+        await userEvent.click(trigger)
+        await screen.findByRole('dialog')
+    },
+}
 
 export const MCPAnalyticsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     mcpAnalyticsEmptyState,
@@ -317,6 +339,19 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
     'waiting-for-data',
     { mocks: errorTrackingMocks }
 )
+
+// The `error-tracking` wizard subcommand is flag-gated: with the flag on the terminal card
+// is the only call to action and the autocapture opt-in leaves the screen.
+const errorTrackingNeedsSetupNewWizard = productEmptyStateStory(errorTrackingEmptyState, 'needs-setup', {
+    mocks: errorTrackingMocks,
+})
+export const ErrorTrackingNeedsSetupNewWizard: ProductEmptyStateStory = {
+    ...errorTrackingNeedsSetupNewWizard,
+    parameters: {
+        ...errorTrackingNeedsSetupNewWizard.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
 
 // Logs detection asks the has-logs API on mount - answer "none yet".
 export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {

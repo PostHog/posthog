@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -339,7 +339,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0][0], person.uuid)
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
     def test_funnel_person_recordings(self):
         p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
         _create_event(
@@ -733,7 +733,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_returns_sessions_with_person(self):
         self._create_session_funnel_data()
 
@@ -758,7 +758,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
             assert "properties" in person_data
             assert person_data["properties"]["email"] == "test@example.com"
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_step_completed(self):
         self._create_session_funnel_data()
 
@@ -773,7 +773,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert str(response.results[0][0]["session_id"]) == self.session_id_1
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_dropoff(self):
         self._create_session_funnel_data()
 
@@ -788,7 +788,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert str(response.results[0][0]["session_id"]) == self.session_id_2
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_trends_session_actors(self):
         self._create_session_funnel_data()
 
@@ -813,7 +813,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         assert person_data is not None
         assert person_data["properties"]["email"] == "test@example.com"
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_trends_session_actors_dropoff(self):
         self._create_session_funnel_data()
 
@@ -833,7 +833,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert str(response.results[0][0]["session_id"]) == self.session_id_2
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_search_by_email(self):
         self._create_session_funnel_data()
 
@@ -851,7 +851,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         session_ids = {str(row[0]["session_id"]) for row in response.results}
         assert session_ids == {self.session_id_1, self.session_id_2}
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_search_by_name(self):
         self._create_session_funnel_data()
 
@@ -869,7 +869,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
         session_ids = {str(row[0]["session_id"]) for row in response.results}
         assert session_ids == {self.session_id_1, self.session_id_2}
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_search_email_no_match(self):
         self._create_session_funnel_data()
 
@@ -885,7 +885,7 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 0
 
-    @freeze_time("2021-01-08 00:00:00.000Z")
+    @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_search_name_no_match(self):
         self._create_session_funnel_data()
 
