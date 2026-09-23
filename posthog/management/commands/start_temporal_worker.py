@@ -31,6 +31,7 @@ from posthog.temporal.ai_observability import (
 )
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
+    AI_QUEUE_ACTIVITIES as ALERT_AI_QUEUE_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
 )
 from posthog.temporal.backfill_group_type_created_at import (
@@ -454,7 +455,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
