@@ -35,8 +35,10 @@ from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
     STATE_KEY,
     OfferRecord,
     OfferStatus,
+    TurnSuggestionResolution,
     claim_turn,
     read_ledger,
+    resolve_offer,
 )
 from products.posthog_ai.backend.turn_suggestions.service import (
     TURN_SUGGESTION_METHOD,
@@ -66,6 +68,7 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
     TurnVerdict,
 )
 from products.tasks.backend.facade.api import TaskClientProvenance
+from products.tasks.backend.facade.contracts import StreamNotificationDelivery
 from products.tasks.backend.models import Channel, Task
 
 SERVICE = "products.posthog_ai.backend.turn_suggestions.service"
@@ -243,7 +246,8 @@ class TestBuildTurnTranscript(SimpleTestCase):
         names = [call.name for call in transcript.tool_calls]
         assert names == ([] if expected_name is None else [expected_name])
 
-    def test_exec_command_arriving_in_a_later_update_is_resolved(self):
+    @parameterized.expand([("no_command_yet", {}), ("partial_call", {"command": "call"})])
+    def test_exec_command_arriving_in_a_later_update_is_resolved(self, _name: str, first_input: dict):
         entries = [
             _user_message("q"),
             _notification(
@@ -255,7 +259,7 @@ class TestBuildTurnTranscript(SimpleTestCase):
                         "serverName": "posthog",
                         "toolName": "exec",
                         "status": "pending",
-                        "rawInput": {},
+                        "rawInput": first_input,
                     }
                 },
             ),
@@ -672,7 +676,10 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.task_run = task.create_run(mode="interactive")
 
         self.stream = patch(f"{SERVICE}.read_task_run_stream_entries", return_value=_metric_turn())
-        self.publish = patch(f"{SERVICE}.publish_task_run_stream_notification", return_value=True)
+        self.publish = patch(
+            f"{SERVICE}.publish_task_run_stream_notification",
+            return_value=StreamNotificationDelivery(live=True, persisted=True),
+        )
         self.classify = patch(f"{SERVICE}.classify_turn", return_value=_verdict())
         self.scouts = patch(f"{SERVICE}.scout_creation_available", return_value=True)
         self.flag = patch(f"{SERVICE}.feature_enabled_or_false", return_value=True)
@@ -873,18 +880,34 @@ class TestGenerateTurnSuggestion(BaseTest):
         transcript = self.mocks["classify"].call_args.args[0]
         assert [turn.question for turn in transcript.earlier_turns] == ["How many signups did we get this week?"]
 
-    def test_a_card_superseded_by_a_later_turn_is_not_published(self):
-        def classify_while_the_next_turn_claims(*_args: Any, **_kwargs: Any) -> TurnVerdict:
-            assert claim_turn(self.task_run.task_id, self.team.id, 1) is None
+    @parameterized.expand([("next_turn_claims", "superseded"), ("earlier_card_dismissed", "dismissed")])
+    def test_a_card_that_lost_its_turn_while_drafting_is_not_published(self, interruption: str, reason: str):
+        self.mocks["stream"].return_value = [
+            *_metric_turn(),
+            *(
+                entry
+                for question in ("By country?", "By plan?")
+                for entry in (_user_message(question), _agent_text("A."))
+            ),
+        ]
+        earlier = _offer(0, run_id=str(self.task_run.id))
+        Task.objects.filter(id=self.task_run.task_id).update(state={STATE_KEY: {"offers": [earlier]}})
+
+        def classify_while_interrupted(*_args: Any, **_kwargs: Any) -> TurnVerdict:
+            if interruption == "next_turn_claims":
+                assert claim_turn(self.task_run.task_id, self.team.id, 3) is None
+            else:
+                resolution = TurnSuggestionResolution.DISMISSED
+                assert resolve_offer(self.task_run.task_id, self.team.id, turn_index=0, resolution=resolution)
             return _verdict()
 
-        self.mocks["classify"].side_effect = classify_while_the_next_turn_claims
+        self.mocks["classify"].side_effect = classify_while_interrupted
 
         outcome = self._generate()
 
-        assert outcome == TurnSuggestionOutcome(status="skipped", reason="superseded")
+        assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
         self.mocks["publish"].assert_not_called()
-        assert read_ledger(self.task_run.task_id, self.team.id).offers == ()
+        assert [offer.turn_index for offer in read_ledger(self.task_run.task_id, self.team.id).offers] == [0]
 
     @parameterized.expand(
         [
@@ -928,9 +951,19 @@ class TestGenerateTurnSuggestion(BaseTest):
             assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
             self.mocks["classify"].assert_not_called()
 
-    @parameterized.expand([("flag", "flag_off"), ("judge", "judge_not_configured")])
+    @parameterized.expand(
+        [
+            ("flag", "flag_off"),
+            ("judge", "judge_not_configured"),
+            ("ai_data_processing", "ai_data_processing_not_approved"),
+        ]
+    )
     def test_a_closed_gate_skips_before_classifying(self, gate: str, reason: str):
-        self.mocks[gate].return_value = False
+        if gate == "ai_data_processing":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+        else:
+            self.mocks[gate].return_value = False
 
         outcome = self._generate()
 
@@ -988,8 +1021,9 @@ class TestResolveTurnSuggestion(APIBaseTest):
             state={STATE_KEY: {"offers": [_offer(0, run_id=str(self.task_run.id))]}}
         )
 
-    def _resolve(self, task_id: str, turn_index: int, resolution: str):
-        with patch(f"{SERVICE}.publish_task_run_stream_notification", return_value=True) as publish:
+    def _resolve(self, task_id: str, turn_index: int, resolution: str, *, persisted: bool = True):
+        delivery = StreamNotificationDelivery(live=True, persisted=persisted)
+        with patch(f"{SERVICE}.publish_task_run_stream_notification", return_value=delivery) as publish:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/turn_suggestions/resolve/",
                 {"task_id": task_id, "turn_index": turn_index, "resolution": resolution},
@@ -997,14 +1031,22 @@ class TestResolveTurnSuggestion(APIBaseTest):
             )
         return response, publish
 
-    def test_a_dismissal_mutes_the_conversation_and_replays_into_the_run_log(self):
-        response, publish = self._resolve(str(self.task.id), 0, "dismissed")
+    @parameterized.expand(
+        [
+            ("reaches_the_run_log", True, OfferStatus.DISMISSED),
+            ("misses_the_run_log", False, OfferStatus.OFFERED),
+        ]
+    )
+    def test_a_dismissal_mutes_the_conversation_only_once_it_replays_from_the_run_log(
+        self, _name: str, persisted: bool, status: OfferStatus
+    ):
+        response, publish = self._resolve(str(self.task.id), 0, "dismissed", persisted=persisted)
 
         assert response.status_code == 200
-        assert response.json() == {"recorded": True}
+        assert response.json() == {"recorded": persisted}
         ledger = read_ledger(self.task.id, self.team.id)
-        assert ledger.muted is True
-        assert ledger.offers[0].status == OfferStatus.DISMISSED
+        assert ledger.muted is persisted
+        assert ledger.offers[0].status == status
         assert publish.call_args.args == (
             str(self.task_run.id),
             str(self.task.id),

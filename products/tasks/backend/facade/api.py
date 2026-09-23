@@ -696,7 +696,7 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
 _StateEntryResult = TypeVar("_StateEntryResult")
 
 
-def read_task_state_entry(task_id: str | UUID, team_id: int, key: str) -> Any:
+def read_task_state_entry(task_id: str | UUID, team_id: int, key: str) -> object:
     """One key of the task's shared state bag, or ``None`` when the task or the key is missing."""
     state = Task.objects.filter(id=task_id, team_id=team_id).values_list("state", flat=True).first()
     return (state or {}).get(key)
@@ -4452,12 +4452,12 @@ def read_task_run_stream_entries(run_id: str | UUID, task_id: str | UUID, team_i
 
 def publish_task_run_stream_notification(
     run_id: str | UUID, task_id: str | UUID, team_id: int, method: str, params: dict
-) -> bool:
+) -> contracts.StreamNotificationDelivery:
     """Write a server-originated ``_posthog/*`` notification to the run's live stream and its S3 log.
 
     The live write reaches connected threads the way an agent-server frame would; the log append is
-    what a later bootstrap replays, so the frame survives the stream's expiry. Either leg landing is
-    enough for the thread to show the frame, so that is what the result reports.
+    what a later bootstrap replays, so the frame survives the stream's expiry. The result reports
+    each leg, so a caller can decide which one it needs.
     """
     from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
         publish_task_run_stream_event,
@@ -4468,7 +4468,7 @@ def publish_task_run_stream_notification(
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
-        return False
+        return contracts.StreamNotificationDelivery(live=False, persisted=False)
     event = {"type": "notification", "notification": {"method": method, "params": params}}
     stream_id = publish_task_run_stream_event(str(run_id), event, run_uses_dedicated_stream(run.state))
     try:
@@ -4477,7 +4477,7 @@ def publish_task_run_stream_notification(
     except Exception:
         logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
         persisted = False
-    return stream_id is not None or persisted
+    return contracts.StreamNotificationDelivery(live=stream_id is not None, persisted=persisted)
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:

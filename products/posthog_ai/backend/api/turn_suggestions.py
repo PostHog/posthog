@@ -52,4 +52,4 @@ class TurnSuggestionsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             turn_index=request.validated_data["turn_index"],
             resolution=TurnSuggestionResolution(request.validated_data["resolution"]),
         )
-        return Response({"recorded": recorded})
+        return Response(ResolveTurnSuggestionResponseSerializer({"recorded": recorded}).data)

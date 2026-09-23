@@ -21,6 +21,7 @@ from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
     claim_turn,
     read_ledger,
     record_offer,
+    reopen_offer,
     resolve_offer,
     withdraw_offer,
 )
@@ -164,7 +165,9 @@ def _capture_classified(
 
 def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome:
     try:
-        task_run = TaskRun.objects.select_related("task__created_by", "team").get(id=run_id, team_id=team_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "team__organization").get(
+            id=run_id, team_id=team_id
+        )
     except TaskRun.DoesNotExist:
         return _skipped("run_missing")
 
@@ -177,6 +180,9 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return _skipped("not_started_in_web")
     if task.created_by is None:
         return _skipped("no_user")
+    # The judgment and the drafter send conversation text to third-party AI services.
+    if task_run.team.organization.is_ai_data_processing_approved is not True:
+        return _skipped("ai_data_processing_not_approved")
     if not _turn_suggestions_enabled(task_run):
         return _skipped("flag_off")
     if not judge_configured():
@@ -220,7 +226,7 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     # what keeps that to a couple of times per conversation.
     emitted = publish_task_run_stream_notification(
         task_run.id, task_run.task_id, task_run.team_id, TURN_SUGGESTION_METHOD, params
-    )
+    ).delivered
     _capture_classified(task_run, verdict, offer=offer, emitted=emitted, turn_index=turn_index)
     if not emitted:
         withdraw_offer(task.id, task_run.team_id, turn_index=turn_index)
@@ -234,17 +240,21 @@ def resolve_turn_suggestion(
     """Record a dismissed or accepted card and write the outcome into its run's stream.
 
     The stream frame is also appended to the run's log, so a reloaded thread replays it after the
-    card frame and keeps the card hidden. Returns ``False`` when that turn got no card or its card
-    was already resolved, and then publishes nothing.
+    card frame and keeps the card hidden. Returns ``False`` when that turn got no card, its card
+    was already resolved, or the outcome did not reach the log. In the last case the ledger drops
+    the outcome again, so it agrees with what a reload shows and a retry can record it.
     """
     offer = resolve_offer(task_id, team_id, turn_index=turn_index, resolution=resolution)
     if offer is None:
         return False
-    publish_task_run_stream_notification(
+    delivery = publish_task_run_stream_notification(
         offer.run_id,
         task_id,
         team_id,
         TURN_SUGGESTION_RESOLVED_METHOD,
         {"turnIndex": turn_index, "outcome": resolution.value},
     )
+    if not delivery.persisted:
+        reopen_offer(task_id, team_id, turn_index=turn_index)
+        return False
     return True

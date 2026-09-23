@@ -135,7 +135,8 @@ def record_offer(
     A later turn that claimed classification while this one was drafting supersedes it. The card
     would arrive under a turn the thread already moved past, and it must not hold back the card of
     the later turn. The check shares the row lock with ``claim_turn``, so of two consecutive turns
-    only one gets a card.
+    only one gets a card. The mute and the cap are checked again, because a dismissal can land
+    while this turn drafts.
     """
     offer = OfferRecord(turn_index=turn_index, run_id=str(run_id), kind=kind, status=OfferStatus.OFFERED)
 
@@ -143,6 +144,9 @@ def record_offer(
         ledger = OfferLedger.from_json(raw)
         if ledger.last_classified_turn != turn_index:
             return raw, ClaimRefusal.SUPERSEDED
+        refusal = ledger.refusal()
+        if refusal is not None:
+            return raw, refusal
         return replace(ledger, offers=(*ledger.offers, offer)).to_json(), True
 
     result = update_task_state_entry(task_id, team_id, STATE_KEY, append)
@@ -185,3 +189,24 @@ def resolve_offer(
         return replace(ledger, offers=offers, muted=muted).to_json(), resolved
 
     return update_task_state_entry(task_id, team_id, STATE_KEY, resolve)
+
+
+def reopen_offer(task_id: UUID | str, team_id: int, *, turn_index: int) -> None:
+    """Undo the resolution of the card of ``turn_index`` when its outcome never reached the run's log.
+
+    A reload replays the card from the log, so the ledger must not keep the card hidden or the
+    conversation muted when the log still shows the card as open.
+    """
+
+    def reopen(raw: Any) -> tuple[Any, None]:
+        ledger = OfferLedger.from_json(raw)
+        target = next((offer for offer in ledger.offers if offer.turn_index == turn_index), None)
+        if target is None or target.status == OfferStatus.OFFERED:
+            return raw, None
+        reopened = replace(target, status=OfferStatus.OFFERED)
+        offers = tuple(reopened if offer is target else offer for offer in ledger.offers)
+        # Only a dismissal mutes, so the mute stays while another dismissed card remains.
+        muted = any(offer.status == OfferStatus.DISMISSED for offer in offers)
+        return replace(ledger, offers=offers, muted=muted).to_json(), None
+
+    update_task_state_entry(task_id, team_id, STATE_KEY, reopen)

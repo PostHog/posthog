@@ -194,6 +194,8 @@ def _resolve_tool(update: dict[str, Any], accumulator: _ToolCallAccumulator) -> 
         accumulator.discovery = True
         return
     tool, inner_input = parsed
+    # A `call` still streaming in also fails to parse, so a later complete frame clears the mark.
+    accumulator.discovery = False
     accumulator.name = tool
     accumulator.args_preview = _args_preview(inner_input) if inner_input else ""
 

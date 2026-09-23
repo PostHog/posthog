@@ -8,6 +8,7 @@ from products.tasks.backend.facade.api import (
     publish_task_run_stream_notification,
     read_task_run_stream_entries,
 )
+from products.tasks.backend.facade.contracts import StreamNotificationDelivery
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync
@@ -29,14 +30,14 @@ class TestStreamNotifications(BaseTest):
     def _entries(self, team_id: int | None = None) -> list[dict]:
         return read_task_run_stream_entries(self.task_run.id, self.task_run.task_id, team_id or self.team.id)
 
-    def _publish(self, params: dict, team_id: int | None = None) -> bool:
+    def _publish(self, params: dict, team_id: int | None = None) -> StreamNotificationDelivery:
         return publish_task_run_stream_notification(
             self.task_run.id, self.task_run.task_id, team_id or self.team.id, "_posthog/turn_suggestion", params
         )
 
     def test_notification_reaches_the_live_stream_and_the_log(self):
         with patch.object(TaskRun, "append_log") as append_log:
-            assert self._publish({"turnIndex": 0})
+            assert self._publish({"turnIndex": 0}) == StreamNotificationDelivery(live=True, persisted=True)
 
         expected = {
             "type": "notification",
@@ -46,16 +47,16 @@ class TestStreamNotifications(BaseTest):
         assert self._entries()[-1] == expected
         append_log.assert_called_once_with([expected], lock_attempts=1)
 
-    def test_log_append_failure_still_counts_the_live_write(self):
+    def test_log_append_failure_still_reports_the_live_write(self):
         before = len(self._entries())
 
         with patch.object(TaskRun, "append_log", side_effect=RuntimeError("lock busy")):
-            assert self._publish({})
+            assert self._publish({}) == StreamNotificationDelivery(live=True, persisted=False)
 
         assert len(self._entries()) == before + 1
 
     def test_a_run_outside_the_team_publishes_nothing(self):
-        assert self._publish({}, team_id=self.team.id + 1) is False
+        assert self._publish({}, team_id=self.team.id + 1) == StreamNotificationDelivery(live=False, persisted=False)
         assert self._entries(team_id=self.team.id + 1) == []
 
     def test_parse_task_run_log_entries_skips_lines_that_are_not_objects(self):
