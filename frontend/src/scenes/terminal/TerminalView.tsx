@@ -152,7 +152,7 @@ export function TerminalView({
                 </LemonMenu>
                 <span role="status" className="text-secondary ml-auto text-xs">
                     {status === 'loading'
-                        ? 'Loading project files…'
+                        ? 'Starting terminal…'
                         : status === 'booting'
                           ? 'Starting Linux…'
                           : status === 'ready'

@@ -942,6 +942,7 @@ layer = "modules"
 [[modules]]
 path = "products.tasks"
 depends_on = [
+    "products.cdp",
     "ee",
     "posthog",
     "products.canvas",
@@ -965,6 +966,7 @@ layer = "modules"
 [[modules]]
 path = "products.canvas"
 depends_on = [
+    "products.workflows",
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
