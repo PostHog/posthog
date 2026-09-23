@@ -763,6 +763,8 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 actions.setSettledDecision(decision)
             }
         },
+        // A different team is a different question, so the latch starts empty rather than
+        // answering for the team that was open a moment ago.
         currentTeamId: () => {
             actions.clearSettledDecision()
         },
