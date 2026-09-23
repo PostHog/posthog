@@ -97,6 +97,24 @@ class TestCodeRenderer(SimpleTestCase):
         assert rendered.code == (FIXTURES / f"{case}.ts").read_text()
         assert [asdict(warning) for warning in rendered.warnings] == EXPECTED_WARNINGS.get(case, [])
 
+    def test_renders_non_default_trigger_and_exit_ids_like_default_ids(self) -> None:
+        default_definition = json.loads((FIXTURES / "welcome_series.json").read_text())
+        custom_definition = json.loads((FIXTURES / "welcome_series.json").read_text())
+        trigger_id = "custom_trigger"
+        exit_id = "custom_exit"
+        custom_definition["actions"][0]["id"] = trigger_id
+        custom_definition["actions"][-1]["id"] = exit_id
+        for edge in custom_definition["edges"]:
+            if edge["from"] == "trigger_node":
+                edge["from"] = trigger_id
+            if edge["to"] == "exit_node":
+                edge["to"] = exit_id
+
+        default_rendered = render_workflow_code(default_definition)
+        custom_rendered = render_workflow_code(custom_definition)
+
+        assert custom_rendered == default_rendered
+
     @parameterized.expand(
         [
             (
