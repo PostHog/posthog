@@ -67,11 +67,12 @@ class ContextWindowExceededError(LLMError):
 
 
 class ProviderBadRequestError(LLMError):
-    """Raised when the provider rejects the request itself and no other class fits — an
-    unsupported parameter, a malformed schema, content it cannot decode.
+    """Raised when the provider rejects the request itself and no narrower class fits, for example
+    an unsupported parameter, a malformed schema, or content the provider cannot decode.
 
-    Not retryable: the same request comes back with the same 400, so a caller must skip the work
-    instead of spending its retries on it."""
+    The same request always gets the same 400, so a caller must not retry it. The message carries
+    the provider's own sentence, which is the only description of what was wrong.
+    """
 
 
 _CONTEXT_WINDOW_ERROR_MARKERS = (
@@ -144,9 +145,9 @@ def user_facing_error_message(error: Exception | None) -> str:
     explanation the user gets. Raw SDK output leaks provider internals without naming a next
     step, so every branch here says what to do instead.
 
-    A failure with no branch keeps the provider's own reason. Most of those are 400s the request
-    itself caused — an unsupported parameter, a malformed tool schema — where "try again" is
-    advice that cannot work and the provider's sentence is the only actionable thing we have.
+    A rejected request keeps the provider's own reason, and so does a failure with no branch at
+    all. Both are 400s that the request itself caused, where "try again" is advice that cannot
+    work, so the provider's sentence is the only actionable thing we have.
     """
     if isinstance(error, ModelNotFoundError):
         return f"Model '{error.model}' is not available. Pick a different model and try again."
@@ -171,7 +172,8 @@ def user_facing_error_message(error: Exception | None) -> str:
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, ProviderBadRequestError):
-        # The request caused the 400, so "try again" cannot work — keep the provider's reason.
+        # The request itself caused the 400, so "try again" is advice that cannot work. The
+        # provider's reason is the only actionable thing left.
         return f"The model provider rejected this request: {error}"
     if isinstance(error, StructuredOutputParseError):
         return "The model returned a response we could not read. Try again."

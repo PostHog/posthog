@@ -307,9 +307,8 @@ class TestAnthropicAdapterErrorMapping:
 
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
     def test_other_bad_request_is_mapped_to_provider_bad_request(self, mock_anthropic_cls):
-        # A caller has to recognise the 400 to stop retrying it, and the provider's sentence is
-        # the only description of what was wrong, so it must survive the mapping without the
-        # SDK's `Error code: 400 - {...}` wrapper.
+        # The provider's sentence is the only description of what was wrong, so it must survive
+        # the mapping without the SDK's `Error code: 400 - {...}` wrapper around it.
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = _make_anthropic_bad_request("Request payload is invalid.")
         mock_anthropic_cls.return_value = mock_client

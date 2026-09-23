@@ -419,16 +419,18 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.parametrize(
-        "error,expected_skip_reason",
+        "error,expected_skip_reason,expected_reasoning_fragment",
         [
             pytest.param(
                 ContextWindowExceededError("prompt is too long: 300000 tokens > 272000 maximum"),
                 "context_window_exceeded",
+                "exceeded the model's context window",
                 id="context_window",
             ),
             pytest.param(
-                ProviderBadRequestError("Invalid request data"),
+                ProviderBadRequestError("This model cannot be used with the chat completions endpoint."),
                 "provider_bad_request",
+                "This model cannot be used with the chat completions endpoint.",
                 id="provider_bad_request",
             ),
         ],
@@ -438,6 +440,7 @@ class TestRunEvaluationWorkflow:
         self,
         error,
         expected_skip_reason,
+        expected_reasoning_fragment,
         output_config,
         expected_verdict,
         expected_applicable,
@@ -473,6 +476,7 @@ class TestRunEvaluationWorkflow:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == expected_skip_reason
+        assert expected_reasoning_fragment in result["reasoning"]
         assert result["verdict"] is expected_verdict
         assert result.get("applicable") is expected_applicable
         assert result.get("terminal_user_error") is not True
@@ -531,8 +535,8 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_sends_an_encodable_prompt(self, setup_data, active_key_config):
-        # Captured content can carry an unpaired surrogate, which no provider request body can
-        # encode. Unrepaired it fails every attempt.
+        # An unpaired surrogate in captured content makes the request body unencodable, so every
+        # attempt fails until the judge repairs it.
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 

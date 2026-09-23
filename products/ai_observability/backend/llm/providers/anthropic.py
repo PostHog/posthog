@@ -223,9 +223,8 @@ class AnthropicAdapter:
                 return ContextWindowExceededError(str(error))
             if is_output_limit_error_message(str(error)):
                 return OutputTokenLimitError(str(error))
-            # Every other 400 — an unsupported parameter, a malformed schema, content the API
-            # cannot decode. Without this a caller re-sends a request the provider has already
-            # refused until its retries run out.
+            # Without a class for every other 400, a caller spends its whole retry budget
+            # re-sending a request the provider has already refused.
             return ProviderBadRequestError(provider_error_detail(error) or str(error))
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):

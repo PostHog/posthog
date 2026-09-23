@@ -15,6 +15,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_io,
@@ -404,9 +405,8 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
-    # Captured content reaches the judge as it was ingested, so an unpaired surrogate -- half of
-    # an emoji -- can make the provider request unencodable. The trace summarization path repairs
-    # the same way.
+    # Captured content reaches the judge as it was ingested, so an unpaired surrogate can make the
+    # request body unencodable and fail every attempt. Trace summarization repairs the same way.
     system_prompt = sanitize_surrogates(system_prompt)
     user_prompt = sanitize_surrogates(user_prompt)
 
@@ -532,24 +532,30 @@ def call_llm_judge(
         )
 
     except ProviderBadRequestError as e:
-        # The provider refused the request itself, so all three attempts send the same request and
-        # collect the same 400. Skip the item and keep the provider's reason, which names the
-        # evaluation the raw exception could not.
+        # A 400 is the provider's verdict on this request, so every retry collects the same
+        # refusal. One refusal cannot say whether the model is wrong for every unit or only for
+        # this unit's content, and disabling the evaluation over one bad unit costs every verdict
+        # after it. The `provider_bad_request` metric is where a whole-evaluation failure shows up.
         increment_errors("provider_bad_request", provider=provider)
+        detail = truncate_error_detail(str(e))
         logger.warning(
             "Model provider rejected the judge request",
             evaluation_id=evaluation["id"],
             team_id=team_id,
             provider=provider,
             model=model,
-            detail=str(e),
+            detail=detail,
         )
+        reasoning = "The model provider rejected this evaluation request; evaluation skipped."
+        if detail:
+            # The provider's sentence is the only description of what was wrong.
+            reasoning = f"{reasoning} {detail}"
         return _build_judge_skip_result(
             allows_na,
             is_byok=is_byok,
             key_id=key_id,
             skip_reason="provider_bad_request",
-            reasoning=f"The model provider rejected this evaluation request: {e}",
+            reasoning=reasoning,
         )
 
     except OutputTokenLimitError as e:

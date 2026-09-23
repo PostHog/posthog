@@ -10,6 +10,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderBadRequestError,
 )
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
@@ -201,10 +202,12 @@ class TestAnthropicErrorMapping:
                 OutputTokenLimitError,
                 "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again.",
             ),
+            # A rejected token setting is not a truncated reply: the request has to change before
+            # the model can answer at all, so it must not reach the output-limit skip.
             (
                 "invalid_token_limit",
                 "max_tokens: 8192 > 4096, which is the maximum allowed number of output tokens for this model",
-                anthropic.BadRequestError,
+                ProviderBadRequestError,
                 "The model provider rejected this request: max_tokens: 8192 > 4096, "
                 "which is the maximum allowed number of output tokens for this model",
             ),
