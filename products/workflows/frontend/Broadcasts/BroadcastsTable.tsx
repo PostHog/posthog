@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { broadcastActionButtonProps, broadcastActionsLogic } from './broadcastActionsLogic'
 import { BroadcastStatus, broadcastsLogic, getBroadcastStatus, isEligibleWorkflow } from './broadcastsLogic'
 
 const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType }> = {
@@ -35,8 +36,10 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 export function BroadcastsTable(): JSX.Element {
     const { filteredBroadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters } =
         useValues(broadcastsLogic)
-    const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast, setFilters } =
-        useActions(broadcastsLogic)
+    const { setFilters } = useActions(broadcastsLogic)
+    const { pendingAction } = useValues(broadcastActionsLogic)
+    const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast } =
+        useActions(broadcastActionsLogic)
 
     const columns: LemonTableColumns<HogFlowMinimalApi> = [
         {
@@ -105,6 +108,7 @@ export function BroadcastsTable(): JSX.Element {
                                 <LemonButton
                                     fullWidth
                                     data-attr="broadcast-duplicate"
+                                    {...broadcastActionButtonProps(pendingAction, item.id, 'duplicate')}
                                     onClick={() => duplicateBroadcast(item)}
                                 >
                                     Duplicate
@@ -114,6 +118,11 @@ export function BroadcastsTable(): JSX.Element {
                                     fullWidth
                                     status={item.status === 'archived' ? 'default' : 'danger'}
                                     data-attr="broadcast-archive-restore"
+                                    {...broadcastActionButtonProps(
+                                        pendingAction,
+                                        item.id,
+                                        item.status === 'archived' ? 'restore' : 'archive'
+                                    )}
                                     onClick={() =>
                                         item.status === 'archived' ? restoreBroadcast(item) : archiveBroadcast(item)
                                     }
@@ -125,6 +134,7 @@ export function BroadcastsTable(): JSX.Element {
                                         fullWidth
                                         status="danger"
                                         data-attr="broadcast-delete"
+                                        {...broadcastActionButtonProps(pendingAction, item.id, 'delete')}
                                         onClick={() => deleteBroadcast(item)}
                                     >
                                         Delete permanently

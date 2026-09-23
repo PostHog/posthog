@@ -467,6 +467,9 @@ export const productRedirects: Record<
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
     '/user_interviews': '/user_research',
+    '/workflows/broadcasts': (): string => urls.broadcasts(),
+    '/workflows/broadcasts/new': (): string => urls.broadcastNew(),
+    '/workflows/broadcasts/:id': (params): string => urls.broadcast(params.id),
 }
 
 /** This const is auto-generated, as is the whole file */

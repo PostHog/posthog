@@ -21,9 +21,10 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import { type MessageAsset, getMessageAssetContentUrl } from '../Workflows/messageAssetsApi'
+import { broadcastActionButtonProps, broadcastActionsLogic } from './broadcastActionsLogic'
 import { broadcastSentLogic } from './broadcastSentLogic'
-import { broadcastsLogic, isEligibleWorkflow } from './broadcastsLogic'
-import { BroadcastSummaryTab, broadcastWizardLogic } from './broadcastWizardLogic'
+import { isEligibleWorkflow } from './broadcastsLogic'
+import { BroadcastSummaryTab, broadcastWizardLogic, formatConversionWindow } from './broadcastWizardLogic'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -362,6 +363,7 @@ function SetupTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Eleme
     const { recipientCount } = useValues(broadcastSentLogic)
     const { loadSends } = useActions(broadcastSentLogic)
     const firstRun = batchJobs[batchJobs.length - 1]
+    const conversionWindow = formatConversionWindow(conversion)
 
     useEffect(() => {
         loadSends()
@@ -394,7 +396,9 @@ function SetupTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Eleme
                     {goalEnabled ? <IconCheck className="text-success" /> : <IconX className="text-muted" />}
                     <span>
                         {goalEnabled
-                            ? `Conversion counted within ${conversion.window_minutes ?? 0} minutes`
+                            ? conversionWindow
+                                ? `Conversion counted within ${conversionWindow}`
+                                : 'Conversion counted within the default window'
                             : 'Not tracking a conversion goal'}
                     </span>
                 </div>
@@ -418,10 +422,21 @@ function SetupTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Eleme
 }
 
 export function BroadcastSummary(): JSX.Element {
-    const { broadcast, broadcastId, name, batchJobs, batchJobsLoading, batchJobsResolved, summaryTab, isScheduled } =
-        useValues(broadcastWizardLogic)
+    const {
+        broadcast,
+        broadcastId,
+        name,
+        batchJobs,
+        batchJobsLoading,
+        batchJobsResolved,
+        summaryTab,
+        isScheduled,
+        cancellingSchedule,
+    } = useValues(broadcastWizardLogic)
     const { setSummaryTab, cancelSchedule } = useActions(broadcastWizardLogic)
-    const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
+    const { pendingAction } = useValues(broadcastActionsLogic)
+    const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast } =
+        useActions(broadcastActionsLogic)
 
     // Email metrics from a batch send are attributed to the batch job, not the flow (see
     // `parentRunId ?? functionId` in the plugin server's email service), so a flow-scoped query
@@ -500,6 +515,7 @@ export function BroadcastSummary(): JSX.Element {
                                         <LemonButton
                                             fullWidth
                                             data-attr="broadcast-detail-duplicate"
+                                            {...broadcastActionButtonProps(pendingAction, broadcast.id, 'duplicate')}
                                             onClick={() => duplicateBroadcast(broadcast)}
                                         >
                                             Duplicate
@@ -508,6 +524,7 @@ export function BroadcastSummary(): JSX.Element {
                                             <LemonButton
                                                 fullWidth
                                                 data-attr="broadcast-detail-cancel-schedule"
+                                                loading={cancellingSchedule}
                                                 onClick={cancelSchedule}
                                             >
                                                 Cancel schedule
@@ -518,6 +535,11 @@ export function BroadcastSummary(): JSX.Element {
                                             fullWidth
                                             status={broadcast.status === 'archived' ? 'default' : 'danger'}
                                             data-attr="broadcast-detail-archive"
+                                            {...broadcastActionButtonProps(
+                                                pendingAction,
+                                                broadcast.id,
+                                                broadcast.status === 'archived' ? 'restore' : 'archive'
+                                            )}
                                             onClick={() =>
                                                 broadcast.status === 'archived'
                                                     ? restoreBroadcast(broadcast)
@@ -531,6 +553,7 @@ export function BroadcastSummary(): JSX.Element {
                                                 fullWidth
                                                 status="danger"
                                                 data-attr="broadcast-detail-delete"
+                                                {...broadcastActionButtonProps(pendingAction, broadcast.id, 'delete')}
                                                 onClick={() => deleteBroadcast(broadcast)}
                                             >
                                                 Delete permanently

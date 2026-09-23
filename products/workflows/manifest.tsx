@@ -60,6 +60,14 @@ export const manifest: ProductManifest = {
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
     },
+    redirects: {
+        // Broadcasts used to live under /workflows/broadcasts. Without these, an old link falls
+        // through to '/workflows/:tab' or '/workflows/:id/:tab' and opens the wrong scene with
+        // 'broadcasts' read as a workflow id. Redirects are registered before routes, so they win.
+        '/workflows/broadcasts': (): string => urls.broadcasts(),
+        '/workflows/broadcasts/new': (): string => urls.broadcastNew(),
+        '/workflows/broadcasts/:id': (params): string => urls.broadcast(params.id),
+    },
     urls: {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,

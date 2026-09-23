@@ -194,6 +194,19 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
 
+    // Broadcasts moved off /workflows/broadcasts onto its own /broadcasts surface. Without these
+    // redirects the old links fall through to '/workflows/:tab' and '/workflows/:id/:tab', which
+    // open the Workflows scene reading 'broadcasts' as a workflow id rather than 404ing visibly.
+    it.each([
+        ['the list', '/workflows/broadcasts', () => urls.broadcasts()],
+        ['a new broadcast', '/workflows/broadcasts/new', () => urls.broadcastNew()],
+        ['an existing broadcast', '/workflows/broadcasts/0199-abc', () => urls.broadcast('0199-abc')],
+    ])('redirects %s off the old /workflows/broadcasts path', async (_label, oldPath, newPath) => {
+        router.actions.push(oldPath)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(newPath())
+    })
+
     // The change password form emails this link to a user who is already signed in.
     it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
         const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')
