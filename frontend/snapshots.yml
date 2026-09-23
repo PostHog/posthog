@@ -5492,6 +5492,34 @@ snapshots:
         hash: v1.k794b7964.892b971ab555f6d1ca2e0fa85f9a9866e3e5b8fd2843db239963ee69d0557810.JMoDrmwxxF3X_fUQL4s76kPCprGp3yU0oyOPqLf8Smw
     marketing-analytics-dashboard-metric-cards--narrow--light:
         hash: v1.k794b7964.19970bb1bed82447960aefd0360d530aacf7953ad0aed733f9e3cbb2136dd4c8.qWkLBIG4xUN4Qp39pJnDkjC8z0-DunhMLPxYC-o5KZA
+    marketing-analytics-failed-queries--attribution-query-failure--dark:
+        hash: v1.k794b7964.b84b7a281d0a4bf86c5d9e87d75e3a6e360b56afbc434addf7c5e32ac21b8803.lf_xTXYsVyVEYRWZlwoM7aaBgv6HpRrINhoriSoE0Us
+    marketing-analytics-failed-queries--attribution-query-failure--light:
+        hash: v1.k794b7964.3daf2e774c81b78d29abd8e57c36eedaff96d59aa8d006c6080b9364f2191387.asjl_uu4A4-VVsGJ0rCA_hurTCjKgnP1rmeM2TCbtRE
+    marketing-analytics-failed-queries--conversion-paths-query-failure--dark:
+        hash: v1.k794b7964.a34637e5f6cc3574baac824098b6c7a1c9ba43ba400a77c1e928d1ebcafa4ead.SmP-Bqh7EGNuHVs3OI_DPwxEeHhD4EvPsDOgMO1kSOw
+    marketing-analytics-failed-queries--conversion-paths-query-failure--light:
+        hash: v1.k794b7964.68c7d4e1ee876ec8cd38eecba249793d29daeeb81a4d12f79bc76d478a0b30b3.7o3R5PtWOP6FX-ch3qAMZavADixTpVZA-JR6gVwIM1M
+    marketing-analytics-failed-queries--overview-query-failure--dark:
+        hash: v1.k794b7964.8358ec998f93f8a2387a75e75070bab043a7e21ca3bb27f530cb02c05a4c4bf1.RoI6yMmKEjuTA1bgS3BRMb5_MPkLVeL0VfR7aiiUfhM
+    marketing-analytics-failed-queries--overview-query-failure--light:
+        hash: v1.k794b7964.5b8d336f9fe0833d587bb5d026cc92830e6079f44b7cece1400bfb00c08dc34a.DUCT1ZV4aCykZOHyZpizfmgoKQzKRK27yv-rTrmRI3k
+    marketing-analytics-failed-queries--retention-query-failure--dark:
+        hash: v1.k794b7964.cf90c0724c15fbe919d8024005fbc75501db1769f4c58b07704d96929978ae70.U2E916fxdIKH32IAL6rzvz1R-zEMFrepPPUTaS7Zz6U
+    marketing-analytics-failed-queries--retention-query-failure--light:
+        hash: v1.k794b7964.1a3a81981aa8aeaf8d05b72a69ef0aaece52b1cf7c4862d99b706f5235589cc8.aRKIU2u9bQ8o064mOAyxyRNuRrvqwEOKnn2Ho-IJBtU
+    marketing-analytics-query-error--default--dark:
+        hash: v1.k794b7964.ddc45fc6502bf9dd2d22c2b8728b46813f078f610479d06cfc20c48e67470ffb.khV-Z80g4gUR9SBk_Nab-VXWhW8NKfkBZTljj_JUj7c
+    marketing-analytics-query-error--default--light:
+        hash: v1.k794b7964.cbd635163ad4caa9f05e2af4a90ca1bc921fd5accf398ed6175525ef7c64b2fd.jpP_YP5d95IXC83rVdhmhfyogXgj_nRxoHWmY4d5J_Y
+    marketing-analytics-query-error--narrow--dark:
+        hash: v1.k794b7964.841cf3581a45f45b78e6e3e2b7a32cfb00433249417af191054eea02086cf50e.07H1hHbcRGYsJd3SDtXwhnPaMastei3iB19V0_qxq9k
+    marketing-analytics-query-error--narrow--light:
+        hash: v1.k794b7964.9d17231ca51e50a4dc485a0b39cda9b8e49513f79581c1c52d064f76d6b863c6.FT0mH2_kNvSnbCDhHhBX-2w3j-yjIcuJXFefJbebGUI
+    marketing-analytics-query-error--without-query-id--dark:
+        hash: v1.k794b7964.ebc4225e380d8fc071c3e3f176eae2c83832fb50387a93dc675051ca15798b58.gLRh1BSAR7spdJ5LKI07St-_IJqvRfaOhD5OswO1ELY
+    marketing-analytics-query-error--without-query-id--light:
+        hash: v1.k794b7964.87df6f5fe860f12b022852af0139b5c4c79919a9bd89d5e846ab8f60228b8e45.5meVtwd91C2ortYjFRipNci7eeeTqMogAzE6t9GaL-E
     marketing-analytics-retention-return-table--all-users--dark:
         hash: v1.k794b7964.96cadfa4ec3fa4c9077bc65d4c9075ca80691ec89862bc5b76d83609bb4eb9b2.RVLlGI1QG26GFC55_Dv5KdAWGGbRVI1ttz4lL-UxV7M
     marketing-analytics-retention-return-table--all-users--light:
