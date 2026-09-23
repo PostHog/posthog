@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from products.stamphog.backend.facade.enums import ChannelResolutionSource, Dige
 from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
+from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 _VIEWS = "products.stamphog.backend.presentation.views"
@@ -560,6 +562,7 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             # whether or not the repo also reviews every PR event.
             ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
+            ("manual_beats_label_mode", ReviewMode.LABEL, {"manual_review": {"acting_user_id": 1}}, "manual"),
             ("label_mode", ReviewMode.LABEL, {}, "label"),
             ("all_mode", ReviewMode.ALL, {}, "all"),
         ]
@@ -590,16 +593,6 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["results"] == []
 
-    def test_readonly_viewset_rejects_writes(self) -> None:
-        # ReviewRun is created by the webhook/task pipeline, never directly
-        # by API clients; the viewset must stay read-only.
-        response = self.client.post(
-            self.url,
-            {"repository": "PostHog/posthog", "pr_number": 1, "pr_url": "x", "head_sha": "abc"},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-
     def test_output_excludes_raw_repo_content(self) -> None:
         # run.output holds the full PR payload, changed-file patches, default-branch policy files, and
         # raw reviewer stdout. A project member without repo access can read this endpoint, so the API
@@ -621,6 +614,183 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert output == {"stamphog_version": "test-1.0.0", "reviewer_exit_code": 0}
         for leaked in ("reviewer_raw", "pr", "files", "policy_files"):
             assert leaked not in output
+
+
+class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/stamphog/review_runs/"
+        self.repo_config = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="77",
+            enabled=True,
+            connected_by_user_id=self.user.id,
+            # Label mode with no label on the PR: the request is what stands in for the label.
+            review_mode=ReviewMode.LABEL,
+        )
+        self.github = fakes.GitHubRecorder()
+        self.github.register_pr("PostHog/posthog", 5, self._pr())
+        for target, replacement in (
+            ("products.stamphog.backend.logic.github_client.github_request", self.github.github_request),
+            (
+                "products.stamphog.backend.logic.github_client.remember_observed_core_limit",
+                fakes.noop_remember_observed_core_limit,
+            ),
+            (
+                "products.stamphog.backend.logic.github_client.raise_if_github_rate_limited",
+                fakes.noop_raise_if_github_rate_limited,
+            ),
+            (f"{_CLIENT}._get_installation_token", lambda *_args, **_kwargs: "ghs_test"),
+            ("products.stamphog.backend.tasks.tasks.transaction.on_commit", lambda fn, using=None: fn()),
+        ):
+            patcher = patch(target, replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        workflow_patcher = patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow")
+        self.start_workflow = workflow_patcher.start()
+        self.addCleanup(workflow_patcher.stop)
+
+    def _pr(self, **overrides: Any) -> dict[str, Any]:
+        pr = fakes.build_pull_request_event(
+            action="opened",
+            installation_id="77",
+            repo="PostHog/posthog",
+            number=5,
+            title="feat: a change",
+            body="",
+            author_login="bob",
+            head_sha="head1",
+            head_ref="feat/change",
+            base_sha="base1",
+        )["pull_request"]
+        return {**pr, **overrides}
+
+    def _request(self) -> Any:
+        return self.client.post(self.url, {"repository": "posthog/posthog", "pr_number": 5}, format="json")
+
+    def test_request_queues_a_manual_run_past_label_mode(self) -> None:
+        response = self._request()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = response.json()
+        assert body["created"] is True
+        assert body["run"]["status"] == "queued"
+        assert body["run"]["trigger"] == "manual"
+        run = ReviewRun.objects.unscoped().get(id=body["run"]["id"])
+        assert run.head_sha == "head1"
+        assert run.output == {"manual_review": {"acting_user_id": self.user.id}, "review_trigger": "manual"}
+        self.start_workflow.assert_called_once_with(review_run_id=str(run.id), team_id=self.team.id)
+
+    @parameterized.expand(
+        [
+            # A QUEUED run lost its workflow start, so a repeat request restarts it.
+            ("queued_restarts", ReviewRunStatus.QUEUED, None, False, True),
+            ("reviewing_is_returned", ReviewRunStatus.REVIEWING, None, False, False),
+            ("completed_is_returned", ReviewRunStatus.COMPLETED, None, False, False),
+            ("failed_is_replaced", ReviewRunStatus.FAILED, "master", True, True),
+            ("same_base_is_returned", ReviewRunStatus.COMPLETED, "master", False, False),
+            # A base retarget changes the diff without moving the head.
+            ("other_base_is_replaced", ReviewRunStatus.COMPLETED, "feat/parent", True, True),
+        ]
+    )
+    def test_repeat_request_dedupes_on_the_current_head(
+        self,
+        _name: str,
+        existing_status: ReviewRunStatus,
+        reviewed_base_ref: str | None,
+        expect_created: bool,
+        expect_start: bool,
+    ) -> None:
+        first = self._request().json()["run"]["id"]
+        output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
+        self.start_workflow.reset_mock()
+
+        response = self._request()
+
+        assert response.status_code == (201 if expect_created else 200), response.content
+        body = response.json()
+        assert body["created"] is expect_created
+        assert (body["run"]["id"] == first) is not expect_created
+        assert self.start_workflow.called is expect_start
+
+    @parameterized.expand(
+        [
+            ("draft", {"draft": True}, "read"),
+            ("bot_author", {"user": {"login": "renovate[bot]", "type": "Bot"}}, "write"),
+            ("fork_author", {"author_association": "NONE"}, "write"),
+            ("closed", {"state": "closed"}, "write"),
+            ("author_below_write", {}, "read"),
+        ]
+    )
+    def test_refused_requests_create_no_run(self, _name: str, pr_overrides: dict, author_permission: str) -> None:
+        self.github.register_pr("PostHog/posthog", 5, self._pr(**pr_overrides))
+        self.github.collaborator_permissions[("PostHog/posthog", "bob")] = author_permission
+
+        response = self._request()
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["code"] == "not_reviewable"
+        assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
+        assert self.github.github_writes == []
+
+    def test_request_needs_the_write_scope(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read-only", user=self.user, secure_value=hash_key_value(key_value), scopes=["stamphog:read"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self.url,
+            {"repository": "PostHog/posthog", "pr_number": 5},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
+
+    @parameterized.expand([("reviewed", "ok"), ("not_reviewed_yet", None), ("malformed_output", "malformed")])
+    def test_retrieve_returns_the_reviewer_reasoning(self, _name: str, stored: str | None) -> None:
+        pull_request = PullRequest.objects.unscoped().create(
+            team_id=self.team.id, repo_config=self.repo_config, pr_number=5, pr_url="https://github.com/x/y/pull/5"
+        )
+        engine_output: dict[str, Any] = {
+            "final_verdict": "REFUSED",
+            "reviewer": {
+                "reasoning": "Touches auth. ![x](https://evil.example.com/leak.png)",
+                "issues": ["Missing test"],
+                "change_summary": "Adds a login check.",
+            },
+            "review_body": "Refused: touches auth.",
+            "gates": [],
+        }
+        if stored == "malformed":
+            engine_output = {"final_verdict": "ERROR", "reviewer": "bad", "gates": 1}
+        output = {"reviewer_raw": f"uv noise\n{json.dumps(engine_output)}"} if stored else {}
+        run = ReviewRun.objects.unscoped().create(
+            team_id=self.team.id, pull_request=pull_request, head_sha="head1", output=output
+        )
+
+        body = self.client.get(f"{self.url}{run.id}/").json()
+
+        reasoning = body["reasoning"]
+        if stored == "ok":
+            # The image is removed before the text leaves the API, because an MCP client can render it.
+            assert reasoning == {
+                "reasoning": "Touches auth. [image removed]",
+                "showstoppers": ["Missing test"],
+                "review_body": "Refused: touches auth.",
+                "change_summary": "Adds a login check.",
+            }
+        else:
+            assert reasoning == dict.fromkeys(["reasoning", "showstoppers", "review_body", "change_summary"])
+        assert "reviewer_raw" not in body["output"]
+        assert self.client.get(self.url).json()["results"][0]["reasoning"] is None
 
 
 class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):

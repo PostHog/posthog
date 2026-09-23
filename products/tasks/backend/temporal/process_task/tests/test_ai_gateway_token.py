@@ -15,6 +15,7 @@ from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
 from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
+    AI_CREDITS_BILLED_PRODUCTS,
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
     _team_over_ai_credit_budget,
@@ -160,7 +161,7 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["review_hog", "slack_app"])
+    @pytest.mark.parametrize("product", ["review_hog", "slack_app", "workflows"])
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -301,10 +302,16 @@ class TestAiGatewayEnvVars:
 
     def test_workflow_run_gets_a_pinned_token_when_routed(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
-        with patch(
-            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
-            return_value="phe_abc",
-        ) as mint:
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+                return_value="phe_abc",
+            ) as mint,
+            patch(
+                "products.tasks.backend.temporal.process_task.ai_gateway_token._team_over_ai_credit_budget",
+                return_value=False,
+            ),
+        ):
             env = ai_gateway_env_vars(team_id=123, origin_product="workflow")
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
@@ -650,6 +657,7 @@ class TestUserPinAndCapOverride:
             ("signals_inbox", "75"),
             ("signals_chat", "30"),
             ("slack_app", "75"),
+            ("workflows", "75"),
             ("signals_scout_suggestions", "10"),
         ],
     )
@@ -817,9 +825,6 @@ class TestSlackAppMint:
         assert "HTTP 429" in failed[0].getMessage()
         assert "slack_app" in failed[0].getMessage()
 
-    def test_slack_gates_leave_other_products_alone(self):
-        assert mint_refusal("review_hog", team_id=2, state=None, model="zai-org/glm-5.3", runtime="pi") is None
-
     # The mocked tests never run the JSON lookup; this one does.
     @pytest.mark.django_db
     def test_earlier_slack_stamp_is_found_in_the_database(self):
@@ -876,3 +881,101 @@ class TestSlackAppMint:
             post.return_value = self._mint_response()
             mint_scoped_token(ai_product="slack_app", team_id=2)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600
+
+
+_CREDIT_LOOKUP = "products.tasks.backend.temporal.process_task.ai_gateway_token._team_over_ai_credit_budget"
+
+
+class TestMintRefusalScope:
+    def test_ai_credits_billed_products(self):
+        assert AI_CREDITS_BILLED_PRODUCTS == {"slack_app", "workflows"}
+        assert AI_CREDITS_BILLED_PRODUCTS <= MINTABLE_PRODUCTS
+
+    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
+    def test_slack_provenance_gate_leaves_other_products_alone(self, product):
+        with patch(_CREDIT_LOOKUP, return_value=False):
+            assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
+
+    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
+    def test_pi_runs_never_mint(self, product):
+        assert mint_refusal(product, team_id=2, state=None, model=None, runtime="pi") == "pi_runtime"
+
+    @pytest.mark.parametrize("product", ["workflows", "review_hog"])
+    def test_pinned_products_refuse_an_off_pin_model(self, product):
+        refusal = mint_refusal(product, team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp")
+        assert refusal == "model_outside_pin"
+
+    def test_unpinned_products_take_any_model(self):
+        assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
+
+    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
+    def test_products_billed_elsewhere_skip_the_credit_check(self, product):
+        with patch(_CREDIT_LOOKUP, return_value=True) as quota:
+            assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
+        quota.assert_not_called()
+
+
+class TestWorkflowsMint:
+    def _env(self, mint_settings, *, over_quota=False, **overrides):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+        kwargs: dict = {
+            "team_id": 123,
+            "origin_product": "workflow",
+            "state": None,
+            "model": "claude-opus-5",
+            "runtime": "acp",
+            **overrides,
+        }
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+            ) as mint,
+            patch(_CREDIT_LOOKUP, return_value=over_quota),
+        ):
+            env = ai_gateway_env_vars(**kwargs)
+        return env, mint
+
+    def test_workflow_run_mints_a_workflows_token(self, mint_settings):
+        env, mint = self._env(mint_settings)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        assert env["AI_GATEWAY_PRODUCT"] == "workflows"
+        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
+
+    def test_pi_run_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, runtime="pi")
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
+        env, mint = self._env(mint_settings, model=model)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, over_quota=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_credit_lookup_failure_does_not_mint(self, mint_settings):
+        with patch(_CREDIT_LOOKUP, side_effect=RuntimeError("billing is down")):
+            refusal = mint_refusal("workflows", team_id=123, state=None, model="claude-opus-5", runtime="acp")
+        assert refusal == "ai_credits_unknown"
+
+    def test_mint_carries_the_first_party_pin(self, mint_settings):
+        response = MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = response
+            assert mint_scoped_token(ai_product="workflows", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "workflows"
+        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["workflows"]
+
+    def test_ttl_covers_the_background_run_cap(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        response = MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = response
+            mint_scoped_token(ai_product="workflows", team_id=2)
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 4 * 60 * 60

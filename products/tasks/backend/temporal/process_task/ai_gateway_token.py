@@ -67,6 +67,8 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # the resolver requires the server-stamped `internal` flag; rows predating the
 # reservation resolve to posthog_code and cannot mint. slack_app needs server
 # provenance too (has_slack_provenance), older rows included.
+# workflows qualifies because validate_origin_product reserves its origin for the
+# workflow_tasks endpoint.
 MINTABLE_PRODUCTS = frozenset(
     {
         "review_hog",
@@ -89,6 +91,10 @@ INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
 # Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
 SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"slack_app"})
+
+# The Python gateway bills these mintable products to AI credits and stops them at zero.
+# The Go gateway has no credit check, so the mint checks the balance when the run starts.
+AI_CREDITS_BILLED_PRODUCTS = frozenset({"slack_app", "workflows"})
 
 _PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
@@ -157,9 +163,9 @@ def mint_refusal(
     prior_slack_run: bool = False,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
-    if ai_product != "slack_app":
-        return None
-    if not has_slack_provenance(state, internal=internal, prior_slack_run=prior_slack_run):
+    if ai_product == "slack_app" and not has_slack_provenance(
+        state, internal=internal, prior_slack_run=prior_slack_run
+    ):
         return "no_slack_provenance"
     # The Pi harness reads only LLM_GATEWAY_URL.
     if runtime == "pi":
@@ -167,7 +173,8 @@ def mint_refusal(
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
         return "model_outside_pin"
-    # The Python gateway refuses every call once AI credits run out; the Go gateway has no such check.
+    if ai_product not in AI_CREDITS_BILLED_PRODUCTS:
+        return None
     # An unknown balance is no licence to spend.
     try:
         over_budget = _team_over_ai_credit_budget(team_id)
