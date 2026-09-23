@@ -3,11 +3,8 @@ import { type KeyboardEvent, type RefObject, useEffect } from "react";
 const TABBABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/**
- * Focus handling for a hand-rolled modal: focus moves in on open, Tab wraps
- * inside it, and focus returns to the opener on close. Menus that portal out
- * of the dialog keep their own focus, since only Tab from inside is caught.
- */
+// Only Tab pressed inside the dialog is caught, so menus portaled out of it
+// keep their own focus.
 export function useDialogFocus(
   dialogRef: RefObject<HTMLElement | null>,
 ): (event: KeyboardEvent<HTMLElement>) => void {
