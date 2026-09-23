@@ -158,9 +158,8 @@ def convert_core_data(core_dir: Path) -> None:
     """Write one coverage-core.xml from the core shards' .coverage files."""
     data_paths = sorted(core_dir.rglob(".coverage"))
     if data_paths:
-        write_xml_from_data(
-            data_paths, core_dir / "coverage-core.xml", source=["posthog", "ee"], config_file=CORE_COVERAGE_CONFIG
-        )
+        # No source roots: the XML report strips them from filenames, so posthog/x.py and ee/x.py would collide.
+        write_xml_from_data(data_paths, core_dir / "coverage-core.xml", source=[], config_file=CORE_COVERAGE_CONFIG)
 
 
 # product -> filename -> set of line numbers

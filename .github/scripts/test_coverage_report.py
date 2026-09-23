@@ -83,17 +83,21 @@ def test_convert_core_data_combines_both_roots_under_the_core_config(
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".github").mkdir()
     shutil.copy(SCRIPT_PATH.parent.parent / "coverage-core.cfg", tmp_path / ".github" / "coverage-core.cfg")
-    for source in ("posthog/api.py", "ee/billing.py"):
+    for source in ("posthog/api/auth.py", "ee/api/auth.py"):
         (tmp_path / source).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / source).write_text("x = 1\ny = 2\n")
     core_artifacts = tmp_path / "core-artifacts"
-    _write_shards(core_artifacts, ".coverage", [{"posthog/api.py": {1}}, {"posthog/api.py": {2}, "ee/billing.py": {1}}])
+    shards = [{"posthog/api/auth.py": {1}}, {"posthog/api/auth.py": {2}, "ee/api/auth.py": {1}}]
+    _write_shards(core_artifacts, ".coverage", shards)
 
     coverage_report.convert_core_data(core_artifacts)
     covered, valid = coverage_report.aggregate_core(core_artifacts)
 
-    assert {path: sorted(lines) for path, lines in covered.items()} == {"posthog/api.py": [1, 2], "ee/billing.py": [1]}
-    assert sorted(valid) == ["ee/billing.py", "posthog/api.py"]
+    assert {path: sorted(lines) for path, lines in covered.items()} == {
+        "posthog/api/auth.py": [1, 2],
+        "ee/api/auth.py": [1],
+    }
+    assert sorted(valid) == ["ee/api/auth.py", "posthog/api/auth.py"]
 
 
 # ---------- resolve_core_path ----------
