@@ -12,6 +12,7 @@ from posthog.management.migration_analysis.models import MigrationRisk, Operatio
 from posthog.management.migration_analysis.policies import (
     AtomicFalsePolicy,
     ConcurrentIndexIdempotencyPolicy,
+    DropForeignKeyTransactionPolicy,
     HotTableAlterPolicy,
     OrphanedForeignKeyPolicy,
 )
@@ -2924,10 +2925,11 @@ class TestOrphanedForeignKeyPolicy:
         assert len(violations) == 1
         assert violations[0].startswith("⚠️ WARNING")
 
-    def test_a_matching_drop_clears_it(self, monkeypatch):
+    @pytest.mark.parametrize("column", ["owner_id", ["other_id", "owner_id"]])
+    def test_a_matching_drop_clears_it(self, monkeypatch, column):
         state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
 
-        violations = self._check(state, [DropForeignKey("posthog_child", column="owner_id")], monkeypatch)
+        violations = self._check(state, [DropForeignKey("posthog_child", column=column)], monkeypatch)
 
         assert violations == []
 
@@ -2972,3 +2974,41 @@ class TestOrphanedForeignKeyPolicy:
         violations = self._check(state, [migrations.RunSQL(sql=sql)], monkeypatch)
 
         assert len(violations) == expected
+
+
+class TestDropForeignKeyTransactionPolicy:
+    def _untrack(self, *drops):
+        return migrations.SeparateDatabaseAndState(
+            state_operations=[migrations.RemoveField(model_name="child", name="owner")],
+            database_operations=list(drops),
+        )
+
+    @parameterized.expand(
+        [
+            ("alone_beside_state_operations", True, ["untrack_one"], []),
+            ("two_drops_in_one_transaction", True, ["untrack_two"], ["column=[...]"]),
+            ("another_operation_first", True, ["remove_constraint", "untrack_one"], ["RemoveConstraint"]),
+            ("both_shapes_at_once", True, ["remove_constraint", "untrack_two"], ["column=[...]", "RemoveConstraint"]),
+            ("atomic_false_commits_each_drop_alone", False, ["remove_constraint", "untrack_two"], []),
+        ]
+    )
+    def test_a_drop_must_own_its_transaction(self, _name, atomic, shape, expected):
+        owner = DropForeignKey("posthog_child", column="owner_id")
+        other = DropForeignKey("posthog_child", column="other_id")
+        operations = {
+            "untrack_one": self._untrack(owner),
+            "untrack_two": self._untrack(owner, other),
+            "remove_constraint": migrations.RemoveConstraint(model_name="child", name="exactly_one_owner"),
+        }
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.atomic = atomic
+        migration.operations = [operations[key] for key in shape]
+
+        violations = DropForeignKeyTransactionPolicy().check_migration(migration)
+
+        assert len(violations) == len(expected)
+        for violation, fragment in zip(violations, expected):
+            assert violation.startswith("❌ BLOCKED")
+            assert fragment in violation

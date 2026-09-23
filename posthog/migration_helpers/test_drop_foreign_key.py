@@ -13,7 +13,7 @@ from django.db import connection, connections
 from django.db.utils import OperationalError
 
 from posthog.migration_helpers import DropForeignKey
-from posthog.migration_helpers.drop_foreign_key import _MAX_LOCK_BUDGET_MS
+from posthog.migration_helpers.lock_phase import MAX_LOCK_BUDGET_MS
 
 
 @pytest.fixture
@@ -45,13 +45,14 @@ def temp_tables():
                 cursor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
 
 
-def _apply(op):
-    schema_editor = connection.schema_editor(atomic=False)
+def _apply(op, collect=False):
+    schema_editor = connection.schema_editor(atomic=False, collect_sql=collect)
     schema_editor.__enter__()
     try:
         op.database_forwards("posthog", schema_editor, from_state=None, to_state=None)
     finally:
         schema_editor.__exit__(None, None, None)
+    return schema_editor.collected_sql if collect else None
 
 
 def _fk_columns(child):
@@ -69,13 +70,35 @@ def _fk_columns(child):
         return {row[0] for row in cursor.fetchall()}
 
 
+@pytest.mark.parametrize(
+    "column, remaining",
+    [
+        ("owner_id", {"other_id"}),
+        (["owner_id", "other_id"], set()),
+    ],
+)
 @pytest.mark.django_db
-def test_drops_only_the_named_column(temp_tables):
+def test_drops_only_the_named_columns(temp_tables, column, remaining):
     child, _, _ = temp_tables
 
-    _apply(DropForeignKey(child, column="owner_id"))
+    _apply(DropForeignKey(child, column=column))
 
-    assert _fk_columns(child) == {"other_id"}
+    assert _fk_columns(child) == remaining
+
+
+@pytest.mark.django_db
+def test_locks_every_parent_before_the_child_and_before_any_drop(temp_tables):
+    # DROP CONSTRAINT on its own locks the child first and each parent after it, which is
+    # the order that crosses a live read joining parent to child and deadlocks.
+    child, parent_a, parent_b = temp_tables
+
+    collected = _apply(collect=True, op=DropForeignKey(child, column=["owner_id", "other_id"]))
+
+    lock = next(statement for statement in collected if "LOCK TABLE" in statement)
+    first_drop = next(statement for statement in collected if "DROP CONSTRAINT" in statement)
+    assert collected.index(lock) < collected.index(first_drop)
+    assert lock.index(parent_a) < lock.index(child)
+    assert lock.index(parent_b) < lock.index(child)
 
 
 @pytest.mark.django_db
@@ -136,7 +159,9 @@ def test_a_contended_parent_fails_fast(temp_tables, server_deadlock_timeout):
             cursor.execute(f'SELECT count(*) FROM "{parent_a}"')
 
         started = time.monotonic()
-        with pytest.raises(OperationalError, match="lock timeout"):
+        # The lock phase arms lock_timeout and statement_timeout with the same budget, so
+        # either one can be the one that fires.
+        with pytest.raises(OperationalError, match="lock timeout|statement timeout"):
             _apply(DropForeignKey(child, column="owner_id"))
         waited = time.monotonic() - started
     finally:
@@ -149,5 +174,5 @@ def test_a_contended_parent_fails_fast(temp_tables, server_deadlock_timeout):
     # Under deadlock_timeout, so the op abandons the wait before its own deadlock detector
     # runs. Under the ceiling too, so a server that allows a longer wait does not get one.
     assert waited < deadlock_seconds
-    assert waited < _MAX_LOCK_BUDGET_MS / 1000 + 1
+    assert waited < MAX_LOCK_BUDGET_MS / 1000 + 1
     assert _fk_columns(child) == {"owner_id", "other_id"}

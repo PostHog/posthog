@@ -747,6 +747,17 @@ _HOT_TABLES = {"posthog_team", "posthog_user", "posthog_organization", "posthog_
 _loader: Optional[MigrationLoader] = None
 
 
+def _database_operations(migration) -> list[Any]:
+    """Every operation that runs SQL, with SeparateDatabaseAndState opened up."""
+    ops: list[Any] = []
+    for op in migration.operations or []:
+        if op.__class__.__name__ == "SeparateDatabaseAndState":
+            ops.extend(getattr(op, "database_operations", []) or [])
+        else:
+            ops.append(op)
+    return ops
+
+
 def _disk_loader() -> Optional[MigrationLoader]:
     global _loader
     if _loader is None:
@@ -814,11 +825,10 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
     def _dropped_columns(self, migration) -> set[_TableColumn]:
         """Columns a DropForeignKey in this migration removes a constraint from."""
         dropped = set()
-        for db_op in self._database_operations(migration):
+        for db_op in _database_operations(migration):
             if db_op.__class__.__name__ != "DropForeignKey":
                 continue
-            column = getattr(db_op, "column", None)
-            if column is not None:
+            for column in getattr(db_op, "columns", None) or []:
                 dropped.add(_TableColumn(table=getattr(db_op, "table", ""), column=column))
         return dropped
 
@@ -830,22 +840,13 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         or a table-wide drop reaches is guesswork, and a false block on a correct migration
         costs more than a missed second constraint.
         """
-        for db_op in self._database_operations(migration):
-            if db_op.__class__.__name__ == "DropForeignKey" and getattr(db_op, "column", None) is None:
+        for db_op in _database_operations(migration):
+            if db_op.__class__.__name__ == "DropForeignKey" and not getattr(db_op, "columns", None):
                 return True
             sql = _without_sql_comments(str(getattr(db_op, "sql", "") or ""))
             if "DROP CONSTRAINT" in sql.upper():
                 return True
         return False
-
-    def _database_operations(self, migration) -> list[Any]:
-        ops: list[Any] = []
-        for op in migration.operations or []:
-            if op.__class__.__name__ == "SeparateDatabaseAndState":
-                ops.extend(getattr(op, "database_operations", []) or [])
-            else:
-                ops.append(op)
-        return ops
 
     def _state_before(self, migration) -> Any:
         loader = _disk_loader()
@@ -948,8 +949,54 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             f"see, and the constraint is DEFERRABLE INITIALLY DEFERRED, so a {fk.target_table} delete "
             f"runs its whole cascade and then fails at COMMIT, permanently. Add "
             f'DropForeignKey("{table}", column="{fk.column}") to this migration\'s database_operations '
-            f"(posthog.migration_helpers)."
+            f"(posthog.migration_helpers), or add the column to the DropForeignKey already there."
         )
+
+
+class DropForeignKeyTransactionPolicy(MigrationPolicy):
+    """Keep a DropForeignKey alone in its transaction.
+
+    DropForeignKey takes its locks in a bounded, parent-first phase, but the transaction
+    holds them until COMMIT. A second DropForeignKey then waits for new parents while the
+    first one's parents stay locked. Another operation that runs first holds its table while
+    DropForeignKey waits for the parents, and one that runs after waits for new locks while
+    DropForeignKey holds the parents. Each shape recreates the crossed lock order that
+    deadlocks against live reads. With atomic = False, each DropForeignKey commits in a
+    transaction of its own, so nothing accumulates.
+    """
+
+    def check_operation(self, op) -> list[str]:
+        return []  # The hazard is the shared transaction, so it runs at migration level.
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+        if not getattr(migration, "atomic", True):
+            return []
+
+        db_ops = _database_operations(migration)
+        drops = [op for op in db_ops if op.__class__.__name__ == "DropForeignKey"]
+        if not drops:
+            return []
+
+        violations = []
+        if len(drops) > 1:
+            tables = ", ".join(sorted({op.table for op in drops}))
+            violations.append(
+                f"❌ BLOCKED: {len(drops)} DropForeignKey operations share one transaction ({tables}). "
+                "The transaction holds each one's parent locks until COMMIT, so the later drops wait for "
+                "hot tables while the earlier locks block live reads. Pass every key on a table to one "
+                "DropForeignKey with column=[...], and give keys on other tables a migration of their own."
+            )
+        others = sorted({op.__class__.__name__ for op in db_ops if op.__class__.__name__ != "DropForeignKey"})
+        if others:
+            violations.append(
+                f"❌ BLOCKED: DropForeignKey shares its transaction with {', '.join(others)}. The transaction "
+                "holds every lock until COMMIT, so an operation before the drop holds its table while the drop "
+                "waits for the parents, and an operation after it waits for new locks while the drop holds the "
+                "parents. Move DropForeignKey to a migration of its own. State-only operations can stay with it."
+            )
+        return violations
 
 
 POSTHOG_POLICIES = [
@@ -958,4 +1005,5 @@ POSTHOG_POLICIES = [
     ConcurrentIndexIdempotencyPolicy(),
     HotTableAlterPolicy(),
     OrphanedForeignKeyPolicy(),
+    DropForeignKeyTransactionPolicy(),
 ]

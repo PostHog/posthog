@@ -1,17 +1,12 @@
 """Drop retired tables without making a live query the deadlock victim.
 
 `DROP TABLE` takes ACCESS EXCLUSIVE on the dropped table and on every table its own
-foreign keys reference, one relation at a time while the statement runs. An application
-query takes AccessShare on the tables it reads, also one at a time, in whatever order its
-plan picks. When the retired table holds keys into posthog_team, posthog_organization or
-posthog_user, the two orders cross and the two sessions form a real deadlock cycle.
+foreign keys reference, one relation at a time while the statement runs. When the retired
+table holds keys into posthog_team, posthog_organization or posthog_user, that order crosses
+the order of a live query that reads both, and the two sessions deadlock. `lock_phase.py`
+has the full reasoning.
 
-A short `lock_timeout` does not save the application query. A cycle is resolved by the
-deadlock detector rather than by the lock timeout, and the backend that finds the cycle is
-the one that aborts. The application query enters the wait first, so Postgres kills the
-read and the user sees a 500 on a screen unrelated to the deploy.
-
-This operation removes the cycle from the migration side:
+This operation takes the locks from the migration side first:
 
     from posthog.migration_helpers import SafeDropTable
 
@@ -20,11 +15,10 @@ This operation removes the cycle from the migration side:
     ]
 
 It reads the referenced parents out of pg_constraint, takes ACCESS EXCLUSIVE on every one
-of them in a single `LOCK TABLE`, and only then runs the drop, so the drop needs no new
-lock. The lock phase runs under a budget derived from the server's own `deadlock_timeout`,
-so the migration always abandons its wait before any peer has waited long enough to run
-the detector. The migration loses the race, bin/migrate retries it, and no application
-query is ever the victim.
+of them and on the dropped tables in a single `LOCK TABLE`, and only then runs the drop, so
+the drop needs no new lock. The lock phase runs under a budget below the server's own
+`deadlock_timeout`, so a contended lock makes the migration give up and bin/migrate retry it,
+which is the outcome a lock cycle tends toward instead of a killed read.
 
 The operation is idempotent, so a bin/migrate retry is free. It tracks no Django state, so
 the model still has to leave state a full deploy cycle earlier with
@@ -36,6 +30,8 @@ from collections.abc import Sequence
 
 from django.db import router
 from django.db.migrations.operations.base import Operation
+
+from posthog.migration_helpers.lock_phase import lock_tables
 
 _EXISTING_TABLES_SQL = """
     SELECT relname
@@ -125,8 +121,9 @@ class SafeDropTable(Operation):
         if not present:
             return
         referenced = self._query(schema_editor, _REFERENCED_TABLES_SQL, present)
+        parents = sorted(set(referenced) - set(present))
 
-        self._lock(schema_editor, sorted(set(present) | set(referenced)))
+        lock_tables(schema_editor, [*parents, *present])
         schema_editor.execute(f"DROP TABLE IF EXISTS {self._quote(schema_editor, present)}")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
@@ -134,27 +131,6 @@ class SafeDropTable(Operation):
 
     def describe(self) -> str:
         return f"Drop table {', '.join(sorted(self.tables))} under a deterministic lock order"
-
-    def _lock(self, schema_editor, tables: list[str]) -> None:
-        with schema_editor.connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT (SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'),"
-                " current_setting('lock_timeout'), current_setting('statement_timeout')"
-            )
-            deadlock_ms, previous_lock, previous_statement = cursor.fetchone()
-        # Half, so the migration abandons its wait before any peer waiting on the
-        # migration can run the detector and be killed for it.
-        budget_ms = max(1, deadlock_ms // 2)
-        # lock_timeout bounds one attempt and statement_timeout bounds the sequence, so
-        # several contended tables cannot add up past the budget between them.
-        schema_editor.execute(f"SET LOCAL lock_timeout = '{budget_ms}ms'")
-        schema_editor.execute(f"SET LOCAL statement_timeout = '{budget_ms}ms'")
-        schema_editor.execute(f"LOCK TABLE {self._quote(schema_editor, tables)} IN ACCESS EXCLUSIVE MODE")
-        # The drop needs no new lock, so put back what the transaction came in with. Not
-        # DEFAULT: an earlier operation in the same migration can hold a value of its own,
-        # and ValidateConstraint disables both timeouts for exactly that reason.
-        schema_editor.execute("SELECT set_config('lock_timeout', %s, true)", [previous_lock])
-        schema_editor.execute("SELECT set_config('statement_timeout', %s, true)", [previous_statement])
 
     @staticmethod
     def _quote(schema_editor, tables: list[str]) -> str:
