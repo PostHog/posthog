@@ -74,6 +74,7 @@ Actions: `delay`, `fn` (any PostHog destination template by id), `webhook`, `ema
 Triggers: `onEvent`, `onSchedule` and `trigger` (pass-through trigger configs).
 `onEvent`, `onSchedule`, `trigger` and `exit` can carry the editor name and description.
 Every step also takes an optional `description`, which PostHog keeps on the action and shows in the editor.
+Property conditions accept one value or many values, plus the full PostHog operator set.
 
 ## Develop
 

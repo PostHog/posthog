@@ -22,16 +22,58 @@ export type Duration = `${number}d` | `${number}h` | `${number}m` | `${number}s`
 /** Where a property condition reads its value: the event, the person, or a group. */
 export type PropertyType = 'event' | 'person' | 'group'
 
-/** How a property condition compares. `is_set` and `is_not_set` take no value. */
+/** One value a property condition compares against. */
+export type PropertyValue = string | number | boolean
+
+/** A scalar value or a list of values a property condition compares against. */
+export type PropertyConditionValue = PropertyValue | readonly PropertyValue[]
+
+/** Operators that store their own operator name as the value and need no author value. */
+export type SetPropertyOperator = 'is_set' | 'is_not_set'
+
+/** How a property condition compares. */
 export type PropertyOperator =
     | 'exact'
     | 'is_not'
     | 'icontains'
     | 'not_icontains'
+    | 'starts_with'
+    | 'not_starts_with'
+    | 'ends_with'
+    | 'not_ends_with'
+    | 'regex'
+    | 'not_regex'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
     | 'is_set'
     | 'is_not_set'
-    | 'gt'
-    | 'lt'
+    | 'is_date_exact'
+    | 'is_date_before'
+    | 'is_date_after'
+    | 'between'
+    | 'not_between'
+    | 'min'
+    | 'max'
+    | 'in'
+    | 'not_in'
+    | 'is_cleaned_path_exact'
+    | 'flag_evaluates_to'
+    | 'semver_eq'
+    | 'semver_neq'
+    | 'semver_gt'
+    | 'semver_gte'
+    | 'semver_lt'
+    | 'semver_lte'
+    | 'semver_tilde'
+    | 'semver_caret'
+    | 'semver_wildcard'
+    | 'icontains_multi'
+    | 'not_icontains_multi'
+
+/** Operators that compare against an author-provided value. */
+export type ValuePropertyOperator = Exclude<PropertyOperator, SetPropertyOperator>
 
 /**
  * One property condition in the definition.
@@ -43,8 +85,8 @@ export type PropertyOperator =
 export interface PropertyCondition {
     /** The property name, for example `plan` or `$current_url`. */
     readonly key: string
-    /** The values to compare against. Omitted for `is_set` and `is_not_set`. */
-    readonly value?: readonly (string | number | boolean)[]
+    /** The value to compare against. `is_set` and `is_not_set` store the operator here. */
+    readonly value?: PropertyConditionValue | SetPropertyOperator
     readonly operator: PropertyOperator
     readonly type: PropertyType
     /** Required when `type` is `group`, because PostHog resolves the property from its group type. */

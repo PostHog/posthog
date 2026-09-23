@@ -148,3 +148,11 @@ workflow({
     steps: path(wait),
     exit: { name: 'Finished', description: 'Done without errors.', reason: 'Done' },
 })
+
+person('email', 'icontains', 'example.com')
+person('email', 'is_set')
+person('version', 'semver_gte', '1.2.3')
+// @ts-expect-error - value operators need a value
+person('email', 'icontains')
+// @ts-expect-error - set operators need no author value
+person('email', 'is_set', 'yes')

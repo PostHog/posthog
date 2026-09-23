@@ -5,8 +5,11 @@ import type {
     EmailMessage,
     JsonValue,
     PropertyCondition,
+    PropertyConditionValue,
     PropertyOperator,
+    SetPropertyOperator,
     StepFilters,
+    ValuePropertyOperator,
 } from './definition.js'
 import { WorkflowError } from './errors.js'
 
@@ -585,12 +588,16 @@ export function path(...steps: Path): Path {
     return steps
 }
 
-function condition(type: 'event' | 'person') {
-    return (
-        key: string,
-        operator: PropertyOperator,
-        value?: readonly (string | number | boolean)[]
-    ): PropertyCondition => (value === undefined ? { key, operator, type } : { key, operator, value, type })
+type PropertyConditionBuilder = {
+    (key: string, operator: SetPropertyOperator): PropertyCondition
+    (key: string, operator: ValuePropertyOperator, value: PropertyConditionValue): PropertyCondition
+}
+
+function condition(type: 'event' | 'person'): PropertyConditionBuilder {
+    return ((key: string, operator: PropertyOperator, value?: PropertyConditionValue): PropertyCondition =>
+        value === undefined
+            ? { key, operator, value: operator as SetPropertyOperator, type }
+            : { key, operator, value, type }) as PropertyConditionBuilder
 }
 
 /**
@@ -647,13 +654,20 @@ export const eventProperty = condition('event')
  * const enterpriseAccount = group(0, 'tier', 'exact', ['enterprise'])
  * ```
  */
+export function group(groupTypeIndex: number, key: string, operator: SetPropertyOperator): PropertyCondition
+export function group(
+    groupTypeIndex: number,
+    key: string,
+    operator: ValuePropertyOperator,
+    value: PropertyConditionValue
+): PropertyCondition
 export function group(
     groupTypeIndex: number,
     key: string,
     operator: PropertyOperator,
-    value?: readonly (string | number | boolean)[]
+    value?: PropertyConditionValue
 ): PropertyCondition {
     return value === undefined
-        ? { key, operator, type: 'group', group_type_index: groupTypeIndex }
+        ? { key, operator, value: operator as SetPropertyOperator, type: 'group', group_type_index: groupTypeIndex }
         : { key, operator, value, type: 'group', group_type_index: groupTypeIndex }
 }

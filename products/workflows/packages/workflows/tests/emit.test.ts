@@ -6,6 +6,7 @@ import {
     branch,
     delay,
     email,
+    eventProperty,
     fn,
     group,
     onEvent,
@@ -372,6 +373,44 @@ describe('@posthog/workflows', () => {
             { from: 'split_traffic', to: 'send_b', type: 'branch', index: 1 },
             { from: 'rejoin', to: 'exit_node', type: 'continue' },
         ])
+    })
+
+    test('emits scalar and set property conditions with all operators', () => {
+        const flow = workflow({
+            key: 'filtered-event',
+            name: 'Filtered event',
+            on: onEvent({
+                event: 'user signed up',
+                properties: [
+                    eventProperty('$current_url', 'icontains', '/pricing'),
+                    person('email', 'is_set'),
+                    person('app_version', 'semver_gte', '1.2.3'),
+                ],
+            }),
+            steps: path(delay('1d', { name: 'Wait' })),
+            exit: { reason: 'Done' },
+        })
+
+        assert.deepStrictEqual(action(flow.emit().definition.actions, 'trigger_node').config, {
+            type: 'event',
+            filters: {
+                events: [
+                    {
+                        id: 'user signed up',
+                        name: 'user signed up',
+                        type: 'events',
+                        order: 0,
+                        properties: [
+                            { key: '$current_url', operator: 'icontains', value: '/pricing', type: 'event' },
+                            { key: 'email', operator: 'is_set', value: 'is_set', type: 'person' },
+                            { key: 'app_version', operator: 'semver_gte', value: '1.2.3', type: 'person' },
+                        ],
+                    },
+                ],
+                properties: [],
+                filter_test_accounts: false,
+            },
+        })
     })
 
     test('emits a pass-through trigger as the trigger action config', () => {
