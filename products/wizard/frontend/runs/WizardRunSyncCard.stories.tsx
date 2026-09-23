@@ -45,15 +45,25 @@ const meta: Meta<typeof WizardRunSyncCard> = {
     title: 'Products/Wizard/Wizard run sync card',
     component: WizardRunSyncCard,
     parameters: { layout: 'fullscreen' },
+    decorators: [
+        (Story) => (
+            <div className="flex justify-end bg-primary p-8">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         run,
         activeCount: 3,
+        elapsedSeconds: 134,
         tasks: [
             task('Identify the existing analytics integration', 'completed'),
             task('Install the SDK and configure capture', 'running'),
             task('Verify events in PostHog', 'created'),
         ],
-        onOpen: () => {},
+        onExpand: () => {},
+        onDismiss: () => {},
+        dismissTooltip: 'Minimize',
     },
 }
 
@@ -71,5 +81,14 @@ export const LocalRunning: Story = {
             stage: null,
         },
         activeCount: 1,
+    },
+}
+
+export const Completed: Story = {
+    args: {
+        run: { ...run, status: 'completed', stage: null },
+        tasks: [],
+        activeCount: 0,
+        dismissTooltip: 'Dismiss',
     },
 }

@@ -65,4 +65,19 @@ describe('wizardRunSyncLogic', () => {
         expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/older/stream/')
         expect(logic.values.tasks).toEqual([])
     })
+
+    it('keeps a finished run visible until dismissed', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const stream = MockEventSource.last()
+        mockWizardRunsList.mockResolvedValue({ count: 0, results: [] })
+
+        stream.emitMessage(JSON.stringify({ status: 'completed', stage: null, tasks: [] }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.run?.status).toBe('completed')
+        expect(stream.readyState).toBe(MockEventSource.CLOSED)
+
+        logic.actions.dismissRun()
+        expect(logic.values.run).toBeNull()
+    })
 })
