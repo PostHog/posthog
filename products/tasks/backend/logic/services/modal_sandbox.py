@@ -768,19 +768,17 @@ class ModalSandbox(AgentServerLaunchMixin):
         self.provision_diagnostics = None
         self._destroyed = False
 
-    def _reuse_healthy_agent_server(self, allowed_domains: list[str] | None) -> bool:
-        if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
-            # A restored snapshot can carry a healthy agent-server with a stale bash-env
-            # or gh shim from the snapshot's epoch. Refresh both before accepting reuse;
-            # agentsh setup and session replacement stay on the fresh-launch path so
-            # reuse doesn't disrupt the running server or its agentsh session.
-            self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
-            self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-            self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
-            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-            return True
-        self._free_agent_server_port()
-        return False
+    def _install_agent_server_launch_files(self) -> tuple[str, ...]:
+        return ()
+
+    def _on_agent_server_reused(self) -> None:
+        # A restored snapshot can carry a healthy agent-server with a stale bash-env
+        # or gh shim from the snapshot's epoch. Refresh both before accepting reuse;
+        # agentsh setup and session replacement stay on the fresh-launch path so
+        # reuse doesn't disrupt the running server or its agentsh session.
+        self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self._chmod_required(GH_GUARD_INSTALL_PATH, "+x")
 
     def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"

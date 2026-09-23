@@ -19,7 +19,7 @@ export function SpaceHeaderRow({ task }: { task?: Task }) {
   if (tiled || (!content && !task && !showsActivitySession)) return null;
 
   return (
-    <ChromeBar inset="control">
+    <ChromeBar inset="title">
       <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
         {content}
       </div>

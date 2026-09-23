@@ -64,6 +64,7 @@ import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
     accountsTableCell,
+    accountsTableDatasetKey,
     buildAccountsTableQueryPlan,
     isAccountsTableRow,
     supportedAccountFilters,
@@ -114,6 +115,14 @@ export type AccountSortableColumn = string
 export type AccountSortDirection = 'asc' | 'desc'
 
 export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
+
+export type AccountListDataCompleteness = 'unknown' | 'complete' | 'paginated'
+
+interface AccountListResponseState {
+    datasetKey: string
+    completeness: Exclude<AccountListDataCompleteness, 'unknown'>
+    serverSortOrder: AccountSortOrder
+}
 
 export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
 
@@ -269,7 +278,6 @@ export interface accountsLogicValues {
     tileFilter: TileFilter | null // accountsOverviewTilesLogic
     tiles: AccountsOverviewTile[] // accountsOverviewTilesLogic
     mineOnly: boolean // customerAnalyticsSceneLogic
-    listHasMoreData: boolean // dataNodeLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     accountFilters: AccountFilter[]
@@ -290,7 +298,9 @@ export interface accountsLogicValues {
     isCustomPropertySaving: (accountId: string, definitionId: string) => boolean
     isRoleSaving: (accountId: string, column: string) => boolean
     isTagsSaving: (accountId: string) => boolean
-    listPaginated: boolean
+    listDataCompleteness: AccountListDataCompleteness
+    listDatasetKey: string
+    listResponseState: AccountListResponseState | null
     metricsQuery: AccountsTableQuery | null
     relationshipOverrides: Record<string, number[]>
     savingCustomProperties: Record<string, true>
@@ -298,6 +308,7 @@ export interface accountsLogicValues {
     savingTags: Record<string, true>
     searchInput: string
     searchQuery: string
+    serverSortOrder: AccountSortOrder
     sortOrder: AccountSortOrder
     sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
     tagOverrides: Record<string, string[]>
@@ -397,6 +408,7 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined,
         payload?:
             | {
@@ -428,9 +440,9 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined
     } // dataNodeLogic
-    listLoadNextData: () => any // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
@@ -540,6 +552,15 @@ export interface accountsLogicActions {
     }
     setDraftRestored: (restored: boolean) => {
         restored: boolean
+    }
+    setListResponseState: (
+        datasetKey: string,
+        completeness: Exclude<AccountListDataCompleteness, 'unknown'>,
+        serverSortOrder: AccountSortOrder
+    ) => {
+        completeness: 'complete' | 'paginated'
+        datasetKey: string
+        serverSortOrder: AccountSortOrder
     }
     setRelationshipOverride: (
         accountId: string,
@@ -654,7 +675,29 @@ export interface accountsLogicMeta {
             accountFilters: AccountFilter[],
             columnDisplay: AccountColumnDisplayState
         ) => AccountsViewUrlState
-        canSortClientSide: (listHasMoreData: boolean, listPaginated: boolean) => boolean
+        listDatasetKey: (
+            currentTeamId: number | null,
+            searchQuery: string,
+            tagsFilter: string[],
+            assignmentStatus: AssignmentStatus,
+            assignedToFilter: RoleFilterValue,
+            accountIdFilter: string | null,
+            tileFilter: TileFilter | null,
+            accountFilters: AccountFilter[],
+            relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+        ) => string
+        listDataCompleteness: (
+            listResponseState: AccountListResponseState | null,
+            listDatasetKey: string
+        ) => AccountListDataCompleteness
+        canSortClientSide: (listDataCompleteness: AccountListDataCompleteness) => boolean
+        serverSortOrder: (
+            listDataCompleteness: AccountListDataCompleteness,
+            listResponseState: AccountListResponseState | null,
+            sortOrder: AccountSortOrder,
+            visibleColumnNames: string[]
+        ) => AccountSortOrder
         sortedRowsTransformer: (
             canSortClientSide: boolean,
             sortOrder: AccountSortOrder,
@@ -673,8 +716,7 @@ export interface accountsLogicMeta {
             relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             columnDisplay: AccountColumnDisplayState,
-            sortOrder: AccountSortOrder,
-            canSortClientSide: boolean
+            serverSortOrder: AccountSortOrder
         ) => BuildAccountsTableQueryPlanInput
         accountsTableQueryPlan: (
             accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
@@ -731,8 +773,6 @@ export const accountsLogic = kea<accountsLogicType>([
             ['metrics as overviewMetrics', 'tileFilter', 'tiles'],
             customerAnalyticsSceneLogic,
             ['mineOnly'],
-            dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['hasMoreData as listHasMoreData'],
         ],
         actions: [
             accountsColumnConfigLogic,
@@ -759,7 +799,7 @@ export const accountsLogic = kea<accountsLogicType>([
             membersLogic,
             ['ensureAllMembersLoaded'],
             dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess', 'loadNextData as listLoadNextData'],
+            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess'],
         ],
     })),
     actions({
@@ -778,6 +818,11 @@ export const accountsLogic = kea<accountsLogicType>([
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         setAssignedToCurrentUser: (value: boolean) => ({ value }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
+        setListResponseState: (
+            datasetKey: string,
+            completeness: Exclude<AccountListDataCompleteness, 'unknown'>,
+            serverSortOrder: AccountSortOrder
+        ) => ({ datasetKey, completeness, serverSortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
         restoreViewStateFromRoute: (method?: 'POP' | 'PUSH' | 'REPLACE') => ({ method }),
@@ -892,13 +937,14 @@ export const accountsLogic = kea<accountsLogicType>([
                 setSortOrder: (_, { sortOrder }) => sortOrder,
             },
         ],
-        // Keep server sorting through the last page so a query change does not discard accumulated rows.
-        // A fresh load replaces those rows and permits client sorting again.
-        listPaginated: [
-            false,
+        listResponseState: [
+            null as AccountListResponseState | null,
             {
-                listLoadData: () => false,
-                listLoadNextData: () => true,
+                setListResponseState: (_, { datasetKey, completeness, serverSortOrder }) => ({
+                    datasetKey,
+                    completeness,
+                    serverSortOrder,
+                }),
             },
         ],
         savingCustomProperties: [
@@ -1117,9 +1163,67 @@ export const accountsLogic = kea<accountsLogicType>([
                 return state
             },
         ],
+        listDatasetKey: [
+            (s) => [
+                s.currentTeamId,
+                s.searchQuery,
+                s.tagsFilter,
+                s.assignmentStatus,
+                s.assignedToFilter,
+                s.accountIdFilter,
+                s.tileFilter,
+                s.accountFilters,
+                s.relationshipDefinitionsById,
+                s.customPropertyDefinitionsById,
+            ],
+            (
+                currentTeamId: number | null,
+                searchQuery: string,
+                tagsFilter: string[],
+                assignmentStatus: AssignmentStatus,
+                assignedToFilter: RoleFilterValue,
+                accountIdFilter: string | null,
+                tileFilter: TileFilter | null,
+                accountFilters: AccountFilter[],
+                relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+            ): string =>
+                `${currentTeamId ?? 'none'}:${accountsTableDatasetKey({
+                    searchQuery,
+                    tagsFilter,
+                    assignmentStatus,
+                    assignedToFilter,
+                    accountIdFilter,
+                    tileFilter,
+                    accountFilters,
+                    relationshipDefinitionsById,
+                    customPropertyDefinitionsById,
+                })}`,
+        ],
+        listDataCompleteness: [
+            (s) => [s.listResponseState, s.listDatasetKey],
+            (listResponseState: AccountListResponseState | null, listDatasetKey: string): AccountListDataCompleteness =>
+                listResponseState?.datasetKey === listDatasetKey ? listResponseState.completeness : 'unknown',
+        ],
         canSortClientSide: [
-            (s) => [s.listHasMoreData, s.listPaginated],
-            (listHasMoreData: boolean, listPaginated: boolean): boolean => !listHasMoreData && !listPaginated,
+            (s) => [s.listDataCompleteness],
+            (listDataCompleteness: AccountListDataCompleteness): boolean => listDataCompleteness === 'complete',
+        ],
+        serverSortOrder: [
+            (s) => [s.listDataCompleteness, s.listResponseState, s.sortOrder, s.visibleColumnNames],
+            (
+                listDataCompleteness: AccountListDataCompleteness,
+                listResponseState: AccountListResponseState | null,
+                sortOrder: AccountSortOrder,
+                visibleColumnNames: string[]
+            ): AccountSortOrder =>
+                listDataCompleteness === 'complete' &&
+                listResponseState &&
+                sortOrder &&
+                listResponseState.serverSortOrder &&
+                visibleColumnNames.includes(listResponseState.serverSortOrder.column)
+                    ? listResponseState.serverSortOrder
+                    : sortOrder,
         ],
         sortedRowsTransformer: [
             (s) => [s.canSortClientSide, s.sortOrder, s.accountsTableQueryPlan],
@@ -1149,8 +1253,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.relationshipDefinitionsById,
                 s.customPropertyDefinitionsById,
                 s.columnDisplay,
-                s.sortOrder,
-                s.canSortClientSide,
+                s.serverSortOrder,
             ],
             (
                 querySelectColumns: string[],
@@ -1165,8 +1268,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 columnDisplay: AccountColumnDisplayState,
-                sortOrder: AccountSortOrder,
-                canSortClientSide: boolean
+                serverSortOrder: AccountSortOrder
             ): BuildAccountsTableQueryPlanInput => ({
                 querySelectColumns,
                 visibleColumnNames,
@@ -1180,8 +1282,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 relationshipDefinitionsById,
                 customPropertyDefinitionsById,
                 columnDisplay,
-                sortOrder,
-                canSortClientSide,
+                serverSortOrder,
             }),
         ],
         accountsTableQueryPlan: [
@@ -1330,17 +1431,38 @@ export const accountsLogic = kea<accountsLogicType>([
         [accountsOverviewTilesLogic.actionTypes.resetTiles]: () =>
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         listLoadData: ({ queryId }) => {
+            cache.latestListRequestState = {
+                queryId,
+                datasetKey: values.listDatasetKey,
+                serverSortOrder: values.serverSortOrder,
+            }
             if (cache.awaitingCustomPropertyRefresh) {
                 cache.awaitingCustomPropertyRefresh = false
                 cache.customPropertyRefreshQueryId = queryId
             }
         },
-        listLoadDataSuccess: ({ payload }) => {
-            if (payload?.queryId !== cache.customPropertyRefreshQueryId) {
-                return
+        listLoadDataSuccess: ({ response, payload }) => {
+            const queryId = payload?.queryId
+            const requestState = cache.latestListRequestState
+            if (
+                requestState &&
+                queryId === requestState.queryId &&
+                response &&
+                typeof response === 'object' &&
+                'hasMore' in response &&
+                typeof response.hasMore === 'boolean'
+            ) {
+                // Pin the request sort for complete sets so this response does not change the query that produced it.
+                actions.setListResponseState(
+                    requestState.datasetKey,
+                    response.hasMore ? 'paginated' : 'complete',
+                    requestState.serverSortOrder
+                )
             }
-            cache.customPropertyRefreshQueryId = undefined
-            actions.clearCustomPropertyOverrides()
+            if (queryId === cache.customPropertyRefreshQueryId) {
+                cache.customPropertyRefreshQueryId = undefined
+                actions.clearCustomPropertyOverrides()
+            }
         },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true

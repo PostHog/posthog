@@ -618,6 +618,10 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            # signals maps a warehouse import's status down to these three. Same values as the
+            # warehouse's own SyncStatus, but that class carries different labels, so the two are
+            # distinct choice sets and this one needs its own name.
+            "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
             "RunSourceEnum": ["manual", "signal_report", "agent"],
             "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             #
@@ -1329,6 +1333,8 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS", ""))
 
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.

@@ -288,6 +288,7 @@ export interface StamphogSyncInstallationResponseApi {
 
 /**
  * * `self_driving` - SELF_DRIVING
+ * * `manual` - MANUAL
  * * `label` - LABEL
  * * `all` - ALL
  */
@@ -295,6 +296,7 @@ export type ReviewRunTriggerEnumApi = (typeof ReviewRunTriggerEnumApi)[keyof typ
 
 export const ReviewRunTriggerEnumApi = {
     SelfDriving: 'self_driving',
+    Manual: 'manual',
     Label: 'label',
     All: 'all',
 } as const
@@ -356,14 +358,40 @@ export interface _GateResultSummaryApi {
  * Allowlisted, non-sensitive slice of ``ReviewRun.output``.
  *
  * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
- * and default-branch policy file contents — repository content a project member without repo access
- * must never read. Only these derived, content-free fields are exposed.
+ * and default-branch policy file contents, none of which the API returns. The reviewer's reasoning,
+ * the text stamphog posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
  */
 export interface _ReviewOutputSummaryApi {
     /** Version of the stamphog engine that produced this review, if it reported one. */
     readonly stamphog_version: string
     /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
     readonly reviewer_exit_code: number
+}
+
+/**
+ * The reviewer's reasoning for one run, the same text stamphog posts as its GitHub review.
+ */
+export interface _ReviewReasoningApi {
+    /**
+     * The reviewer's explanation of its verdict.
+     * @nullable
+     */
+    readonly reasoning: string | null
+    /**
+     * Issues the reviewer found that block approval.
+     * @nullable
+     */
+    readonly showstoppers: readonly string[] | null
+    /**
+     * The review text stamphog posts on GitHub: the reasoning, the judgment points, and the gate outcome.
+     * @nullable
+     */
+    readonly review_body: string | null
+    /**
+     * A plain-language summary of what the change does.
+     * @nullable
+     */
+    readonly change_summary: string | null
 }
 
 export interface ReviewRunApi {
@@ -389,9 +417,10 @@ export interface ReviewRunApi {
      * @nullable
      */
     readonly delivery_id: string | null
-    /** What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.
+    /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
      *
      * * `self_driving` - SELF_DRIVING
+     * * `manual` - MANUAL
      * * `label` - LABEL
      * * `all` - ALL */
     readonly trigger: ReviewRunTriggerEnumApi
@@ -415,8 +444,10 @@ export interface ReviewRunApi {
     readonly verdict: ReviewRunVerdictEnumApi
     /** Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read. */
     readonly gate_result: _GateResultSummaryApi
-    /** Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are deliberately excluded — they carry repository content a project member without repo access must not read. */
+    /** Allowlisted subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are excluded. The reviewer's reasoning, the text stamphog posts on GitHub, is in `reasoning` instead. */
     readonly output: _ReviewOutputSummaryApi
+    /** The reviewer's reasoning, the same text stamphog posts as its GitHub review. Returned only when retrieving a single run, and null in list results. Its fields are null until the reviewer has run. */
+    readonly reasoning: _ReviewReasoningApi | null
     /** Error message if the run failed, blank otherwise. */
     readonly error: string
     /**
@@ -452,6 +483,29 @@ export interface PaginatedReviewRunListApi {
     /** @nullable */
     previous?: string | null
     results: ReviewRunApi[]
+}
+
+/**
+ * Request body for asking stamphog to review one pull request.
+ */
+export interface ReviewRequestApi {
+    /** Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled in Stamphog. */
+    repository: string
+    /**
+     * Pull request number on GitHub.
+     * @minimum 1
+     */
+    pr_number: number
+}
+
+/**
+ * The review run a request points at.
+ */
+export interface ReviewRequestResponseApi {
+    /** The review run for the pull request's current head. Poll it by id until status is terminal (completed, gated, failed, or superseded). */
+    readonly run: ReviewRunApi
+    /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
+    readonly created: boolean
 }
 
 export type StamphogDigestRunsListParams = {
@@ -521,7 +575,7 @@ export type StamphogReviewRunsListParams = {
      */
     status?: string
     /**
-     * Filter by what caused the run: self_driving, label, or all.
+     * Filter by what caused the run: self_driving, manual, label, or all.
      */
     trigger?: StamphogReviewRunsListTrigger
 }
@@ -532,5 +586,6 @@ export type StamphogReviewRunsListTrigger =
 export const StamphogReviewRunsListTrigger = {
     All: 'all',
     Label: 'label',
+    Manual: 'manual',
     SelfDriving: 'self_driving',
 } as const
