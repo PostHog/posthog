@@ -154,8 +154,13 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
     Discover teams for AI observability workflows.
 
     Config (guaranteed/skip/sample/lookback) is read from the feature flag payload.
-    Returns guaranteed allowlist teams + a random sample of other teams with AI events.
-    On failure, falls back to guaranteed teams only.
+    Candidates are the guaranteed allowlist teams + a random sample of other teams with AI
+    events. If that sampling query fails, the candidates are the guaranteed teams only.
+
+    Every candidate then passes the third-party AI data processing consent filter, guaranteed
+    teams included, so a team whose organization did not approve is never returned. The filter
+    fails closed: if the consent query itself fails, this returns no teams at all rather than a
+    possibly non-consenting set.
     """
     async with Heartbeater():
         config = await asyncio.to_thread(_get_ai_observability_workflow_config)

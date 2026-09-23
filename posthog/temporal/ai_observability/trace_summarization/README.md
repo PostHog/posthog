@@ -57,7 +57,7 @@ Both activities are unified — they handle trace-level and generation-level sum
 
 ### Coordinator: `llma-trace-summarization-coordinator`
 
-Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`).
+Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 
@@ -124,13 +124,30 @@ temporal workflow start \
 
 > Local dev uses `development-task-queue`, production uses `general-purpose-task-queue`.
 
+A per-team run returns an empty result if the team's organization did not approve third-party AI data processing.
+See [AI data processing consent](#ai-data-processing-consent).
+
 ### Scheduled Execution
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
 ### Team Discovery
 
-Teams are discovered dynamically via `team_discovery.py`. Guaranteed teams (in `GUARANTEED_TEAM_IDS`) are always included, plus a configurable random sample of teams with AI events. Manual triggers can target any team.
+Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.
+Every discovered team must also pass the consent gate below, guaranteed teams included.
+
+### AI data processing consent
+
+A team is summarized only if its organization approved third-party AI data processing (`Organization.is_ai_data_processing_approved`).
+An unset flag counts as not approved.
+
+The rule is applied in two places:
+
+- Team discovery drops every team without consent, so a guaranteed team is not exempt.
+- The per-team workflow repeats the check and returns an empty result when consent is absent. This also gates a manual trigger and a stale allowlist entry, which both skip discovery.
+
+Discovery fails closed: if the consent query itself fails, it returns no teams rather than a possibly non-consenting set.
+Summarization then stops for every team, so look for the `AI data processing consent filter failed` log line before you look for a discovery fault.
 
 ## Configuration
 
