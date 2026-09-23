@@ -58,18 +58,18 @@ def calculate_result_rates(
 
 
 @overload
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[False] = False) -> float: ...
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[False] = False) -> float: ...
 
 
 @overload
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[True]) -> float | None: ...
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[True]) -> float | None: ...
 
 
 @overload
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool) -> float | None: ...
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: bool) -> float | None: ...
 
 
-def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool = False) -> float | None:
+def calculate_pass_rate(counts: dict[str, int], *, empty_as_none: bool = False) -> float | None:
     pass_count = counts.get("pass", 0)
     applicable_count = pass_count + counts.get("fail", 0)
     if applicable_count == 0:
@@ -194,11 +194,9 @@ class EvalReportMetrics:
             }
 
         if self.output_type in ("boolean", "numeric"):
-            self.pass_rate = calculate_boolean_pass_rate(
-                self.result_counts, empty_as_none=self.output_type == "numeric"
-            )
+            self.pass_rate = calculate_pass_rate(self.result_counts, empty_as_none=self.output_type == "numeric")
             if self.previous_result_counts is not None:
-                self.previous_pass_rate = calculate_boolean_pass_rate(self.previous_result_counts, empty_as_none=True)
+                self.previous_pass_rate = calculate_pass_rate(self.previous_result_counts, empty_as_none=True)
         else:
             self.previous_pass_rate = None
 

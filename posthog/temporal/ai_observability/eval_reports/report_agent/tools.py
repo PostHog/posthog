@@ -35,7 +35,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     Citation,
     EvalReportGenerationStatus,
     ReportSection,
-    calculate_boolean_pass_rate,
+    calculate_pass_rate,
     calculate_result_rates,
     normalize_metrics_payload,
     normalize_report_content_payload,
@@ -393,7 +393,7 @@ def _period_summary_dict(
         "result_rates": result_rates,
     }
     if output_type in ("boolean", "numeric"):
-        summary["pass_rate"] = calculate_boolean_pass_rate(
+        summary["pass_rate"] = calculate_pass_rate(
             result_counts, empty_as_none=empty_rates_as_none or output_type == "numeric"
         )
     return summary
