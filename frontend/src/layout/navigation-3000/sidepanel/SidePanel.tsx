@@ -10,6 +10,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
@@ -195,9 +196,12 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
             {PanelContent && (
                 <SidePanelNavigation activeTab={activeTab as SidePanelTab} onTabChange={(tab) => openSidePanel(tab)}>
                     <ErrorBoundary>
-                        <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
-                            <PanelContent />
-                        </Suspense>
+                        {/* Keep chunk-load failures out of the panel error reporter so stale assets reload once instead. */}
+                        <ChunkLoadErrorBoundary>
+                            <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
+                                <PanelContent />
+                            </Suspense>
+                        </ChunkLoadErrorBoundary>
                     </ErrorBoundary>
                 </SidePanelNavigation>
             )}
