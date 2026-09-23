@@ -170,6 +170,7 @@ def main() -> int:
                 "SECURE_SSL_REDIRECT": False,
                 "SESSION_COOKIE_SECURE": False,
                 "CSRF_COOKIE_SECURE": False,
+                "PERSISTED_FEATURE_FLAGS": [key for key, enabled in flag_values("browser").items() if enabled],
                 "SANDBOX_LLM_GATEWAY_URL": gateway,
                 "SANDBOX_AI_GATEWAY_URL": gateway,
                 "SANDBOX_AI_GATEWAY_PRODUCTS": "",

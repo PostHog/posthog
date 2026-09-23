@@ -51,6 +51,7 @@ Django's unit-test commit shortcut is replaced with `transaction.on_commit`: a b
 value and consumers. The profile enables tasks, sequenced ingest, proxy streaming, keep-stream-open, all three durable
 dispatch flags, and PostHog connections. The MCP profile also enables markdown notebooks. Other task switches have explicit
 false entries. CI never fetches live flag definitions or evaluates real users' targeting rules.
+The launcher also supplies the browser profile through `PERSISTED_FEATURE_FLAGS`, so it remains active when capture is disabled.
 
 Backend single-flag and bulk evaluations share the same values. An undeclared Tasks or PostHog AI flag records a test
 failure even if the application catches an evaluation error. Unrelated flags remain false. Add an explicit manifest entry
