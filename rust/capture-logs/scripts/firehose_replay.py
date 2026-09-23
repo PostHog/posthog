@@ -162,6 +162,12 @@ class FirehoseReplay:
         if "timestamp" not in body:
             print("FAIL: response has no timestamp")
             return False
+        # capture-logs returns requestId and timestamp on every status, so the checks above
+        # pass on a rejection too.
+        expected = 413 if self.options.oversize else 200
+        if status != expected:
+            print(f"FAIL: expected HTTP {expected}, got HTTP {status}")
+            return False
         return True
 
 
