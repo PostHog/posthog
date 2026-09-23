@@ -580,6 +580,7 @@ export interface sqlEditorLogicValues {
     fixErrorsError: string | null
     hasFiltersPlaceholder: boolean
     hasQueryInput: boolean
+    hasUnsavedQueryChanges: boolean
     hoveredNode: string | null
     inProgressDraftEdits: Record<string, string>
     inProgressViewEdits: Record<string, string>
@@ -1152,6 +1153,7 @@ export interface sqlEditorLogicMeta {
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
+        hasUnsavedQueryChanges: (queryInput: string | null, activeTab: QueryTab | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
@@ -3281,6 +3283,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
+        // Replacing the editor content destroys work when the editor holds text that differs
+        // from the saved object the tab was opened from. A tab bound to no draft, view or
+        // insight has no saved copy at all, so any text in it counts as unsaved.
+        hasUnsavedQueryChanges: [
+            (s) => [s.queryInput, s.activeTab],
+            (queryInput: string | null, activeTab: QueryTab | null): boolean => {
+                const currentQuery = (queryInput ?? '').trim()
+                if (!currentQuery) {
+                    return false
+                }
+                const savedQuery =
+                    activeTab?.draft?.query.query ??
+                    activeTab?.view?.query?.query ??
+                    toDataVisualizationNode(activeTab?.insight?.query)?.source.query ??
+                    ''
+                return currentQuery !== savedQuery.trim()
+            },
+        ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
