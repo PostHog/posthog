@@ -35,8 +35,8 @@ from products.marketing_analytics.backend.hogql_queries.attribution_table_query_
     MarketingAnalyticsAttributionQueryRunner,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
-    STALE_WHILE_REVALIDATE_SECONDS,
 )
 
 
@@ -50,7 +50,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 return_value=HogQLContext(team_id=1),
             )
         )
-        self.enterContext(patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False))
         self.team = Team(id=1, organization=Organization(id=UUID(int=1)))
         self.team.modifiers = {"personsOnEventsMode": "person_id_override_properties_on_events"}
         config = TeamMarketingAnalyticsConfig(team=self.team)
@@ -129,15 +128,12 @@ class TestAttributionSessionsRead(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("stale_user", True, False, True, True),
-            ("flag_off", False, False, False, False),
-            ("revalidation", True, True, False, True),
-            ("cold_user", True, False, False, False),
+            ("stale_user", False, True, True),
+            ("revalidation", True, False, True),
+            ("cold_user", False, False, False),
         ]
     )
-    def test_stale_policy_and_revalidation(
-        self, _name: str, flag: bool, refreshing: bool, stale: bool, ready: bool
-    ) -> None:
+    def test_stale_policy_and_revalidation(self, _name: str, refreshing: bool, stale: bool, ready: bool) -> None:
         runner = MarketingAnalyticsAttributionQueryRunner(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
@@ -153,7 +149,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
             patch.object(
                 marketing_sessions_precompute, "create_default_modifiers_for_team", return_value=runner.modifiers
             ),
-            patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
             patch.object(attribution_sessions_read, "handle_stale_served") as revalidate,
             patch.object(
                 marketing_sessions_precompute,
@@ -167,7 +162,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
             ensure.assert_called_once()
             assert ensure.call_args.kwargs["run_inserts"] is refreshing
             assert ensure.call_args.kwargs["stale_while_revalidate_seconds"] == (
-                STALE_WHILE_REVALIDATE_SECONDS if flag and not refreshing else None
+                None if refreshing else PRECOMPUTE_ONLY_MAX_STALE_SECONDS
             )
             assert revalidate.call_count == int(stale)
 
