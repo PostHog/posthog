@@ -223,10 +223,10 @@ def _hour_floor(now: datetime, team: Team) -> datetime:
 
 
 def _window_spans_backward_dst_transition(anchor: datetime, window_hours: int, team: Team) -> bool:
-    offsets = [
-        (anchor - timedelta(hours=hours)).astimezone(team.timezone_info).utcoffset()
-        for hours in range(window_hours + 1, -1, -1)
-    ]
+    offsets: list[timedelta] = []
+    for hours in range(window_hours + 1, -1, -1):
+        offset = (anchor - timedelta(hours=hours)).astimezone(team.timezone_info).utcoffset()
+        offsets.append(offset if offset is not None else timedelta(0))
     return any(later < earlier for earlier, later in zip(offsets, offsets[1:]))
 
 
