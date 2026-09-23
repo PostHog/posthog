@@ -32,7 +32,7 @@ CREATED_AT = "createdAt"
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 
-@dataclass
+@dataclass(frozen=True)
 class DeepsourceEndpointConfig:
     primary_keys: list[str]
     # GraphQL connection field on Repository for paginated per-repository fan-out.

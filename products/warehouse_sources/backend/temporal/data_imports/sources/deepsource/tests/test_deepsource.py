@@ -166,6 +166,16 @@ class TestRepositoriesPagination:
         with pytest.raises(Exception, match="endCursor is empty"):
             list(_repositories_rows(session, "acme", "GITHUB", MagicMock(), _make_manager()))
 
+    def test_stalled_cursor_raises_instead_of_refetching_the_same_page(self) -> None:
+        session = MagicMock()
+        session.post.side_effect = [
+            _connection_response("account", "repositories", [{"id": "a"}], True, "c1"),
+            _connection_response("account", "repositories", [{"id": "a"}], True, "c1"),
+        ]
+
+        with pytest.raises(Exception, match="endCursor did not advance past 'c1'"):
+            list(_repositories_rows(session, "acme", "GITHUB", MagicMock(), _make_manager()))
+
     def test_missing_account_raises_actionable_error(self) -> None:
         session = MagicMock()
         session.post.side_effect = [_null_parent_response("account")]
@@ -334,6 +344,28 @@ class TestChecksFanOut:
         assert snapshots[2] == {"id": "run-1", "checkPageSize": 50, "cursor": "check-c1"}
         # The trailing check still carries the run and repository context.
         assert rows[1]["analysisRunId"] == "run-1" and rows[1]["repositoryName"] == "alpha"
+
+    def test_run_lost_during_check_follow_up_raises(self) -> None:
+        session = MagicMock()
+        _capture_post_calls(
+            session,
+            [
+                _repo_names_response([("alpha", True)]),
+                _connection_response(
+                    "repository",
+                    "analysisRuns",
+                    [self._run_node("run-1", [{"id": "chk-1"}], True, "check-c1")],
+                    False,
+                    None,
+                    parent_extra={"id": "RID", "name": "alpha"},
+                ),
+                _null_parent_response("node"),
+            ],
+        )
+
+        # Skipping instead would checkpoint run-1 as complete with only its first check page.
+        with pytest.raises(Exception, match="analysis run run-1 disappeared"):
+            list(_fan_out_connection_rows(session, "acme", "GITHUB", "checks", MagicMock(), _make_manager()))
 
     def test_truncated_check_page_raises_rather_than_dropping_checks(self) -> None:
         session = MagicMock()

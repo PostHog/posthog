@@ -183,6 +183,11 @@ def _iter_connection(
             # fail loudly instead of silently returning partial results.
             raise Exception(f"DeepSource: hasNextPage=True but endCursor is empty for {connection_field}")
 
+        if has_next_page and end_cursor == cursor:
+            # An endCursor that doesn't advance re-fetches this page, duplicating its rows
+            # until the page cap truncates the rest.
+            raise Exception(f"DeepSource: endCursor did not advance past '{cursor}' for {connection_field}")
+
         yield parent, nodes, end_cursor, has_next_page
 
         if not has_next_page:
@@ -323,6 +328,9 @@ def _check_rows(
         "checks",
         logger,
         start_cursor=end_cursor,
+        # The run was in the page we just read, so a null node here means its remaining
+        # checks are unreachable. Skipping would checkpoint a half-synced run as complete.
+        missing_parent_error=f"DeepSource: analysis run {analysis_run['id']} disappeared while paginating its checks",
     ):
         rows.extend({**node, **context} for node in nodes)
     return rows
