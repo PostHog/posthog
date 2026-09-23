@@ -39,6 +39,9 @@ export interface SankeyChartConfig {
     tooltip?: {
         /** Show the tooltip on hover. Defaults to true. */
         enabled?: boolean
+        /** Where the tooltip sits, as on the cartesian charts. Defaults to `cursor`; `follow-data`
+         *  anchors it to the hovered node's right edge or the ribbon's midpoint. */
+        placement?: 'follow-data' | 'top' | 'cursor'
     }
     /** Per-side margin overrides. Should be referentially stable. */
     margins?: Partial<ChartMargins>

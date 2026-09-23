@@ -215,7 +215,11 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                         ) : null}
                         {children}
                         {tooltipCtx && showTooltip ? (
-                            <Tooltip context={tooltipCtx} renderTooltip={renderTooltip as never} placement="cursor" />
+                            <Tooltip
+                                context={tooltipCtx}
+                                renderTooltip={renderTooltip as never}
+                                placement={tooltipConfig?.placement ?? 'cursor'}
+                            />
                         ) : null}
                     </ChartShell>
                 </ChartHoverContext.Provider>

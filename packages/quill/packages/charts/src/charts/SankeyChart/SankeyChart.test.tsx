@@ -65,4 +65,24 @@ describe('SankeyChart', () => {
         fireEvent.click(chart.element)
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a', value: 12 }))
     })
+
+    it('shows the tooltip on a first tap and fires onNodeClick on the second', async () => {
+        const onNodeClick = jest.fn()
+        const { chart } = renderHogChart(
+            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick} />,
+            { nativeTooltip: true }
+        )
+        // A tap sends no mousemove first, so nothing is hovered when the click arrives. jsdom has
+        // no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
+        const tap = (): void => {
+            const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
+            fireEvent(chart.element, down)
+            fireEvent.click(chart.element, nodeCenter('a'))
+        }
+        tap()
+        await waitFor(() => expect(getHogChartTooltip()?.textContent).toContain('Tool A'))
+        expect(onNodeClick).not.toHaveBeenCalled()
+        tap()
+        expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
+    })
 })

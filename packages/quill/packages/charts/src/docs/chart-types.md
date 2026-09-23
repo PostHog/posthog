@@ -92,6 +92,8 @@ There is no `series` or `labels`.
 - Hovering a node lifts its ribbons and dims the rest of the graph; hovering a ribbon lifts just that ribbon.
   The default tooltip shows the node label or `source → target`, the value, and its share of `layout.total` (the summed inflow of the nodes with no incoming link).
   `onNodeClick` and `onLinkClick` receive the laid-out datum with its `meta`.
+  `tooltip.placement` takes the cartesian charts' values and defaults to `cursor`.
+  On touch, the first tap on a node or ribbon shows its tooltip and a second tap on the same one fires the click handler.
 - Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.
 - The layout engine ships on its own as `sankeyLayout` (plus the `sankeyLeft` / `sankeyJustify` alignments and `sankeyLinkHorizontal`) for hosts that draw their own SVG.
 

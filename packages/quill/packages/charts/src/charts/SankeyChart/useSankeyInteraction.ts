@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 
 import { useLatest } from '../../core/hooks/useLatest'
 import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
@@ -23,7 +23,8 @@ interface UseSankeyInteractionResult<NodeMeta, LinkMeta> {
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
-        onClick: () => void
+        onClick: (e: React.MouseEvent<HTMLDivElement>) => void
+        onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
     }
 }
 
@@ -104,6 +105,17 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const hoverIndexRef = useLatest(hoverIndex)
 
+    const showHit = useCallback(
+        (hit: SankeyHit, cursor: { x: number; y: number }) => {
+            setHover(hitToHoverIndex(layoutRef.current, hit), cursor)
+            if (showTooltip) {
+                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+                setTooltipCtx(buildTooltipCtx(layoutRef.current, hit, cursor, canvasBounds))
+            }
+        },
+        [layoutRef, showTooltip, setHover, setTooltipCtx, canvasRef]
+    )
+
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             const current = layoutRef.current
@@ -117,33 +129,64 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 clearTooltip()
                 return
             }
-            setHover(hitToHoverIndex(current, hit), cursor)
-            if (showTooltip) {
-                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                setTooltipCtx(buildTooltipCtx(current, hit, cursor, canvasBounds))
-            }
+            showHit(hit, cursor)
         },
-        [layoutRef, showTooltip, setHover, setTooltipCtx, clearTooltip, canvasRef]
+        [layoutRef, showHit, clearTooltip]
     )
 
     const onMouseLeave = useCallback(() => {
         clearTooltip()
     }, [clearTooltip])
 
-    const onClick = useCallback(() => {
-        const hit = hoverIndexToHit(layoutRef.current, hoverIndexRef.current)
-        if (!hit) {
-            return
-        }
-        const resolved = resolveHit(layoutRef.current, hit)
-        if (resolved.kind === 'node') {
-            onNodeClick?.(resolved.node)
-        } else {
-            onLinkClick?.(resolved.link)
-        }
-    }, [layoutRef, hoverIndexRef, onNodeClick, onLinkClick])
+    // Touch devices fire no mousemove before a tap, so the click has to resolve what was tapped
+    // itself. As on the cartesian charts, the first tap on a node or ribbon shows its tooltip and
+    // only a tap on the element already showing one fires the click handler. Both refs are read
+    // at pointerdown because a tap's compatibility mouse events arrive after pointerup.
+    const lastPointerTypeRef = useRef<string>('mouse')
+    const tapDownHoverIndexRef = useRef<number>(-1)
 
-    const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
+    const onPointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            lastPointerTypeRef.current = e.pointerType
+            tapDownHoverIndexRef.current = hoverIndexRef.current
+        },
+        [hoverIndexRef]
+    )
+
+    const onClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            const current = layoutRef.current
+            let hit = hoverIndexToHit(current, hoverIndexRef.current)
+            if (lastPointerTypeRef.current === 'touch') {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+                hit = sankeyHitAt(current, cursor)
+                if (!hit) {
+                    clearTooltip()
+                    return
+                }
+                if (hitToHoverIndex(current, hit) !== tapDownHoverIndexRef.current) {
+                    showHit(hit, cursor)
+                    return
+                }
+            }
+            if (!hit) {
+                return
+            }
+            const resolved = resolveHit(current, hit)
+            if (resolved.kind === 'node') {
+                onNodeClick?.(resolved.node)
+            } else {
+                onLinkClick?.(resolved.link)
+            }
+        },
+        [layoutRef, hoverIndexRef, clearTooltip, showHit, onNodeClick, onLinkClick]
+    )
+
+    const handlers = useMemo(
+        () => ({ onMouseMove, onMouseLeave, onClick, onPointerDown }),
+        [onMouseMove, onMouseLeave, onClick, onPointerDown]
+    )
 
     // The lifecycle stores the base context; every value it holds was built by `buildTooltipCtx`,
     // so the extra Sankey fields are present.
