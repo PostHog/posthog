@@ -3070,13 +3070,14 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
 #[tokio::test]
 async fn test_s3_served_definitions_repair_the_etag_and_restore_304s() {
     use feature_flags::{
-        config::Config,
+        config::{Config, FlexBool},
         utils::test_utils::{static_s3_client, TestContext},
     };
     use reqwest;
     use tokio::time::{sleep, Duration};
 
-    let config = Config::default_test_config();
+    let mut config = Config::default_test_config();
+    config.flag_definitions_read_repair_enabled = FlexBool(true);
     let context = TestContext::new(Some(&config)).await;
 
     let (team, secret_token, _) = context

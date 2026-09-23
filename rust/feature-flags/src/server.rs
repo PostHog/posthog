@@ -338,17 +338,21 @@ pub async fn serve_with_rate_limiter_clock<C>(
             Some(config.hypercache_read_repair_ttl_seconds)
         };
 
+    // Read repair for the /flags/definitions reader, behind its own gate so it can ramp
+    // independently of the payload-only repair the other readers already run.
+    let flag_definitions_read_repair_ttl_seconds =
+        read_repair_ttl_seconds.filter(|_| *config.flag_definitions_read_repair_enabled);
+
     let mut flags_hypercache_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
         "flags.json".to_string(),
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
-    // Etag-paired on the Django writer side, so a repair here restores the payload and its
-    // companion `:etag`. Without the etag, FlagDefinitionsCache has no version key to cache
-    // under and every request recompiles the definitions.
+    // Etag-paired on the Django writer side. Left out of read repair: FlagDefinitionsCache
+    // absorbs repeat reads of a cold flags.json in process, so the S3 reads a repair would
+    // save are already collapsed to one per pod per version.
     flags_hypercache_config.enable_etag = true;
-    flags_hypercache_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -411,11 +415,12 @@ pub async fn serve_with_rate_limiter_clock<C>(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
-    // Etag-paired, same as flags.json above. An entry that reaches Redis expiry is served
-    // from S3 with no etag beside it, so /flags/definitions answers 200 with no validator
-    // and a polling SDK can never get a 304 again. The repair restores both keys.
+    // Etag-paired, same as flags.json above. This reader has no in-process cache in front of
+    // it, so an entry that reaches Redis expiry is served from S3 with no etag beside it, and
+    // /flags/definitions answers 200 with no validator on every poll. The repair restores
+    // both keys.
     flags_with_cohorts_config.enable_etag = true;
-    flags_with_cohorts_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
+    flags_with_cohorts_config.read_repair_ttl_seconds = flag_definitions_read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());

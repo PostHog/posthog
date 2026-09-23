@@ -886,6 +886,15 @@ pub struct Config {
     #[envconfig(from = "HYPERCACHE_READ_REPAIR_TTL_SECONDS", default = "600")]
     pub hypercache_read_repair_ttl_seconds: u64,
 
+    // Read repair for the /flags/definitions reader (flags_with_cohorts.json). That reader
+    // is etag-paired, so a repair there writes the payload and its companion `:etag` key,
+    // which is a wider change than the payload-only repair the other readers do. It gets its
+    // own gate rather than riding HYPERCACHE_READ_REPAIR_TTL_SECONDS, because that env var
+    // is non-zero by default and would turn this on in every environment at once.
+    // HYPERCACHE_READ_REPAIR_TTL_SECONDS=0 and SKIP_WRITES still disable it.
+    #[envconfig(from = "FLAG_DEFINITIONS_READ_REPAIR_ENABLED", default = "false")]
+    pub flag_definitions_read_repair_enabled: FlexBool,
+
     // TTL for the Redis-backed per-token auth cache (positive hits).
     // Starts at 5 minutes as a conservative default; increase once invalidation
     // signals are proven reliable in production.
@@ -1170,6 +1179,7 @@ impl Config {
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
             hypercache_read_repair_ttl_seconds: 600,
+            flag_definitions_read_repair_enabled: FlexBool(false),
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
