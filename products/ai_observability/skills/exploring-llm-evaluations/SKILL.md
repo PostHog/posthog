@@ -33,10 +33,8 @@ Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
 evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
 Both `hog` and `llm_judge` also support `output_type: "numeric"`.
-Numeric runs store their raw score in `$ai_evaluation_result`, with optional `$ai_score_min` and `$ai_score_max`.
-The property has String metadata so HogQL can read every result shape.
-Filter on `$ai_evaluation_result_type = 'numeric'` and use `toFloat(properties.$ai_evaluation_result)` for numeric comparisons and aggregation.
-For booleans, compare against the string literals `'true'` and `'false'`.
+Numeric runs store their raw score in `$ai_evaluation_numeric_result`, with optional `$ai_score_min` and `$ai_score_max`.
+They never set `$ai_evaluation_result`.
 Use `output_config.passing_rule` to interpret scores: `gte` means at least the threshold and `lte` means at most.
 Changing the rule reinterprets historical scores. Saved reports retain the rule and metrics used when generated.
 Without a passing rule, inspect score means and distributions; pass rates and reports are unavailable.
@@ -68,18 +66,19 @@ All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tool
 
 Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
-| Property                     | Meaning                                                                              |
-| ---------------------------- | ------------------------------------------------------------------------------------ |
-| `$ai_evaluation_id`          | UUID of the evaluation config                                                        |
-| `$ai_evaluation_name`        | Human-readable name                                                                  |
-| `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                                      |
-| `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                                        |
-| `$ai_evaluation_result_type` | Result kind: `boolean`, `numeric`, or `sentiment`                                    |
-| `$ai_evaluation_result`      | Raw boolean or numeric result. Use the result type and output config to interpret it |
-| `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)                             |
-| `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A                             |
-| `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative`                      |
-| `$ai_sentiment_score`        | Confidence score for the winning sentiment label                                     |
+| Property                        | Meaning                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `$ai_evaluation_id`             | UUID of the evaluation config                                                    |
+| `$ai_evaluation_name`           | Human-readable name                                                              |
+| `$ai_target_event_id`           | UUID of the `$ai_generation` event being scored                                  |
+| `$ai_trace_id`                  | Parent trace ID (for jumping to the trace UI)                                    |
+| `$ai_evaluation_result_type`    | Result kind: `boolean`, `numeric`, or `sentiment`                                |
+| `$ai_evaluation_numeric_result` | Raw numeric score. Use the passing rule to map it to pass or fail                |
+| `$ai_evaluation_result`         | Raw boolean result. Use the evaluation's output config to map it to pass or fail |
+| `$ai_evaluation_reasoning`      | Free-text explanation (set by the LLM judge or Hog code)                         |
+| `$ai_evaluation_applicable`     | `false` when the evaluator decided the generation is N/A                         |
+| `$ai_sentiment_label`           | For sentiment evaluations: `positive`, `neutral`, or `negative`                  |
+| `$ai_sentiment_score`           | Confidence score for the winning sentiment label                                 |
 
 When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
@@ -113,15 +112,15 @@ before assuming the failure is in the generation.
 ```sql
 posthog:execute-sql
 SELECT
-    countIf(properties.$ai_evaluation_applicable = false) AS na_count,
+    countIf(properties.$ai_evaluation_applicable = 'false') AS na_count,
     countIf(
         (properties.$ai_evaluation_applicable IS NULL
-            OR properties.$ai_evaluation_applicable != false)
+            OR properties.$ai_evaluation_applicable != 'false')
         AND properties.$ai_evaluation_result = 'true'
     ) AS pass_count,
     countIf(
         (properties.$ai_evaluation_applicable IS NULL
-            OR properties.$ai_evaluation_applicable != false)
+            OR properties.$ai_evaluation_applicable != 'false')
         AND properties.$ai_evaluation_result = 'false'
     ) AS fail_count
 FROM events
@@ -152,7 +151,7 @@ WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_result = 'false'
     AND (
         properties.$ai_evaluation_applicable IS NULL
-        OR properties.$ai_evaluation_applicable != false
+        OR properties.$ai_evaluation_applicable != 'false'
     )
     AND timestamp >= now() - INTERVAL 7 DAY
 ORDER BY timestamp DESC

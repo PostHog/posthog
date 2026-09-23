@@ -126,7 +126,7 @@ class TestGetEventSummary:
     def test_numeric_evaluation_summary(self, score: float) -> None:
         event = {
             "event": "$ai_evaluation",
-            "properties": {"$ai_evaluation_result_type": "numeric", "$ai_evaluation_result": score},
+            "properties": {"$ai_evaluation_result_type": "numeric", "$ai_evaluation_numeric_result": score},
         }
         assert _get_event_summary(event) == f"evaluation ({score})"
 

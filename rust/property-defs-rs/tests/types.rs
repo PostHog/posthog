@@ -611,42 +611,6 @@ fn test_bare_utm_properties_still_string() {
     PropertyValueType::String
 )]
 #[case(
-    "$AI_Evaluation_Result",
-    "$ai_evaluation_result",
-    Value::Bool(true),
-    PropertyValueType::String
-)]
-#[case(
-    "$AI_Evaluation_Result",
-    "$ai_evaluation_result",
-    Value::Bool(false),
-    PropertyValueType::String
-)]
-#[case(
-    "$AI_Evaluation_Result",
-    "$ai_evaluation_result",
-    Value::from(0),
-    PropertyValueType::String
-)]
-#[case(
-    "$AI_Evaluation_Result",
-    "$ai_evaluation_result",
-    Value::from(7.5),
-    PropertyValueType::String
-)]
-#[case(
-    "$AI_Evaluation_Result",
-    "$ai_evaluation_result",
-    Value::from("helpful"),
-    PropertyValueType::String
-)]
-#[case(
-    "$AI_Evaluation_Result",
-    "$ai_evaluation_result",
-    Value::Null,
-    PropertyValueType::String
-)]
-#[case(
     "$Survey_Response_2",
     "$survey_response_2",
     Value::Number(Number::from(7)),

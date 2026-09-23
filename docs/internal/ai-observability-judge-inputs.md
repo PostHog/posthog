@@ -46,23 +46,13 @@ The playground keeps the provider's explanation so users can correct the setting
 
 ## Result encoding
 
-Boolean and numeric online evaluations write their raw value to `$ai_evaluation_result`.
-`$ai_evaluation_result_type` distinguishes the shapes; events without it are legacy boolean results.
+Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
+Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_score_min` and `$ai_score_max` bounds.
+`$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
 Sentiment evaluations keep their `$ai_sentiment_*` properties.
-N/A and skipped numeric runs omit the result, while a score of zero remains a graded result.
+N/A and skipped numeric runs omit the score, while zero remains a graded result.
 
-The shared property uses String property-definition metadata so HogQL does not discard values whose shape differs from the first ingested event.
-Boolean queries compare against `'true'` and `'false'`; numeric queries filter on result type and cast with `toFloat(properties.$ai_evaluation_result)`.
-Numeric aggregation through custom HogQL remains available, but the property is not offered as a numeric measure in the Insights property picker.
-This does not rewrite historical ClickHouse events or change the JSON values in exports.
-
-Before enabling `llm-analytics-numeric-evaluations`:
-
-1. Deploy the compatible query readers, Rust property inference, and Dagster reconciliation rule.
-2. Check saved custom HogQL that compares this property with boolean literals (`= true` or `= false`); use the string literals above.
-3. Run `python manage.py migrate_evaluation_result_property` in each region to preview the metadata backfill, then add `--apply` to execute it.
-4. Rerun the preview to verify no definitions remain, and verify boolean reports and numeric queries before enabling the flag.
-
-The command updates only event-property definitions, commits in batches, and can resume after interruption.
-It runs after deployment because a pre-deploy Django data migration could expose String metadata to incompatible readers.
-Do not revert the metadata to Boolean after numeric results have been emitted.
+Separate properties preserve the existing boolean property's type and saved queries.
+The numeric property uses normal numeric inference and can be aggregated in Insights.
+Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
+No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.

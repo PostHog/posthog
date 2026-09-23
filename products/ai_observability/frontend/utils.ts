@@ -1121,7 +1121,7 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | number | string | null,
+    result: boolean | string | null,
     reasoning: string | null,
     applicable: boolean | string | null,
     evaluation_type: string | null,
@@ -1130,6 +1130,7 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
+    score?: number | string | null,
     score_min?: number | string | null,
     score_max?: number | string | null,
 ]
@@ -1178,6 +1179,7 @@ export interface NormalizedEvaluationResultProperties {
     rawResultType?: unknown
     rawSentimentLabel?: unknown
     rawSentimentScore?: unknown
+    rawScore?: unknown
     rawScoreMin?: unknown
     rawScoreMax?: unknown
 }
@@ -1189,6 +1191,7 @@ export function normalizeEvaluationResultProperties({
     rawResultType,
     rawSentimentLabel,
     rawSentimentScore,
+    rawScore,
     rawScoreMin,
     rawScoreMax,
 }: NormalizedEvaluationResultProperties): Pick<
@@ -1229,9 +1232,9 @@ export function normalizeEvaluationResultProperties({
             ? {
                   score:
                       isExplicitEvaluationNotApplicable(rawApplicable) ||
-                      (typeof rawResult !== 'number' && (typeof rawResult !== 'string' || !rawResult.trim()))
+                      (typeof rawScore !== 'number' && (typeof rawScore !== 'string' || !rawScore.trim()))
                           ? null
-                          : normalizeOptionalNumber(rawResult),
+                          : normalizeOptionalNumber(rawScore),
                   score_min: normalizeOptionalNumber(rawScoreMin),
                   score_max: normalizeOptionalNumber(rawScoreMax),
               }
@@ -1248,8 +1251,9 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         rawResultType: row[10],
         rawSentimentLabel: row[11],
         rawSentimentScore: row[12],
-        rawScoreMin: row[15],
-        rawScoreMax: row[16],
+        rawScore: row[15],
+        rawScoreMin: row[16],
+        rawScoreMax: row[17],
     })
 
     return {
@@ -1307,6 +1311,7 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
             properties.$ai_evaluation_skipped as skipped,
+            properties.$ai_evaluation_numeric_result as score,
             properties.$ai_score_min as score_min,
             properties.$ai_score_max as score_max
         FROM events

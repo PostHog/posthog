@@ -165,7 +165,9 @@ describe('evaluationMetricsLogic', () => {
             expect.objectContaining({ value: ['boolean', 'numeric'] }),
         ])
         const math = metricsLogic.values.chartQuery?.series[0].math_hogql ?? ''
-        expect(math).toContain(`toFloat(properties.$ai_evaluation_result) ${operator === 'gte' ? '>=' : '<='} 0`)
+        expect(math).toContain(
+            `toFloat(properties.$ai_evaluation_numeric_result) ${operator === 'gte' ? '>=' : '<='} 0`
+        )
         expect(math).toContain("properties.$ai_evaluation_id = 'numeric'")
         expect(math).toContain('properties.$ai_evaluation_applicable')
         expect(math).toContain(EVALUATION_NOT_SKIPPED_HOGQL)

@@ -846,7 +846,7 @@ class TestPeriodForScheduledReport(BaseTest):
 
 class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("Boolean",), ("String",), (None,)])
-    def test_boolean_reports_preserve_outcomes_across_metadata_migration(self, property_type: str | None) -> None:
+    def test_boolean_reports_preserve_outcomes_across_property_types(self, property_type: str | None) -> None:
         if property_type:
             PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_result", property_type=property_type)
         start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
@@ -856,7 +856,7 @@ class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
             {"$ai_evaluation_result": False},
             {"$ai_evaluation_applicable": False},
             {"$ai_evaluation_result": False, "$ai_evaluation_skipped": True},
-            {"$ai_evaluation_result": 1, "$ai_evaluation_result_type": "numeric"},
+            {"$ai_evaluation_numeric_result": 1, "$ai_evaluation_result_type": "numeric"},
         ]
         for index, properties in enumerate(rows):
             _create_event(
@@ -887,16 +887,16 @@ class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
     ) -> None:
         if score_registered:
             PropertyDefinition.objects.create(
-                team=self.team, name="$ai_evaluation_result", property_type="String", is_numerical=False
+                team=self.team, name="$ai_evaluation_numeric_result", property_type="Numeric", is_numerical=True
             )
         if registered:
             PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_applicable", property_type="Boolean")
         start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
         rows: list[dict[str, object]] = [
-            {"$ai_evaluation_result": 0},
-            {"$ai_evaluation_result": 7},
-            {"$ai_evaluation_result": 7.5},
-            {"$ai_evaluation_result": 8},
+            {"$ai_evaluation_numeric_result": 0},
+            {"$ai_evaluation_numeric_result": 7},
+            {"$ai_evaluation_numeric_result": 7.5},
+            {"$ai_evaluation_numeric_result": 8},
             {"$ai_evaluation_applicable": False},
             {"$ai_evaluation_skipped": True},
         ]

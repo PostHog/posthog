@@ -49,7 +49,7 @@ class EvaluationReportOutcomeDefinition:
             return result if isinstance(result, str) and result in self.outcomes else None
         if applicable in (False, "false"):
             return "na"
-        # HogQL returns strings after the result property's metadata migration.
+        # Unregistered boolean properties are returned as strings by HogQL.
         if result in ("true", "false"):
             result = result == "true"
         if result not in (True, False):
@@ -111,7 +111,7 @@ SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric")
 
 def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = NumericOutputConfig.model_validate(output_config or {})
-    score = "toFloat(properties.$ai_evaluation_result)"
+    score = "toFloat(properties.$ai_evaluation_numeric_result)"
     applicable = "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
     passed = failed = "false"
     if config.passing_rule is not None:

@@ -2605,7 +2605,7 @@ class TestEvalResultModels:
             assert properties["$ai_evaluation_skipped"] is True
             assert properties["$ai_evaluation_skip_reason"] == "score_out_of_bounds"
             assert properties["$ai_evaluation_reasoning"].startswith("Quality\n\n")
-            assert "$ai_evaluation_result" not in properties
+            assert "$ai_evaluation_numeric_result" not in properties
             assert properties["$ai_input_tokens"] == 100
             assert properties["$ai_output_tokens"] == 20
             assert properties["$ai_model"] == "gpt-4o-mini"
@@ -2642,7 +2642,7 @@ class TestEvalResultModels:
         [
             (
                 {"score": 0, "score_min": 0, "score_max": 1},
-                {"$ai_evaluation_result": 0, "$ai_score_min": 0, "$ai_score_max": 1},
+                {"$ai_evaluation_numeric_result": 0, "$ai_score_min": 0, "$ai_score_max": 1},
             ),
             ({"applicable": False}, {}),
             ({"skipped": True, "skip_reason": "trace_not_found"}, {}),
@@ -2664,12 +2664,12 @@ class TestEvalResultModels:
             datetime(2026, 7, 1, tzinfo=UTC),
         )
         assert properties["$ai_evaluation_result_type"] == "numeric"
-        assert "$ai_evaluation_numeric_result" not in properties
+        assert "$ai_evaluation_result" not in properties
         assert "$ai_score" not in properties
         assert {
             key: value
             for key, value in properties.items()
-            if key in ("$ai_evaluation_result", "$ai_score_min", "$ai_score_max")
+            if key in ("$ai_evaluation_numeric_result", "$ai_score_min", "$ai_score_max")
         } == expected
 
     def test_boolean_eval_result(self):
