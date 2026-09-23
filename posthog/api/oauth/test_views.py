@@ -4503,6 +4503,8 @@ class TestOAuthAPI(APIBaseTest):
         # Verify the refresh token was never revoked
         db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNone(db_refresh_token.revoked)
+        assert db_refresh_token.access_token is not None
+        self.assertEqual(db_refresh_token.access_token.token, original_access_token)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_does_not_invalidate_previously_issued_access_tokens(self):
@@ -4671,11 +4673,9 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
+    @parameterized.expand([("refresh_token",), ("access_token",)])
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
-    def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
-        # RFC 7009 §2.1: the server verifies the token was issued to the requesting
-        # client. A different dynamic client presenting app A's refresh token must not
-        # trigger the (user, application) session sweep for app A.
+    def test_dcr_token_revoke_from_other_client_leaves_session_untouched(self, presented_token_type):
         self.public_application.is_dcr_client = True
         self.public_application.save()
 
@@ -4719,6 +4719,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
         refresh_token = token_response.json()["refresh_token"]
+        unlinked_access_token = token_response.json()["access_token"]
 
         refresh_response = self.post(
             "/oauth/token/",
@@ -4728,22 +4729,23 @@ class TestOAuthAPI(APIBaseTest):
                 "client_id": self.public_application.client_id,
             },
         )
-        refresh_issued_access_token = refresh_response.json()["access_token"]
-        self.assertTrue(OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists())
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        linked_access_token = refresh_response.json()["access_token"]
+        presented_token = refresh_token if presented_token_type == "refresh_token" else linked_access_token
 
         revoke_response = self.post(
             "/oauth/revoke/",
             {
-                "token": refresh_token,
+                "token": presented_token,
                 "client_id": other_dynamic_application.client_id,
             },
         )
         self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
-        self.assertTrue(
-            OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists(),
-            "a dynamic client presenting another app's refresh token must not sweep "
-            "that app's (user, application) access-token family",
+        self.assertIsNone(OAuthRefreshToken.objects.get(token=refresh_token).revoked)
+        self.assertEqual(
+            set(OAuthAccessToken.objects.filter(application=self.public_application).values_list("token", flat=True)),
+            {unlinked_access_token, linked_access_token},
         )
 
     @time_machine.travel("2026-01-01 00:00:00", tick=False)

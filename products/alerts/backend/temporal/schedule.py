@@ -11,19 +11,19 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 if TYPE_CHECKING:
     from temporalio.client import Client
 
-SCHEDULE_ID = "alerts-product-check-due-schedule"
+SCHEDULE_ID = "alerts-platform-check-due-schedule"
 
 
-async def create_alerts_product_tick_schedule(client: "Client") -> None:
+async def create_alerts_platform_tick_schedule(client: "Client") -> None:
     if settings.CLOUD_DEPLOYMENT != "DEV":
         return
 
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "alerts-product-orchestrate",
+            "alerts-platform-orchestrate",
             {},
             id=SCHEDULE_ID,
-            task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+            task_queue=settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
             execution_timeout=dt.timedelta(seconds=50),
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),

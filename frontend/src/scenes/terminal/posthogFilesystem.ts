@@ -7,8 +7,9 @@ import {
     fileSystemRetrieve,
     getFileSystemMoveCreateUrl,
 } from '~/generated/core/api'
-import type { FileSystemApi } from '~/generated/core/api.schemas'
+import type { FileSystemApi, FileSystemListParams } from '~/generated/core/api.schemas'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { fileSystemTypes } from '~/products'
 
 import { actionsPartialUpdate, actionsRetrieve } from 'products/actions/frontend/generated/api'
 import { cohortsPartialUpdate, cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
@@ -125,10 +126,12 @@ Files open for writing must be closed before removal. Use ph notebook-create to 
 Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
-Directories are a snapshot from startup. File contents load from the API on open.
-Listing directories never downloads object contents. Sizes are zero until a file
-is opened, then show its last known size. Startup uses the notebook index to find
-markdown notebooks without fetching their bodies.
+Directories load when you browse them and stay cached until ph refresh.
+The terminal starts without downloading the project tree. Browsing /posthog/files
+loads one folder at a time; /posthog/api loads one object type at a time.
+Listing directories never downloads object contents. File contents load on open.
+Sizes are zero until a file is opened, then show its last known size. The notebook
+index loads when you first browse notebooks, without fetching their bodies.
 Run ph refresh to discover new or renamed objects. Unsupported object types
 expose their filesystem record as JSON. Legacy rich-text notebooks stay JSON.
 Characters that cannot appear in Unix filenames are percent-encoded. Duplicate
@@ -145,6 +148,12 @@ mc opens Midnight Commander. Tab switches panels; F3 views, F4 edits, F10 quits.
 Use Escape then a digit if your browser or keyboard captures function keys.
 mcview, mcedit, and mcdiff also run directly from the shell.
 tree lists folders and files. ncdu -r browses disk usage without allowing deletion.
+node (or nodejs) installs Node.js on first use. pi installs the pi coding harness
+and Node.js on first use. Try node --version or pi --help.
+The browser downloads verified packages from GitHub and caches them when storage
+is available. Stopping the terminal discards the installed files and local sessions.
+pi runs offline: model calls, login, and package downloads need a network bridge.
+Use /tmp for local scripts and pi sessions; mounted PostHog files keep their API rules.
 Project file sizes stay zero until opened; ncdu does not download their contents.
 Bundled tool licenses and source links are in /opt/posthog-tools/licenses.
 ph runs project commands and tools from connected MCP servers with your permissions.
@@ -163,10 +172,38 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private readonly files = this.directory('files', this.root)
     private readonly api = this.directory('api', this.root)
     private readonly references = new Map<string, FileSystemApi>()
+    private readonly mountedFiles = new Map<string, TerminalNode>()
     private readonly projectNodes = new Map<
         TerminalNode,
         { parts: string[]; entry?: FileSystemApi; extension?: string }
     >()
+
+    private readonly loadedDirectories = new Set<TerminalNode>()
+    private readonly pendingDirectories = new Map<TerminalNode, Promise<void>>()
+    private directoryQueue: Promise<void> = Promise.resolve()
+    private markdownNotebooks?: Map<string, NotebookMinimalApi>
+
+    async loadReference(value: string, cwd: string): Promise<void> {
+        if (!value.includes('/') && !/\.(md|json)$/.test(value)) {
+            return
+        }
+        const parts = (value.startsWith('/') ? value : `${cwd}/${value}`).split('/').filter(Boolean)
+        if (parts.shift() !== 'posthog') {
+            return
+        }
+        let node: TerminalNode | undefined = this.root
+        for (const part of parts) {
+            if (!node) {
+                return
+            }
+            if (part === '..') {
+                node = node.parent ?? node
+            } else if (part !== '.') {
+                await node.loadChildren?.()
+                node = node.children?.get(part) ?? node.lookupChild?.(part)
+            }
+        }
+    }
 
     resolveReference(value: string, cwd: string, type?: string): string {
         const parts: string[] = []
@@ -200,10 +237,17 @@ export class PosthogFilesystem extends TerminalFilesystem {
         super()
         this.text('README.txt', this.root, TERMINAL_README)
         this.registerDirectory(this.files, [])
+        this.mountApiDirectories(new Map())
+        this.api.lookupChild = (name) => {
+            const node = this.directory(name, this.api)
+            node.loadChildren = () => this.ensureDirectory(node)
+            return node
+        }
     }
 
     private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
         this.projectNodes.set(node, { parts, entry })
+        node.loadChildren = () => this.ensureDirectory(node)
         node.mkdir = async (name) => {
             const directory = this.projectNodes.get(node)
             if (!directory) {
@@ -217,6 +261,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
             )
             const child = this.directory(name, node)
             this.registerDirectory(child, parts, entry)
+            this.loadedDirectories.add(child)
             return child
         }
         if (node !== this.files) {
@@ -260,6 +305,9 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
         this.references.delete(this.mountedPath(node))
         this.projectNodes.delete(node)
+        if (source.entry && source.extension) {
+            this.mountedFiles.delete(this.fileIdentity(source.entry, source.extension))
+        }
         node.parent!.children!.delete(node.name)
         node.removed = true
         const entry = source.entry
@@ -516,51 +564,171 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
     }
 
-    async load(): Promise<void> {
-        const entries: FileSystemApi[] = []
+    private mountApiDirectories(directories: Map<string, TerminalNode>): void {
+        const names = new Set([
+            ...Object.keys(fileSystemTypes).map(terminalFilename),
+            'unknown',
+            ...[...directories.values()].filter((node) => node.parent === this.api).map((node) => node.name),
+        ])
+        for (const name of names) {
+            const node = this.mountDirectory(name, this.api, directories)
+            node.loadChildren = () => this.ensureDirectory(node)
+        }
+    }
+
+    private ensureDirectory(node: TerminalNode): Promise<void> {
+        if (this.loadedDirectories.has(node)) {
+            return Promise.resolve()
+        }
+        const pending = this.pendingDirectories.get(node)
+        if (pending) {
+            return pending
+        }
+        const request = this.directoryQueue.then(() => this.loadDirectory(node))
+        this.pendingDirectories.set(node, request)
+        this.directoryQueue = request.catch(() => {})
+        void request.finally(() => this.pendingDirectories.delete(node)).catch(() => {})
+        return request
+    }
+
+    private async loadNotebookIndex(): Promise<Map<string, NotebookMinimalApi>> {
+        if (this.markdownNotebooks) {
+            return this.markdownNotebooks
+        }
+        const notebooks = new Map<string, NotebookMinimalApi>()
         let offset = 0
         while (true) {
-            const page = await fileSystemList(this.projectId, { limit: 500, offset }, { signal: this.signal })
-            entries.push(...page.results)
+            const page = await notebooksList(
+                this.projectId,
+                { contains: 'markdown-notebook', limit: 500, offset },
+                { signal: this.signal }
+            )
+            for (const notebook of page.results) {
+                notebooks.set(notebook.short_id, notebook)
+            }
             if (!page.next) {
                 break
             }
-            if (!page.results.length || entries.length > 50_000) {
-                throw new Error('This project tree is too large for the terminal experiment.')
+            if (!page.results.length || offset > 50_000) {
+                throw new Error('This notebook index is too large for the terminal experiment.')
             }
             offset += page.results.length
         }
-        entries.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id))
-        const markdownNotebooks = new Map<string, NotebookMinimalApi>()
-        if (entries.some((entry) => entry.type === 'notebook')) {
-            let offset = 0
-            while (true) {
-                const page = await notebooksList(
-                    this.projectId,
-                    { contains: 'markdown-notebook', limit: 500, offset },
-                    { signal: this.signal }
-                )
-                for (const notebook of page.results) {
-                    markdownNotebooks.set(notebook.short_id, notebook)
-                }
-                if (!page.next) {
-                    break
-                }
-                if (!page.results.length || offset > 50_000) {
-                    throw new Error('This notebook index is too large for the terminal experiment.')
-                }
-                offset += page.results.length
+        this.markdownNotebooks = notebooks
+        return notebooks
+    }
+
+    private directoryParams(
+        node: TerminalNode
+    ): FileSystemListParams & { parent?: string; depth?: number; type?: string } {
+        if (node.removed) {
+            throw new FilesystemError(116)
+        }
+        const directory = this.projectNodes.get(node)
+        const type = node.parent === this.api ? this.storedName(node.name) : undefined
+        if (!directory && !type) {
+            throw new FilesystemError(116)
+        }
+        // The list endpoint supports parent/depth/type filters that its generated schema omits.
+        return directory ? { parent: joinPath(directory.parts), depth: directory.parts.length + 1 } : { type }
+    }
+
+    private async directoryEntries(params: ReturnType<PosthogFilesystem['directoryParams']>): Promise<FileSystemApi[]> {
+        const entries: FileSystemApi[] = []
+        let offset = 0
+        while (true) {
+            const page = await fileSystemList(
+                this.projectId,
+                { ...params, limit: 500, offset },
+                { signal: this.signal }
+            )
+            entries.push(...page.results)
+            if (!page.next) {
+                return entries
+            }
+            if (!page.results.length || entries.length > 50_000) {
+                throw new Error('This directory is too large for the terminal. Open a smaller folder instead.')
+            }
+            offset += page.results.length
+        }
+    }
+
+    private async loadDirectory(node: TerminalNode): Promise<void> {
+        const entries = await this.directoryEntries(this.directoryParams(node))
+        const markdownNotebooks = entries.some((entry) => entry.type === 'notebook')
+            ? await this.loadNotebookIndex()
+            : (this.markdownNotebooks ?? new Map<string, NotebookMinimalApi>())
+        this.mountEntries(entries, markdownNotebooks, true)
+        this.loadedDirectories.add(node)
+    }
+
+    private async refreshDirectories(): Promise<void> {
+        const directories = this.loadedDirectories.size ? [...this.loadedDirectories] : [this.files]
+        const scopes = directories.filter((node) => !node.removed).map((node) => this.directoryParams(node))
+        const parents = new Set(scopes.flatMap((scope) => (scope.parent === undefined ? [] : [scope.parent])))
+        const types = new Set(scopes.flatMap((scope) => (scope.type === undefined ? [] : [scope.type])))
+        const inScope = (entry: FileSystemApi): boolean =>
+            types.has(entry.type ?? 'unknown') || parents.has(joinPath(splitPath(entry.path).slice(0, -1)))
+        const previousEntries = [...this.projectNodes.values()].flatMap(({ entry }) => (entry ? [entry] : []))
+        const refreshed = new Map<string, FileSystemApi>()
+        for (const scope of scopes) {
+            for (const entry of await this.directoryEntries(scope)) {
+                refreshed.set(entry.id, entry)
             }
         }
-        const previousNodes = this.mountedNodes()
+        const removedFolders = new Set(
+            previousEntries
+                .filter(
+                    (entry) => entry.type === 'folder' && inScope(entry) && refreshed.get(entry.id)?.path !== entry.path
+                )
+                .map((entry) => entry.path)
+        )
+        const retained = previousEntries.filter((entry) => {
+            if (inScope(entry)) {
+                return false
+            }
+            const parts = splitPath(entry.path)
+            for (let depth = 1; depth < parts.length; depth++) {
+                if (removedFolders.has(joinPath(parts.slice(0, depth)))) {
+                    return false
+                }
+            }
+            return true
+        })
+        const merged = new Map(retained.map((entry) => [entry.id, entry]))
+        for (const entry of refreshed.values()) {
+            merged.set(entry.id, entry)
+        }
+        this.markdownNotebooks = undefined
+        const entries = [...merged.values()]
+        const markdownNotebooks = entries.some((entry) => entry.type === 'notebook')
+            ? await this.loadNotebookIndex()
+            : new Map<string, NotebookMinimalApi>()
+        this.mountEntries(entries, markdownNotebooks)
+        for (const node of directories) {
+            if (!node.removed) {
+                this.loadedDirectories.add(node)
+            }
+        }
+    }
+
+    load(): Promise<void> {
+        const request = this.directoryQueue.then(() => this.refreshDirectories())
+        this.directoryQueue = request.catch(() => {})
+        return request
+    }
+
+    private mountEntries(
+        entries: FileSystemApi[],
+        markdownNotebooks: Map<string, NotebookMinimalApi>,
+        incremental = false
+    ): void {
+        entries.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id))
+        const previousNodes = incremental ? new Set<TerminalNode>() : this.mountedNodes()
         const directories = new Map(
             [...previousNodes].filter((node) => node.children).map((node) => [this.mountedPath(node), node])
         )
-        const files = new Map(
-            [...this.projectNodes]
-                .filter(([, metadata]) => metadata.entry && metadata.extension)
-                .map(([node, metadata]) => [this.fileIdentity(metadata.entry!, metadata.extension!), node])
-        )
+        const files = incremental ? this.mountedFiles : new Map(this.mountedFiles)
         const apiFiles = new Map(
             [...previousNodes]
                 .filter((node) => !node.children && node.parent?.parent === this.api)
@@ -569,13 +737,27 @@ export class PosthogFilesystem extends TerminalFilesystem {
         for (const node of previousNodes) {
             node.children?.clear()
         }
-        this.references.clear()
-        this.projectNodes.clear()
-        this.registerDirectory(this.files, [])
+        if (!incremental) {
+            this.references.clear()
+            this.projectNodes.clear()
+            this.mountedFiles.clear()
+            this.registerDirectory(this.files, [])
+            this.mountApiDirectories(directories)
+        } else {
+            for (const entry of entries) {
+                const extension = entry.type === 'notebook' && markdownNotebooks.has(entry.ref ?? '') ? '.md' : '.json'
+                const existing = files.get(this.fileIdentity(entry, extension))
+                if (existing) {
+                    existing.parent!.children!.delete(existing.name)
+                    this.references.delete(this.mountedPath(existing))
+                }
+            }
+        }
         for (const entry of entries.filter((item) => item.type === 'folder' && item.user_access_level !== 'none')) {
             const parts = splitPath(entry.path)
             this.registerDirectory(this.parent(parts, this.files, directories), parts, entry)
         }
+        const mountedApiPaths = new Set<string>()
         for (const entry of entries) {
             if (entry.type === 'folder' || entry.user_access_level === 'none') {
                 continue
@@ -605,29 +787,36 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 writable,
                 files.get(this.fileIdentity(entry, extension))
             )
+            this.mountedFiles.set(this.fileIdentity(entry, extension), file)
             file.writeKey = JSON.stringify([entry.type, entry.ref ?? entry.id])
             this.projectNodes.set(file, { parts: splitPath(entry.path), entry, extension })
             file.rename = (parent, name) => this.move(file, parent, name)
             file.remove = () => this.remove(file)
             this.references.set(`/posthog/files/${[...parts.map(terminalFilename), name].join('/')}`, entry)
             const type = this.mountDirectory(terminalFilename(entry.type ?? 'unknown'), this.api, directories)
+            type.loadChildren = () => this.ensureDirectory(type)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
-            if (!type.children!.has(apiName)) {
+            const apiPath = `${this.mountedPath(type)}/${apiName}`
+            if (!mountedApiPaths.has(apiPath)) {
+                mountedApiPaths.add(apiPath)
                 const apiFile = this.mountFile(
                     apiName,
                     type,
                     (signal) => this.json(entry, writable, signal),
                     writable,
-                    apiFiles.get(`${this.mountedPath(type)}/${apiName}`)
+                    apiFiles.get(apiPath) ?? type.children!.get(apiName)
                 )
                 apiFile.writeKey = file.writeKey
-                this.references.set(`/posthog/api/${type.name}/${apiName}`, entry)
+                this.references.set(apiPath, entry)
             }
         }
-        const currentNodes = this.mountedNodes()
-        for (const node of previousNodes) {
-            if (!currentNodes.has(node)) {
-                node.removed = true
+        if (!incremental) {
+            const currentNodes = this.mountedNodes()
+            for (const node of previousNodes) {
+                if (!currentNodes.has(node)) {
+                    node.removed = true
+                    this.loadedDirectories.delete(node)
+                }
             }
         }
     }
