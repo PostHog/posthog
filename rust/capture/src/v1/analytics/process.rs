@@ -90,7 +90,6 @@ async fn run_pipeline(
         return Err(err);
     }
     context.set_batch_metadata(&batch);
-    context.verify_internal_producer(state.capture_internal_signing_secret.as_deref());
 
     let mut events = match validate_events(context, state.ai_lane_predicate, batch) {
         Ok(events) => events,
@@ -1209,7 +1208,12 @@ mod tests {
             event: "$ai_generation".to_string(),
             ..valid_event()
         };
-        let events = validate_events(&ctx, valid_batch(vec![valid_event(), ai])).unwrap();
+        let events = validate_events(
+            &ctx,
+            AiLanePredicate::Allowlist,
+            valid_batch(vec![valid_event(), ai]),
+        )
+        .unwrap();
         assert_eq!(events[0].destination, Destination::AnalyticsInternal);
         assert_eq!(events[1].destination, Destination::AiEvents);
     }

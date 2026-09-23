@@ -244,7 +244,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         None,
         8,
         None,
-        None, // capture_internal_signing_secret
+        None,
         false,
         warning_emitter,
     );
@@ -2662,7 +2662,7 @@ fn ai_router(
         None,
         8,
         Some(GW_SECRET.to_string()),
-        None,  // capture_internal_signing_secret
+        None,
         false, // ai_events_overflow_enabled
         None,  // ingestion_warning_emitter
     );

@@ -4,6 +4,7 @@ use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
 use common_ingestion_warnings::{WarningRequestContext, UNKNOWN_ATTRIBUTION};
+use sha2::Digest;
 use uuid::Uuid;
 
 use crate::token::validate_token;
@@ -227,7 +228,7 @@ impl RequestContext {
         })
     }
 
-    pub fn verify_internal_producer(&mut self, secret: Option<&str>) {
+    pub fn verify_internal_producer(&mut self, secret: Option<&str>, body: &[u8]) {
         let (Some(secret), Some(sig)) = (
             secret.filter(|s| !s.is_empty()),
             self.internal_signature.as_ref(),
@@ -235,8 +236,13 @@ impl RequestContext {
             return;
         };
         let request_id = self.request_id.to_string();
-        let message =
-            crate::gateway_provenance::canonical(&[&self.api_token, &request_id, &sig.signed_at]);
+        let body_digest = hex::encode(sha2::Sha256::digest(body));
+        let message = crate::gateway_provenance::canonical(&[
+            &self.api_token,
+            &request_id,
+            &sig.signed_at,
+            &body_digest,
+        ]);
         self.internal_producer = crate::gateway_provenance::verify(
             secret.as_bytes(),
             &message,
@@ -270,18 +276,23 @@ mod tests {
         let mut ctx = crate::v1::test_utils::test_context();
         let signed_at = ctx.server_received_at.to_rfc3339();
         let request_id = ctx.request_id.to_string();
-        let signature =
-            crate::gateway_provenance::sign(b"secret", &[&ctx.api_token, &request_id, &signed_at]);
+        let body_digest = hex::encode(sha2::Sha256::digest(b"body"));
+        let signature = crate::gateway_provenance::sign(
+            b"secret",
+            &[&ctx.api_token, &request_id, &signed_at, &body_digest],
+        );
         ctx.internal_signature = Some(super::InternalSignature {
             signature,
             signed_at,
         });
 
-        ctx.verify_internal_producer(Some("other"));
+        ctx.verify_internal_producer(Some("other"), b"body");
         assert!(!ctx.internal_producer);
-        ctx.verify_internal_producer(None);
+        ctx.verify_internal_producer(None, b"body");
         assert!(!ctx.internal_producer);
-        ctx.verify_internal_producer(Some("secret"));
+        ctx.verify_internal_producer(Some("secret"), b"tampered");
+        assert!(!ctx.internal_producer);
+        ctx.verify_internal_producer(Some("secret"), b"body");
         assert!(ctx.internal_producer);
     }
 

@@ -105,7 +105,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         None, // v1_sink_router
         8,
         None,
-        None, // capture_internal_signing_secret
+        None,
         false,
         None,
     );

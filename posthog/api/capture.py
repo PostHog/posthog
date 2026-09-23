@@ -21,6 +21,7 @@ capture-rs's blind property splicing never produces duplicate keys.
 from __future__ import annotations
 
 import hmac
+import json
 import time
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -214,7 +215,7 @@ class CaptureInternalResult:
 # --------------------------------------------------------------------------- #
 
 
-def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
+def _build_v1_headers(token: str, attempt: int, body: bytes) -> dict[str, str]:
     request_id = str(uuid4())
     now = datetime.now(UTC).isoformat()
     headers = {
@@ -228,13 +229,14 @@ def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
     }
     if CAPTURE_INTERNAL_SIGNING_SECRET:
         headers["PostHog-Internal-Signed-At"] = now
-        headers["PostHog-Internal-Signature"] = sign_internal_request(token, request_id, now)
+        headers["PostHog-Internal-Signature"] = sign_internal_request(token, request_id, now, body)
     return headers
 
 
-def sign_internal_request(token: str, request_id: str, signed_at: str) -> str:
-    """Matches capture-rs gateway_provenance::canonical."""
-    message = b"".join(len(f).to_bytes(4, "big") + f for f in (token.encode(), request_id.encode(), signed_at.encode()))
+def sign_internal_request(token: str, request_id: str, signed_at: str, body: bytes) -> str:
+    """Matches capture-rs RequestContext::verify_internal_producer."""
+    fields = (token.encode(), request_id.encode(), signed_at.encode(), hashlib.sha256(body).hexdigest().encode())
+    message = b"".join(len(f).to_bytes(4, "big") + f for f in fields)
     return hmac.new(CAPTURE_INTERNAL_SIGNING_SECRET.encode(), message, hashlib.sha256).hexdigest()
 
 
@@ -585,17 +587,18 @@ def _submit_batch_chunk(
         )
 
         while True:
-            headers = _build_v1_headers(token, attempt)
             submit_payload: dict[str, Any] = {
                 "created_at": payload["created_at"],
                 "capture_internal": payload["capture_internal"],
                 "historical_migration": payload["historical_migration"],
                 "batch": pending_batch,
             }
+            body = json.dumps(submit_payload).encode()
+            headers = _build_v1_headers(token, attempt, body)
 
             CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source=event_source, lane=lane).inc()
             try:
-                resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
+                resp = session.post(url, data=body, headers=headers, timeout=timeout)
             except RequestException as exc:
                 CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport", lane=lane).inc()
                 logger.warning(
