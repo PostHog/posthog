@@ -45,6 +45,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   useSpacePresence: () => new Map(),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useUnreadSessionCount", () => ({
+  useUnreadSessionCount: () => () => 0,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
+  useBlockedSessionCount: () => () => 0,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
 }));
