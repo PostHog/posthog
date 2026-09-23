@@ -2222,6 +2222,55 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
         })
 
+        it(`a merge chain in one batch carries the oldest birth through the middle person`, async () => {
+            const oldest = DateTime.fromISO('2019-01-01T00:00:00.000Z').toUTC()
+            await createPerson(hub, oldest, {}, {}, {}, teamId, null, false, new UUIDT().toString(), {
+                distinctId: 'oldest-anon',
+            })
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const merge = (event: Partial<PluginEvent>) =>
+                personMergeService(
+                    event,
+                    hub,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    batchStore
+                )
+
+            // oldest-anon into old-user, buffered; then old-user into new-user before that flushes.
+            const first = await merge({
+                event: '$identify',
+                distinct_id: oldUserDistinctId,
+                properties: { $anon_distinct_id: 'oldest-anon' },
+            }).handleIdentifyOrAlias()
+            expect(first.success).toBe(true)
+            const secondService = merge({
+                event: '$merge_dangerously',
+                distinct_id: newUserDistinctId,
+                properties: { alias: oldUserDistinctId },
+            })
+            const second = await secondService.handleIdentifyOrAlias()
+            expect(second.success).toBe(true)
+            if (!second.success) {
+                throw new Error('Expected successful merge result')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, secondService.getContext().personStore, second.kafkaAck)
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, created_at: oldest })
+        })
+
         it(`merge carries a property another writer lands on the source after the merge read it`, async () => {
             await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,

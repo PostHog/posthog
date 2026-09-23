@@ -30,6 +30,9 @@ export interface PersonUpdate {
 /** A merge's write to the survivor: the keys it sets, the keys it removes, and the scalars it moves. */
 export type MergePersonUpdate = Partial<InternalPerson> & { properties_to_unset?: string[] }
 
+/** What a batch has buffered for a person and not yet flushed. */
+export type PendingPersonChanges = { toSet: Properties; toUnset: string[]; createdAt: DateTime }
+
 export interface PersonPropertyUpdate {
     updated: boolean
     properties: Properties

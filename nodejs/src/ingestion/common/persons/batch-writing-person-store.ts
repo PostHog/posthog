@@ -24,6 +24,7 @@ import {
 import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
 import {
     MergePersonUpdate,
+    PendingPersonChanges,
     PersonUpdate,
     fromInternalPerson,
     toInternalPerson,
@@ -697,7 +698,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // DO NOT introduce any `await` inside this block.
         // Write records are copies taken here; the settle step below mutates only the cache entry.
         const updateEntries: [string, PersonUpdate][] = []
-        const entriesByUuid = new Map<string, PersonUpdate>()
+        const keysByUuid = new Map<string, string>()
         for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
             // Skip null entries - these are deleted persons or cleared cache entries
             if (!update) {
@@ -733,7 +734,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         properties_to_unset: [...update.properties_to_unset],
                     },
                 ])
-                entriesByUuid.set(update.uuid, update)
+                keysByUuid.set(update.uuid, key)
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -776,9 +777,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
+            // A cache write replaces the entry object, so the entry is looked up by key now.
             const recordsByUuid = new Map(updateEntries.map(([, record]) => [record.uuid, record]))
+            const cache = this.personCache.getUpdateCache()
             for (const result of allKafkaMessages) {
-                const entry = result.uuid === undefined ? undefined : entriesByUuid.get(result.uuid)
+                const key = result.uuid === undefined ? undefined : keysByUuid.get(result.uuid)
+                const entry = key === undefined ? undefined : cache.get(key)
                 const record = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
                 if (entry && record) {
                     this.settleWrittenChanges(entry, record)
@@ -825,6 +829,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         entry.properties_to_unset = entry.properties_to_unset.filter(
             (key) => !written.properties_to_unset.includes(key)
         )
+        // The originals are what last landed; a scalar changed since the record was taken still differs.
+        entry.original_is_identified = written.is_identified
+        entry.original_created_at = written.created_at
+        entry.original_last_seen_at = written.last_seen_at
     }
 
     /**
@@ -1580,16 +1588,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await tx.lockPersons(teamId, personIds)
     }
 
-    /** This batch's buffered property changes for the person behind a distinct id, if it has any. */
-    pendingPropertyChanges(
-        teamId: number,
-        distinctId: string,
-        batchId: number
-    ): { toSet: Properties; toUnset: string[] } | null {
+    /** This batch's buffered changes for the person behind a distinct id, if it has any. */
+    pendingChanges(teamId: number, distinctId: string, batchId: number): PendingPersonChanges | null {
         const cached = this.personCache
             .obtainForBatchId(batchId)
             .getCachedPersonForUpdateByDistinctId(teamId, distinctId)
-        return cached ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset } : null
+        return cached
+            ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset, createdAt: cached.created_at }
+            : null
     }
 
     async fetchPersonsForUpdateByDistinctIds(
@@ -2003,7 +2009,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         } else {
             // Merge updates into existing cached PersonUpdate
             personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
+            // Both identifiers name the person passed in, even if the mapping was stale.
             personUpdate.id = person.id
+            personUpdate.uuid = person.uuid
             cache.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache

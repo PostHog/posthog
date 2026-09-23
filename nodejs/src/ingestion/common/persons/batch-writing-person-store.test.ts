@@ -1702,6 +1702,28 @@ describe('BatchWritingPersonStore', () => {
             typeof personPropertyKeyUpdateCounter
         >
 
+        it('a landed scalar change does not make later filtered-only updates write', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+            const known = { ...person, properties: { $current_url: 'https://old.com' } }
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(known, {}, [], { is_identified: true }, 'test')
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+
+            // Only a filtered property changes now; the identified flag already landed.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                known,
+                { $current_url: 'https://new.com' },
+                [],
+                {},
+                'test'
+            )
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        })
+
         it('should skip database write when only filtered properties are updated', async () => {
             const mockRepo = createMockRepository()
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
@@ -2953,6 +2975,53 @@ describe('BatchWritingPersonStore', () => {
             expect(secondCallPayload.properties_to_set).toEqual({ c: '3' })
             expect(secondCallPayload.properties_to_unset).toEqual(['a'])
             expect(secondCallPayload.properties).toEqual(expect.objectContaining({ a: '1', b: '2' }))
+        })
+
+        it('settles the live entry when another batch replaces it during the write', async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { x: '1' }, [], {}, 'distinct_id_1')
+
+            let release!: () => void
+            mockRepo.updatePersonsBatch.mockImplementationOnce(
+                (updates: any[]) =>
+                    new Promise((resolve) => {
+                        release = () =>
+                            resolve(
+                                new Map(
+                                    updates.map((u: any) => [
+                                        u.uuid,
+                                        { success: true, version: u.version + 1, kafkaMessage: {} },
+                                    ])
+                                )
+                            )
+                    })
+            )
+            const flushing = personStore.flush()
+            // A second distinct id of the same person is read while the write is in flight; the
+            // cache write replaces the entry object the flush captured.
+            await personStore.fetchForUpdate(teamId, 'distinct_id_2', 1)
+            release()
+            await flushing
+
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { y: '2' }, [], {}, 'distinct_id_1')
+            await personStore.flush()
+
+            const second = mockRepo.updatePersonsBatch.mock.calls[1][0][0]
+            expect(second.properties_to_set).toEqual({ y: '2' })
+            expect(second.properties).toEqual(expect.objectContaining({ x: '1' }))
+        })
+
+        it('a merge update stamps both identifiers of its person over a stale mapping', async () => {
+            const personStore = getPersonsStore()
+            const other = { ...person, id: '99', uuid: 'uuid-99' }
+            // The distinct id still maps to another person's entry when the merge writes its survivor.
+            personStore.setCachedPersonForUpdate(teamId, 'distinct_id_1', fromInternalPerson(other, 'distinct_id_1'), 0)
+
+            await personStore.updatePersonForMerge(person, { properties: { merged: 'yes' } }, 'distinct_id_1', 0)
+
+            const entry = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'distinct_id_1')
+            expect(entry).toMatchObject({ id: person.id, uuid: person.uuid })
         })
 
         it('two distinct_ids pointing to the same person share a single cache entry across batches', async () => {

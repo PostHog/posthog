@@ -271,12 +271,15 @@ export class PostgresPersonMerge {
         const byId = new Map(rows.map((row) => [row.id, row]))
         // This batch's unflushed changes ride on the locked row; the move clears the source's entry.
         const withPending = (row: InternalPerson, distinctId: string): InternalPerson => {
-            const pending = tx.pendingPropertyChanges(row.team_id, distinctId)
-            const properties = { ...row.properties, ...pending?.toSet }
-            for (const key of pending?.toUnset ?? []) {
+            const pending = tx.pendingChanges(row.team_id, distinctId)
+            if (!pending) {
+                return row
+            }
+            const properties = { ...row.properties, ...pending.toSet }
+            for (const key of pending.toUnset) {
                 delete properties[key]
             }
-            return { ...row, properties }
+            return { ...row, properties, created_at: DateTime.min(row.created_at, pending.createdAt) }
         }
         const lockedRow = byId.get(target.id)
         if (!lockedRow) {

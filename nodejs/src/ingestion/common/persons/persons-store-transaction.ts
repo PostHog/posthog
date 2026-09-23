@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { MergePersonUpdate } from '~/common/persons/person-update-batch'
+import { MergePersonUpdate, PendingPersonChanges } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
@@ -105,12 +105,8 @@ export class PersonsStoreTransaction {
         return await this.store.lockPersons(teamId, personIds, distinctId, this.tx)
     }
 
-    pendingPropertyChanges(
-        teamId: number,
-        distinctId: string,
-        batchId: number
-    ): { toSet: Properties; toUnset: string[] } | null {
-        return this.store.pendingPropertyChanges(teamId, distinctId, batchId)
+    pendingChanges(teamId: number, distinctId: string, batchId: number): PendingPersonChanges | null {
+        return this.store.pendingChanges(teamId, distinctId, batchId)
     }
 
     async addDistinctId(
