@@ -328,6 +328,20 @@ const CREDENTIAL_HEADER_NAMES =
  * credential back. Anything built from a response body has to go through `redactSensitiveValues`
  * with this list before it reaches a log, an error, or ClickHouse.
  */
+/**
+ * Sensitive values from the function config alone, before any template resolves. Covers an error
+ * raised while the inputs are still being built, when the resolved values do not exist yet.
+ */
+export const getConfiguredSensitiveValues = (hogFunction: HogFunctionType): string[] => {
+    const configured = Object.fromEntries(
+        Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).map(([key, input]) => [
+            key,
+            input?.value,
+        ])
+    )
+    return getSensitiveValues(hogFunction, configured)
+}
+
 export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<string, any>): string[] => {
     const values: string[] = []
 

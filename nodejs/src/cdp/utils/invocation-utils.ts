@@ -15,7 +15,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { HogFunctionType } from '../types'
-import { logEntry } from '../utils'
+import { getConfiguredSensitiveValues, logEntry, sanitizeLogMessage } from '../utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
 
 /** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
@@ -110,7 +110,14 @@ export async function buildHogFunctionInvocations(
                 log_source_id: hogFunction.id,
                 instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
                 // logEntry truncates: the message carries the VM's text, which can quote a value.
-                ...logEntry('error', `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`),
+                // The VM can quote an argument, and an argument can be a secret input.
+                ...logEntry(
+                    'error',
+                    sanitizeLogMessage(
+                        [`Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`],
+                        getConfiguredSensitiveValues(hogFunction)
+                    )
+                ),
             })
 
             hogFunctionInputsErrors.inc({ type: hogFunction.type })

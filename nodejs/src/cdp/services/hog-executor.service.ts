@@ -13,7 +13,13 @@ import type {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '../types'
-import { createAddLogFunction, getSensitiveValues, redactSensitiveValues, sanitizeLogMessage } from '../utils'
+import {
+    createAddLogFunction,
+    getConfiguredSensitiveValues,
+    getSensitiveValues,
+    redactSensitiveValues,
+    sanitizeLogMessage,
+} from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -78,16 +84,6 @@ export type HogExecutorExecuteOptions = {
  * ingestion on exactly this and must not inherit CDP delivery infrastructure. Anything that needs
  * to suspend and resume belongs in HogExecutorAsyncService, which wraps this one.
  */
-/** The raw configured value of every input, secret ones included, before templates resolve. */
-function configuredInputValues(hogFunction: HogFunctionType): Record<string, any> {
-    return Object.fromEntries(
-        Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).map(([key, input]) => [
-            key,
-            input?.value,
-        ])
-    )
-}
-
 export class HogExecutorService {
     constructor(
         private config: HogExecutorConfig,
@@ -170,10 +166,7 @@ export class HogExecutorService {
         // persisted to `hog_invocation_results.error_message` and rendered in the Invocations tab.
         // Starts from the values the function config holds, so an error raised while the inputs are
         // still resolving is masked too; the resolved values are added once the build succeeds.
-        let sensitiveValues: string[] = this.getSensitiveValues(
-            invocation.hogFunction,
-            configuredInputValues(invocation.hogFunction)
-        )
+        let sensitiveValues: string[] = getConfiguredSensitiveValues(invocation.hogFunction)
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs

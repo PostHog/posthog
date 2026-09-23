@@ -256,6 +256,23 @@ describe('Invocation utils', () => {
             ])
         })
 
+        it('masks a secret input quoted by the failure', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            jest.spyOn(hogInputsService, 'buildInputsWithGlobals').mockRejectedValue(
+                new Error('Unsupported unit for dateDiff: super secret')
+            )
+
+            const { logs } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+
+            expect(logs[0].message).toContain('Unsupported unit for dateDiff: ***REDACTED***')
+            expect(logs[0].message).not.toContain('super secret')
+            jest.restoreAllMocks()
+        })
+
         it('truncates the failure log, which carries the VM message for every matching event', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
