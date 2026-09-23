@@ -32,7 +32,13 @@ from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
-from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
+from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_LINK_REASON_LENGTH,
+    MAX_REPORT_LINKS_PER_WRITE,
+    ActionabilityChoice,
+    Priority,
+)
+from products.signals.backend.enums import report_link_kind_choices
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -310,16 +316,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
-    confidence = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1].",
-    )
     severity = serializers.ChoiceField(
         choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
@@ -341,8 +337,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "run_id",
             "finding_id",
             "description",
-            "weight",
-            "confidence",
             "severity",
             "tags",
             "source_id",
@@ -1313,11 +1307,6 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         max_length=MAX_FINDING_DESCRIPTION_LENGTH,
         help_text="Canonical evidence-bundle prose. Becomes the signal's `description`.",
     )
-    confidence = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
-    )
     evidence = serializers.ListField(
         child=EvidenceEntrySerializer(),
         max_length=20,
@@ -1615,6 +1604,27 @@ class EmitReportResponseSerializer(serializers.Serializer):
     )
 
 
+class ReportLinkWriteSerializer(serializers.Serializer):
+    """One typed, directed link to write on the report being edited."""
+
+    kind = serializers.ChoiceField(
+        choices=report_link_kind_choices(),
+        help_text=(
+            "How the edited report relates to `report_id`. `depends_on` for work that cannot land "
+            "until the other report's fix does, `part_of` for one piece of a larger report, "
+            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
+            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
+        ),
+    )
+    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        help_text="Optional one-line note on why the reports are linked this way.",
+    )
+
+
 class EditReportRequestSerializer(serializers.Serializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
@@ -1725,6 +1735,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "left them pointing at the old report."
         ),
     )
+    links = serializers.ListField(
+        required=False,
+        child=ReportLinkWriteSerializer(),
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Typed, directed links from this report to others, recording how the work relates. Use "
+            "`depends_on` when you split one finding into a stack and the second report's fix cannot "
+            "land until the first one's does, so the order is recorded rather than left to a reader "
+            "of the diffs. Additive: links join what the report already has rather than replacing "
+            "them, and only this report gets a row, so link from the side the sentence starts at. "
+            "Links of the same kind must stay acyclic and every report must be in this project."
+        ),
+    )
     supersedes_implementation = serializers.BooleanField(
         required=False,
         help_text=(
@@ -1768,6 +1791,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     evidence_appended = serializers.IntegerField(
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
+    )
+    links_appended = serializers.IntegerField(
+        help_text="How many typed report-to-report links this edit wrote; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
     repository_set = serializers.BooleanField(
@@ -3115,6 +3141,34 @@ class ScoutRole(models.TextChoices):
     OPERATIONAL = "operational", "operational"
 
 
+class ScoutDeprecationPhase(models.TextChoices):
+    ANNOUNCED = "announced", "announced"
+    RETIRED = "retired", "retired"
+
+
+class ScoutDeprecationSerializer(serializers.Serializer):
+    """What PostHog has said about retiring this scout, for the chip and the banner to render."""
+
+    phase = serializers.ChoiceField(
+        choices=ScoutDeprecationPhase.choices,
+        help_text=(
+            "How far the retirement has got: `announced` while the scout still runs, `retired` "
+            "once its sunset has passed. A retired scout is paused and does not run again."
+        ),
+    )
+    reason = serializers.CharField(
+        help_text="Why PostHog is retiring the scout, written to be shown to a person as-is."
+    )
+    superseded_by = serializers.CharField(
+        allow_blank=True,
+        help_text="Skill name of the scout that takes over, or blank when nothing replaces it.",
+    )
+    sunset_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the scout stops running. Null means the next fleet reconcile retires it.",
+    )
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -3149,6 +3203,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "itself. An operational scout is exempt from the inactivity sweep and from the "
             "enabled-scout cap, and is not a scout a project should delete. Always `specialist` "
             "for a custom scout."
+        ),
+    )
+    deprecation = serializers.SerializerMethodField(
+        help_text=(
+            "Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the "
+            "reason to show, what replaces the scout, and when it stops running. Only a canonical "
+            "scout the project has not edited is ever marked: a project's own copy keeps running "
+            "and reads as null."
         ),
     )
     owners = serializers.SerializerMethodField(
@@ -3256,6 +3318,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "about once a day; a successful retry resumes it, and so does setting `enabled=true`."
         ),
     )
+    status_changed_by = serializers.SerializerMethodField(
+        help_text=(
+            "Who last moved `status`, when a person did it through this API. Null for a system "
+            "transition such as an automatic pause, for a row whose status never changed, and for "
+            "a caller that may not read member identities. Pair it with `status` to say who turned "
+            "a scout off, instead of only when it went off."
+        ),
+    )
     status_changed_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3323,6 +3393,23 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
 
+    @extend_schema_field(ScoutDeprecationSerializer(allow_null=True))
+    def get_deprecation(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Same single-query `skill_info` map as `get_description`. The marker is read off the
+        # project's own skill row rather than from disk, so a scout the project forked — whose row
+        # the sync stops writing — never reads as retiring.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.deprecation if info else None
+
+    @extend_schema_field(UserBasicSerializer(allow_null=True))
+    def get_status_changed_by(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Member PII, so it rides the same gate `owners` does: a scout sandbox token reads the
+        # roster through `scout-members-list`, and never learns who switched a scout off here.
+        if not self.context.get("may_read_member_identities", False):
+            return None
+        actor = obj.status_changed_by
+        return dict(UserBasicSerializer(actor).data) if actor else None
+
     @extend_schema_field(UserBasicSerializer(many=True))
     def get_owners(self, obj: SignalScoutConfig) -> list[dict[str, Any]]:
         # A scout joins to its skill by name, which is also the key `LLMSkillOwner` uses, so the
@@ -3341,6 +3428,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "display_name",
             "scout_origin",
             "scout_role",
+            "deprecation",
             "owners",
             "enabled",
             "status",
@@ -3358,6 +3446,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
+            "status_changed_by",
             "auto_pause_exempt",
             "tags",
             "source_product",

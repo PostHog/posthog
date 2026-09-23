@@ -30,9 +30,10 @@ from posthog.models.team import Team
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
-    channel_ttl_schedule,  # noqa: F401 — re-exported alongside the channel constants below
+    MAX_PRECOMPUTE_DAYS,
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
+    lazy_ttl_schedule,  # noqa: F401 — re-exported alongside the TTL constants below
     set_lazy_precompute_ineligible_reason,
 )
 
@@ -69,17 +70,6 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
 # on `$host` with operator `exact`. Test-account filters are always allowed
 # (their content is hashed into the cache key).
 SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
-
-# Upper bound on the precompute span. Above this, the framework would create
-# enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 90
-
-# Channel-filtered shapes accept a full year (+leap): the whole point of admitting
-# the `$channel_type` filter is the long-range dashboards it appears on, and
-# `channel_ttl_schedule`'s job-width cap bounds each insert regardless of span.
-# Cold spans build behind the live fallback, so the first request never burns
-# the slots itself.
-CHANNEL_MAX_PRECOMPUTE_DAYS = 366
 
 # Forward pad on the per-job event-scan window. The lazy_computation framework
 # chunks the precompute span into daily UTC jobs; each job covers

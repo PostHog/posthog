@@ -12,6 +12,7 @@ from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import requests
 import structlog
@@ -40,7 +41,9 @@ from posthog.models.user import User
 from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.exports.backend.facade.api import get_export_asset_content_response
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -57,6 +60,7 @@ from products.replay_vision.backend.models.replay_observation import (
     jsonb_typeof,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.observation_formatting import summarize_observation
@@ -189,6 +193,35 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
     )
 
 
+class ReplayObservationMediaSerializer(serializers.Serializer):
+    """One thumbnail or clip illustrating an observation."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of this media entry.")
+    kind = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Kind.choices,
+        read_only=True,
+        help_text="`thumbnail` for the single frame that illustrates the observation, `clip` for a short video.",
+    )
+    asset_id = serializers.IntegerField(
+        read_only=True,
+        help_text="Export asset holding the bytes; fetch it from the export content endpoint.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="One sentence saying what the clip shows. Null for thumbnails.",
+    )
+    video_start_ms = serializers.IntegerField(
+        read_only=True,
+        help_text="Where this media starts in the analysis video, in milliseconds.",
+    )
+    video_end_ms = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
+    )
+
+
 class ReplayObservationSerializer(serializers.ModelSerializer):
     scanner_id = serializers.UUIDField(read_only=True, help_text="The scanner that produced this observation.")
     scanner_origin = serializers.ChoiceField(
@@ -303,6 +336,26 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
 
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
+    media = serializers.SerializerMethodField(
+        help_text="Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes.",
+    )
+
+    @extend_schema_field(ReplayObservationMediaSerializer(many=True))
+    def get_media(self, obj: ReplayObservation) -> list[dict]:
+        return [
+            {
+                "id": media.id,
+                "kind": media.kind,
+                "asset_id": media.asset_id,
+                "description": media.description,
+                "video_start_ms": media.video_start_ms,
+                "video_end_ms": media.video_end_ms,
+            }
+            for media in obj.media.all()
+            # No content location means the render has not landed yet, so there is nothing to fetch.
+            if media.asset.content_location
+        ]
+
     summary_line = serializers.SerializerMethodField(
         help_text=(
             "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its "
@@ -337,6 +390,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "next_observation_id",
             "label",
             "viewed",
+            "media",
             "summary_line",
             "started_at",
             "completed_at",
@@ -1078,6 +1132,57 @@ class ReplayObservationViewSet(
             team_id=observation.team_id, observation=observation, user=request.user
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=None,
+        responses={
+            302: OpenApiResponse(description="Redirect to the image."),
+            404: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The observation has no thumbnail, or its render has not landed yet.",
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="thumbnail",
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def thumbnail(self, request: Request, **kwargs: Any) -> HttpResponseBase:
+        """Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it."""
+        observation = self.get_object()
+        # `get_object` already prefetched the observation's media with their assets, so this reads no rows.
+        media = next(
+            (
+                entry
+                for entry in observation.media.all()
+                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL
+                and entry.asset.content_location
+                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+                # and an expired frame would serve until the sweep deletes it.
+                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+            ),
+            None,
+        )
+        if media is None:
+            raise NotFound("This observation has no thumbnail.")
+        # Object-level access to the recording itself, which the export content endpoint used to apply to
+        # these bytes before they moved here. A missing row falls back to the resource-level check
+        # `_scanner_for_url` already ran.
+        recording = SessionRecording.objects.filter(
+            team_id=observation.team_id, session_id=observation.session_id
+        ).first()
+        if recording is not None and not self.user_access_control.check_access_level_for_object(
+            recording, required_level="viewer"
+        ):
+            raise NotFound()
+        # Served from here, not through the export content endpoint: that one authorizes a recording
+        # export by the recording alone, which would let a reader denied this scanner fetch its frames.
+        response = get_export_asset_content_response(asset=media.asset, download=False)
+        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
+        response["Cache-Control"] = "no-store"
+        return response
 
     @extend_schema(
         request=None,

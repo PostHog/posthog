@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -97,6 +97,7 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.organization import Organization
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import TeamMemberStrictManagementPermission
@@ -159,6 +160,7 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -867,17 +869,21 @@ class InsightSerializer(InsightBasicSerializer):
                     "and this insight is publicly shared."
                 )
 
-        if validated_data.get("deleted", False):
-            hide_tiles_for_insights([instance.id])
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
-        else:
-            dashboard_ids = validated_data.pop("dashboards", None)
-            if dashboard_ids is not None:
-                # The membership write runs before the query is saved, so gate on the incoming one.
-                self._update_insight_dashboards(dashboard_ids, instance, validated_data.get("query", instance.query))
+        with transaction.atomic():
+            if validated_data.get("deleted", False):
+                delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
+                hide_tiles_for_insights([instance.id])
+                for alert in instance.alertconfiguration_set.all():
+                    alert.delete()
+            else:
+                dashboard_ids = validated_data.pop("dashboards", None)
+                if dashboard_ids is not None:
+                    # The membership write runs before the query is saved, so gate on the incoming one.
+                    self._update_insight_dashboards(
+                        dashboard_ids, instance, validated_data.get("query", instance.query)
+                    )
 
-        updated_insight = super().update(instance, validated_data)
+            updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -2093,7 +2099,10 @@ class InsightViewSet(
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
                     if tags_list:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                        # A semi-join returns one row per insight, so the list needs no
+                        # `.distinct()` sort over the wide insight JSON columns.
+                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
@@ -2361,6 +2370,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
+                delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

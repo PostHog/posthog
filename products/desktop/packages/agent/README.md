@@ -165,6 +165,8 @@ Required environment variables (validated by zod in `src/server/bin.ts`):
 
 Optional behavior toggles:
 
+- `AI_GATEWAY_TOKEN_CAP_USD` — the per-run spend cap of the gateway token the cloud worker minted for the sandbox. When set on a cloud run, the Claude adapter arms the run budget guard: it prices every assistant message, snaps to the SDK's cumulative cost at turn end, steers the live turn at 70% (ship what is on disk, skip polish) and 85% (commit and stop) of the cap, and denies new `Agent`, `Task` and `Workflow` spawns once critical. Unset or invalid means no guard.
+- `AI_GATEWAY_MODEL_PRICES_JSON` — optional override of the guard's per-million-token price table, a JSON object of `{ "<model id regex>": { input, output, cacheRead, cacheWrite } }` in USD. Defaults cover the Anthropic, GLM, Kimi and DeepSeek families the adapter serves.
 - `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`@posthog/harness/extensions/benjamin`, source at `packages/harness/src/extensions/benjamin/instruction.ts`) to the Claude system prompt and the Codex instructions, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
 
 Optional run telemetry (the logs pair must both be set, otherwise telemetry stays off):
@@ -256,6 +258,8 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 - `_posthog/mode_change` — `{ mode, previous_mode }` — permission mode changed (client updates mode selector)
 - `_posthog/compact_boundary` — `{ sessionId, timestamp }` — marks where context compaction occurred, so the client knows the conversation was summarized at this point
 - `_posthog/task_notification` — `{ sessionId, type, message?, data? }` — generic extensible notification for adapter-specific events
+- `_posthog/usage_update` — `{ sessionId, usage, budget? }` — cumulative token usage after each settled turn. `budget` is present on a capped cloud run: `{ cap_usd, spent_usd, estimated_usd, sdk_total_usd, stage, mode, steers }`, persisted by the agent-server into `TaskRun.state.budget_guard`
+- `_posthog/budget_steer` — `{ sessionId, stage, delivered, spent_usd, cap_usd, mode }` — the run budget guard steered the model at the `warn` (70% of the cap) or `critical` (85%) stage; `delivered` is false when the steer never reached the model and is retried on the next turn. The Django ingest captures each one as a `task run budget steer` event
 
 **Client→agent commands** — notifications that flow from client to agent (via `POST /command` in cloud, or direct ACP in local). These are the "verbs" the client can send outside of `session/prompt`.
 
@@ -272,11 +276,11 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 
 Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
 
-1. A merge to `master` that changes a file in this package runs `.github/workflows/desktop-agent-tag.yml`.
-2. It pushes the tag `agent-vX.Y.Z`. `Z` is the number of commits to this package since the base tag `agent-vX.Y.0`.
-3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then rebuilds the sandbox base images.
+1. A merge to `master` that changes a file in this package or `products/desktop/packages/harness` runs `.github/workflows/desktop-agent-tag.yml`.
+2. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
+3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
 
-A merge that changes nothing in this package adds no new version.
+A merge that changes neither package adds no new version.
 A change to either agent workflow file still runs the tag job, so it releases any package commits that have no tag yet.
 
 The publish job runs in the `npm-posthog-agent` GitHub environment, which only deploys from `agent-v*` tags.

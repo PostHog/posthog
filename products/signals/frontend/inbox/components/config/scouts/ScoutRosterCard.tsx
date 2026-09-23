@@ -9,9 +9,9 @@ import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
-import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
-import { ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutCostLine } from './ScoutCostLine'
@@ -45,6 +45,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
         rollups,
         updatingScoutIds,
         scoutRunsLoadedOnce,
+        scoutRunsCoverFleet,
         scoutRunCosts,
         scoutCostRollups,
         expensiveRunCostThreshold,
@@ -77,6 +78,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />
+                        <ScoutDeprecationBadge config={config} />
                     </div>
                     {subtitle && (
                         <p className={cn('m-0 line-clamp-1 text-xs leading-snug', SUBTITLE_TONE_CLASS[subtitle.tone])}>
@@ -112,8 +114,14 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                         <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        <span className="text-xs text-muted">{scoutRunsLoadedOnce ? 'No runs yet' : '…'}</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the card says so.
+                        <span className="text-xs text-muted">
+                            {runStripEmptyLabel({
+                                loadedOnce: scoutRunsLoadedOnce,
+                                coversFleet: scoutRunsCoverFleet,
+                            })}
+                        </span>
                     )}
                 </div>
                 <ScoutEnabledSwitch

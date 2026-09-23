@@ -16,9 +16,9 @@ from django.core.cache import cache
 
 import requests
 import structlog
-from posthog_owners import OwnershipSource, OwnersResolver
-from posthog_owners.matcher import normalize_path
-from posthog_owners.resolver import teams_registry
+from owners_yaml import OwnershipSource, OwnersResolver
+from owners_yaml.matcher import normalize_path
+from owners_yaml.resolver import teams_registry
 from requests.adapters import HTTPAdapter
 
 from posthog.dataclasses import frozen
@@ -33,7 +33,7 @@ _T = TypeVar("_T")
 
 # The raw host serves a public repo's files off a CDN, so these reads draw on no GitHub API rate
 # limit, and the HEAD ref follows the default branch. A private repo answers 404 to all of it, which
-# the root-file guard in _place catches.
+# the root-file guard in _read_root catches.
 _RAW_HOST = "https://raw.githubusercontent.com"
 _REF = "HEAD"
 _EGRESS_SOURCE = "engineering_analytics_ownership"
@@ -168,6 +168,12 @@ class GitHubRepoFiles:
             raise OwnershipUnavailable(too_large)
         body = bytearray()
         for chunk in response.iter_content(chunk_size=8192):
+            # The request timeout starts again on every chunk received, so a host that sends the body
+            # slowly enough holds this read for as long as the byte limit allows. _fetch_all stops
+            # waiting for a fetch at the deadline, so the fetch stops at the first chunk after it,
+            # which the request timeout puts within _TIMEOUT_SECONDS of the deadline.
+            if monotonic() > self._deadline:
+                raise OwnershipUnavailable(f"reading {path} from {self.repository} passed the resolution budget")
             body.extend(chunk)
             if len(body) > _MAX_FILE_BYTES:
                 raise OwnershipUnavailable(too_large)
@@ -216,15 +222,11 @@ def resolve_test_ownership(
 
 
 def resolve_path_owners(repository: str, paths: Sequence[str], files: RepoFiles | None = None) -> PathOwnership:
-    """Name the team that owns each repository path, and hand back the repo's Slack registry.
-
-    The paths are resolved exactly as given. There is no candidate-path search: that exists because
-    a test suite reports a path relative to its own root, and a caller who already holds a
-    repo-relative path has nothing to guess at.
-    """
+    """Name the team that owns each repository path, and return the repo's Slack registry. Paths must
+    be repo-relative: unlike reported test paths, they get no candidate-path search."""
     reader = files if files is not None else GitHubRepoFiles(repository)
     try:
-        return _own_paths(repository, reader, list(dict.fromkeys(paths)))
+        return _own_paths(reader, _read_root(repository, reader), list(dict.fromkeys(paths)))
     except NoRootOwnersFile:
         # Most repositories declare no owners.yaml, so this is no error for a caller to act on.
         logger.info("repo_path_ownership_no_root_file", repository=repository)
@@ -234,10 +236,14 @@ def resolve_path_owners(repository: str, paths: Sequence[str], files: RepoFiles 
         return PathOwnership(team_by_path=dict.fromkeys(paths, UNOWNED_TEAM), registry={}, resolved=False)
 
 
-def _own_paths(repository: str, files: RepoFiles, paths: list[str]) -> PathOwnership:
+def _read_root(repository: str, files: RepoFiles) -> str:
     root = files.read(_ROOT_OWNERS_FILE)
     if root is None:
         raise NoRootOwnersFile(f"{repository} has no root {_ROOT_OWNERS_FILE}")
+    return root
+
+
+def _own_paths(files: RepoFiles, root: str, paths: list[str]) -> PathOwnership:
     resolver = OwnersResolver(source=files)
     files.read_all(resolver.ownership_file_paths(paths))
     owners = resolver.map(paths)
@@ -249,22 +255,18 @@ def _own_paths(repository: str, files: RepoFiles, paths: list[str]) -> PathOwner
 
 
 def _place(repository: str, files: RepoFiles, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:
-    if files.read(_ROOT_OWNERS_FILE) is None:
-        # Every repo this runs against declares one, so its absence proves the reader is blind
-        # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
-        raise OwnershipUnavailable(f"{repository} has no root {_ROOT_OWNERS_FILE}")
-    resolver = OwnersResolver(source=files)
+    # Every repo this runs against declares one, so its absence proves the reader is blind
+    # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
+    root = _read_root(repository, files)
     candidates = [_candidate_paths(test) for test in tests]
     present = files.exists_all([path for group in candidates for path in group])
     placed = [next((path for path in group if present[path]), None) for group in candidates]
-    found = [path for path in placed if path]
-    files.read_all(resolver.ownership_file_paths(found))
-    owners = resolver.map(found)
+    owned = _own_paths(files, root, [path for path in placed if path])
     return [
         PlacedTest(
             # A Rust crate is placed by its manifest, which is not the test's file.
             path="" if path is None or test.crate else path,
-            owner_team=_team(owners[path].owners if path else None),
+            owner_team=owned.team_by_path[path] if path else UNOWNED_TEAM,
         )
         for test, path in zip(tests, placed, strict=True)
     ]
@@ -285,17 +287,17 @@ def _fetch_all(fetch: Callable[[str], _T], paths: Iterable[str], deadline: float
     todo = list(dict.fromkeys(paths))
     if not todo:
         return {}
-    with ThreadPoolExecutor(max_workers=min(_FETCH_WORKERS, len(todo))) as pool:
+    pool = ThreadPoolExecutor(max_workers=min(_FETCH_WORKERS, len(todo)))
+    try:
         futures = {path: pool.submit(fetch, path) for path in todo}
-        try:
-            return {path: future.result(max(deadline - monotonic(), 0)) for path, future in futures.items()}
-        except TimeoutError as e:
-            pool.shutdown(cancel_futures=True)
-            raise OwnershipUnavailable(f"ownership took longer than {_RESOLVE_BUDGET_SECONDS}s") from e
-        except Exception:
-            # The batch is already lost, so drop the rest instead of holding the request thread.
-            pool.shutdown(cancel_futures=True)
-            raise
+        return {path: future.result(max(deadline - monotonic(), 0)) for path, future in futures.items()}
+    except TimeoutError as e:
+        raise OwnershipUnavailable(f"ownership took longer than {_RESOLVE_BUDGET_SECONDS}s") from e
+    finally:
+        # Not a `with` block: its exit waits for every running fetch, which holds the request thread
+        # past the deadline. A lost batch drops the queued fetches and leaves the running ones to
+        # stop at the same deadline on their own, which the read in _capped_text enforces.
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _candidate_paths(test: QuarantinedTestFile) -> list[str]:

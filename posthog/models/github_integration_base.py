@@ -61,6 +61,11 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
 
+# GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
+# label its team configured, so a longer list is a caller mistake rather than a use we support.
+MAX_PR_LABELS = 10
+MAX_LABEL_NAME_LENGTH = 50
+
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
 # point a comment renders without its pills, which is worse than the extra requests.
@@ -785,16 +790,13 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
-        headers: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
         """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
         success/error-dict verbs built on top."""
         path = url.removeprefix("https://api.github.com")
         try:
-            return self.api_request(
-                "PATCH", path, endpoint=endpoint, json_body=json_body, headers=headers, timeout=timeout
-            )
+            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
@@ -1180,7 +1182,6 @@ class GitHubIntegrationBase:
             "additions": pr.get("additions", 0),
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
-            "etag": response.headers.get("ETag"),
         }
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
@@ -1219,17 +1220,17 @@ class GitHubIntegrationBase:
 
         return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
 
-    def update_pull_request_body(
-        self, repository: str, pr_number: int, body: str, *, expected_etag: str | None = None
-    ) -> dict[str, Any]:
-        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo."""
+    def update_pull_request_body(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo.
+
+        GitHub rejects ``If-Match`` on this endpoint with a 400, so the write cannot be conditional.
+        """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         response = self._installation_authenticated_patch(
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
             json_body={"body": body},
-            headers={"If-Match": expected_etag} if expected_etag else None,
         )
         if response is None:
             return {"success": False, "error": "Network error updating pull request"}
@@ -1328,6 +1329,62 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
+        """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        Additive only. GitHub's add-labels endpoint never removes a label, so a caller cannot clear
+        one by leaving it out of ``labels``, and adding a label the pull request already carries
+        changes nothing. A name the repository does not define yet is created first, because GitHub
+        refuses the whole call otherwise.
+
+        Labels use the issues endpoint (a PR is an issue for labelling purposes).
+        """
+        wanted = list(dict.fromkeys(name.strip() for name in labels if name and name.strip()))[:MAX_PR_LABELS]
+        if not wanted or any(len(name) > MAX_LABEL_NAME_LENGTH for name in wanted):
+            return {"success": True, "labels": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        url = f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/labels"
+        endpoint = "/repos/{owner}/{repo}/issues/{issue_number}/labels"
+
+        response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is not None and response.status_code == 422:
+            # 422 is what an undefined label name reads as, so create the names and try once more.
+            # A name that already exists costs one refused create, never a lost label.
+            for name in wanted:
+                self._create_repository_label(repo_path, name)
+            response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is None:
+            return {"success": False, "error": "Network error labelling pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to label pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            body = response.json()
+        except Exception:
+            body = []
+        applied = [entry["name"] for entry in body if isinstance(entry, dict) and entry.get("name")]
+        return {"success": True, "labels": applied}
+
+    def _create_repository_label(self, repo_path: str, name: str) -> bool:
+        """Define ``name`` as a label in the repository. Returns whether it exists afterwards.
+
+        No color is chosen, so GitHub picks one and the team can restyle the label without this
+        ever writing over their choice. A label somebody created in between answers 422, which
+        counts as existing.
+        """
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name},
+        )
+        if response is None:
+            return False
+        return response.status_code in (201, 422)
 
     def is_assignable(self, repository: str, login: str) -> dict[str, Any]:
         """Whether ``login`` can be assigned to issues and pull requests in ``repository``.
@@ -1950,6 +2007,7 @@ class GitHubIntegrationBase:
           id
           isDraft
           state
+          headRefOid
           labels(first: 100) { nodes { name } }
           timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 1) {
             nodes { __typename }
@@ -1968,7 +2026,12 @@ class GitHubIntegrationBase:
     """
 
     def mark_pull_request_ready_for_review(
-        self, repository: str, pr_number: int, *, skip_labels: Collection[str] = ()
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        skip_labels: Collection[str] = (),
+        expected_head_sha: str | None = None,
     ) -> dict[str, Any]:
         """Take a draft pull request out of draft. ``repository`` is ``owner/repo`` or a bare repo.
 
@@ -2003,6 +2066,8 @@ class GitHubIntegrationBase:
             return {"success": True, "changed": False, "reason": "closed"}
         if not pr.get("isDraft"):
             return {"success": True, "changed": False, "reason": "not_draft"}
+        if expected_head_sha is not None and pr.get("headRefOid") != expected_head_sha:
+            return {"success": True, "changed": False, "reason": "head_changed"}
         # Somebody already moved this pull request between draft and ready, so its current draft
         # state is a decision rather than the state it opened in. Reading the timeline is what makes
         # that durable: a caller that queues this work cannot otherwise tell a pull request that was
@@ -2097,9 +2162,10 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          url state isDraft mergeable headRefOid
+          url state isDraft mergeable headRefOid headRefName reviewDecision
           author { login }
           reviewThreads(first: 100) {
+            pageInfo { hasNextPage }
             nodes {
               id isResolved path
               comments(last: 1) {
@@ -2233,13 +2299,20 @@ class GitHubIntegrationBase:
         failing_checks = self._extract_failing_checks(rollup)
         if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
             failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+        mergeable = self._map_mergeable(pr.get("mergeable"))
 
         return {
             "success": True,
             "url": html_url,
             "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
             "head_sha": pr.get("headRefOid") or "",
-            "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
+            "has_conflict": mergeable is False,
+            "mergeable": mergeable is True,
+            "ci_status": self._map_ci_status((rollup or {}).get("state")),
+            "review_decision": pr.get("reviewDecision"),
+            "review_threads_complete": ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage")
+            is False,
+            "head_ref": pr.get("headRefName"),
             "author_login": author_login,
             "failing_checks": failing_checks,
             "unresolved_threads": unresolved_threads,

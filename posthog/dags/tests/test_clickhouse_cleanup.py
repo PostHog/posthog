@@ -1180,3 +1180,54 @@ def test_publishes_every_measurement_the_run_took() -> None:
     # Wall clock, not the time.monotonic used elsewhere here: the alert subtracts it from time().
     assert last_success is not None
     assert abs(last_success - time.time()) < 60
+
+
+class _FakeQueueConnection:
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+@pytest.mark.parametrize("pgcode", ["55P03", "40P01"])
+def test_a_queue_write_conflict_is_retried_rather_than_failing_the_sweep(pgcode, monkeypatch):
+    # A single lock conflict with the drain would otherwise fail the whole weekly sweep.
+    monkeypatch.setattr(clickhouse_cleanup.time, "sleep", lambda _: None)
+    attempts = []
+
+    def fake_execute_values(cursor, sql, rows, page_size):
+        attempts.append(list(rows))
+        if len(attempts) < 3:
+            raise type("_Conflict", (psycopg2.OperationalError,), {"pgcode": pgcode})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", fake_execute_values)
+    connection = _FakeQueueConnection()
+    retries = clickhouse_cleanup._write_queue_page(connection, object(), [(1, "uuid-a")], datetime.now(UTC))
+
+    assert retries == 2
+    assert connection.rollbacks == 2, "an aborted transaction has to be rolled back before the replay"
+    assert attempts[0] == attempts[-1], "the replay writes the same page"
+
+
+def test_a_queue_write_error_that_is_not_a_conflict_still_fails_the_sweep(monkeypatch):
+    def fake_execute_values(cursor, sql, rows, page_size):
+        raise type("_ConnectionLost", (psycopg2.OperationalError,), {"pgcode": "08006"})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", fake_execute_values)
+    with pytest.raises(psycopg2.OperationalError):
+        clickhouse_cleanup._write_queue_page(_FakeQueueConnection(), object(), [(1, "uuid-a")], datetime.now(UTC))
+
+
+def test_persistent_queue_conflicts_give_up_inside_the_retry_window(monkeypatch):
+    # An unbounded retry would hang the weekly sweep on a table it shares with the drain.
+    clock = itertools.count(0.0, 5.0)
+    monkeypatch.setattr(clickhouse_cleanup.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(clickhouse_cleanup.time, "sleep", lambda _: None)
+
+    def always_conflicts(cursor, sql, rows, page_size):
+        raise type("_Conflict", (psycopg2.OperationalError,), {"pgcode": "55P03"})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", always_conflicts)
+    with pytest.raises(psycopg2.OperationalError):
+        clickhouse_cleanup._write_queue_page(_FakeQueueConnection(), object(), [(1, "uuid-a")], datetime.now(UTC))

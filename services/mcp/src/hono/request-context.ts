@@ -73,11 +73,6 @@ export class RequestContext {
         return this.userCacheInstance
     }
 
-    /** State scoped to one MCP session, such as the skills-first gate markers. */
-    getSessionCache(mcpSessionId: string): RedisCache<State> {
-        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
-    }
-
     get cache(): RedisCache<State> {
         return this.tokenCache
     }
@@ -303,6 +298,7 @@ export class RequestContext {
         try {
             const resolvedDistinctId = distinctId ?? (await this.getDistinctId())
             const clientName = await this.tokenCache.get('clientName')
+            const apiKey = await this.tokenCache.get('apiKey').catch(() => undefined)
             const sessionUuid = await this.getEffectiveSessionUuid(this.requestContext)
             const contextProperties = analyticsContext ? buildMCPContextProperties(analyticsContext) : {}
             const previousContextProperties = previousContext
@@ -321,6 +317,7 @@ export class RequestContext {
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
+                    is_impersonated: apiKey?.is_impersonated === true,
                 },
             })
         } catch {

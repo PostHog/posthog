@@ -119,6 +119,8 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationDelivery
+                              |ConversationDeliveryPart
                               |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
@@ -299,6 +301,7 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |NotebookNodeRun
+                              |NotebookRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
@@ -332,6 +335,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -346,6 +350,8 @@ rules:
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
+                              |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -367,6 +373,8 @@ rules:
                               |Subscription
                               |SubscriptionContext
                               |SubscriptionDelivery
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -421,6 +429,7 @@ rules:
                               |WizardRunArtifact
                               |WizardSession
                               |WizardWorker
+                              |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -539,6 +548,8 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationDelivery
+                        |ConversationDeliveryPart
                         |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
@@ -709,6 +720,7 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |NotebookNodeRun
+                        |NotebookRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
@@ -742,6 +754,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -756,6 +769,8 @@ rules:
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
+                        |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -777,6 +792,8 @@ rules:
                         |Subscription
                         |SubscriptionContext
                         |SubscriptionDelivery
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -830,6 +847,7 @@ rules:
                         |WizardRunArtifact
                         |WizardSession
                         |WizardWorker
+                        |WorkflowProposal
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)

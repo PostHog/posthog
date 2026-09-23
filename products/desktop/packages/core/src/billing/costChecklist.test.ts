@@ -78,7 +78,7 @@ describe("buildCostChecklist", () => {
         kind: "model-notch",
         done: false,
         fromModelId: "claude-opus-5",
-        toModelId: "claude-sonnet-5",
+        toModelId: "claude-opus-5-5",
       },
       { kind: "custom-image", done: true },
     ]);
@@ -120,11 +120,11 @@ describe("modelNotchSuggestion", () => {
   it.each([
     [
       "claude-opus-5",
-      { fromModelId: "claude-opus-5", toModelId: "claude-sonnet-5" },
+      { fromModelId: "claude-opus-5", toModelId: "claude-opus-5-5" },
     ],
     [
       "claude-fable-5-1",
-      { fromModelId: "claude-fable-5-1", toModelId: "claude-opus-5" },
+      { fromModelId: "claude-fable-5-1", toModelId: "claude-opus-5-5" },
     ],
     // Already at the cheapest priced rung on its ladder.
     ["claude-sonnet-5", null],
@@ -138,10 +138,10 @@ describe("modelNotchSuggestion", () => {
   });
 
   it("suggests a cheaper model on the codex ladder", () => {
-    // Sol matches gpt-5.5 per token, so the notch down is the cheaper Terra.
+    // GPT-6 Sol is the first rung below gpt-5.5 that costs strictly less.
     expect(modelNotchSuggestion("gpt-5.5")).toEqual({
       fromModelId: "gpt-5.5",
-      toModelId: "gpt-5.6-terra",
+      toModelId: "gpt-6-sol",
     });
   });
 });

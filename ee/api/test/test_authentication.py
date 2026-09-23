@@ -828,10 +828,48 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertRedirects(response, expected_location, fetch_redirect_response=False)
         self.assertTrue(self.client.session.get("_auth_user_id"))
 
-    def _begin_google_reauth(self) -> str:
-        response = self.client.get(f"/login/google-oauth2/?reauth=true&next=/settings/user&email={self.user.email}")
+    def _begin_google_reauth(self, next_url: str = "/settings/user") -> str:
+        query = urlencode({"reauth": "true", "next": next_url, "email": self.user.email})
+        response = self.client.get(f"/login/google-oauth2/?{query}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         return self.client.session["google-oauth2_state"]
+
+    @parameterized.expand(
+        [
+            ("same_identity", "google-sub-123", None),
+            ("different_identity", "unassociated-sub", "reauth_user_mismatch"),
+        ]
+    )
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_popup_sso_reauth_reports_the_outcome_to_the_opener(self, _name, sub, expected_error_code, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth(next_url="/reauth/complete?attempt=a1")
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email if expected_error_code is None else "someone-else@posthog.com",
+                "sub": sub,
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        expected_location = "/reauth/complete?attempt=a1" + (
+            f"&error_code={expected_error_code}" if expected_error_code else ""
+        )
+        self.assertRedirects(response, expected_location, fetch_redirect_response=False)
+
+        page = self.client.get(expected_location)
+        self.assertEqual(page.status_code, status.HTTP_200_OK)
+        self.assertContains(page, "posthog-sso-reauth")
+        result = {"channel": "posthog-sso-reauth", "attempt": "a1", "error_code": expected_error_code}
+        self.assertContains(
+            page, f'<script id="sso-reauth-result" type="application/json">{json.dumps(result)}</script>'
+        )
+
+    def test_popup_completion_page_does_not_run_an_injected_error_code(self):
+        response = self.client.get("/reauth/complete", {"error_code": "</script><script>alert(1)</script>"})
+
+        self.assertNotContains(response, "<script>alert(1)</script>")
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_sso_reauth_refreshes_the_sensitive_action_window(self, mock_request):
