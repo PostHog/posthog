@@ -36,9 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deel.setti
 DEEL_BASE_URL = "https://api.letsdeel.com/rest/v2"
 REQUEST_TIMEOUT_SECONDS = 30
 
-# Time-off rows carry absence reasons and family/medical event details that the name-based sample
-# scrubbers cannot spot.
-_UNCAPTURED_ENDPOINTS = frozenset({"time_offs", TIME_OFF_EVENTS_ENDPOINT})
+# Time-off rows carry absence reasons and family/medical event details, and timesheets carry a
+# free-text work description plus a reviewer's remarks — none of it name-tagged in a way the
+# name-based sample scrubbers can spot.
+_UNCAPTURED_ENDPOINTS = frozenset({"time_offs", TIME_OFF_EVENTS_ENDPOINT, "timesheets"})
 
 
 @frozen
