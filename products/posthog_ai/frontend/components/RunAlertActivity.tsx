@@ -18,7 +18,7 @@ interface RunAlertActivityProps extends RunConnectionState {
 }
 
 const TITLES: Record<RunAlertKind, string> = {
-    reconnecting: 'Reconnecting to agent',
+    reconnecting: 'Restoring conversation',
     connection_failed: 'Connection lost',
     agent_error: 'Run stopped',
     agent_error_continued: 'Agent error',
@@ -49,7 +49,7 @@ export function RunAlertActivity({
     const activityId = id ?? `run-alert-${kind}`
 
     if (kind === 'reconnecting') {
-        const subtitle = attempt && maxAttempts ? `Attempt ${attempt} of ${maxAttempts}` : 'Attempting to reconnect…'
+        const subtitle = attempt && maxAttempts ? `Attempt ${attempt} of ${maxAttempts}` : 'Loading…'
         return (
             <Activity
                 id={activityId}

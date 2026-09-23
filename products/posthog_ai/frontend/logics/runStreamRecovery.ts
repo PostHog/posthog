@@ -25,8 +25,11 @@ export class RunStreamRecovery {
     paused = false
     buffering = true
     buffer: StoredLogEntry[] = []
+    readonly legacyBacklog = new Map<string, StoredLogEntry>()
     receivedCursor?: string
     committedCursor?: string
+    receivedBacklogRunId?: string
+    committedBacklogRunId?: string
     private resourceId = 0
 
     constructor(

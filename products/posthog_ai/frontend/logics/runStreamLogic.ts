@@ -920,6 +920,30 @@ function isResumeContextPrompt(text: string): boolean {
     return text.startsWith(RESUME_CONTEXT_PREFIX)
 }
 
+function isAgentMessageEntry(entry: StoredLogEntry): boolean {
+    const update = entry.notification.params?.update
+    return (
+        entry.notification.method === 'session/update' &&
+        isRecord(update) &&
+        (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_message')
+    )
+}
+
+function persistedHumanText(entry: StoredLogEntry): string | null {
+    if (entry.notification.method === '_posthog/user_message') {
+        return unwrapUserMessageContent(extractUserMessageText(entry.notification.params?.content))
+    }
+    const update = entry.notification.params?.update
+    if (
+        entry.notification.method === 'session/update' &&
+        isSessionUpdateUserMessage(update) &&
+        !isHiddenUserContent(update.content)
+    ) {
+        return unwrapUserMessageContent(String(update.content?.text ?? update.text ?? ''))
+    }
+    return null
+}
+
 function parseAgentEventId(eventId: string): { boot: string; sequence: number } | null {
     const match = /^(.+)-(\d+)$/.exec(eventId)
     if (!match) {
@@ -954,7 +978,7 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
             continue
         }
         eventIds.set(JSON.stringify([entry.source_run_id, entry.event_id]), index)
-        if (typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
+        if (!isAgentMessageEntry(entry) || typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
             continue
         }
         eventIds.set(JSON.stringify([entry.source_run_id, entry.first_event_id]), index)
@@ -973,7 +997,7 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
         let coveredIndex = hasEventId(entry)
             ? eventIds.get(JSON.stringify([entry.source_run_id, entry.event_id]))
             : undefined
-        if (coveredIndex === undefined && hasEventId(entry)) {
+        if (coveredIndex === undefined && hasEventId(entry) && isAgentMessageEntry(entry)) {
             const parsed = parseAgentEventId(entry.event_id)
             if (parsed) {
                 coveredIndex = eventRanges
@@ -1014,7 +1038,13 @@ function eventPosition(entry: StoredLogEntry, first = false): { boot: string; se
 }
 
 function coversEntry(cover: StoredLogEntry, entry: StoredLogEntry): boolean {
-    if (!cover.event_id || !entry.event_id || cover.source_run_id !== entry.source_run_id) {
+    if (
+        !cover.event_id ||
+        !entry.event_id ||
+        cover.source_run_id !== entry.source_run_id ||
+        !isAgentMessageEntry(cover) ||
+        !isAgentMessageEntry(entry)
+    ) {
         return false
     }
     const first = eventPosition(cover, true)
@@ -1043,6 +1073,10 @@ class RunEventCoverage {
             return
         }
         this.ids.add(JSON.stringify([entry.source_run_id, entry.event_id]))
+        // Neutral notifications can occur inside a coalesced text range without being superseded.
+        if (!isAgentMessageEntry(entry)) {
+            return
+        }
         const first = eventPosition(entry, true)
         const last = eventPosition(entry)
         if (first && last && first.boot === last.boot && first.sequence <= last.sequence) {
@@ -1066,6 +1100,34 @@ class RunEventCoverage {
         }
     }
 
+    private overlappingRange(entry: StoredLogEntry): { first: number; last: number } | undefined {
+        if (!isAgentMessageEntry(entry)) {
+            return
+        }
+        const first = eventPosition(entry, true)
+        const last = eventPosition(entry)
+        if (!first || !last || first.boot !== last.boot) {
+            return
+        }
+        const ranges = this.ranges.get(JSON.stringify([entry.source_run_id, first.boot])) ?? []
+        let low = 0
+        let high = ranges.length
+        while (low < high) {
+            const middle = (low + high) >>> 1
+            if (ranges[middle].last < first.sequence) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        const range = ranges[low]
+        return range && range.first <= last.sequence ? range : undefined
+    }
+
+    overlaps(entry: StoredLogEntry): boolean {
+        return this.overlappingRange(entry) !== undefined
+    }
+
     covers(entry: StoredLogEntry): boolean {
         if (!entry.event_id) {
             return false
@@ -1073,16 +1135,10 @@ class RunEventCoverage {
         if (!entry.first_event_id && this.ids.has(JSON.stringify([entry.source_run_id, entry.event_id]))) {
             return true
         }
+        const range = this.overlappingRange(entry)
         const first = eventPosition(entry, true)
         const last = eventPosition(entry)
-        return !!(
-            first &&
-            last &&
-            first.boot === last.boot &&
-            this.ranges
-                .get(JSON.stringify([entry.source_run_id, first.boot]))
-                ?.some((range) => range.first <= first.sequence && range.last >= last.sequence)
-        )
+        return !!(range && first && last && range.first <= first.sequence && range.last >= last.sequence)
     }
 }
 
@@ -1095,6 +1151,36 @@ function compareEntryPosition(left: StoredLogEntry, right: StoredLogEntry): numb
     return left.timestamp && right.timestamp ? Date.parse(left.timestamp) - Date.parse(right.timestamp) : 0
 }
 
+export function mergeCoalescedRunLog(log: RunLog, entry: StoredLogEntry): RunLog {
+    const entries = log.entries.filter((stored) => !coversEntry(entry, stored.entry))
+    const nextIndex = entries.findIndex((stored) => compareEntryPosition(entry, stored.entry) < 0)
+    entries.splice(nextIndex < 0 ? entries.length : nextIndex, 0, { entry, source: 'live' })
+    return appendToRunLog(emptyRunLog(), entries)
+}
+
+function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredLogEntry[] {
+    const optimisticCounts = new Map<string, number>()
+    return retained.flatMap(({ entry, source }) => {
+        if (entry.notification.method === '_posthog/turn_complete') {
+            optimisticCounts.clear()
+        }
+        if (source === 'client') {
+            if (entry.notification.method === '_client/human_message') {
+                const text = String(entry.notification.params?.content ?? '')
+                optimisticCounts.set(text, (optimisticCounts.get(text) ?? 0) + 1)
+            }
+            return []
+        }
+        const text = source === 'live' ? persistedHumanText(entry) : null
+        const optimistic = text ? (optimisticCounts.get(text) ?? 0) : 0
+        if (text && optimistic > 0) {
+            optimisticCounts.set(text, optimistic - 1)
+            return []
+        }
+        return [entry]
+    })
+}
+
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
@@ -1104,17 +1190,22 @@ export function reconcileRunLog(
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
     const savedHumanCounts = new Map<string, number>()
-    for (const entry of dedupeBufferedAgainstHistory(
-        history,
-        retained.filter(({ source }) => source !== 'client').map(({ entry }) => entry)
-    )) {
-        if (
-            entry.notification.method === '_posthog/user_message' &&
-            (!optimisticRunId || entry.source_run_id === optimisticRunId)
-        ) {
-            const text = unwrapUserMessageContent(extractUserMessageText(entry.notification.params?.content))
-            savedHumanCounts.set(text, (savedHumanCounts.get(text) ?? 0) + 1)
+    const rememberedHumanTexts = new Map<string, number>()
+    for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
+        const text = persistedHumanText(entry)
+        if (!text || (optimisticRunId && entry.source_run_id !== optimisticRunId)) {
+            continue
         }
+        if (entry.notification.method === '_posthog/user_message') {
+            rememberedHumanTexts.set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
+        } else {
+            const remembered = rememberedHumanTexts.get(text) ?? 0
+            if (remembered > 0) {
+                rememberedHumanTexts.set(text, remembered - 1)
+                continue
+            }
+        }
+        savedHumanCounts.set(text, (savedHumanCounts.get(text) ?? 0) + 1)
     }
     for (const [tailIndex, tail] of [
         retained,
@@ -1147,7 +1238,7 @@ export function reconcileRunLog(
                         continue
                     }
                     // A retained coalesced message can be newer than the saved snapshot.
-                    if (entry.first_event_id) {
+                    if (entry.first_event_id && coverage.overlaps(entry)) {
                         entries = entries.filter((existing) => !coversEntry(entry, existing.entry))
                     }
                     coverage.add(entry)
@@ -3026,6 +3117,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             )
             if (sameRun) {
                 session.committedCursor = previous.committedCursor
+                session.committedBacklogRunId = previous.committedBacklogRunId
             } else {
                 actions.cancelPermissionDelivery()
                 actions.permissionRunChanged()
@@ -3053,6 +3145,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.pausedError = envelope
             session.buffer = []
             session.receivedCursor = session.committedCursor
+            session.receivedBacklogRunId = session.committedBacklogRunId
             if (session.phase !== 'finalization') {
                 actions.setHistoryComplete(false)
             }
@@ -3125,16 +3218,20 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
             )
             session.check()
+            // Django log-N cursors index the same object entries, including non-notification records.
+            entries.filter(isRecord).forEach((raw, index) => {
+                const entry = normalizeNotificationEntry(raw)
+                if (entry && !entry.event_id) {
+                    session.legacyBacklog.set(`log-${index}`, entry)
+                }
+            })
             const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
             let retained = values.log.entries
             if (
                 cache.retainedMessage &&
                 history.some(
                     (entry) =>
-                        entry.source_run_id === session.runId &&
-                        entry.notification.method === '_posthog/user_message' &&
-                        unwrapUserMessageContent(extractUserMessageText(entry.notification.params?.content)) ===
-                            cache.retainedMessage
+                        entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
                 )
             ) {
                 const optimisticIndex = retained.findLastIndex(
@@ -3157,7 +3254,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.prepareResumeRun()
                         reachedSuccessor = true
                     }
-                    if (stored.source !== 'client') {
+                    if (stored.entry.notification.method === '_client/human_message') {
+                        actions.markTurnStarted()
+                    } else if (stored.source !== 'client') {
                         actions.ingestAcpFrame(
                             stored.entry,
                             stored.source === 'live' &&
@@ -3199,7 +3298,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             session.buffer = []
             session.buffering = false
-            session.committedCursor = session.receivedCursor ?? session.committedCursor
+            if (session.receivedCursor) {
+                session.committedCursor = session.receivedCursor
+                session.committedBacklogRunId = session.receivedBacklogRunId
+            }
             if (session.committedCursor && !hasEnded(session)) {
                 writeStreamResumeId(session.runId, session.committedCursor)
             }
@@ -3222,7 +3324,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                           const run = await readRun(session)
                           applyRun(session, run)
                           if (!isTerminalRunStatus(run.status)) {
-                              throw { errorTitle: 'Waiting for the final run status', retryable: true }
+                              throw {
+                                  errorTitle: "Couldn't confirm the run's final status",
+                                  errorMessage: 'Retry to check again',
+                                  retryable: true,
+                              }
                           }
                           actions.handleTerminalStatus({ status: run.status as RunStatus })
                       }),
@@ -3306,20 +3412,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 previous.paused = false
                 actions.resetRecoveryBudget()
                 cache.recoveryStartedAt = Date.now()
-                if (props.replayOnly) {
-                    const session = beginSession(previous.taskId, previous.runId)
-                    if (session) {
-                        actions.recoveryProgress('history', 0, MAX_HISTORY_FETCH_ATTEMPTS)
-                        void reconcileHistory(session)
-                            .then(() => {
-                                if (session.owns()) {
-                                    actions.bootstrapReplayComplete()
-                                }
-                            })
-                            .catch((error) => failRecovery(session, error))
-                    }
-                    return
-                }
                 actions.bootstrapRun({ taskId: previous.taskId, runId: previous.runId })
             },
             openSseForRun: ({ taskId, runId }) => {
@@ -3347,7 +3439,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 session.buffering = !skipHistory
                 actions.sseConnecting()
                 const controller = new AbortController()
-                let backlogRunId: string | undefined = values.isBootstrapResumeRun ? undefined : runId
+                let backlogRunId = session.committedBacklogRunId ?? (values.isBootstrapResumeRun ? undefined : runId)
                 const ownsStream = (): boolean => session.owns() && !controller.signal.aborted && !hasEnded(session)
                 const drop = (error?: StreamErrorEnvelope): void => {
                     if (!ownsStream()) {
@@ -3390,6 +3482,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         if (isRecord(control) && control.type === 'resync') {
                             session.committedCursor = undefined
                             session.receivedCursor = undefined
+                            session.committedBacklogRunId = undefined
+                            session.receivedBacklogRunId = undefined
                             clearStreamResumeId(runId)
                         }
                         return
@@ -3417,12 +3511,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             ...parsed,
                             source_run_id: parsed.source_run_id ?? (id?.startsWith('log-') ? backlogRunId : runId),
                         }
+                        const savedBacklog = !entry.event_id && id ? session.legacyBacklog.get(id) : undefined
+                        const matchesSavedBacklog =
+                            savedBacklog &&
+                            savedBacklog.timestamp === entry.timestamp &&
+                            JSON.stringify(savedBacklog.notification) === JSON.stringify(entry.notification)
                         if (session.buffering) {
                             session.buffer.push(entry)
-                        } else if (!(cache.eventCoverage as RunEventCoverage).covers(entry)) {
+                        } else if (!matchesSavedBacklog && !(cache.eventCoverage as RunEventCoverage).covers(entry)) {
                             ;(cache.eventCoverage as RunEventCoverage).add(entry)
                             if (entry.first_event_id) {
-                                const log = reconcileRunLog([], values.log.entries, [entry])
+                                const log = mergeCoalescedRunLog(values.log, entry)
                                 cache.rebuildingHistory = true
                                 try {
                                     actions.ingestAcpFrame(entry, 'live')
@@ -3466,8 +3565,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     }
                     if (id && ownsStream()) {
                         session.receivedCursor = id
+                        session.receivedBacklogRunId = backlogRunId
                         if (!session.buffering) {
                             session.committedCursor = id
+                            session.committedBacklogRunId = backlogRunId
                             writeStreamResumeId(runId, id)
                         }
                     }

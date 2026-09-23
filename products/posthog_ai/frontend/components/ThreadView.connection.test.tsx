@@ -52,7 +52,7 @@ describe('ThreadView connection state', () => {
         logic.actions.sseReconnecting(2)
 
         await waitFor(() => {
-            expect(screen.getByText('Reconnecting to agent')).toBeInTheDocument()
+            expect(screen.getByText('Restoring conversation')).toBeInTheDocument()
         })
         // maxAttempts flows from the selector (MAX_SSE_RECONNECT_ATTEMPTS = 10), not a hand-passed prop.
         expect(screen.getByText('Attempt 2 of 10')).toBeInTheDocument()
@@ -75,7 +75,7 @@ describe('ThreadView connection state', () => {
         jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as TaskRunDetailDTOApi)
         const history = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValueOnce({ status: 403 })
         act(() => logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' }))
-        const retry = await screen.findByRole('button', { name: 'Retry' })
+        const retry = await screen.findByText('Retry')
         let finishHistory!: (entries: StoredLogEntry[]) => void
         history.mockImplementation(
             () =>
@@ -88,7 +88,7 @@ describe('ThreadView connection state', () => {
             fireEvent.click(retry)
         })
         await waitFor(() => expect(history).toHaveBeenCalledTimes(2))
-        expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+        expect(screen.queryByText('Retry')).toBeNull()
         await act(async () =>
             finishHistory([
                 notification('session/update', {
@@ -111,7 +111,7 @@ describe('ThreadView connection state', () => {
 
     // A fresh, healthy mount must paint no connection banner.
     it('shows no connection banner on a fresh mount', () => {
-        expect(screen.queryByText('Reconnecting to agent')).toBeNull()
+        expect(screen.queryByText('Restoring conversation')).toBeNull()
         expect(screen.queryByText('Connection lost')).toBeNull()
     })
 
