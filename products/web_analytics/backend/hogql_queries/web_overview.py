@@ -21,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.web_analytics.backend.hogql_queries.screen_view_mode import with_screen_name_path_fallback
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
@@ -52,6 +53,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         self._session_id_set_selectivity_ok: Optional[bool] = None
 
     def to_query(self) -> ast.SelectQuery:
+        return with_screen_name_path_fallback(self._select_query(), self.screen_view_mode)
+
+    def _select_query(self) -> ast.SelectQuery:
         if self.should_skip_session_join:
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
@@ -199,11 +203,12 @@ SELECT
 FROM sessions
 WHERE and(
     {inside_start_timestamp_period},
-    or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+    {sessions_view_where},
     {sessions_extra_where},
 )
             """,
             placeholders={
+                "sessions_view_where": self.sessions_view_count_expr,
                 "sessions_extra_where": sessions_extra_where or ast.Constant(value=True),
                 "inside_start_timestamp_period": self._periods_expression("$start_timestamp"),
                 "current_period": self._current_period_expression("$start_timestamp"),
@@ -259,6 +264,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         should_use_preaggregated = (
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.screen_view_mode is None
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.conversionGoal
         )
@@ -400,7 +406,7 @@ WHERE and(
 
         conversions_response = execute_hogql_query(
             query_type="web_overview_conversion_goal_query",
-            query=self._conversion_goal_select(),
+            query=with_screen_name_path_fallback(self._conversion_goal_select(), self.screen_view_mode),
             team=self.team,
             user=self.user,
             timings=self.timings,
@@ -529,25 +535,7 @@ WHERE and(
 
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
-        return ast.Call(
-            name="countIf",
-            args=[
-                ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value="$pageview"),
-                        ),
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value="$screen"),
-                        ),
-                    ]
-                )
-            ],
-        )
+        return ast.Call(name="countIf", args=[self.view_event_expr])
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:

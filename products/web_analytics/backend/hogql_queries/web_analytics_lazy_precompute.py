@@ -28,6 +28,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
+from products.web_analytics.backend.hogql_queries.screen_view_mode import effective_screen_view_mode
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
     MAX_PRECOMPUTE_DAYS,
@@ -157,6 +158,12 @@ class SamplingEnabled(LazyPrecomputeIneligible):
 
 
 class SessionsV2UuidMode(LazyPrecomputeIneligible):
+    pass
+
+
+class ScreenViewModeSet(LazyPrecomputeIneligible):
+    """Mirrors `web_lazy_precompute_common.ScreenViewModeSet`, because each gate raises its own module's class."""
+
     pass
 
 
@@ -320,6 +327,9 @@ def check_common_eligible(
     # the UUID-safe session-id handling; the stats template does not.
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid" and not allow_uuid_session_join:
         raise SessionsV2UuidMode()
+
+    if effective_screen_view_mode(runner.team, runner.modifiers) is not None:
+        raise ScreenViewModeSet()
 
     # Any event/person filter shape is accepted (any key, operator, count), translated
     # as a whole via `user_filter_expr`; each distinct set becomes its own cache key,

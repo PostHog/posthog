@@ -39,6 +39,7 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
     first_pageview_prop,
     first_pageview_properties_expr,
 )
+from products.web_analytics.backend.hogql_queries.screen_view_mode import with_screen_name_path_fallback
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
@@ -120,6 +121,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         return bool(
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.screen_view_mode is None
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
             and not self.query.conversionGoal
@@ -160,7 +162,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def to_query(self) -> ast.SelectQuery:
         resolved = self._resolve_strategy()
         self.used_preaggregated_tables = resolved.uses_preaggregated_tables
-        return resolved.build_query()
+        return with_screen_name_path_fallback(resolved.build_query(), self.screen_view_mode)
 
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
@@ -526,12 +528,13 @@ SELECT DISTINCT events.$session_id_uuid AS session_id_uuid
 FROM events
 WHERE and(
     events.$session_id_uuid IS NOT NULL,
-    or(events.event = '$pageview', events.event = '$screen'),
+    {view_event_where},
     {inside_timestamp_periods},
     {filters},
 )
             """,
             placeholders={
+                "view_event_where": self.view_event_expr,
                 "inside_timestamp_periods": self._periods_expression("timestamp"),
                 "filters": property_to_expr(self._session_id_set_bounce_properties, team=self.team, scope="event"),
             },

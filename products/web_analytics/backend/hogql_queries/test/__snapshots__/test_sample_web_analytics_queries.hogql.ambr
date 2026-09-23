@@ -627,7 +627,7 @@
          tuple(sum(errors_count), NULL) AS `context.columns.errors`
   FROM
     (SELECT any(person_id) AS filtered_person_id,
-            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
             events.properties.$pathname AS breakdown_value,
             countIf(equals(events.event, '$exception')) AS errors_count,
             countIf(equals(events.event, '$rageclick')) AS rage_clicks_count,
@@ -635,7 +635,7 @@
             session.session_id AS session_id,
             min(session.$start_timestamp) AS start_timestamp
      FROM events
-     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), in(events.event, tuple('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')), 1)
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(or(equals(event, '$pageview'), equals(event, '$screen')), in(events.event, tuple('$rageclick', '$dead_click', '$exception'))), 1)
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -1142,8 +1142,8 @@
             conversion_count,
             conversion_person_id
      FROM
-       (SELECT anyIf(events.person_id, or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_person_id,
-               countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+       (SELECT anyIf(events.person_id, or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_person_id,
+               countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
                argMinIf(tuple(events.properties.utm_campaign, events.properties.utm_medium, events.properties.utm_source, events.properties.$current_url, events.properties.$referring_domain, events.properties.gclid, events.properties.fbclid, events.properties.gad_source), events.timestamp, in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
                if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
                any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp,
@@ -1182,8 +1182,8 @@
             conversion_count,
             conversion_person_id
      FROM
-       (SELECT anyIf(events.person_id, or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_person_id,
-               countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+       (SELECT anyIf(events.person_id, or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_person_id,
+               countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
                argMinIf(tuple(events.properties.$referring_domain), events.timestamp, in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
                if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
                any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp,
@@ -1326,7 +1326,7 @@
                session.session_id AS session_id,
                min(session.$start_timestamp) AS start_timestamp
         FROM events
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        WHERE and(or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS counts
@@ -1337,7 +1337,7 @@
             quantileIf(0.9)(least(toFloat(events.properties.$prev_pageview_duration), 86400),
                             false) AS previous_avg_time_on_page
      FROM events
-     WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$pageleave'), equals(events.event, '$screen')), notEquals(events.properties.$prev_pageview_pathname, NULL), notEquals(events.properties.$prev_pageview_duration, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+     WHERE and(or(equals(events.event, '$pageleave'), or(equals(event, '$pageview'), equals(event, '$screen'))), notEquals(events.properties.$prev_pageview_pathname, NULL), notEquals(events.properties.$prev_pageview_duration, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value,
@@ -1349,7 +1349,7 @@
                session.session_id AS session_id,
                min(session.$start_timestamp) AS start_timestamp
         FROM events
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        WHERE and(or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
@@ -1381,7 +1381,7 @@
                session.session_id AS session_id,
                min(session.$start_timestamp) AS start_timestamp
         FROM events
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        WHERE and(or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS counts
@@ -1395,7 +1395,7 @@
                session.session_id AS session_id,
                min(session.$start_timestamp) AS start_timestamp
         FROM events
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        WHERE and(or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)

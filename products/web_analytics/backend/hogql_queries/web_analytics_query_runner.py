@@ -20,6 +20,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     SessionPropertyFilter,
     WebAgentAnalyticsQuery,
+    WebAnalyticsScreenViewMode,
     WebBotsTableQuery,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
@@ -57,6 +58,12 @@ from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_COUNTER,
     WEB_ANALYTICS_QUERY_DURATION,
     WEB_ANALYTICS_QUERY_ERRORS,
+)
+from products.web_analytics.backend.hogql_queries.screen_view_mode import (
+    effective_screen_view_mode,
+    sessions_view_count_expr,
+    view_event_expr,
+    view_event_exprs,
 )
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -565,15 +572,20 @@ WHERE and(
             return None
 
     @cached_property
+    def screen_view_mode(self) -> Optional[WebAnalyticsScreenViewMode]:
+        return effective_screen_view_mode(self.team, self.modifiers)
+
+    @cached_property
+    def view_event_expr(self) -> ast.Expr:
+        return view_event_expr(self.screen_view_mode)
+
+    @cached_property
+    def sessions_view_count_expr(self) -> ast.Expr:
+        return sessions_view_count_expr(self.screen_view_mode)
+
+    @cached_property
     def event_type_expr(self) -> ast.Expr:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
-            ),
-        ]
+        exprs: list[ast.Expr] = view_event_exprs(self.screen_view_mode)
 
         if self.conversion_goal_expr:
             exprs.append(self.conversion_goal_expr)

@@ -1652,6 +1652,12 @@ class SessionsV2JoinMode(StrEnum):
     UUID = "uuid"
 
 
+class WebAnalyticsScreenViewMode(StrEnum):
+    PAGEVIEWS = "pageviews"
+    SCREENS = "screens"
+    PAGEVIEWS_AND_SCREENS = "pageviews_and_screens"
+
+
 class InfinityValue(float, Enum):
     NUMBER_999999 = 999999
     NUMBER__999999 = -999999

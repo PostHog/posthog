@@ -200,7 +200,7 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
                 "filtered_person_id": parse_expr("any(person_id)"),
                 "filtered_pageview_count": parse_expr("count()"),
             }
-        traffic_event = parse_expr("events.event = '$pageview' OR events.event = '$screen'")
+        traffic_event = self.runner.view_event_expr
         return {
             "filtered_person_id": ast.Call(
                 name="anyIf", args=[ast.Field(chain=["events", "person_id"]), traffic_event]
@@ -336,6 +336,7 @@ class PathBounceStrategy(StatsTableQueryStrategy):
                 placeholders={
                     "breakdown_value": self.runner._counts_breakdown_value(),
                     "session_properties": self.runner.session_properties(),
+                    "view_event_where": self.runner.view_event_expr,
                     "event_properties": self.runner._event_properties(),
                     "bounce_event_properties": self.runner._event_properties_for_bounce_rate(),
                     "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown(),
@@ -359,6 +360,7 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
                 placeholders={
                     "breakdown_value": self.runner._counts_breakdown_value(),
                     "session_properties": self.runner.session_properties(),
+                    "view_event_where": self.runner.view_event_expr,
                     "event_properties": self.runner._event_properties(),
                     "time_on_page_event_properties": self.runner._event_properties_for_scroll(),
                     "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
@@ -404,6 +406,8 @@ class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
     def _placeholders(self) -> dict[str, ast.Expr]:
         return {
             "breakdown_value": self.runner._counts_breakdown_value(),
+            "view_event_where": self.runner.view_event_expr,
+            "sessions_view_where": self.runner.sessions_view_count_expr,
             "events_session_id_present": self.runner.events_session_id_present,
             "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown_sessions(),
             "current_timestamp_period": self.runner._current_period_expression("timestamp"),
@@ -509,9 +513,13 @@ class FrustrationMetricsStrategy(StatsTableQueryStrategy):
             timings=self.runner.timings,
             placeholders={
                 "breakdown_value": self.runner._counts_breakdown_value(),
-                "event_where": parse_expr(
-                    "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
+                "event_where": ast.Or(
+                    exprs=[
+                        self.runner.view_event_expr,
+                        parse_expr("events.event IN ('$rageclick', '$dead_click', '$exception')"),
+                    ]
                 ),
+                "view_event_where": self.runner.view_event_expr,
                 "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
             },

@@ -537,6 +537,8 @@ export interface HogQLQueryModifiers {
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
+    /** Which events web analytics counts as views. Unset keeps `$pageview` + `$screen` for totals and `$pathname` for paths. `pageviews_and_screens` falls back to `$screen_name` when an event has no `$pathname`. */
+    webAnalyticsScreenViewMode?: 'pageviews' | 'screens' | 'pageviews_and_screens'
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
