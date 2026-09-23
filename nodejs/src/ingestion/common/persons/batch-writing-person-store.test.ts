@@ -137,6 +137,7 @@ describe('BatchWritingPersonStore', () => {
             isPersonLive: jest.fn().mockResolvedValue(true),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
+            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
             updatePersonsBatch: jest.fn().mockImplementation((updates) => {
                 // Return a map with success for each update
@@ -166,6 +167,7 @@ describe('BatchWritingPersonStore', () => {
         const mockTransaction = {
             fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             createPerson: jest.fn().mockResolvedValue([person, []]),
+            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),
             deletePersons: jest.fn().mockResolvedValue([]),
             claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
