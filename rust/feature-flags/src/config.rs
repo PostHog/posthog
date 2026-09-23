@@ -487,6 +487,15 @@ pub struct Config {
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
 
+    // Second gate on the self-heal path, for the S3-hit trigger only. A cache miss is a 503
+    // and is rare; an S3 hit is a successful response and can be orders of magnitude more
+    // frequent, so the two triggers need separate switches. Default off so the enqueue rate
+    // can be watched in one environment before the rest follow. Has no effect while
+    // FLAG_DEFINITIONS_SELF_HEAL_ENABLED is off, which stays the switch that stops every
+    // enqueue.
+    #[envconfig(from = "FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED", default = "false")]
+    pub flag_definitions_rebuild_on_s3_hit_enabled: FlexBool,
+
     // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
     // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
     //
@@ -1075,6 +1084,7 @@ impl Config {
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_rebuild_on_s3_hit_enabled: FlexBool(false),
             flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,

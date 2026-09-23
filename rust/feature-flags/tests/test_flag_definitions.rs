@@ -3023,6 +3023,80 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
     );
 }
 
+/// An S3-served response is a 200, so nothing else treats it as a fault: the endpoint
+/// counts a hit, and the hourly verifier compares the S3 payload against the database and
+/// finds a match. But the ETag lives in Redis only, so the response carries no validator and
+/// the SDK re-downloads the payload on every poll until the team's cache TTL comes due.
+/// Guards the enqueue that ends that state, and the switch that ramps it.
+#[rstest::rstest]
+#[case(true)]
+#[case(false)]
+#[tokio::test]
+async fn test_s3_hit_enqueues_rebuild_when_enabled(#[case] rebuild_on_s3_hit: bool) {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{
+            read_flag_definitions_rebuild_requests, static_s3_client, TestContext,
+        },
+    };
+    use reqwest;
+    use tokio::time::{sleep, Duration};
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(rebuild_on_s3_hit);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Leave Redis unseeded and let S3 answer, which is the eviction state: the payload
+    // survives in S3 while Redis holds neither it nor the `:etag` key.
+    let server = common::ServerHandle::for_config_with_s3(
+        config.clone(),
+        Some(static_s3_client(r#"{"flags": [], "cohorts": {}}"#)),
+    )
+    .await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "expected the S3 payload to be served"
+    );
+    assert!(
+        response.headers().get("etag").is_none(),
+        "an S3-served response has no ETag to send, which is what the rebuild repairs"
+    );
+
+    if rebuild_on_s3_hit {
+        assert!(
+            poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+            "team {} should be enqueued for rebuild after an S3-served response",
+            team.id
+        );
+    } else {
+        // Give any erroneous background enqueue time to land, then assert it did not.
+        sleep(Duration::from_millis(500)).await;
+        let members = read_flag_definitions_rebuild_requests(&config.redis_url).await;
+        assert!(
+            !members.contains(&team.id.to_string()),
+            "team {} must not be enqueued while the S3-hit trigger is off",
+            team.id
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
     use feature_flags::{

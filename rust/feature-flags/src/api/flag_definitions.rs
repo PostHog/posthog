@@ -21,7 +21,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{HyperCacheError, KeyType};
+use common_hypercache::{CacheSource, HyperCacheError, KeyType};
 use common_metrics::inc;
 use common_types::TeamId;
 use once_cell::sync::Lazy;
@@ -34,12 +34,17 @@ use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
 
-/// Redis sorted set holding team IDs whose flag-definitions cache is missing and
+/// Redis sorted set holding team IDs whose flag-definitions Redis entry is gone and
 /// needs a rebuild. A Celery worker drains it (member = team_id, score = enqueue
 /// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
 /// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
 /// `test_request_zset_key_matches_rust_contract`).
 pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+
+/// `trigger` label values for `FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER`. The two triggers
+/// ramp independently, so the dashboard has to separate them.
+const REBUILD_TRIGGER_CACHE_MISS: &str = "cache_miss";
+const REBUILD_TRIGGER_S3_HIT: &str = "s3_hit";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
@@ -426,6 +431,18 @@ async fn get_from_cache(
                 source = source_name,
                 "Cache hit for flag definitions"
             );
+            // Self-heal: S3 answered, so Redis holds neither the payload nor its companion
+            // ETag, and the handler reads the ETag from Redis alone. The response therefore
+            // carries no validator, and the SDK downloads the whole payload on every poll
+            // instead of getting a 304. Nothing else repairs this: the response is a success,
+            // the hourly verifier compares the S3 payload against the database and calls it a
+            // match, and the refresh sweep does not look at the team until its expiry score
+            // comes due, which is up to a full cache TTL away. The rebuild rewrites the
+            // payload and the ETag together, and puts the team back in the expiry sorted set.
+            if source == CacheSource::S3 && *state.config.flag_definitions_rebuild_on_s3_hit_enabled
+            {
+                enqueue_flag_definitions_rebuild(state, team_id, REBUILD_TRIGGER_S3_HIT);
+            }
             Ok(data)
         }
         Err(e) => {
@@ -451,15 +468,15 @@ async fn get_from_cache(
             // Self-heal: a genuinely empty cache (not a transient redis/s3/parse
             // error) has no DB fallback here, so it would 503 until something
             // rewrites it. Enqueue a debounced rebuild request for a Celery worker.
-            if reason == "cache_miss" && *state.config.flag_definitions_self_heal_enabled {
-                enqueue_flag_definitions_rebuild(state, team_id);
+            if reason == "cache_miss" {
+                enqueue_flag_definitions_rebuild(state, team_id, REBUILD_TRIGGER_CACHE_MISS);
             }
             Err(FlagError::from(e))
         }
     }
 }
 
-/// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
+/// Fire-and-forget enqueue of a flag-definitions rebuild request.
 ///
 /// Writes to a Redis sorted set on the flags-namespace client, because that is where the
 /// Django writer lives. The Celery drain derives its Redis from
@@ -482,8 +499,16 @@ async fn get_from_cache(
 ///
 /// Re-enqueuing a team only updates its score, so a client polling a missing team
 /// every ~30s occupies a single slot. Spawned so it never adds latency to (or
-/// changes) the failing response.
-fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
+/// changes) the response.
+///
+/// `FLAG_DEFINITIONS_SELF_HEAL_ENABLED` is checked here rather than at each call site, so it
+/// stops every trigger. A trigger that also needs its own ramp adds that switch at its call
+/// site.
+fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32, trigger: &'static str) {
+    if !*state.config.flag_definitions_self_heal_enabled {
+        return;
+    }
+
     let redis = state.flags_namespace_redis_client();
     tokio::spawn(async move {
         let score = SystemTime::now()
@@ -499,10 +524,13 @@ fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
             .await;
         inc(
             FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
-            &[(
-                "result".to_string(),
-                if result.is_ok() { "ok" } else { "error" }.to_string(),
-            )],
+            &[
+                (
+                    "result".to_string(),
+                    if result.is_ok() { "ok" } else { "error" }.to_string(),
+                ),
+                ("trigger".to_string(), trigger.to_string()),
+            ],
             1,
         );
     });
