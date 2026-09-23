@@ -8,9 +8,9 @@ from parameterized import parameterized
 from products.signals.backend.artefact_schemas import NoteArtefact
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_search import report_search_terms
-from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_search_terms
+from products.signals.backend.temporal.signal_queries import fetch_report_ids_by_search_term
 
-VIEWS_FETCH_BY_SEARCH = "products.signals.backend.views.fetch_report_ids_for_search_terms"
+VIEWS_FETCH_BY_SEARCH = "products.signals.backend.views.fetch_report_ids_by_search_term"
 
 
 class TestReportSearchTerms(SimpleTestCase):
@@ -32,17 +32,17 @@ class TestReportIdsForSearchTerms(APIBaseTest):
         # The evidence leg reads `content` and an aliased `source_id` out of the shared dedup
         # subquery, which exposes `metadata` as an argMax alias. If HogQL rejects either, every
         # search degrades to the report's own content and the evidence match silently never fires.
-        assert fetch_report_ids_for_search_terms(self.team, ["web", "vitals"]) == set()
+        assert fetch_report_ids_by_search_term(self.team, ["web", "vitals"]) == {"web": set(), "vitals": set()}
 
     def test_no_terms_skips_clickhouse(self) -> None:
         with patch("products.signals.backend.temporal.signal_queries.execute_hogql_query") as execute:
-            assert fetch_report_ids_for_search_terms(self.team, []) == set()
+            assert fetch_report_ids_by_search_term(self.team, []) == {}
         execute.assert_not_called()
 
 
 class TestReportSearch(APIBaseTest):
-    def _search(self, query: str) -> list[str]:
-        with patch(VIEWS_FETCH_BY_SEARCH, return_value=set()):
+    def _search(self, query: str, evidence: dict[str, set[str]] | None = None) -> list[str]:
+        with patch(VIEWS_FETCH_BY_SEARCH, return_value=evidence or {}):
             response = self.client.get(f"/api/projects/{self.team.pk}/signals/reports/?search={query}")
         assert response.status_code == 200
         return [row["id"] for row in response.json()["results"]]
@@ -95,15 +95,33 @@ class TestReportSearch(APIBaseTest):
         )
         assert self._search(query) == ([str(report.id)] if matches else [])
 
-    def test_search_finds_a_report_whose_evidence_alone_matches(self) -> None:
-        # The identifier a caller searches for is often only in the evidence: an emitter's own
-        # record id never reaches the title. ClickHouse holds that, so it answers alongside Postgres.
+    @parameterized.expand(
+        [
+            # The identifier a caller searches for is often only in the evidence: an emitter's own
+            # record id never reaches the title.
+            ("every term in the evidence", "order_1234", ["order", "1234"], True),
+            # The caller writes one word it remembers of the report and one identifier it is
+            # holding. Those sit in different stores, so combining the stores as whole
+            # alternatives matches neither, and the caller files the duplicate it searched for.
+            ("a term from each store", "checkout order1234", ["order1234"], True),
+            # Combining the stores per term widens where a term may match, not which reports do.
+            ("a term neither store holds", "checkout order1234 toronto", ["order1234"], False),
+        ]
+    )
+    def test_search_combines_a_report_and_its_evidence_per_term(
+        self, _name: str, query: str, evidence_terms: list[str], matches: bool
+    ) -> None:
         report = self._report("Checkout errors climbing")
-        with patch(VIEWS_FETCH_BY_SEARCH, return_value={str(report.id)}) as fetch:
-            response = self.client.get(f"/api/projects/{self.team.pk}/signals/reports/?search=order_1234")
+        evidence = {term: {str(report.id)} for term in evidence_terms}
+        assert self._search(query, evidence) == ([str(report.id)] if matches else [])
 
-        assert response.status_code == 200
-        assert [row["id"] for row in response.json()["results"]] == [str(report.id)]
+    def test_the_evidence_lookup_receives_the_split_terms(self) -> None:
+        # The lookup answers per term, so handing it the caller's raw string would make the
+        # evidence leg search for a phrase no single signal contains.
+        self._report("Checkout errors climbing")
+        with patch(VIEWS_FETCH_BY_SEARCH, return_value={}) as fetch:
+            self.client.get(f"/api/projects/{self.team.pk}/signals/reports/?search=order_1234")
+
         assert fetch.call_args.args[1] == ["order", "1234"]
 
     def test_search_degrades_when_the_evidence_lookup_fails(self) -> None:

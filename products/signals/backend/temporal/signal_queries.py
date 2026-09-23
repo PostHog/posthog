@@ -792,7 +792,7 @@ def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]
 
 
 # ---------------------------------------------------------------------------
-# fetch_report_ids_for_search_terms — synchronous, for the viewset list filter
+# fetch_report_ids_by_search_term — synchronous, for the viewset list filter
 # ---------------------------------------------------------------------------
 
 # The caller treats this leg as best-effort and degrades to the report's own content when it fails,
@@ -802,8 +802,8 @@ def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]
 _SEARCH_EVIDENCE_MAX_EXECUTION_TIME_SECONDS = 10
 
 
-def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
-    """Return the set of report IDs whose evidence matches every one of `terms`.
+def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, set[str]]:
+    """Map each term to the report IDs whose evidence holds it.
 
     A report's evidence lives in ClickHouse, not Postgres: each signal carries the observation
     prose as `content` and the emitter's own record id as `metadata.source_id`. Deduplication
@@ -811,15 +811,22 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
     at: an event name, an endpoint, a ticket id. That identifier often appears only in the
     evidence, never in the title or the summary a later pass rewrote.
 
-    Each term must appear in the description or the source id of the same report, but not
-    necessarily in the same signal, so a caller that names two aspects of one finding still
-    matches. Matching is case-insensitive substring, and the terms carry no LIKE wildcards
-    because `report_search_terms` keeps only letters and digits.
+    One set per term, not one set for the whole conjunction, because the caller pairs each term's
+    evidence with the same term's match against the report's own prose. A caller who remembers one
+    word of the title and one identifier that reached no further than the evidence satisfies
+    neither store on its own.
 
-    Same dedup, ordering, and cap semantics as `fetch_report_ids_for_scout_names`.
+    A term may match the description or the source id of any of the report's signals, so a caller
+    that names two aspects of one finding still matches. Matching is case-insensitive substring,
+    and the terms carry no LIKE wildcards because `report_search_terms` drops everything that is
+    not a letter or a digit.
+
+    Reports holding the most terms are kept first, so the cap falls on the reports least likely to
+    survive the caller's remaining terms. Same dedup and cap semantics as
+    `fetch_report_ids_for_scout_names` otherwise.
     """
     if not terms:
-        return set()
+        return {}
 
     term_matches = [
         f"(description ILIKE {{term_{index}}} OR source_id ILIKE {{term_{index}}})" for index in range(len(terms))
@@ -830,7 +837,13 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
     # least one term, which leaves every countIf unchanged and keeps the grouping off the signals
     # no term touches.
     any_term = " OR ".join(term_matches)
-    every_term = "\n           AND ".join(f"countIf({match}) > 0" for match in term_matches)
+    matched_flags = ",\n            ".join(
+        f"countIf({match}) > 0 AS matched_{index}" for index, match in enumerate(term_matches)
+    )
+    # A report matching every term is the one the caller is most likely looking for, so it outranks
+    # a partial match. That keeps the cap from dropping a report the narrower all-terms query would
+    # have returned.
+    matched_count = " + ".join(f"matched_{index}" for index in range(len(terms)))
     # Bound the dedup to the documents that ever held one of the terms. The inbox runs this per
     # typed search across every section, and the unbounded form holds argMax state for the team's
     # whole signal history. The outer test still reads the deduped row, so a signal reworded away
@@ -840,7 +853,9 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
         for index in range(len(terms))
     )
     ch_query = f"""
-        SELECT report_id
+        SELECT
+            report_id,
+            {matched_flags}
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
@@ -854,8 +869,7 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
           AND report_id != ''
           AND ({any_term})
         GROUP BY report_id
-        HAVING {every_term}
-        ORDER BY max(timestamp) DESC
+        ORDER BY {matched_count} DESC, max(timestamp) DESC
         LIMIT {_REPORT_ID_FILTER_CAP}
     """
 
@@ -874,7 +888,15 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
         ),
     )
 
-    return {row[0] for row in (result.results or []) if row[0]}
+    ids_by_term: dict[str, set[str]] = {term: set() for term in terms}
+    for row in result.results or []:
+        report_id = row[0]
+        if not report_id:
+            continue
+        for index, term in enumerate(terms):
+            if row[1 + index]:
+                ids_by_term[term].add(report_id)
+    return ids_by_term
 
 
 # ---------------------------------------------------------------------------

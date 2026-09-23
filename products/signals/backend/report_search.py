@@ -1,6 +1,7 @@
 """Free-text search over inbox reports, shared by the report list filter and its tests."""
 
 import re
+from collections.abc import Mapping
 
 from django.db.models import Exists, F, Func, JSONField, OuterRef, Q, TextField, Value
 from django.db.models.functions import Cast
@@ -25,20 +26,26 @@ def report_search_terms(search: str) -> list[str]:
     return [term for term in _TERM_SEPARATORS.split(search) if term][:MAX_SEARCH_TERMS]
 
 
-def report_search_predicate(terms: list[str], evidence_report_ids: set[str]) -> Q:
-    """Match a report whose own content holds every term, or whose evidence already matched.
+def report_search_predicate(terms: list[str], evidence_report_ids_by_term: Mapping[str, set[str]]) -> Q:
+    """Match a report that holds every term, in its own content or in its evidence.
 
     Terms match independently rather than as one phrase, because a caller searching for a report
     it has not read writes its own words: "Toronto registration" for a report titled "Registration
     drops for users in Toronto".
 
-    A term may match the title, the summary, or a work-log note, and different terms may match
-    different fields. A research pass rewrites the summary, so what an earlier pass found can live
-    on only in the work log. A note is stored as a serialized object, so only the note text is
-    matched: the key names around it are not something the caller can read on the report.
+    A term may match the title, the summary, a work-log note, or the report's evidence, and
+    different terms may match different ones. A research pass rewrites the summary, so what an
+    earlier pass found can live on only in the work log, and an identifier the emitter recorded
+    often reaches no further than the evidence. Each term is matched across both stores before the
+    terms are combined, so one remembered word and one evidence-only identifier find the report
+    between them.
 
-    `evidence_report_ids` comes from ClickHouse (`fetch_report_ids_for_search_terms`) and already
-    holds only reports matching every term, so it joins as an alternative to the Postgres match.
+    A note is stored as a serialized object, so only the note text is matched: the key names
+    around it are not something the caller can read on the report.
+
+    `evidence_report_ids_by_term` comes from ClickHouse (`fetch_report_ids_by_search_term`). A term
+    missing from it has no evidence match, which is how the degraded lookup narrows the search to
+    the report's own content instead of failing it.
     """
     note_text = Func(
         Cast(F("content"), output_field=JSONField()),
@@ -46,7 +53,7 @@ def report_search_predicate(terms: list[str], evidence_report_ids: set[str]) -> 
         function="jsonb_extract_path_text",
         output_field=TextField(),
     )
-    own_content = Q()
+    predicate = Q()
     for term in terms:
         notes_with_term = (
             SignalReportArtefact.objects.filter(
@@ -58,7 +65,8 @@ def report_search_predicate(terms: list[str], evidence_report_ids: set[str]) -> 
             .annotate(note_text=note_text)
             .filter(note_text__icontains=term)
         )
-        own_content &= Q(title__icontains=term) | Q(summary__icontains=term) | Q(Exists(notes_with_term))
-    if not evidence_report_ids:
-        return own_content
-    return own_content | Q(id__in=evidence_report_ids)
+        matches_term = Q(title__icontains=term) | Q(summary__icontains=term) | Q(Exists(notes_with_term))
+        if evidence_ids := evidence_report_ids_by_term.get(term):
+            matches_term |= Q(id__in=evidence_ids)
+        predicate &= matches_term
+    return predicate

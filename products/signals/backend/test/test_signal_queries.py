@@ -26,9 +26,9 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_by_search_term,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
-    fetch_report_ids_for_search_terms,
     fetch_signals_for_report_sync,
 )
 
@@ -408,13 +408,23 @@ class TestFetchReportIdsForSearchTerms(_SignalEmbeddingsTestBase):
             content="Registration drops sharply",
         )
 
-        assert fetch_report_ids_for_search_terms(self.team, ["toronto", "registration"]) == {"rSplit"}
+        assert fetch_report_ids_by_search_term(self.team, ["toronto", "registration"]) == {
+            "toronto": {"rSplit"},
+            "registration": {"rSplit", "rOther"},
+        }
         # A term may land on either leg of the same report: prose in one signal, the emitter's own
         # record id in another.
-        assert fetch_report_ids_for_search_terms(self.team, ["registration", "order1234"]) == {"rSplit"}
-        # Every term still has to appear somewhere in the report. Returning a report that holds
-        # only one of them would hide the duplicate the caller is looking for.
-        assert fetch_report_ids_for_search_terms(self.team, ["toronto", "checkout"]) == set()
+        assert fetch_report_ids_by_search_term(self.team, ["registration", "order1234"]) == {
+            "registration": {"rSplit", "rOther"},
+            "order1234": {"rSplit"},
+        }
+        # A term no signal holds reports an empty set rather than dropping out of the map. The
+        # caller ANDs the terms, so a silently absent term would widen the search instead of
+        # narrowing it.
+        assert fetch_report_ids_by_search_term(self.team, ["toronto", "checkout"]) == {
+            "toronto": {"rSplit"},
+            "checkout": set(),
+        }
 
     def test_only_the_latest_wording_of_a_signal_decides_the_match(self) -> None:
         # The dedup is bounded to documents that ever held a term, so a stale version is what
@@ -435,8 +445,8 @@ class TestFetchReportIdsForSearchTerms(_SignalEmbeddingsTestBase):
             content="Checkout errors in Montreal",
         )
 
-        assert fetch_report_ids_for_search_terms(self.team, ["montreal"]) == {"rReworded"}
-        assert fetch_report_ids_for_search_terms(self.team, ["toronto"]) == set()
+        assert fetch_report_ids_by_search_term(self.team, ["montreal"]) == {"montreal": {"rReworded"}}
+        assert fetch_report_ids_by_search_term(self.team, ["toronto"]) == {"toronto": set()}
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

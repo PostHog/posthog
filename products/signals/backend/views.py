@@ -204,9 +204,9 @@ from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Wo
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
+    fetch_report_ids_by_search_term,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
-    fetch_report_ids_for_search_terms,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -1239,20 +1239,20 @@ class SignalReportViewSet(
         if not terms:
             # Nothing but punctuation. Match the caller's string whole rather than every report, and
             # skip the evidence leg, whose ClickHouse pattern would read the punctuation as wildcards.
-            return queryset.filter(report_search_predicate([search], set()))
-        return queryset.filter(report_search_predicate(terms, self._search_evidence_report_ids(terms)))
+            return queryset.filter(report_search_predicate([search], {}))
+        return queryset.filter(report_search_predicate(terms, self._evidence_report_ids_by_term(terms)))
 
-    def _search_evidence_report_ids(self, terms: list[str]) -> set[str]:
-        """Reports whose ClickHouse evidence matches, or none when that lookup is unavailable.
+    def _evidence_report_ids_by_term(self, terms: list[str]) -> dict[str, set[str]]:
+        """Reports whose ClickHouse evidence holds each term, or none when the lookup is unavailable.
 
         A ClickHouse fault degrades the search to the report's own content instead of failing the
         list, because a search box that answers nothing is worse than one that answers less.
         """
         try:
-            return fetch_report_ids_for_search_terms(self.team, terms)
+            return fetch_report_ids_by_search_term(self.team, terms)
         except Exception:
             logger.exception("signals.reports.list.search_evidence_failed", team_id=self.team.pk)
-            return set()
+            return {}
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
