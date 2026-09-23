@@ -196,8 +196,14 @@ describe('DashboardHeader', () => {
 
         if (active) {
             expect(shareButton).toHaveClass('LemonButton--active')
+            expect(shareButton).toHaveTextContent('OnSharing')
+            expect(shareButton?.querySelector('.LemonBadge--primary')).toBeVisible()
+            expect(shareButton?.querySelector('.LemonButton__icon svg')).not.toBeInTheDocument()
         } else {
             expect(shareButton).not.toHaveClass('LemonButton--active')
+            expect(shareButton).toHaveTextContent('Share')
+            expect(shareButton?.querySelector('.LemonBadge')).not.toBeInTheDocument()
+            expect(shareButton?.querySelector('.LemonButton__icon svg')).toBeInTheDocument()
         }
 
         logic.unmount()

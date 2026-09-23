@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -310,11 +311,11 @@ export function ViewModeActions(): JSX.Element {
                     data-attr="dashboard-share-button"
                     onClick={() => push(urls.dashboardSharing(dashboard.id))}
                     size="small"
-                    icon={<IconShare fontSize="16" />}
+                    icon={dashboard.is_shared ? <LemonBadge content="On" size="small" /> : <IconShare fontSize="16" />}
                     active={dashboard.is_shared}
                     disabledReason={sharingDisabledReason ?? undefined}
                 >
-                    Share
+                    {dashboard.is_shared ? 'Sharing' : 'Share'}
                 </LemonButton>
             )}
             {canEditDashboard && tiles.length > 0 && <DashboardCustomizeButton />}
