@@ -65,6 +65,17 @@ A prerelease does not move the formula, because Homebrew has no notion of one.
 Users install with `brew install posthog/tap/posthog-cli`.
 A Homebrew install is managed by Homebrew, so `brew upgrade` is how it updates.
 
+### Where installers download from
+
+`simple-download-url` in `dist-workspace.toml` points the generated installers at the bucket.
+cargo-dist gives every installer both origins, the bucket first and GitHub Releases second, so a missing object falls back rather than failing.
+The Homebrew formula spells this as `url` plus `mirror`, which is Homebrew's own fallback mechanism.
+
+The npm package is the exception.
+Its installer reads `artifactDownloadUrls[0]` and ignores the rest, which cargo-dist marks with a `FIXME` in the generated `binary.js`, so `npm i -g @posthog/cli` resolves from the bucket alone.
+A release that fails to upload therefore breaks npm installs for that version, while shell, PowerShell and Homebrew installs keep working from GitHub.
+The upload step shipped one release ahead of this setting for that reason.
+
 If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.
