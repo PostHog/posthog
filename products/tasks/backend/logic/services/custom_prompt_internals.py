@@ -270,6 +270,7 @@ async def _create_task_and_trigger(
     mcp_gateway_server_ids: list[str] | None = None,
     origin_key: str | None = None,
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -317,6 +318,7 @@ async def _create_task_and_trigger(
         extra_run_state=extra_run_state,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
+        output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

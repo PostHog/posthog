@@ -9,6 +9,7 @@ export const trialFixtureConfig: SignalScoutConfigApi = {
     skill_name: 'signals-scout-checkout-quality',
     display_name: 'Checkout quality',
     description: 'Find recurring checkout issues in product feedback.',
+    deprecation: null,
     scout_origin: 'custom',
     scout_role: 'specialist',
     owners: [],

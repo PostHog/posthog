@@ -59,6 +59,7 @@ from products.tasks.backend.logic.services.network_policy import (
     NetworkPolicyValidationError,
     compile_network_policy,
 )
+from products.tasks.backend.logic.services.sandbox import SandboxTemplate
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -287,6 +288,7 @@ class TaskProcessingContext:
         return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
         )
 
     def max_run_duration(self) -> timedelta | None:
@@ -661,6 +663,22 @@ class VmSandboxDecision:
     default_custom_image: str | None = None
 
 
+def _require_template_compatible_with_custom_image(state: dict, custom_image_name: str | None, *, run_id: str) -> None:
+    """A custom image is VM-only and a custom template is gVisor-only, so the two cannot compose.
+
+    Failing here keeps the run from booting the template without the tooling the environment's
+    image promised, which is what silently dropping the image would do.
+    """
+    requested_template = state.get("sandbox_template")
+    if custom_image_name is None or requested_template in (None, SandboxTemplate.DEFAULT_BASE.value):
+        return
+    raise TaskInvalidStateError(
+        f"Sandbox template {requested_template!r} cannot be combined with custom image {custom_image_name!r}",
+        {"run_id": run_id, "sandbox_template": requested_template, "custom_image_name": custom_image_name},
+        cause=ValueError("custom sandbox template with a custom image"),
+    )
+
+
 def _resolve_modal_vm_sandbox(
     *,
     distinct_id: str,
@@ -677,6 +695,17 @@ def _resolve_modal_vm_sandbox(
         # or rollout flags until that independent policy flag is enabled.
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return VmSandboxDecision(use_vm_sandbox=False)
+
+    requested_template = (state or {}).get("sandbox_template")
+    if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
+        # The VM image carries none of a custom template's tooling, so a rollout that names
+        # the run's origin must not move it off the template it asked for.
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_custom_template",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
@@ -932,12 +961,13 @@ def _resolve_sandbox_backend(
 ) -> str:
     """Pick the sandbox provider for this run.
 
-    Hogland only takes plain golden-template ACP runs. A user/environment custom image
-    or the Pi runtime are hard incapabilities — hogland runs only its own golden, so
-    those force Modal even with the flag on. The Modal VM-sandbox / network-allowlist
-    flags and the org *default* image are runtime preferences, not incapabilities: a
-    run the hogland flag (or override) selects wins hogland over them, and the caller
-    forces them off so the run provisions on hogland's golden. Egress stays enforced
+    Hogland only takes plain golden-template ACP runs. A user/environment custom image,
+    the Pi runtime or a non-default sandbox template are hard incapabilities — hogland
+    runs only its own golden, so those force Modal even with the flag on. The Modal
+    VM-sandbox / network-allowlist flags and the org *default* image are runtime
+    preferences, not incapabilities: a run the hogland flag (or override) selects wins
+    hogland over them, and the caller forces them off so the run provisions on hogland's
+    golden. Egress stays enforced
     in-box by agentsh via the run's allowed_domains. Fails closed to Modal.
     """
     raw_override = (state or {}).get("sandbox_backend")
@@ -958,11 +988,15 @@ def _resolve_sandbox_backend(
     # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
     if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
         return "modal"
-    # Hard hogland incapabilities: a user/environment custom image or the Pi runtime
-    # cannot run on hogland's golden, so keep those on Modal even when the flag is on.
-    # The org default image (default_custom_image) is NOT gated here — hogland serves
-    # its golden equivalent — nor are the Modal VM-sandbox / network-allowlist flags; a
-    # flagged run wins hogland over all of them (the caller forces them off).
+    # Hard hogland incapabilities: a user/environment custom image, the Pi runtime or a
+    # non-default sandbox template cannot run on hogland's golden, so keep those on Modal
+    # even when the flag is on. The org default image (default_custom_image) is NOT gated
+    # here — hogland serves its golden equivalent — nor are the Modal VM-sandbox /
+    # network-allowlist flags; a flagged run wins hogland over all of them (the caller
+    # forces them off).
+    requested_template = (state or {}).get("sandbox_template")
+    if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
+        return "modal"
     if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
@@ -1362,6 +1396,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                     cause=error,
                 ) from error
 
+    _require_template_compatible_with_custom_image(state, environment_custom_image_name, run_id=run_id)
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
         distinct_id=distinct_id,
         organization_id=organization_id,

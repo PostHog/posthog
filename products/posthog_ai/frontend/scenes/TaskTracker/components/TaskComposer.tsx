@@ -12,7 +12,6 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
-import { composerOverrideLogic } from 'products/posthog_ai/frontend/logics/composerOverrideLogic'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -39,6 +38,7 @@ export function TaskComposer(): JSX.Element {
         isSubmittingTask,
         activeSuggestionGroup,
         displayHeadline,
+        effectiveComposerOverride: composerOverride,
         consentBlocked,
         displayModel,
         defaultModel,
@@ -50,7 +50,6 @@ export function TaskComposer(): JSX.Element {
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
-    const { composerOverride } = useValues(composerOverrideLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -73,7 +72,7 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline}>
+                <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
                     {/* Temporary migration affordance — delete with the rest of the onboarding takeover
                         once everyone is on the new PostHog AI. */}
                     {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
@@ -112,7 +111,9 @@ export function TaskComposer(): JSX.Element {
                                     <AttachedContextBar />
                                 </Composer.Header>
                                 <Composer.Field>
-                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
+                                    <Composer.Placeholder>
+                                        {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+                                    </Composer.Placeholder>
                                     <Composer.Textarea autoFocus data-attr="task-composer-input" />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">

@@ -262,6 +262,7 @@ rules:
                               |Loop
                               |LoopFire
                               |NotebookWidgetInstance
+                              |NotebookWidgetSnapshot
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -351,6 +352,7 @@ rules:
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -683,6 +685,7 @@ rules:
                         |LoopFire
                         |LoopTrigger
                         |NotebookWidgetInstance
+                        |NotebookWidgetSnapshot
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptDependency
@@ -769,6 +772,7 @@ rules:
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -1266,6 +1270,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
@@ -1340,6 +1345,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed
