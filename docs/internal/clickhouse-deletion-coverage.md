@@ -113,6 +113,26 @@ That decision predates this document; the older `posthog/models/async_deletion/d
 
 ## Known gaps
 
+### The survivor count is a report, not a gate
+
+`mark_deletions_verified` marks requests verified whatever the post-sweep count says, and logs an
+error when the count finds survivors or could not be taken at all. Nothing about the count stops a
+run.
+
+No branch of the delete predicate can use an index, because each one keys a dictionary on `team_id`
+and a dictionary lookup is opaque to the primary key. Counting survivors on `events` therefore reads
+the whole table, which exhausts every attempt against the cluster's read-bytes limit rather than its
+time budget, so no larger budget changes the outcome.
+
+Blocking on that stopped every request in the run rather than the ones at risk, and the requests it
+stranded grew the dictionaries the next count had to read, so each week's stall was worse than the
+last. The check is worth blocking on again once it is affordable; narrowing the count to the teams
+named in the dictionaries is the reduction that makes it so.
+
+So a run can mark requests verified without proving the rows are gone. What stops a sweep silently
+removing nothing is upstream of the count: `MutationRunner.reuse_since` keeps a run from adopting a
+mutation an earlier run enqueued, which is the failure the count was added to notice.
+
 ### `deletes_job` skips `sharded_events_json` by default
 
 `SweepTargetsConfig.skip_targets` defaults to `["sharded_events_json"]`, so the weekly sweep leaves
