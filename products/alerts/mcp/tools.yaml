@@ -143,7 +143,8 @@ tools:
         operation: alerts_simulate_create
         enabled: true
         scopes:
-            - alert:write
+            - alert:read
+            - insight:read
         annotations:
             readOnly: false
             destructive: false
@@ -156,13 +157,13 @@ tools:
             (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
             detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca,
             ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and
-            any llm-only field you sent with it is dropped without an error. The llm type makes a real model call per
-            simulation, which is why this tool needs the alert:write scope; it is rate limited per project, and takes
-            the same instructions, threshold (default 0.7), and window (default 90) as an llm alert; its scores are the
-            model's confidence, not a statistical probability. Optionally specify date_from (e.g. '-48h', '-30d') to
-            control how far back to simulate, and series_index to pick which series to analyze. Returns data values,
-            anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score
-            breakdowns.
+            any llm-only field you sent with it is dropped without an error. A statistical detector only reads, so
+            alert:read and insight:read are enough for it. The llm type makes a real model call per simulation, so that
+            type also needs the alert:write scope; it is rate limited per project, and takes the same instructions,
+            threshold (default 0.7), and window (default 90) as an llm alert; its scores are the model's confidence, not
+            a statistical probability. Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to
+            simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point,
+            triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
     alert-update:
         operation: alerts_partial_update
         enabled: true

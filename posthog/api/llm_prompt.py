@@ -3,7 +3,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
@@ -726,6 +726,16 @@ class LLMPromptViewSet(
         except LLMPromptLabelConflictError:
             return Response(
                 {"detail": "This label was changed by someone else at the same time. Try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except OperationalError as err:
+            # Reference validation locks the referenced prompts' rows, so two
+            # moves over mutually referencing labels can deadlock; Postgres
+            # aborts one. A retry serializes behind the survivor.
+            if "deadlock detected" not in str(err):
+                raise
+            return Response(
+                {"detail": "Another label or reference change touched the same prompts at the same time. Try again."},
                 status=status.HTTP_409_CONFLICT,
             )
         except LLMPromptLabelLimitError as err:
