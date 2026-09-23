@@ -3307,11 +3307,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         organization_id = self.team.organization_id
         target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=organization_id)
+        # for_team_ids loads the teams again, so a team deleted between the two queries is missing from its result
+        target_access_controls = self.user_access_control.for_team_ids(team.id for team in target_teams)
 
-        if len(target_teams) != len(target_team_ids):
+        if len(target_teams) != len(target_team_ids) or len(target_access_controls) != len(target_teams):
             raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
 
-        target_access_controls = self.user_access_control.for_team_ids(team.id for team in target_teams)
         for target_team in target_teams:
             self._check_duplicate_target_access(request, target_team, target_access_controls[target_team.id])
 
