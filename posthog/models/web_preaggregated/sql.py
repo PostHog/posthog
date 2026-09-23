@@ -6,6 +6,7 @@ from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL
 
 
 def is_eu_cluster() -> bool:
@@ -368,15 +369,21 @@ def format_team_ids(team_ids: list[int]) -> str:
     return ", ".join(str(team_id) for team_id in team_ids)
 
 
-def get_team_filters(team_ids: list[int]) -> dict[str, str]:
-    if not team_ids:
-        raise ValueError("team_ids must not be empty")
+def get_team_filters(team_ids: list[int] | None) -> dict[str, str]:
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        return {
+            "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})",
+            "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
+            "events": f"e.team_id IN({team_ids_str})",
+        }
 
-    team_ids_str = format_team_ids(team_ids)
+    # GLOBAL IN reads the team selection once on the initiator, so data hosts do not need the selection table
+    selected_teams = f"GLOBAL IN ({WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL().strip()})"
     return {
-        "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})",
-        "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
-        "events": f"e.team_id IN({team_ids_str})",
+        "raw_sessions": f"raw_sessions.team_id {selected_teams}",
+        "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id {selected_teams}",
+        "events": f"e.team_id {selected_teams}",
     }
 
 
@@ -433,7 +440,7 @@ def get_all_filters(
     date_start: str,
     date_end: str,
     timezone: str,
-    team_ids: list[int],
+    team_ids: list[int] | None = None,
     granularity: str = "daily",
     settings: str = "",
 ) -> dict[str, str]:
@@ -466,7 +473,7 @@ def get_all_filters(
 def WEB_STATS_INSERT_SQL(
     date_start: str,
     date_end: str,
-    team_ids: list[int],
+    team_ids: list[int] | None = None,
     timezone: str = "UTC",
     settings: str = "",
     table_name: str = "web_stats_daily",
@@ -655,7 +662,7 @@ def WEB_STATS_INSERT_SQL(
 def WEB_BOUNCES_INSERT_SQL(
     date_start: str,
     date_end: str,
-    team_ids: list[int],
+    team_ids: list[int] | None = None,
     timezone: str = "UTC",
     settings: str = "",
     table_name: str = "web_bounces_daily",
