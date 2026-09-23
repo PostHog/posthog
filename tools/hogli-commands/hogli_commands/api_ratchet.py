@@ -70,10 +70,12 @@ SEMGREP_END: Final = "    # --- end generated ---"
 
 # One rule per product. The message names the product because the rule is scoped to it,
 # and the rule id carries the product so a `nosemgrep` line stays as narrow as the rule.
+# Each rule also covers core frontend code, so a scene that moves from frontend/src into
+# its product keeps the same rule id and the baseline diff does not count it as new.
 SEMGREP_RULE_TEMPLATE: Final = """\
     - id: prefer-codegen-api-namespaced-{product}
       message: >-
-          Manual `api.<namespace>.<method>(...)` call in products/{product}. The namespace
+          Manual `api.<namespace>.<method>(...)` call on a {product} namespace. The namespace
           builds its URL in `frontend/src/lib/api.ts`, and this product's generated client
           already covers that URL. Use `products/{product}/frontend/generated/api.ts`.
 
@@ -94,7 +96,9 @@ SEMGREP_RULE_TEMPLATE: Final = """\
       paths:
           include:
               - '/products/{product}/frontend/'
+              - '/frontend/src/'
           exclude:
+              - '/frontend/src/lib/api.ts'
               - '**/generated/**'
               - '**/*.test.ts'
               - '**/*.test.tsx'

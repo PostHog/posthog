@@ -478,7 +478,8 @@ class TestSemgrepRules:
             "prefer-codegen-api-namespaced-workflows",
         ]
         signals = by_id["prefer-codegen-api-namespaced-signals"]
-        assert signals["paths"]["include"] == ["/products/signals/frontend/"]
+        assert signals["paths"]["include"] == ["/products/signals/frontend/", "/frontend/src/"]
+        assert "/frontend/src/lib/api.ts" in signals["paths"]["exclude"]
         assert signals["severity"] == "WARNING"
         # Both nesting depths, so api.signalScout.runs.list() cannot slip through.
         assert signals["pattern-either"] == [
