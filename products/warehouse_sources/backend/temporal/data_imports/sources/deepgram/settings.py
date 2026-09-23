@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class DeepgramEndpointConfig:
     name: str
     # Path suffix appended to /v1/projects/{project_id} for the per-project fan-out endpoints.
