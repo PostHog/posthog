@@ -136,10 +136,6 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
     if not references:
         return
 
-    # Resolution splices content at every occurrence, so the assembled-size
-    # check has to weigh a repeated tag once per occurrence.
-    occurrence_counts = Counter(all_references)
-
     if len(references) > MAX_PROMPT_REFERENCES:
         raise _reference_error(
             f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
@@ -154,6 +150,27 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
             "A referenced prompt cannot contain references of its own.",
             "referenced_prompt_cannot_reference",
         )
+
+    validate_reference_targets(team_id, prompt_name=prompt_name, prompt_payload=prompt_payload)
+
+
+def validate_reference_targets(team_id: int, *, prompt_name: str, prompt_payload: Any) -> None:
+    """Reject content whose reference targets cannot resolve right now.
+
+    The resolvability half of validate_prompt_references, without the
+    incoming-reference depth check: pointing a label at a version whose
+    content holds references is legal while nothing references that label,
+    but the targets must still exist. Runs inside the caller's transaction
+    for the same lock-ordering reasons.
+    """
+    text = normalize_prompt_to_string(prompt_payload)
+    all_references = parse_prompt_references(text)
+    references = sorted(set(all_references), key=lambda r: (r.name, r.version or 0, r.label or ""))
+    if not references:
+        return
+    # Resolution splices content at every occurrence, so the assembled-size
+    # check has to weigh a repeated tag once per occurrence.
+    occurrence_counts = Counter(all_references)
 
     # True assembled size: the tags are replaced by content at resolution,
     # so their bytes leave the total.
