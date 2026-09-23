@@ -248,6 +248,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                             onClick={() => loadFeatureFlag()}
                             disabledReason={
                                 editingDisabledReason ??
+                                (isSaveInProgress ? 'Saving…' : undefined) ??
                                 (!hasUnsavedChanges ? 'There are no unsaved changes.' : undefined)
                             }
                         >
