@@ -1,26 +1,21 @@
 import './CodeSnippet.scss'
 
 import clsx from 'clsx'
-import { toHtml } from 'hast-util-to-html'
-import dart from 'highlight.js/lib/languages/dart'
-import elixir from 'highlight.js/lib/languages/elixir'
-import groovy from 'highlight.js/lib/languages/groovy'
-import http from 'highlight.js/lib/languages/http'
 import { useValues } from 'kea'
-import { common, createLowlight } from 'lowlight'
-import React, { useMemo, useState } from 'react'
+import React, { Suspense, useState } from 'react'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import terraform from './terraformLanguage'
-
-// `common` already registers most of our languages (including rust, c, and cpp) — only add the missing ones.
-const lowlight = createLowlight(common)
-lowlight.register({ dart, elixir, groovy, http, terraform })
+// highlight.js grammars are large, and markdown renders code snippets on pages that every
+// logged-in user loads. Show the plain text first and add the highlighting when it arrives.
+const HighlightedCodeLine = lazyWithRetry(() =>
+    import('./HighlightedCodeLine').then((m) => ({ default: m.HighlightedCodeLine }))
+)
 
 export enum Language {
     Text = 'text',
@@ -221,20 +216,15 @@ export function CodeLine({
     language: Language
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-
-    const highlighted = useMemo(
-        () => (lowlight.registered(language) ? lowlight.highlight(language, text) : lowlight.highlightAuto(text)),
-        [language, text]
-    )
-    const style = wrapLines ? ({ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const) : {}
+    const wrapClassName = wrapLines ? 'whitespace-pre-wrap wrap-anywhere' : undefined
 
     return (
         <pre className="m-0">
-            <code
-                className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
-                style={style}
-                dangerouslySetInnerHTML={{ __html: toHtml(highlighted) }}
-            />
+            <Suspense
+                fallback={<code className={clsx('hljs', isDarkModeOn && 'hljs-dark', wrapClassName)}>{text}</code>}
+            >
+                <HighlightedCodeLine text={text} language={language} className={wrapClassName} />
+            </Suspense>
         </pre>
     )
 }
