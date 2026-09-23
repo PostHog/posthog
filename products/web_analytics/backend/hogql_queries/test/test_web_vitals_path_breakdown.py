@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown_common import DEFAULT_MINIMUM_OCCURRENCES
 
 
 @snapshot_clickhouse_queries
@@ -49,6 +50,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric: WebVitalsMetric = WebVitalsMetric.INP,
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
+        minimum_occurrences: int | None = 1,
     ):
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = WebVitalsPathBreakdownQuery(
@@ -57,6 +59,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 percentile=percentile,
                 thresholds=thresholds,
                 properties=properties or [],
+                minimumOccurrences=minimum_occurrences,
             )
 
             runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
@@ -153,16 +156,16 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 WebVitalsPathBreakdownResult(
                     good=[
-                        WebVitalsPathBreakdownResultItem(path="/path1", value=50),
-                        WebVitalsPathBreakdownResultItem(path="/path2", value=100),
+                        WebVitalsPathBreakdownResultItem(path="/path1", value=50, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path2", value=100, count=1),
                     ],
                     needs_improvements=[
-                        WebVitalsPathBreakdownResultItem(path="/path3", value=150),
-                        WebVitalsPathBreakdownResultItem(path="/path4", value=200),
+                        WebVitalsPathBreakdownResultItem(path="/path3", value=150, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path4", value=200, count=1),
                     ],
                     poor=[
-                        WebVitalsPathBreakdownResultItem(path="/path5", value=250),
-                        WebVitalsPathBreakdownResultItem(path="/path6", value=300),
+                        WebVitalsPathBreakdownResultItem(path="/path6", value=300, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path5", value=250, count=1),
                     ],
                 )
             ],
@@ -245,7 +248,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     WebVitalsPathBreakdownResult(
                         good=[],
                         needs_improvements=[],
-                        poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value)],
+                        poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value, count=6)],
                     )
                 ],
                 results,
@@ -275,7 +278,9 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 WebVitalsPathBreakdownResult(
-                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
+                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50, count=1)],
+                    needs_improvements=[],
+                    poor=[],
                 )
             ],
             results,
@@ -308,6 +313,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 percentile=PropertyMathType.P75,
                 thresholds=(100, 200),
                 properties=[],
+                minimumOccurrences=1,
                 doPathCleaning=True,
             )
 
@@ -317,10 +323,67 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 WebVitalsPathBreakdownResult(
-                    good=[WebVitalsPathBreakdownResultItem(path="/cleaned/<id>", value=50)],
-                    needs_improvements=[WebVitalsPathBreakdownResultItem(path="/not-cleaned", value=150)],
+                    good=[WebVitalsPathBreakdownResultItem(path="/cleaned/<id>", value=50, count=2)],
+                    needs_improvements=[WebVitalsPathBreakdownResultItem(path="/not-cleaned", value=150, count=1)],
                     poor=[],
                 )
             ],
             results,
         )
+
+    def test_paths_below_the_minimum_occurrences_are_dropped(self):
+        self._create_events(
+            [
+                ("distinct_id_1", [("2025-01-10", "/busy", 250)] * 3),
+                ("distinct_id_1", [("2025-01-10", "/quiet", 400)]),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        results = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08",
+            "2025-01-15",
+            (100, 200),
+            minimum_occurrences=3,
+        ).results
+
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[],
+                    needs_improvements=[],
+                    poor=[WebVitalsPathBreakdownResultItem(path="/busy", value=250, count=3)],
+                )
+            ],
+            results,
+        )
+
+    def test_poor_band_keeps_the_slowest_paths(self):
+        self._create_events(
+            [("distinct_id_1", [("2025-01-10", f"/path/{idx}", 300 + idx)]) for idx in range(25)],
+            WebVitalsMetric.INP,
+        )
+
+        poor = self._run_web_vitals_path_breakdown_query("2025-01-08", "2025-01-15", (100, 200)).results[0].poor
+
+        self.assertEqual(20, len(poor))
+        self.assertEqual("/path/24", poor[0].path)
+        self.assertEqual([324 - idx for idx in range(20)], [item.value for item in poor])
+
+    def test_minimum_occurrences_defaults_when_unset(self):
+        self._create_events(
+            [
+                ("distinct_id_1", [("2025-01-10", "/busy", 250)] * DEFAULT_MINIMUM_OCCURRENCES),
+                ("distinct_id_1", [("2025-01-10", "/quiet", 250)] * (DEFAULT_MINIMUM_OCCURRENCES - 1)),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        results = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08",
+            "2025-01-15",
+            (100, 200),
+            minimum_occurrences=None,
+        ).results
+
+        self.assertEqual(["/busy"], [item.path for item in results[0].poor])

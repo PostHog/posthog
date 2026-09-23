@@ -47,7 +47,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
+import {
+    WEB_VITALS_COLORS,
+    WEB_VITALS_MINIMUM_OCCURRENCES,
+    WEB_VITALS_THRESHOLDS,
+} from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
 import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
@@ -2032,6 +2036,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                                         WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                         WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
                                     ],
+                                    minimumOccurrences: WEB_VITALS_MINIMUM_OCCURRENCES,
                                     useWebAnalyticsPrecompute,
                                 },
                                 insightProps: {

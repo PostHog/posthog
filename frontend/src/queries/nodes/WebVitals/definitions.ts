@@ -169,3 +169,7 @@ export const WEB_VITALS_COLORS = {
     needs_improvements: 'var(--color-amber-500)',
     poor: 'var(--color-red-700)',
 } as const
+
+// Kept in step with DEFAULT_MINIMUM_OCCURRENCES in web_vitals_path_breakdown_common.py.
+// Sent with the query so the tile can name the threshold in its empty state.
+export const WEB_VITALS_MINIMUM_OCCURRENCES = 10

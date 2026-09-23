@@ -57308,6 +57308,10 @@
                 "metric": {
                     "$ref": "#/definitions/WebVitalsMetric"
                 },
+                "minimumOccurrences": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Drop paths with fewer measurements than this, so a page measured once does not rank next to a page that is consistently slow. Defaults to 10. *"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -57460,7 +57464,11 @@
         },
         "WebVitalsPathBreakdownResultItem": {
             "additionalProperties": false,
+            "description": "`count` is the number of measurements the percentile was computed from. Optional because responses cached before it existed have no value for it.",
             "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
                 "path": {
                     "type": "string"
                 },

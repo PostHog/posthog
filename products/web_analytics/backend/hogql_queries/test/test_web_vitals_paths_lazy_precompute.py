@@ -100,9 +100,12 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         sampling: WebAnalyticsSampling | None = None,
         opt_in_precompute: bool = True,
         thresholds: list[float] | None = None,
+        minimum_occurrences: int = 1,
     ) -> WebVitalsPathBreakdownQuery:
         # Default thresholds picked so the LCP seed splits paths into 3 bands:
-        # 1000 → good, 3000 → needs_improvements, 5000 → poor.
+        # 1000 → good, 3000 → needs_improvements, 5000 → poor. The seed gives each
+        # path one measurement, so the occurrence floor is lowered to 1 unless a
+        # test is exercising it.
         return WebVitalsPathBreakdownQuery(
             metric=metric,
             percentile=percentile,
@@ -111,6 +114,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             conversionGoal=conversion_goal,
             sampling=sampling,
             thresholds=thresholds if thresholds is not None else [2500.0, 4000.0],
+            minimumOccurrences=minimum_occurrences,
             useWebAnalyticsPrecompute=opt_in_precompute,
         )
 
@@ -130,13 +134,13 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         return sorted(item.path for item in items)
 
     @staticmethod
-    def _paths_with_values(response) -> dict[str, tuple[str, float]]:
-        """Flatten the band-partitioned response into `path → (band, value)`."""
-        out: dict[str, tuple[str, float]] = {}
+    def _paths_with_values(response) -> dict[str, tuple[str, float, int | None]]:
+        """Flatten the band-partitioned response into `path → (band, value, count)`."""
+        out: dict[str, tuple[str, float, int | None]] = {}
         for band in WebVitalsMetricBand:
             items = getattr(response.results[0], band.value)
             for item in items:
-                out[item.path] = (band.value, item.value)
+                out[item.path] = (band.value, item.value, item.count)
         return out
 
     def _job_count(self) -> int:
@@ -166,9 +170,10 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy.keys() == raw.keys(), f"path set mismatch for {metric}/{percentile}: raw={raw}, lazy={lazy}"
         for path in raw:
-            raw_band, raw_value = raw[path]
-            lazy_band, lazy_value = lazy[path]
+            raw_band, raw_value, raw_count = raw[path]
+            lazy_band, lazy_value, lazy_count = lazy[path]
             assert raw_band == lazy_band, f"band mismatch for {path} {metric}/{percentile}: raw={raw}, lazy={lazy}"
+            assert raw_count == lazy_count, f"count mismatch for {path} {metric}/{percentile}: raw={raw}, lazy={lazy}"
             assert abs(raw_value - lazy_value) < 1e-6, (
                 f"value mismatch for {path} {metric}/{percentile}: raw={raw_value}, lazy={lazy_value}"
             )
@@ -338,3 +343,57 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert delay.call_count == 1
         assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_lazy_applies_minimum_occurrences_like_raw(self):
+        # Counts live per day bucket and are summed at read time, so a path that
+        # only clears the floor across several days must survive.
+        _create_person(team_id=self.team.pk, distinct_ids=["u2"], properties={})
+        for day, path, repeats in [("02", "/busy", 2), ("03", "/busy", 2), ("04", "/quiet", 1)]:
+            for minute in range(repeats):
+                _create_event(
+                    team=self.team,
+                    event="$web_vitals",
+                    distinct_id="u2",
+                    timestamp=f"2024-01-{day}T10:{minute:02d}:00Z",
+                    properties={
+                        "$pathname": path,
+                        "$host": "example.com",
+                        "$session_id": str(uuid7(f"2024-01-{day}")),
+                        "$web_vitals_LCP_value": 6000,
+                    },
+                )
+
+        query = self._build_query(minimum_occurrences=4)
+        raw = self._paths_with_values(
+            WebVitalsPathBreakdownQueryRunner(
+                team=self.team, query=self._build_query(minimum_occurrences=4, opt_in_precompute=False)
+            ).calculate()
+        )
+        with self._enable_lazy():
+            lazy = self._paths_with_values(self._run(query))
+
+        assert raw == {"/busy": ("poor", 6000.0, 4)}
+        assert raw == lazy, f"lazy/raw mismatch under the occurrence floor: raw={raw}, lazy={lazy}"
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_lazy_poor_band_keeps_the_slowest_paths(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["bulk_user"], properties={})
+        for i in range(25):
+            _create_event(
+                team=self.team,
+                event="$web_vitals",
+                distinct_id="bulk_user",
+                timestamp=f"2024-01-02T10:{i:02d}:00Z",
+                properties={
+                    "$pathname": f"/bulk_{i}",
+                    "$host": "example.com",
+                    "$session_id": str(uuid7("2024-01-02")),
+                    "$web_vitals_LCP_value": 6000 + i,
+                },
+            )
+
+        with self._enable_lazy():
+            response = self._run(self._build_query(metric=WebVitalsMetric.LCP))
+
+        assert [item.value for item in response.results[0].poor] == [float(6024 - i) for i in range(20)]
