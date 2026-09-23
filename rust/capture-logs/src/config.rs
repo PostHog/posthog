@@ -34,8 +34,6 @@ pub struct Config {
     #[envconfig(from = "FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES", default = "8388608")] // 8 MiB
     pub firehose_max_request_body_size_bytes: usize,
 
-    /// How far back a request may ask to keep its own timestamps, through the `backfill_days`
-    /// query parameter. Zero turns historical imports off.
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
 }
