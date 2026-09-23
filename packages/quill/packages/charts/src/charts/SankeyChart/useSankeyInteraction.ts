@@ -95,6 +95,12 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     // The last hit reported to the host, so a cursor sweep inside one ribbon reports it once.
     const reportedHitRef = useRef<string | null>(null)
 
+    // A new layout rebuilds nodes/links with fresh objects, so a stale key can coincidentally
+    // match the next real hit and suppress the hover callback the consumer needs to update.
+    useEffect(() => {
+        reportedHitRef.current = null
+    }, [layout])
+
     const reportHover = useCallback(
         (hit: SankeyHit | null) => {
             const key = hitKey(hit)
