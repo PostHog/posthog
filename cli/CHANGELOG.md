@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.18.5 — 2026-09-23
+
+### Patch changes
+
+- [d9d6409aa72](https://github.com/PostHog/posthog/commit/d9d6409aa72c8a4ee0d446d6009d6d753efc9de1) Install with Homebrew: `brew install posthog/tap/posthog-cli`. Installers now download from releases.posthog.com, falling back to GitHub Releases. — Thanks @hpouillot!
+
 ## 0.18.4 — 2026-09-23
 
 ### Patch changes

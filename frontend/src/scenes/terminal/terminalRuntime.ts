@@ -54,10 +54,19 @@ export class TerminalRuntime {
     private disposed = false
     private columns = 80
     private rows = 24
+    private promptTail = ''
+    private atPrompt = false
+    private hasPrompt = false
+    private pendingDirectory?: string
 
     constructor(private onOutput: (bytes: Uint8Array) => void) {}
 
-    async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
+    async start(
+        server: NinePServer,
+        signal: AbortSignal,
+        onReady: () => void,
+        folder = '/posthog/files'
+    ): Promise<void> {
         const { V86 } = await import('v86')
         if (signal.aborted || this.disposed) {
             return
@@ -127,6 +136,17 @@ export class TerminalRuntime {
             if (this.disposed) {
                 return
             }
+            this.atPrompt = false
+            this.promptTail = (this.promptTail + String.fromCharCode(byte)).slice(-8)
+            if (this.promptTail.endsWith('\x1b]133;B\x07')) {
+                this.hasPrompt = true
+                this.atPrompt = true
+                if (this.pendingDirectory) {
+                    const folder = this.pendingDirectory
+                    this.pendingDirectory = undefined
+                    this.changeDirectory(folder)
+                }
+            }
             this.outputBuffer[this.outputLength++] = byte
             if (this.outputLength === this.outputBuffer.length) {
                 this.flushOutput()
@@ -158,6 +178,10 @@ export class TerminalRuntime {
                         'ln -sf /opt/posthog-tools/lib/ld-musl-i386.so.1 /lib/ld-musl-i386.so.1',
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
+                        'cp /posthog/bin/run /usr/bin/run && chmod +x /usr/bin/run || exit',
+                        '[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd',
+                        'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
+                        'export PATH=/usr/local/bin:$PATH',
                         'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
                         ...Object.values(packageManifest.packages).flatMap((pkg) =>
                             Object.keys(pkg.commands).map(
@@ -169,12 +193,13 @@ export class TerminalRuntime {
                         // Detach the control helper so the shell's wait command only waits for user jobs.
                         '(while read -r command first second; do case "$command" in resize) stty -F /dev/ttyS0 rows "$first" cols "$second";; clock) date -s "@$first" > /dev/null; printf "%s\\n" "$second" > /etc/TZ;; esac; done < /dev/ttyS1 &)',
                         "alias ls='ls --color=auto'",
-                        "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
-                        'cd /posthog/files',
+                        "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ \\[\\e]133;B\\a\\]'",
+                        `cd -- '${folder.replaceAll("'", "'\\''")}' || cd /posthog/files`,
                         'clear',
                         "printf 'PostHog terminal\\n\\nTry:\\n  mc\\n  tree -C -L 3\\n  nano Unfiled/Notebooks/Foobar.md\\n  vi Unfiled/Notebooks/Foobar.md\\n  ncdu -r /posthog/files\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path. In nano, Ctrl+S saves and Ctrl+X exits.\\nIn vi, save with :wq; quit with :q!. Selecting text copies it.\\nFolder creation and moves update PostHog.\\n\\n'",
                         'stty echo',
                         "printf '\\036' > /dev/ttyS1",
+                        'exec /usr/bin/bash --rcfile /posthog/bin/shellrc -i',
                     ].join('\n') + '\n'
                 )
                 server.filesystem.file('init.sh', bin, async () => ({ bytes: setup })).size = setup.byteLength
@@ -189,8 +214,22 @@ export class TerminalRuntime {
 
     write(data: string): void {
         if (this.ready) {
+            this.atPrompt = false
+            this.promptTail = ''
             this.emulator?.serial_send_bytes(0, new TextEncoder().encode(data))
         }
+    }
+
+    changeDirectory(folder: string): boolean {
+        if (!this.disposed && !this.hasPrompt) {
+            this.pendingDirectory = folder
+            return true
+        }
+        if (!this.ready || this.disposed || !this.atPrompt) {
+            return false
+        }
+        this.write(`cd -- '${folder.replaceAll("'", "'\\''")}'\n`)
+        return true
     }
 
     read(): string {
