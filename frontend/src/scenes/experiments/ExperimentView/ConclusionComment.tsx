@@ -40,6 +40,7 @@ export function ConclusionComment({ comment }: { comment: string }): JSX.Element
                     className="mt-1"
                     size="xsmall"
                     type="tertiary"
+                    data-attr="experiment-conclusion-toggle"
                     aria-expanded={isExpanded}
                     aria-controls="experiment-conclusion-comment-text"
                     onClick={() => setIsExpanded(!isExpanded)}
