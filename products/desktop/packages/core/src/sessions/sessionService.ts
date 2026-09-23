@@ -4103,8 +4103,7 @@ export class SessionService {
     });
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
-    // A request replayed from the log is history the reader is opening, not
-    // something that just happened, so only a live one moves the activity clock.
+    // A replayed request is history the reader just opened, not new activity.
     if (isLive) {
       this.d.taskViewedApi.markActivity(session.taskId);
     }

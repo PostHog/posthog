@@ -52,7 +52,11 @@ function select(
     pinnedTaskIds: new Set(),
     sessionFacts: NO_SESSION_FACTS,
     ...over,
-  }).map(({ item }) => item.key);
+  });
+}
+
+function keys(over: Partial<Parameters<typeof selectRecentWorkItems>[0]> = {}) {
+  return select(over).map(({ item }) => item.key);
 }
 
 describe("selectRecentWorkItems", () => {
@@ -97,6 +101,19 @@ describe("selectRecentWorkItems", () => {
       expected: [],
     },
   ])("$case", ({ over, expected }) => {
-    expect(select(over)).toEqual(expected);
+    expect(keys(over)).toEqual(expected);
+  });
+
+  it("carries each item's own channel", () => {
+    expect(
+      select({
+        dashboards: [canvas({ channelId: "canvas-channel" })],
+        tasks: [task({ channel: "task-channel" })],
+        lastViewedByCanvasId: { "canvas-old": VIEWED_NOW },
+      }),
+    ).toEqual([
+      expect.objectContaining({ channelId: "task-channel" }),
+      expect.objectContaining({ channelId: "canvas-channel" }),
+    ]);
   });
 });

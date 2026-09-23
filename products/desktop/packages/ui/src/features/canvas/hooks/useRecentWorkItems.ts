@@ -44,28 +44,24 @@ export function selectRecentWorkItems({
       lastViewedByCanvasId[canvas.id] != null ||
       (meUuid != null && canvas.createdByUuid === meUuid),
   );
-  const channelByKey = new Map<string, string | undefined>();
-  for (const canvas of mine)
-    channelByKey.set(`canvas:${canvas.id}`, canvas.channelId);
-  for (const task of tasks) {
-    channelByKey.set(`task:${task.id}`, task.channel ?? undefined);
-  }
-  const built = buildChannelItems({
+  const canvasChannelId = new Map(mine.map((c) => [c.id, c.channelId]));
+  // The order is the items' own activity time. Opening an item is not activity,
+  // so the local "viewed" time stays out of it and only says which canvases
+  // belong to this list.
+  return buildChannelItems({
     dashboards: mine,
     feedTasks: tasks,
     archivedTaskIds,
     pinnedTaskIds,
     ownedBy: null,
     sessionFacts,
-  });
-  // The order is the items' own activity time. Opening an item is not activity,
-  // so the local "viewed" time stays out of the key: it only says which canvases
-  // belong to this list.
-  return built
-    .slice()
+  })
     .sort((a, b) => b.ts - a.ts)
     .slice(0, RECENT_WORK_CAP)
-    .map((item) => ({ item, channelId: channelByKey.get(item.key) }));
+    .map((item) => ({
+      item,
+      channelId: item.task?.channel ?? canvasChannelId.get(item.id),
+    }));
 }
 
 export function useRecentWorkItems(): {
