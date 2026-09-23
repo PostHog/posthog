@@ -90,10 +90,11 @@ Steps 9–10 move configuration onto named producers and outputs. Steps 11–12 
 
 ### Step 9 · Named producers, instantiated once
 
-- **Goal.** Each producer is declared under `CAPTURE_PRODUCER_<NAME>_*`, holds only connection config (brokers, TLS, client tuning), and is instantiated once at startup. The connection half of `KafkaConfig` becomes one named producer. Behavior is byte-identical.
+- **Goal.** Producer slots are declared in code, and each holds only connection config (brokers, TLS, client tuning) and is instantiated once at startup. The v0 Kafka output publishes through the `INGESTION` slot, which replaces the connection half of `KafkaConfig`. Behavior is byte-identical.
 - **Why.** Two outputs on one cluster must share one connection, and moving one output to another cluster must not move the others. Sharing by name makes both structural.
-- **How.** Reuse v1's namespaced parsing: `Envconfig::init_from_hashmap` under a name prefix, as `CAPTURE_V1_SINK_MSK_KAFKA_HOSTS` → `HOSTS` works today.
-- **Parity proof.** Goldens and integration suites unmodified. A construction test pins one producer instance in the default configuration.
+- **Same model as Node.js ingestion.** A slot is a role, not a cluster; charts wire it to a cluster per deployment. Its settings are `KAFKA_<SLOT>_PRODUCER_<RDKAFKA_KEY>`, for example `KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST`. Slot names are single words, so no slot's prefix is a prefix of another's.
+- **Migration.** Explicit: capture stops reading `KAFKA_HOSTS`, `KAFKA_TLS`, and the `KAFKA_PRODUCER_*` tuning; charts set the new variables first. The broker list defaults to `kafka:9092`, the local dev and hobby broker, so those setups need no change. capture-logs keeps its own `KafkaConfig`.
+- **Parity proof.** Goldens and integration suites unmodified. A test pins the rdkafka settings of the default slot config to capture's current ones.
 - **Size.** M.
 
 ### Step 10 · An output owns its topics and names its producer
