@@ -35,7 +35,12 @@ from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFla
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
-from ee.api.billing import USAGE_BREAKDOWNS_MESSAGE, BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer
+from ee.api.billing import (
+    USAGE_BREAKDOWNS_MESSAGE,
+    BillingExportThrottle,
+    BillingTimeSeriesPointSerializer,
+    BillingUsageRequestSerializer,
+)
 from ee.billing.billing_manager import BillingManager
 from ee.billing.exports import (
     _gzip_stream,
@@ -897,7 +902,13 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         parameters=[OrganizationUsageExportRequestSerializer],
         responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
     )
-    @action(methods=["GET"], detail=False, url_path="usage/export")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage/export",
+        # The legacy exports' budget as well, so a person starts files at the same rate on either route.
+        throttle_classes=[BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle],
+    )
     def usage_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         return self._export(request, "usage")
 
@@ -908,7 +919,13 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         parameters=[OrganizationExportRequestSerializer],
         responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
     )
-    @action(methods=["GET"], detail=False, url_path="spend/export")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="spend/export",
+        # The legacy exports' budget as well, so a person starts files at the same rate on either route.
+        throttle_classes=[BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle],
+    )
     def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         return self._export(request, "spend")
 

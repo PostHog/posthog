@@ -853,7 +853,8 @@ class BillingManager:
             timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
             stream=True,
         )
-        _raise_for_organization_error(res)
+        # A 404 here means billing lacks the route, so it stays a server error rather than "not found".
+        _raise_for_organization_error(res, map_not_found=False)
         handle_billing_service_error(res, valid_codes=(200,))
         return res
 
