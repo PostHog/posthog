@@ -1,6 +1,17 @@
 import { AutocompleteItem, type Button, cn } from "@posthog/quill";
 import type { ComponentProps } from "react";
 
+/**
+ * A list row as an autocomplete option, which is what keeps it on the keyboard's
+ * arrow path.
+ *
+ * The three overrides below answer quill's own defaults, which `AutocompleteItem`
+ * does not parameterize: it wraps its children in a centered, truncating span,
+ * it colours a highlighted option's contents, and it draws a ring and a border
+ * on the highlight. A row supplies its own layout, its own marks and its own
+ * hover fill, so each default has to give way. The `[&>span]` rules therefore
+ * depend on that wrapper staying one span deep.
+ */
 export function WorkRowSurface({
   optionValue,
   className,
