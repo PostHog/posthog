@@ -27,13 +27,18 @@ class VoiceSessionRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Use Responses delegation for structured desktop voice tool calls.",
     )
-    context = serializers.CharField(
-        max_length=8000,
-        required=False,
-        default="",
-        allow_blank=True,
-        help_text="Recent conversation text for voice context.",
-    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # boffin: Keep the wire field named context without overriding DRF's serializer context.
+        fields["context"] = serializers.CharField(
+            max_length=8000,
+            required=False,
+            default="",
+            allow_blank=True,
+            help_text="Recent conversation text for voice context.",
+        )
+        return fields
 
 
 class VoiceSessionResponseSerializer(serializers.Serializer):
@@ -71,9 +76,10 @@ class VoiceSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if self.organization.is_ai_data_processing_approved is not True:
             raise PermissionDenied("Enable AI data processing before starting voice.")
+        distinct_id = user.distinct_id
         try:
-            enabled = posthoganalytics.feature_enabled(
-                "posthog-desktop-voice", user.distinct_id, send_feature_flag_events=False
+            enabled = distinct_id is not None and posthoganalytics.feature_enabled(
+                "posthog-desktop-voice", distinct_id, send_feature_flag_events=False
             )
         except Exception:
             enabled = False
