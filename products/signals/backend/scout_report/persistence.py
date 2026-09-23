@@ -435,10 +435,12 @@ def prepare_scout_supersession(
     if not context.candidates:
         # A report that never started an implementation has nothing to replace, which is an answer
         # rather than a failure: the rewrite is still valid, so the claim becomes a no-op and the
-        # caller reads `supersedes_implementation: false`. Everything else — a lookup that did not
-        # complete, a target that no longer verifies — stays a retryable rejection.
+        # caller reads `supersedes_implementation: false`. The context still travels, because its
+        # `target_count` is what tells the decision artefact which refusal to record. Everything
+        # else — a lookup that did not complete, a target that no longer verifies — stays a
+        # retryable rejection.
         if context.target_count == 0:
-            return NO_IMPLEMENTATION_CONTEXT
+            return context
         raise InvalidScoutReportError("Could not verify an implementation PR to replace. Retry the edit.")
     return context
 
@@ -688,16 +690,9 @@ def record_implementation_decision(
     """
     fields = " and ".join(sorted(set(updated_fields) & {"title", "summary"})) or "content"
     who = author or "A scout"
-    report = SignalReport.objects.get(team_id=team_id, id=report_id)
     blocked_reason: Literal["revision_limit", "no_implementation"] | None = None
     if supersede_requested and not supersede:
-        # The cap counts the rewrite this call just made, so it is the count after the increment that
-        # says whether the cap refused the claim or the report simply had no pull request to replace.
-        blocked_reason = (
-            "revision_limit"
-            if (report.content_revision_count or 0) > MAX_SCOUT_CONTENT_REVISIONS
-            else "no_implementation"
-        )
+        blocked_reason = "no_implementation" if implementation_context.target_count == 0 else "revision_limit"
     if supersede:
         reason = (
             f"{who} rewrote the report's {fields}. "
@@ -716,6 +711,7 @@ def record_implementation_decision(
         )
     else:
         reason = f"{who} rewrote the report's {fields} without changing what the fix should be."
+    report = SignalReport.objects.get(team_id=team_id, id=report_id)
     context_matches = (
         implementation_context.run_count == report.run_count
         and implementation_context.started_at == report.last_run_at
