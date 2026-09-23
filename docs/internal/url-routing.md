@@ -37,7 +37,7 @@ Precedence stays one list to read, and a product that adds a path does not touch
 The prefix holds by construction: a route inside the mount cannot address anything outside it, so a product cannot shadow a core route outside its own prefix.
 Inside its prefix, a core route listed above the slot still wins, which is how `api/user_interviews/share/<token>/start_call/` stays in core.
 `include()` receives the list, not the module, so Django sets no application namespace and `reverse("<name>")` keeps working unchanged.
-A routes module that still declares the old flat `urlpatterns` raises `ImproperlyConfigured` when the URL conf loads, rather than having its routes dropped silently.
+A routes module that declares any other url patterns list raises `ImproperlyConfigured` when the URL conf loads, rather than having its routes dropped silently. That covers the old flat `urlpatterns` and a near miss such as `webhooks_urlpatterns`, and the error names both valid lists.
 
 `register_routes(routers)` stays the way to add DRF routes.
 Use these two lists only for a plain Django path that no router can carry, such as an inbound webhook endpoint.

@@ -37,15 +37,23 @@ class ProductRootRoutes:
         `include()` gets the list, not the module, so Django sets no application namespace and
         `reverse("<name>")` keeps working unchanged.
 
-        A module that still declares the flat `urlpatterns` raises instead of being skipped,
-        because a skip would drop its routes and only show up as a 404 in production.
+        A module that declares any other url patterns name raises instead of being skipped: the old
+        flat `urlpatterns`, or a near miss such as `webhooks_urlpatterns`. A skip would drop its
+        routes and only show up as a 404 in production.
         """
         product = cls._product_name(routes_module.__name__)
-        if hasattr(routes_module, "urlpatterns"):
+        mounted = {attribute for attribute, _ in cls.MOUNTS}
+        unmounted = sorted(
+            name
+            for name in vars(routes_module)
+            if name.replace("_", "").lower().endswith("urlpatterns") and name not in mounted
+        )
+        if unmounted:
             raise ImproperlyConfigured(
-                f"Product {product!r} declares 'urlpatterns' in its routes module, which core no "
-                f"longer mounts. Rename it to 'api_urlpatterns' or 'webhook_urlpatterns' and make "
-                f"every route relative to 'api/{product}/' or 'webhooks/{product}/'"
+                f"Product {product!r} declares {', '.join(unmounted)} in its routes module, which core "
+                f"does not mount. Use 'api_urlpatterns' for routes under 'api/{product}/' or "
+                f"'webhook_urlpatterns' for routes under 'webhooks/{product}/', with every route "
+                f"relative to that prefix"
             )
 
         mounts = []

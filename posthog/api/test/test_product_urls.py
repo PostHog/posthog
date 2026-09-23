@@ -32,14 +32,16 @@ class TestProductRootRoutes(SimpleTestCase):
     def test_a_module_that_declares_no_list_contributes_nothing(self) -> None:
         assert ProductRootRoutes.from_module(_routes_module()) == []
 
-    def test_a_module_that_still_declares_flat_urlpatterns_fails_the_url_conf(self) -> None:
+    @parameterized.expand([("urlpatterns",), ("webhooks_urlpatterns",), ("api_url_patterns",)])
+    def test_a_module_that_declares_an_unmounted_list_fails_the_url_conf(self, name: str) -> None:
         module = _routes_module()
-        module.urlpatterns = [path("api/stamphog/thing", _view)]  # type: ignore[attr-defined]
+        setattr(module, name, [path("thing", _view)])
 
         with self.assertRaises(ImproperlyConfigured) as caught:
             ProductRootRoutes.from_module(module)
 
-        assert "'api_urlpatterns' or 'webhook_urlpatterns'" in str(caught.exception)
+        assert name in str(caught.exception)
+        assert "'api_urlpatterns'" in str(caught.exception)
 
 
 class TestProductRootRoutesInTheUrlConf(SimpleTestCase):
