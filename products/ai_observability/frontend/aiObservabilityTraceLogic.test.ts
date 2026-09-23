@@ -120,18 +120,19 @@ describe('aiObservabilityTraceLogic', () => {
         })
     })
 
+    const firstTraceTimestamp = '2024-01-15T12:00:00Z'
+
     it.each([
         ['clears the previous window when a different trace opens without a timestamp', 'other-trace-id', null],
-        ['keeps the window when the same trace reopens without a timestamp', 'test-trace-id', '2024-01-15T12:00:00Z'],
+        ['keeps the window when the same trace reopens without a timestamp', 'test-trace-id', firstTraceTimestamp],
     ])('%s', async (_, nextTraceId, expectedDateFrom) => {
-        const timestamp = '2024-01-15T12:00:00Z'
         router.actions.push(
             addProjectIdIfMissing(
-                combineUrl(urls.aiObservabilityTrace('test-trace-id', { timestamp })).url,
+                combineUrl(urls.aiObservabilityTrace('test-trace-id', { timestamp: firstTraceTimestamp })).url,
                 MOCK_TEAM_ID
             )
         )
-        await expectLogic(logic).toMatchValues({ dateRange: { dateFrom: timestamp, dateTo: null } })
+        await expectLogic(logic).toMatchValues({ dateRange: { dateFrom: firstTraceTimestamp, dateTo: null } })
 
         router.actions.push(
             addProjectIdIfMissing(
