@@ -1243,6 +1243,26 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     state = task_run.state or {}
+    trial_origin = task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and (task.origin_key or "").startswith(
+        "scout-trial:"
+    )
+    trial_marker = state.get("scout_trial")
+    if trial_origin or trial_marker is not None:
+        from products.signals.backend.facade.api import (
+            is_scout_trial_task,  # noqa: PLC0415 -- avoids loading the scout worker graph for ordinary tasks
+        )
+
+        if (
+            not trial_origin
+            or not isinstance(trial_marker, dict)
+            or trial_marker.get("version") != 1
+            or not is_scout_trial_task(team_id=team.id, task_id=task.id)
+        ):
+            raise TaskInvalidStateError(
+                "The scout run has inconsistent private context",
+                {"task_id": str(task.id), "run_id": run_id},
+                cause=RuntimeError("The task identity and private scout context do not match"),
+            )
     actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
@@ -1402,13 +1422,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
-    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+    agent_otel_telemetry_enabled = not trial_origin and _is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
         state=state,
     )
-    context_layer_enabled = context_layer_facade.is_context_layer_enabled(
+    context_layer_enabled = not trial_origin and context_layer_facade.is_context_layer_enabled(
         organization_id=organization_id, distinct_id=distinct_id
     )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
@@ -1673,7 +1693,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
         context_layer_enabled=context_layer_enabled,
-        state=state,
+        state={key: value for key, value in state.items() if key != "scout_trial_private"},
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,

@@ -3,7 +3,9 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import posthoganalytics
+from parameterized import parameterized
 
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.ph_client import ScopedCapture, get_client, ph_scoped_capture
 
 
@@ -20,6 +22,54 @@ class TestAILaneOptIn(SimpleTestCase):
         client = posthoganalytics.setup()
         self.assertTrue(client._use_ai_lane)
         self.assertTrue(client._enable_multimodal_capture)
+
+
+class TestPrivateScoutCapture(SimpleTestCase):
+    @parameterized.expand([("module",), ("US",), ("EU",)])
+    def test_trusted_context_drops_events_before_enqueue(self, region: str) -> None:
+        with patch.multiple(
+            posthoganalytics,
+            default_client=None,
+            disabled=False,
+            send=False,
+            enable_local_evaluation=False,
+            enable_exception_autocapture=False,
+        ):
+            client = (
+                posthoganalytics.setup()
+                if region == "module"
+                else get_client(region, disabled=False, send=False, enable_local_evaluation=False)
+            )
+            assert client is not None
+            try:
+                with tags_context(is_scout_experiment=True):
+                    self.assertIsNone(
+                        client.capture(
+                            "query executed", distinct_id="synthetic", properties={"is_scout_experiment": False}
+                        )
+                    )
+                with tags_context(is_scout_experiment=False):
+                    self.assertIsNotNone(
+                        client.capture(
+                            "query executed", distinct_id="synthetic", properties={"is_scout_experiment": True}
+                        )
+                    )
+            finally:
+                client.shutdown()
+
+    def test_regional_custom_filter_cannot_override_private_context(self) -> None:
+        before_send = MagicMock(side_effect=lambda message: message)
+        client = get_client(disabled=False, send=False, enable_local_evaluation=False, before_send=before_send)
+        assert client is not None
+        try:
+            with tags_context(is_scout_experiment=True):
+                self.assertIsNone(client.capture("query executed", distinct_id="synthetic"))
+            before_send.assert_not_called()
+            with tags_context(is_scout_experiment=False):
+                self.assertIsNotNone(client.capture("query executed", distinct_id="synthetic"))
+            before_send.assert_called_once()
+        finally:
+            client.shutdown()
 
 
 class TestScopedCaptureFlush(SimpleTestCase):

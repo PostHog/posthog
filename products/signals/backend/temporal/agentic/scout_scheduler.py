@@ -14,7 +14,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, is_cancelled_exception
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError, is_cancelled_exception
 
 from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from posthog.dataclasses import frozen
@@ -67,6 +67,7 @@ class RunSignalsScoutInput:
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
     check_id: str | None = None
+    trial_launch_id: str | None = None
 
 
 @frozen
@@ -81,7 +82,7 @@ class RunSignalsScoutOutput:
     last_message: str | None = None
 
 
-def _to_output(result: RunResult) -> RunSignalsScoutOutput:
+def _to_output(result: RunResult, *, include_summary: bool = True) -> RunSignalsScoutOutput:
     return RunSignalsScoutOutput(
         run_id=result.run_id,
         task_run_id=result.task_run_id,
@@ -90,7 +91,7 @@ def _to_output(result: RunResult) -> RunSignalsScoutOutput:
         skill_name=result.skill_name,
         skill_version=result.skill_version,
         skip_reason=result.skip_reason,
-        last_message=result.last_message,
+        last_message=result.last_message if include_summary else None,
     )
 
 
@@ -153,9 +154,9 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
     # Each gate captures whenever it binds — even when the other wins the single-status run
     # counter — so neither event stream has holes on a co-bound day.
-    if quota_gate.limited:
+    if quota_gate.limited and input.trial_launch_id is None:
         capture_signal_report_quota_paused(team, report_id=None, stage="scout_run", enforced=quota_gate.enforced)
-    if daily_gate.limited:
+    if daily_gate.limited and input.trial_launch_id is None:
         capture_signal_report_daily_limit_paused(team, report_id=None, stage="scout_run", gate=daily_gate)
     if quota_gate.enforced:
         logger.info(
@@ -208,6 +209,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 triggered_by=input.triggered_by,
                 run_note=input.run_note,
                 check_id=input.check_id,
+                trial_launch_id=input.trial_launch_id,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -239,7 +241,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
         runtime_s=result.runtime_s,
         skip_reason=result.skip_reason,
     )
-    return _to_output(result)
+    return _to_output(result, include_summary=input.trial_launch_id is None)
 
 
 @temporalio.workflow.defn
@@ -376,6 +378,33 @@ def start_manual_signals_scout_run(
         source=TRIGGERED_BY_MANUAL,
         run_note=run_note,
     )
+
+
+def trial_run_workflow_id(team_id: int, launch_id: str) -> str:
+    return f"signals-scout-trial-{team_id}-{launch_id}"
+
+
+@async_to_sync
+async def start_trial_signals_scout_run(client: Client, *, team_id: int, skill_name: str, launch_id: str) -> str:
+    workflow_id = trial_run_workflow_id(team_id, launch_id)
+    try:
+        await client.start_workflow(
+            RunSignalsScoutWorkflow.run,
+            RunSignalsScoutInput(
+                team_id=team_id,
+                skill_name=skill_name,
+                triggered_by="experiment",
+                trial_launch_id=launch_id,
+            ),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+    except WorkflowAlreadyStartedError:
+        # A completed trial is still the result of this launch; retries must not buy another run.
+        pass
+    return workflow_id
 
 
 def check_run_workflow_id(team_id: int, skill_name: str) -> str:

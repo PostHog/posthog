@@ -207,3 +207,18 @@ A deadline alone does not mean a cleanup worker has removed the payload.
 Automatic deletion remains separate work.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
+
+## Live scout comparisons
+
+Live scout trials use the production scout harness and live project reads, with private memory changes and captured reports.
+They do not use the offline evaluation reporter or its `no_send_logs` switch.
+Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED`, `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE`, and `SCOUT_LIVE_TRIALS_GATEWAY_URL` are configured.
+The private-capture setting attests that the selected gateway and query/task data destinations are isolated from the project the scouts inspect.
+Use a dedicated gateway with its PostHog capture token empty; also check warehouse replicas before enabling trials on a deployment.
+Rate limits still apply, but shared generation events cannot supply trial costs when capture is disabled.
+Results report unknown cost as null and retain runtime token counts when available.
+Operator trial MCP tools also omit analytics payloads.
+Task content retrieval tools retain call metrics but omit content spans and free-text intent, so viewing a private transcript does not publish it through MCP analytics.
+
+The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
+Keep downloaded prompts, memory, reports, and transcripts outside version control.

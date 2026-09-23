@@ -60,7 +60,7 @@ Judge calibration against hand-labelled reports. Rubric versions with a human-la
 ## Proposed lightweight live comparisons
 
 Proposal checkpoint: September 23, 2026.
-This section describes changes to build; no production isolation mode has been implemented by this proposal.
+Implementation is in progress on this branch; deployment remains disabled until its private capture paths are verified.
 The reviewed v0 reuses existing scout runs and storage, with a script coordinating the comparison.
 Live work continues on `signals/scout-live-experiments`; offline implementation remains on `signals/agentic-evals`.
 
@@ -215,3 +215,58 @@ Retain those inputs where needed and update document links during the split.
 Port the small shared runtime override explicitly; do not pull in the whole offline harness to obtain it.
 Check each branch's diff against master and verify its required fixtures and runner interfaces before continuing.
 Private snapshots and transcripts stay outside both branches.
+
+### Live trial operator script
+
+The implementation adds `POST /signals/scout/configs/{id}/trial/` and `GET /signals/scout/configs/{id}/trial-result/?launch_id=...` under the normal project API prefix.
+The matching MCP tools are `scout-trial-create` and `scout-trial-get`.
+Only operators with scout write and skill editor access can use them; sandbox tokens cannot manage comparisons.
+No skill/config copies or new tables are created.
+
+Configure a dedicated existing gateway whose capture token is empty, then set `SCOUT_LIVE_TRIALS_GATEWAY_URL`, `SCOUT_LIVE_TRIALS_ENABLED=true`, and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true` on the backend and workers.
+The last setting is an explicit deployment check: verify model capture, task/query telemetry, and warehouse replicas before enabling it.
+Trials retain ordinary spend/rate gates; cost is null when private accounting is unavailable, while runtime token counts are retained.
+Do not infer zero cost from absent generation events.
+
+Write a private variants JSON file, for example:
+
+```json
+[{ "label": "baseline" }, { "label": "trace-dependencies", "skill_file": "candidate.md" }]
+```
+
+`model` and `reasoning_effort` are optional per-variant fields.
+`skill_file` is relative to that JSON file; `skill_body` can be supplied instead.
+The source settings are saved before any override, so the first variant does not redefine the baseline.
+If the source has no explicit effort pin, supply a common `--effort` supported by the selected models.
+
+```sh
+export POSTHOG_API_KEY=... # Set privately; never save it in the manifest.
+.codex/with-flox python products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/run_live_trials.py \
+  --host http://localhost:8000 --project-id 1 --config-id '<source-config-uuid>' \
+  --variants playground/scout-evals/variants.json --effort medium \
+  --repeats 3 --concurrency 2 --output playground/scout-evals/live-comparison
+```
+
+Resume with the same `--host` and `--output`, adding `--resume`.
+The manifest saves each launch UUID and its exact request before sending it, and polling reuses those identities.
+It downloads reports, proposed edits, memory changes, and session logs into the private output directory.
+Existing task/run IDs support normal log and cancellation tools.
+A polling timeout leaves executions available for later polling; it does not cancel them.
+
+V0 accepts report-channel scouts without extra product write scopes, external MCP connections, or structured output.
+Automatic downstream implementation and repository-selection agents do not run; authored report payloads are retained, with skipped enrichment recorded for the operator.
+Unsupported write actions and unsupported specialized inbox filters invalidate the comparison explicitly.
+Normal inbox deduplication reads, report details, evidence, and artefacts remain available.
+Runtime settings are checked against the saved variant at completion.
+MCP trial launch/result tools omit analytics, including nested `exec` calls.
+Task content reads retain call metrics but omit payload spans and free-text intent for every caller, including operators retrieving private transcripts.
+
+### Implementation history
+
+- September 23: split the branches and pushed the reviewed experiment records.
+- September 23: added retry-stable dispatch, private memory/report storage, source skill overlays, restricted credentials, and task/report visibility rules.
+- September 23: focused private-state/report/inbox tests and task/gateway isolation tests passed; generated the new API/MCP types.
+- September 23: checked ordinary scout behavior alongside private launch/config/history paths, and passed the repository-wide Python type check.
+- September 23: exercised CLI connection retries, saved launch/context reuse, log pagination, unavailable startup logs, and private file permissions with synthetic responses.
+- The local CodeRabbit review was skipped because the CLI was signed out during unattended work.
+- Concurrent real sandbox validation remains pending. No new production comparison has been launched during implementation.

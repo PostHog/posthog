@@ -37,8 +37,8 @@ describe('CLI context', () => {
         mocks.getApiKey.mockRejectedValue(new Error('offline'))
     })
 
-    it.each(['phx_secret-token', undefined])(
-        'captures tool calls when identity resolution fails with API key %s',
+    it.each(['phx_secret-token', 'pha_test-token', undefined])(
+        'keeps OAuth capture private when identity resolution fails with API key %s',
         async (apiKey) => {
             const context = await buildCliContext({ apiKey, host: 'https://us.posthog.com', version: 2 })
 
@@ -47,12 +47,18 @@ describe('CLI context', () => {
             const expectedId = apiKey
                 ? `posthog-cli:${createHash('sha256').update(apiKey).digest('hex').slice(0, 16)}`
                 : 'posthog-cli:anonymous'
-            expect(mocks.capture).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    distinctId: expectedId,
-                    event: AnalyticsEvent.MCP_TOOL_CALL,
-                    properties: expect.objectContaining({ is_impersonated: false }),
-                })
+            expect(mocks.capture.mock.calls).toEqual(
+                apiKey?.startsWith('pha_')
+                    ? []
+                    : [
+                          [
+                              expect.objectContaining({
+                                  distinctId: expectedId,
+                                  event: AnalyticsEvent.MCP_TOOL_CALL,
+                                  properties: expect.objectContaining({ is_impersonated: false }),
+                              }),
+                          ],
+                      ]
             )
             if (apiKey) {
                 expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(apiKey)
@@ -91,19 +97,26 @@ describe('CLI context', () => {
     })
 
     it.each(Object.values(AnalyticsEvent).flatMap((event) => [true, false].map((value) => [event, value] as const)))(
-        'passes impersonation status to the SDK for %s with impersonation %s',
+        'passes trusted capture policy to the SDK for %s with policy %s',
         async (event, impersonated) => {
             mocks.getDistinctId.mockResolvedValue('user-123')
-            mocks.getApiKey.mockResolvedValue({ scopes: [], is_impersonated: impersonated })
+            mocks.getApiKey.mockResolvedValue({
+                scopes: [],
+                is_impersonated: impersonated,
+                suppress_analytics: impersonated,
+            })
             const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
 
-            await context.trackEvent(event, { is_impersonated: !impersonated })
+            await context.trackEvent(event, { is_impersonated: !impersonated, suppress_analytics: !impersonated })
 
             expect(mocks.capture).toHaveBeenCalledWith(
                 expect.objectContaining({
                     distinctId: 'user-123',
                     event,
-                    properties: expect.objectContaining({ is_impersonated: impersonated }),
+                    properties: expect.objectContaining({
+                        is_impersonated: impersonated,
+                        suppress_analytics: impersonated,
+                    }),
                 })
             )
         }

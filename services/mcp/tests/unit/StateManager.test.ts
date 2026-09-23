@@ -84,7 +84,7 @@ describe('StateManager', () => {
     describe('getApiKey', () => {
         const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
 
-        function oauthApi(clientName: string | null, impersonated?: boolean): ApiClient {
+        function oauthApi(clientName: string | null, impersonated?: boolean, scope = 'insight:read'): ApiClient {
             return {
                 config: { apiToken: 'pha_test' },
                 apiKeys: () => ({
@@ -95,7 +95,7 @@ describe('StateManager', () => {
                         success: true,
                         data: {
                             active: true,
-                            scope: 'insight:read',
+                            scope,
                             client_name: clientName,
                             is_impersonated: impersonated,
                         },
@@ -104,35 +104,47 @@ describe('StateManager', () => {
             } as unknown as ApiClient
         }
 
-        it.each([true, false, undefined])(
-            'fetches token metadata and caches impersonation=%s',
-            async (impersonated) => {
-                stateManager = new StateManager(cache, oauthApi(null, impersonated))
+        it.each([
+            { impersonated: true, scope: 'insight:read', suppressed: false },
+            { impersonated: false, scope: 'insight:read', suppressed: false },
+            { impersonated: undefined, scope: 'insight:read', suppressed: false },
+            { impersonated: false, scope: 'insight:read scout_experiment_internal:read', suppressed: true },
+        ])(
+            'caches impersonation=$impersonated and capture suppression=$suppressed from token scope',
+            async ({ impersonated, scope, suppressed }) => {
+                stateManager = new StateManager(cache, oauthApi(null, impersonated, scope))
 
                 const result = await stateManager.getApiKey()
 
                 expect(result.is_impersonated).toBe(impersonated === true)
+                expect(result.suppress_analytics).toBe(suppressed)
                 expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
 
                 const otherTokenCache = new MemoryCache<State>('other-token')
                 await otherTokenCache.clear()
                 const otherToken = new StateManager(otherTokenCache, oauthApi(null, false))
                 expect((await otherToken.getApiKey()).is_impersonated).toBe(false)
+                expect((await otherToken.getApiKey()).suppress_analytics).toBe(false)
                 expect((await stateManager.getApiKey()).is_impersonated).toBe(impersonated === true)
+                expect((await stateManager.getApiKey()).suppress_analytics).toBe(suppressed)
             }
         )
 
-        it('caches personal API keys as not impersonated', async () => {
-            const api = {
-                config: { apiToken: 'phx_test' },
-                apiKeys: () => ({ current: async () => ({ success: true, data: mockApiKey }) }),
-            } as unknown as ApiClient
+        it.each([{ scopes: [] }, { scopes: ['scout_experiment_internal:read'] }])(
+            'does not suppress personal-key telemetry for scopes $scopes',
+            async ({ scopes }) => {
+                const apiKey = { ...mockApiKey, scopes, suppress_analytics: true }
+                const api = {
+                    config: { apiToken: 'phx_test' },
+                    apiKeys: () => ({ current: async () => ({ success: true, data: apiKey }) }),
+                } as unknown as ApiClient
 
-            const result = await new StateManager(cache, api).getApiKey()
+                const result = await new StateManager(cache, api).getApiKey()
 
-            expect(result).toEqual({ ...mockApiKey, is_impersonated: false })
-            expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
-        })
+                expect(result).toEqual({ ...apiKey, is_impersonated: false, suppress_analytics: false })
+                expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
+            }
+        )
 
         it.each([
             { apiToken: 'phx_test', expectedScopes: ['user:read', 'cdp:read'] },

@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('@/tools', async () => {
     const { default: executeSql } = await import('@/tools/posthogAiTools/executeSql')
@@ -30,6 +31,7 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { InstructionsBuilder } from '@/hono/instructions'
+import { toolCallsTotal } from '@/hono/metrics'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
@@ -50,6 +52,89 @@ describe('ToolExecutor analytics capture', () => {
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
+
+    it.each(
+        ['direct', 'exec'].flatMap((mode) =>
+            [false, true].flatMap((fails) =>
+                [
+                    ['scout-trial-create', 'private'],
+                    ['scout-trial-get', 'private'],
+                    ['tasks-list', 'metadata'],
+                    ['tasks-retrieve', 'metadata'],
+                    ['tasks-runs-list', 'metadata'],
+                    ['tasks-runs-session-logs-retrieve', 'metadata'],
+                    ['tasks-runs-retrieve', 'metadata'],
+                    ['projects-get', 'ordinary'],
+                ].map(([name, capture]) => ({ mode, fails, name: name!, capture }))
+            )
+        )
+    )(
+        'keeps $name capture=$capture for ordinary operator $mode calls, fails=$fails',
+        async ({ mode, fails, name, capture }) => {
+            const client = getPostHogClient()
+            const toolCall = vi.spyOn(client, 'captureToolCall').mockImplementation(() => {})
+            const span = vi.spyOn(client, 'capture').mockImplementation(() => {})
+            const exception = vi.spyOn(client, 'captureException').mockImplementation(() => {})
+            const metric = vi.spyOn(toolCallsTotal, 'inc')
+            const output = { reports: [{ title: 'Synthetic report' }], memory: { example: 'Synthetic finding' } }
+            const tool = {
+                name,
+                title: name,
+                description: 'Synthetic tool',
+                scopes: [],
+                annotations: { readOnlyHint: true },
+                schema: z.object({ body: z.string() }),
+                handler: vi.fn(async () => {
+                    if (fails) {
+                        throw new Error('Synthetic private report error')
+                    }
+                    return output
+                }),
+            }
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build: () => tool,
+                meta: undefined,
+                rawInputSchema: undefined,
+                definition: undefined,
+            })
+            const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+            await executor.handleToolsList(state)
+            await new Promise((resolve) => setImmediate(resolve))
+            span.mockClear()
+            const body = { body: 'Synthetic candidate prompt' }
+            const args = mode === 'exec' ? { command: `call ${name} ${JSON.stringify(body)}` } : body
+            const result = (await executor.handleToolCall(
+                {
+                    name: mode === 'exec' ? 'exec' : name,
+                    arguments: { ...args, context: 'Compare synthetic scout variants', llm_model: 'example-model' },
+                },
+                state
+            )) as { isError?: boolean }
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(result.isError === true).toBe(fails)
+            expect(tool.handler).toHaveBeenCalledOnce()
+            expect(metric).toHaveBeenCalledWith({ tool: name, status: fails ? 'error' : 'success' })
+            expect(state.suppressAnalytics).toBe(false)
+            expect(toolCall).toHaveBeenCalledTimes(capture === 'private' ? 0 : 1)
+            expect(span).toHaveBeenCalledTimes(capture === 'ordinary' ? 1 : 0)
+            if (capture !== 'private') {
+                expect(toolCall.mock.calls[0]![0].intent).toBe(
+                    capture === 'ordinary' ? 'Compare synthetic scout variants' : undefined
+                )
+            }
+            if (fails) {
+                expect(exception).toHaveBeenCalledWith(
+                    expect.any(Error),
+                    state.distinctId,
+                    expect.objectContaining({ suppress_analytics: capture !== 'ordinary' })
+                )
+            } else {
+                expect(exception).not.toHaveBeenCalled()
+                expect(JSON.stringify(result)).toContain('Synthetic report')
+            }
+        }
+    )
 
     it('injects the analytics arguments into advertised tools', async () => {
         const state = makeToolExecutorState([], { useSingleExec: true })

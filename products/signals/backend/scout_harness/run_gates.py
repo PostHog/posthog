@@ -97,7 +97,7 @@ def check_fleet_gates(team_id: int) -> ScoutRunRejection | None:
     return None
 
 
-def check_spend_gates(team: Team) -> ScoutRunRejection | None:
+def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRunRejection | None:
     """Fail fast on the two spend gates `run_signals_scout_activity` re-checks authoritatively, so
     a caller gets a clean throttle instead of a 202 whose run only skips.
 
@@ -106,7 +106,7 @@ def check_spend_gates(team: Team) -> ScoutRunRejection | None:
     pause is recorded. `team.organization` must be loaded for that capture.
     """
     quota_gate = self_driving_quota_gate(team)
-    if quota_gate.limited:
+    if quota_gate.limited and capture_analytics:
         capture_signal_report_quota_paused(team, report_id=None, stage="scout_run", enforced=quota_gate.enforced)
     if quota_gate.enforced:
         return ScoutRunRejection(
@@ -150,6 +150,7 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
             task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
             task_run__created_at__gte=live_cutoff,
         )
+        .exclude(metadata__has_key="scout_trial")
         .exists()
     )
     if not in_flight:
