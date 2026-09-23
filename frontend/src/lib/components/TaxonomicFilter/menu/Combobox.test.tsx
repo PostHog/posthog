@@ -70,6 +70,8 @@ function renderAll(options: {
     searchQuery?: string
     onCommit?: any
     eventNames?: string[]
+    allowNonCapturedEvents?: boolean
+    drillTo?: any
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -78,9 +80,10 @@ function renderAll(options: {
                 onChange={jest.fn()}
                 searchQuery={options.searchQuery ?? ''}
                 eventNames={options.eventNames}
+                allowNonCapturedEvents={options.allowNonCapturedEvents}
             >
                 <MenuFilterCombobox
-                    drillTo="all"
+                    drillTo={options.drillTo ?? 'all'}
                     recentEntries={options.recentEntries}
                     pinnedEntries={options.pinnedEntries}
                     onCommit={options.onCommit ?? jest.fn()}
@@ -1141,22 +1144,13 @@ describe('MenuFilterCombobox', () => {
     // Parity with the classic picker, whose half lives in infiniteListLogic.test.ts / InfiniteList.
     describe('an event name PostHog has not captured yet', () => {
         function renderEvents(options: { allowNonCapturedEvents: boolean; onCommit?: any }): void {
-            render(
-                <Provider>
-                    <TaxonomicFilterHeadless.Root
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                        onChange={jest.fn()}
-                        searchQuery="checkout_started"
-                        allowNonCapturedEvents={options.allowNonCapturedEvents}
-                    >
-                        <MenuFilterCombobox
-                            drillTo={TaxonomicFilterGroupType.Events}
-                            onCommit={options.onCommit ?? jest.fn()}
-                            onBack={jest.fn()}
-                        />
-                    </TaxonomicFilterHeadless.Root>
-                </Provider>
-            )
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                drillTo: TaxonomicFilterGroupType.Events,
+                searchQuery: 'checkout_started',
+                allowNonCapturedEvents: options.allowNonCapturedEvents,
+                onCommit: options.onCommit,
+            })
         }
 
         beforeEach(() => {
