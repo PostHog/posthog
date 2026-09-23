@@ -18,13 +18,13 @@ import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/pan
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQueryRunHistory } from '~/types'
 
-import { endpointModelUrl, parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
-import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
-import { statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
-import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
-import { StatusTag } from 'products/data_modeling/frontend/lineage/StatusTag'
+import { TableCertificationTag } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 
-import { TableCertificationTag } from '../TableCertificationBadge'
+import { endpointModelUrl, parseEndpointModelName } from './endpointModelName'
+import { NodeSuspensionApi } from './generated/api.schemas'
+import { statusBackgroundClass } from './lineage/nodeStyles'
+import { SEARCH_SYNTAX_HELP } from './lineage/SearchSyntaxHelp'
+import { StatusTag } from './lineage/StatusTag'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
 type ViewColumn = LemonTableColumn<DataWarehouseSavedQuerySummary, keyof DataWarehouseSavedQuerySummary | undefined>
