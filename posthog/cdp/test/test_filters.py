@@ -250,6 +250,43 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in allowed
 
+    def test_filters_name_the_team_settings_when_test_account_filters_cannot_run(self):
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+
+        result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
+        assert result["bytecode"] is None
+        assert _normalize_error(result["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Check the spelling, or use a field or function that real-time filters support. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+        # A bad field in the destination on top of the project's names both sources, so a person
+        # knows there are two places to fix.
+        own = compile_filters_bytecode(
+            {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_traffic_type = 'y'"}]},
+            self.team,
+        )
+        assert _normalize_error(own["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Check the spelling, or use a field or function that real-time filters support. "
+            "This destination's own filters also read $virt_traffic_type. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+        # Both sources reading the same field must still name both, or the next save fails the same way.
+        shared = compile_filters_bytecode(
+            {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_is_bot = true"}]},
+            self.team,
+        )
+        assert _normalize_error(shared["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Check the spelling, or use a field or function that real-time filters support. "
+            "This destination's own filters also read $virt_is_bot. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={
