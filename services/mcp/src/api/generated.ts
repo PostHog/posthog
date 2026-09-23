@@ -38632,6 +38632,21 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    export interface EventsRetention {
+      /**
+         * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+         * @nullable
+         */
+      readonly retention_months: number | null;
+      /**
+         * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+         * @nullable
+         */
+      readonly retained_from: string | null;
+      /** Where the events retention policy is documented. */
+      readonly docs_url: string;
+    }
+
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
