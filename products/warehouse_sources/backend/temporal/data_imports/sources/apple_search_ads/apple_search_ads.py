@@ -122,7 +122,7 @@ def build_client_secret(credentials: AppleSearchAdsCredentials, *, issued_at: Op
             headers={"alg": "ES256", "kid": credentials.key_id},
         )
     # AttributeError: PyJWT accepts an EC public key at `prepare_key`, then fails at sign time
-    # because a public key object has no `sign`. A public key pasted here must not read as a bug.
+    # because a public key object has no `sign`.
     except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as e:
         # The cryptography backend's own text names its PEM framing internals and links its FAQ,
         # neither of which helps someone in the setup form — keep it on the chained cause only.
