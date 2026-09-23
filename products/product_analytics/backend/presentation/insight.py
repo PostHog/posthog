@@ -2629,7 +2629,7 @@ When set, the specified dashboard's filters and date range override will be appl
         page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            user=request.user, scope="Insight", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+            scope="Insight", team_id=self.team_id, limit=page_params.limit, page=page_params.page
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
@@ -2663,7 +2663,6 @@ When set, the specified dashboard's filters and date range override will be appl
         item = self.get_object()
 
         activity_page = load_activity(
-            user=request.user,
             scope="Insight",
             team_id=self.team_id,
             item_ids=[str(item.id)],

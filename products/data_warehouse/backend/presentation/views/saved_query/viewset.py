@@ -591,7 +591,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
-            user=request.user,
             scope="DataWarehouseSavedQuery",
             team_id=self.team_id,
             item_ids=[str(item_id)],

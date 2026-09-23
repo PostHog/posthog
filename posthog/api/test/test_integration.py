@@ -42,12 +42,7 @@ from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
-    apply_activity_visibility_restrictions,
-    load_activity,
-    load_all_activity,
-)
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -7356,25 +7351,18 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
                 "installations": [{"id": 9004, "account": {"login": "synthetic-external", "type": "Organization"}}]
             },
         )
-        response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
+        with capture_logs() as captured:
+            response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
         assert response.status_code == 200
         assert response["Cache-Control"] == "private, no-store"
         assert response.json()["personal_github_login"] == "synthetic-reader"
         assert response.json()["personal_discovery_status"] == "ok"
-        logs = list(ActivityLog.objects.filter(activity="github_diagnostic"))
-        selected = next(
-            log
-            for log in logs
-            if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_credential_selected"
-        )
-        assert selected.detail is not None
-        assert selected.detail["trigger"]["payload"]["personal_integration_id"] == str(older.pk)
-        assert "synthetic-private-token" not in json.dumps([log.detail for log in logs])
-        completed = next(
-            log for log in logs if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_completed"
-        )
-        assert completed.detail is not None
-        assert completed.detail["trigger"]["payload"]["response"] == {
+        assert not ActivityLog.objects.filter(activity="github_diagnostic").exists()
+        selected = next(entry for entry in captured if entry["event"] == "discovery_credential_selected")
+        assert selected["personal_integration_id"] == str(older.pk)
+        assert "synthetic-private-token" not in json.dumps(captured, default=str)
+        completed = next(entry for entry in captured if entry["event"] == "discovery_completed")
+        assert completed["response"] == {
             **response.json(),
             "installation_count": len(response.json()["installations"]),
         }
@@ -7430,17 +7418,6 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         }
         self.user.is_staff = True
         assert apply_activity_visibility_restrictions(logs, self.user).count() == logs.count()
-        assert {row.activity for row in load_activity("Integration", self.team.id).results} == {"created", "deleted"}
-        assert {row.activity for row in load_all_activity(["Integration"], self.team.id).results} == {
-            "created",
-            "deleted",
-        }
-        assert "github_diagnostic" in {
-            row.activity for row in load_activity("Integration", self.team.id, user=self.user).results
-        }
-        assert "github_diagnostic" in {
-            row.activity for row in load_all_activity(["Integration"], self.team.id, user=self.user).results
-        }
         refreshed = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
         assert refreshed.json()["installations"] == []
 
@@ -7470,7 +7447,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
 
-    def test_github_audit_filters_unknown_fields_from_logs_and_durable_evidence(self) -> None:
+    def test_github_audit_filters_unknown_fields_from_discovery_logs(self) -> None:
         candidate = {"installation_id": "9007", "account_name": "synthetic-owner", "token": "synthetic-secret"}
         with capture_logs() as captured:
             GitHubAudit(organization_id=self.organization.id, team_id=self.team.id).record(
@@ -7484,11 +7461,10 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
                     "config": {"token": "synthetic-secret"},
                 },
             )
-        log = ActivityLog.objects.get(activity="github_diagnostic")
-        assert log.detail is not None
-        payload = log.detail["trigger"]["payload"]
-        assert payload["response"]["installations"] == [{"installation_id": "9007", "account_name": "synthetic-owner"}]
-        assert "synthetic-secret" not in json.dumps(log.detail)
+        completed = next(entry for entry in captured if entry["event"] == "discovery_completed")
+        assert completed["response"]["installations"] == [
+            {"installation_id": "9007", "account_name": "synthetic-owner"}
+        ]
         assert "synthetic-secret" not in json.dumps(captured, default=str)
 
     @parameterized.expand([("discovery_completed",), ("discovery_candidates_filtered",)])
@@ -7498,12 +7474,11 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
             for index in range(GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS + 5)
         ]
         evidence = {"response": {"installations": entries}} if event == "discovery_completed" else {"filtered": entries}
-        GitHubAudit(organization_id=self.organization.id, team_id=self.team.id).record(
-            event, discovery_id="synthetic-discovery", **evidence
-        )
-        log = ActivityLog.objects.get(activity="github_diagnostic")
-        assert log.detail is not None
-        payload = log.detail["trigger"]["payload"]
+        with capture_logs() as captured:
+            GitHubAudit(organization_id=self.organization.id, team_id=self.team.id).record(
+                event, discovery_id="synthetic-discovery", **evidence
+            )
+        payload = next(entry for entry in captured if entry["event"] == event)
         if event == "discovery_completed":
             count, recorded = payload["response"]["installation_count"], payload["response"]["installations"]
             expected = [{"installation_id": entry["installation_id"]} for entry in entries]
@@ -7513,7 +7488,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert count == len(entries)
         assert recorded == expected[: GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS]
 
-    def test_discovery_records_filtered_installations_in_one_row(self) -> None:
+    def test_discovery_logs_filtered_installations_once(self) -> None:
         for installation_id in ("9201", "9202", "9203"):
             Integration.objects.create(
                 team=self.team,
@@ -7521,17 +7496,12 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
                 integration_id=installation_id,
                 config={"installation_id": installation_id, "account": {"name": "synthetic-owner"}},
             )
-        response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
+        with capture_logs() as captured:
+            response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
         assert response.status_code == 200
-        filtered_logs = [
-            log
-            for log in ActivityLog.objects.filter(activity="github_diagnostic")
-            if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_candidates_filtered"
-        ]
+        filtered_logs = [entry for entry in captured if entry["event"] == "discovery_candidates_filtered"]
         assert len(filtered_logs) == 1
-        detail = filtered_logs[0].detail
-        assert detail is not None
-        payload = detail["trigger"]["payload"]
+        payload = filtered_logs[0]
         assert payload["filtered_count"] == 3
         assert {entry["reason"] for entry in payload["filtered"]} == {"current_project"}
 

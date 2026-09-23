@@ -2100,7 +2100,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            user=request.user, scope="Cohort", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+            scope="Cohort", team_id=self.team_id, limit=page_params.limit, page=page_params.page
         )
 
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
@@ -2114,7 +2114,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
-            user=request.user,
             scope="Cohort",
             team_id=self.team_id,
             item_ids=[str(item_id)],

@@ -42,8 +42,19 @@ class GitHubAuditPayload:
             "personal_discovery_status",
         }
     )
-    # Organizations with many GitHub projects would otherwise grow each discovery row without bound.
+    # Organizations with many GitHub projects would otherwise grow each discovery record without bound.
     MAX_RECORDED_INSTALLATIONS = 50
+    # Discovery runs on every suggestions load and window focus, so it goes to logs only, not the activity log.
+    LOG_ONLY_EVENTS = frozenset(
+        {
+            "discovery_credential_selected",
+            "discovery_github_response",
+            "discovery_candidates",
+            "discovery_candidates_filtered",
+            "discovery_completed",
+            "discovery_failed",
+        }
+    )
     EVENT_FIELDS = {
         "created": {"outcome"},
         "deleted": {"outcome"},
@@ -189,7 +200,7 @@ class GitHubAudit:
                 actor_id=self.user.pk if self.user else None,
                 **payload,
             )
-            if self.organization_id is None:
+            if self.organization_id is None or event in GitHubAuditPayload.LOG_ONLY_EVENTS:
                 return
             try:
                 from posthog.models.activity_logging.activity_log import (  # noqa: PLC0415 -- avoids the integration model import cycle

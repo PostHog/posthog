@@ -214,11 +214,3 @@ Test the behavior the receiver adds, through a public interface, at the cheapest
 - For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
 
 `ACTIVITY_LOG_TRANSACTION_MANAGEMENT` is off under test, so a plain test sees the row right after the write.
-
-## GitHub connection evidence
-
-GitHub uses explicit `GitHubAudit` calls instead of automatic integration model diffs. Project `created` and `deleted` entries contain the installation owner, installation ID, integration ID, actor, and outcome. These entries remain in the project's history after the integration is deleted, subject to activity-log retention and access rules.
-
-`Integration` entries with activity `github_diagnostic` are staff-only. The visibility restriction also excludes them from customer notification destinations and the legacy activity readers for non-staff callers. Request-backed readers forward the requesting user to preserve staff access. Diagnostics preserve allowlisted credential identity and version metadata, discovery and link correlation, and cleanup outcomes. The helper filters event fields and nested discovery candidates at write time. The final offered list is retained up to 50 entries, with the total count; unknown response fields are excluded. Tokens, hashes of tokens, OAuth codes or state, complete configuration, headers, and raw GitHub responses must never be passed to the helper.
-
-Personal diagnostics use the originating organization validated when the flow starts and preserved on the credential. Records without organization context emit operational logs only. Database-change evidence is written after commit, and audit failures do not fail the integration operation. The `posthog.github_diagnostics` logger explicitly runs at INFO.

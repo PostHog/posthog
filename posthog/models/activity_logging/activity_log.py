@@ -1507,7 +1507,6 @@ def load_activity(
     item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
-    user: Union["User", AnonymousUser, None] = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1518,21 +1517,15 @@ def load_activity(
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
 
-    return get_activity_page(apply_activity_visibility_restrictions(activity_query, user), limit, page)
+    return get_activity_page(activity_query, limit, page)
 
 
-def load_all_activity(
-    scope_list: list[ActivityScope],
-    team_id: int,
-    limit: int = 10,
-    page: int = 1,
-    user: Union["User", AnonymousUser, None] = None,
-):
+def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int = 10, page: int = 1):
     activity_query = (
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope__in=scope_list).order_by("-created_at")
     )
 
-    return get_activity_page(apply_activity_visibility_restrictions(activity_query, user), limit, page)
+    return get_activity_page(activity_query, limit, page)
 
 
 @receiver(post_save, sender=ActivityLog)

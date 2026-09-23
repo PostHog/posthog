@@ -820,7 +820,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            user=request.user,
             scope="Group",
             team_id=self.team_id,
             item_ids=[group.pk],
