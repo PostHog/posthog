@@ -274,10 +274,12 @@ class InputCollector(TraversingVisitor):
                 self.inputs.add(str(node.chain[1]))
 
 
-class TransformationGlobalsValidator(TraversingVisitor):
-    """Reject input templates that reference globals unavailable to the realtime
-    transformer (e.g. `person`, `groups`, `source`). Without this check, the bytecode
-    compiles fine and the failure surfaces only at ingestion time as
+class TemplateGlobalsValidator(TraversingVisitor):
+    """Reject input templates that reference globals the runtime will not have.
+
+    Each function type passes the globals its runtime provides (transformations see `project`,
+    `event` and `inputs`; everything else the invocation globals). Without this check the bytecode
+    compiles fine and the failure surfaces only at run time as
     "Could not execute bytecode for input field" / "Global variable not found".
     """
 
@@ -478,7 +480,7 @@ def generate_template_bytecode(
         if detector.errors:
             raise Exception(detector.errors[0])
         if function_type == "transformation":
-            transformation_validator = TransformationGlobalsValidator()
+            transformation_validator = TemplateGlobalsValidator()
             transformation_validator.check(node)
             if transformation_validator.invalid_globals:
                 names = ", ".join(sorted(transformation_validator.invalid_globals))
@@ -487,7 +489,7 @@ def generate_template_bytecode(
                     f"Transformations only have access to project, event, and inputs."
                 )
         elif function_type == "transformation_log":
-            log_validator = TransformationGlobalsValidator(
+            log_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
                 runtime_functions=set(),
             )
@@ -501,7 +503,7 @@ def generate_template_bytecode(
         elif function_type is not None and validate_globals:
             # Every other type resolves its inputs against the invocation globals at run time. A save
             # that disables or deletes the function skips this, so a broken function can be turned off.
-            template_validator = TransformationGlobalsValidator(
+            template_validator = TemplateGlobalsValidator(
                 available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
             )
             template_validator.check(node)
@@ -1162,7 +1164,7 @@ def compile_hog(
             # at ingestion time. Declared locals are excluded from the check.
             declared = DeclaredNamesCollector()
             declared.visit(program)
-            body_validator = TransformationGlobalsValidator(
+            body_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS | declared.names,
                 runtime_functions=set(),
             )
