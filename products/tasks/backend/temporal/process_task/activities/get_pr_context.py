@@ -28,7 +28,7 @@ class GetPrContextInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@dataclass(frozen=True)
 class GetPrContextOutput:
     pr_url: str
     pr_state: str
