@@ -351,6 +351,7 @@ rules:
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -769,6 +770,7 @@ rules:
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -1266,6 +1268,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
@@ -1340,6 +1343,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed
