@@ -136,7 +136,7 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                                         { label: 'RFC 4180 double quotes', value: true },
                                         { label: 'Literal quotes', value: false },
                                     ]}
-                                    value={value ?? false}
+                                    value={value ?? true}
                                     onChange={onChange}
                                 />
                             )}

@@ -170,6 +170,30 @@ pub struct FlagRequest {
 }
 ```
 
+#### Evaluation runtime is caller-declared
+
+`/flags` authenticates with the public project API key only.
+Every identity input in the body is therefore an evaluation input, not a claim the service can verify.
+That includes `evaluation_runtime`.
+
+`handler::flags::detect_evaluation_runtime_from_request` takes the body's `evaluation_runtime` when present.
+Otherwise it infers a runtime from `User-Agent`, `Origin`, `Referer` and the `Sec-Fetch-*` headers, all of which the caller controls.
+A caller that sends `evaluation_runtime: "all"` empties the exclusion set, and an unrecognized value falls back to `all` behind a log warning.
+
+So a flag marked `server` is not withheld from a caller that asks for it.
+The setting filters remote evaluation responses from `/flags`.
+The local evaluation definitions endpoint returns definitions for all runtimes.
+Server SDKs can evaluate a client-runtime flag locally, so a backend that passes flags to a browser must select which flags to return.
+Do not build an access decision on it, in this service or in a caller.
+
+`override_flags_definitions` in the same struct shows the shape a real restriction takes.
+`handler::mod` reads it only when `authentication::is_internal_request` passes, and drops it otherwise.
+A control on a public endpoint needs a credential the caller cannot mint.
+Server-side local evaluation is one: `/flags/definitions` needs the project secret token or a personal API key, so flag definitions never travel under the public key.
+Remote config is one only when the payload is encrypted.
+`flags::feature_flag_list` drops a flag from the `/flags` list only when `is_remote_configuration` and `has_encrypted_payloads` are both true, so a plaintext remote config payload still travels under the public project API key.
+Reading an encrypted payload back needs a personal API key: `api::remote_config` sets `should_decrypt: false` for a project secret key and substitutes `REDACTED_PAYLOAD_VALUE`.
+
 #### GeoIP enrichment of `person_properties`
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
