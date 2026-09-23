@@ -2270,22 +2270,22 @@ Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 
 
 ## DataForSEO — **thin**
 
-Today (11): `backlinks_history`, `backlinks_referring_domains`, `backlinks_summary`, `backlinks_timeseries_summary`, `categories`, `competitors_domain`, `domain_rank_overview`, `historical_rank_overview`, `locations_and_languages`, `ranked_keywords`, `relevant_pages`
+Today (15): `backlinks`, `backlinks_anchors`, `backlinks_history`, `backlinks_referring_domains`, `backlinks_summary`, `backlinks_timeseries_summary`, `categories`, `competitors_domain`, `domain_rank_overview`, `historical_rank_overview`, `historical_search_volume`, `locations_and_languages`, `ranked_keywords`, `relevant_pages`, `serp_organic`
 
 Diffed against: <https://docs.dataforseo.com/v3/wp-sitemap-posts-page-1.xml>
 
-- [ ] `POST /v3/backlinks/backlinks/live` — the individual backlink rows behind the backlinks_summary aggregate we already sync (high)
+- [x] `POST /v3/backlinks/backlinks/live` — the individual backlink rows behind the backlinks_summary aggregate we already sync (high). Sorted by rank and capped at the first few pages, because a large domain has millions of backlinks.
 - [x] `POST /v3/backlinks/referring_domains/live` — referring-domain breakdown with rank and spam score — the standard link-profile dimension table (high)
 - [x] `GET /v3/dataforseo_labs/locations_and_languages and /v3/dataforseo_labs/categories` — lookup tables resolving the location_code, language_code and category codes stamped on every row we already sync (high). Both are free GET lookups, not POST tasks as first recorded.
 - [x] `POST /v3/dataforseo_labs/google/relevant_pages/live` — top organic landing pages per domain with traffic and keyword counts (high)
 - [x] `POST /v3/backlinks/history/live and /v3/backlinks/timeseries_summary/live` — backlink profile over time and new/lost link trend, versus the single current snapshot we sync (high)
 - [ ] `POST /v3/keywords_data/google_ads/search_volume/live` — search volume, CPC and competition per keyword — the base metric for any SEO model (medium)
-- [ ] `POST /v3/dataforseo_labs/google/historical_search_volume/live` — monthly search volume history for tracked keywords (medium)
-- [ ] `POST /v3/backlinks/anchors/live` — anchor-text distribution for a target domain (medium)
+- [x] `POST /v3/dataforseo_labs/google/historical_search_volume/live` — monthly search volume history for tracked keywords (medium). Keyword-scoped, not domain-scoped: it needs keywords configured on the source, and one request covers up to 700 of them.
+- [x] `POST /v3/backlinks/anchors/live` — anchor-text distribution for a target domain (medium)
 - [ ] `POST /v3/dataforseo_labs/google/domain_intersection/live and /page_intersection/live` — keyword-gap analysis against the competitors we already sync in competitors_domain (medium)
 - [ ] `POST /v3/dataforseo_labs/google/keyword_ideas/live, /keyword_suggestions/live, /related_keywords/live` — keyword expansion sets for opportunity sizing (medium)
 - [ ] `POST /v3/backlinks/domain_pages_summary/live and /domain_pages/live` — per-page backlink counts, the page-level breakdown of the domain summary (medium)
-- [ ] `POST /v3/serp/google/organic/live/advanced` — raw SERP snapshots per keyword, the source of rank tracking over time (medium)
+- [x] `POST /v3/serp/google/organic/live/advanced` — raw SERP snapshots per keyword, the source of rank tracking over time (medium). Keyword-scoped and billed per keyword per sync, so it covers the first results page only.
 
 Note: DataForSEO docs are a WordPress site with no OpenAPI, llms.txt or sitemap index; I enumerated all 691 endpoint doc pages from /v3/wp-sitemap-posts-page-1.xml and spot-verified the URL format on https://docs.dataforseo.com/v3/backlinks/backlinks/live/ (POST https://api.dataforseo.com/v3/backlinks/backlinks/live). The API spans SERP (157 pages), DataForSEO Labs (85), Keywords Data (69), AI Optimization (69), Business Data (58), Merchant (47), App Data (36), On-Page (33) and Backlinks (25); five synced tables is a small fraction. Whole families are absent: On-Page site audit, Business Data (Google Business Profile reviews), Merchant, App Data, Content Analysis and Domain Analytics technologies.
 
