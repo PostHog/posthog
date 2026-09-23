@@ -37,7 +37,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
-    DataIntervalEndInFutureError,
+    DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
     _execute_query,
     _raise_on_hogql_resource_limit_error,
@@ -71,6 +71,7 @@ def mock_clickhouse_client():
         yield mock_client
 
 
+@pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -91,6 +92,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     model: BatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
+    use_native_schema: bool,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -107,7 +109,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
     elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events"
+        expected_table = "events_json" if use_native_schema else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -138,7 +140,8 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
         {
@@ -206,7 +209,7 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
         patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
+        with pytest.raises(DataIntervalInFutureError, match="The provided 'data_interval_end'.*is in the future"):
             await _write_batch_export_record_batches_to_internal_stage(
                 query_or_model="SELECT 1",
                 full_range=(data_interval_start, data_interval_end),
@@ -316,11 +319,6 @@ async def test_insert_into_stage_activity_for_events_model(
     exclude_events,
     truncate_clickhouse_tables,
 ):
-    """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
-
-    For now we just check that the number of records exported is correct, not the content of the records.
-    """
-
     records_exported = await _run_activity(
         activity_environment=activity_environment,
         object_storage_client=object_storage_client,
@@ -334,6 +332,9 @@ async def test_insert_into_stage_activity_for_events_model(
     events_to_export_created = generate_test_data[0]
 
     assert len(records_exported) == len(events_to_export_created)
+    assert {record["uuid"]: record["person_id"] for record in records_exported} == {
+        event["uuid"]: event["person_id"] for event in events_to_export_created
+    }
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
@@ -1446,10 +1447,9 @@ class TestHogQLModel:
     ):
         """insert_into_internal_stage_activity stages correct data for a user-defined HogQL query.
 
-        The data interval has no meaning for the HogQL model currently: the query is executed as-is,
-        scoped to the team by the HogQL printer, and we don't wait for the interval end to pass.
-        Each case asserts exact rows and column names (aliases) read back from the staged Arrow
-        files.
+        These queries reference no interval placeholders, so each is executed as-is, scoped to
+        the team by the HogQL printer, and we don't wait for the interval end to pass. Each case
+        asserts exact rows and column names (aliases) read back from the staged Arrow files.
         """
         events, persons = hogql_model_test_data
 
@@ -1470,6 +1470,55 @@ class TestHogQLModel:
             build_expected_rows(events, persons)
         )
         mock_wait.assert_not_called()
+
+    async def test_stages_expected_data_bounded_by_interval_placeholders(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        data_interval_start,
+        data_interval_end,
+    ):
+        """A query referencing the interval placeholders stages only rows within the run's interval.
+
+        The run covers the second half of the fixture's interval, so events stamped at the
+        interval start are excluded and those stamped later are kept. The wait for the interval
+        end is part of the contract too: a query bounded by the interval end must let
+        replication lag settle before reading, or the run misses rows that settle after it
+        queries.
+        """
+        events, _ = hogql_model_test_data
+        # Each person's events are stamped at either end of the fixture's interval, so halving
+        # it leaves exactly the later ones in range.
+        bounded_start = data_interval_start + (data_interval_end - data_interval_start) / 2
+
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
+        ) as mock_wait:
+            exported_rows = await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=bounded_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportModel(
+                    name="hogql",
+                    schema=None,
+                    hogql_query=(
+                        "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
+                        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+                    ),
+                ),
+            )
+
+        expected_uuids = {
+            uuid.UUID(event["uuid"])
+            for event in events
+            if dt.datetime.fromisoformat(event["timestamp"]).replace(tzinfo=dt.UTC) >= bounded_start
+        }
+        assert {row["uuid"] for row in exported_rows} == expected_uuids
+        mock_wait.assert_called_once()
 
     async def test_stages_expected_data_for_warehouse_view(
         self,

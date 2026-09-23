@@ -190,7 +190,10 @@ export const defaultMocks: Mocks = {
                 pending_invites: [],
             },
         ],
-        '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
+        '/api/users/@me/two_factor_status/': () => [
+            200,
+            { is_enabled: true, backup_codes_remaining: 0, method: 'TOTP' },
+        ],
         '/api/users/@me/hedgehog_config/': {
             color: null,
             enabled: false,

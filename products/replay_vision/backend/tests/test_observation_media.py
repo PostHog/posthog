@@ -65,7 +65,7 @@ class TestObservationMedia(BaseTest):
             is_system=True,
         )
 
-    def _prepare(self, **overrides: Any) -> Any:
+    def _inputs(self, **overrides: Any) -> ObservationMediaInputs:
         fields: dict[str, Any] = {
             "team_id": self.team.id,
             "observation_id": self.observation.id,
@@ -73,7 +73,10 @@ class TestObservationMedia(BaseTest):
             "analysis_asset_id": self.analysis_asset.id,
         }
         fields.update(overrides)
-        return async_to_sync(prepare_observation_thumbnail_activity)(ObservationMediaInputs(**fields))
+        return ObservationMediaInputs(**fields)
+
+    def _prepare(self, **overrides: Any) -> Any:
+        return async_to_sync(prepare_observation_thumbnail_activity)(self._inputs(**overrides))
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
