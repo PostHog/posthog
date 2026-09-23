@@ -101,6 +101,11 @@ Direct tool calls and inner exec calls use the same `trackToolCall()` path.
 The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
 New `$mcp_*` events and properties belong in the SDK, not in this server.
 
+Private scout credentials derive capture suppression from their server-issued OAuth scope.
+The existing SDK `beforeSend` hook drops those events; request headers and tool arguments cannot enable this policy.
+Operator trial launch/result tools also omit analytics, including calls through `exec`.
+Task content retrieval retains call metrics but omits content spans, free-text intent, and exception payloads so private transcripts do not become analytics data.
+
 #### Three correlation identifiers
 
 Three identifiers travel with each request, each with a different lifecycle and a different consumer:
