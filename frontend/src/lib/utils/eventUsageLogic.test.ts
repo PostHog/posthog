@@ -9,7 +9,6 @@ import type {
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentTrendsQuery,
     Node,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -467,41 +466,12 @@ describe('eventUsageLogic', () => {
         })
     })
 
-    describe('legacy formats', () => {
-        it('extracts ExperimentFunnelsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentFunnelsQuery,
-                funnels_query: {
-                    series: [
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                    ],
-                    filterTestAccounts: true,
-                },
-            } as ExperimentFunnelsQuery
+    it('reports only the kind for a legacy metric', () => {
+        const metric = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: { series: [{ kind: NodeKind.EventsNode }] },
+        } as ExperimentFunnelsQuery
 
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentFunnelsQuery)
-            expect(result.steps_count).toBe(3)
-            expect(result.filter_test_accounts).toBe(true)
-        })
-
-        it('extracts ExperimentTrendsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: {
-                    series: [{ kind: NodeKind.ActionsNode, id: 1 }],
-                    filterTestAccounts: false,
-                },
-            } as ExperimentTrendsQuery
-
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentTrendsQuery)
-            expect(result.series_kind).toBe(NodeKind.ActionsNode)
-            expect(result.filter_test_accounts).toBe(false)
-        })
+        expect(getEventPropertiesForMetric(metric)).toEqual({ kind: NodeKind.ExperimentFunnelsQuery })
     })
 })

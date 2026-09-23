@@ -11,7 +11,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
-import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
+import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { MetricSourceModal } from 'products/experiments/frontend/modals/MetricSourceModal/MetricSourceModal'
