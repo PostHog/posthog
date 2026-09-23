@@ -34,6 +34,38 @@ import {
 
 const ORDERING_OPERATIONS = new Set([Operation.GT, Operation.GT_EQ, Operation.LT, Operation.LT_EQ])
 
+/** Thrown by the JavaScript engine for a mistake in the library's own code, never for a bad argument. */
+const ENGINE_ERRORS = new Set(['TypeError', 'RangeError', 'ReferenceError'])
+
+/**
+ * The standard library reports a bad argument with a plain Error. Callers classify failures by
+ * type, so that becomes a Hog data error. Checked by name, because an error from a native module
+ * or another realm fails instanceof against this realm's Error.
+ */
+function asDataError(error: unknown): unknown {
+    if (error instanceof HogVMException || typeof error !== 'object' || error === null) {
+        return error
+    }
+    const { name, message } = error as { name?: unknown; message?: unknown }
+    if (typeof message !== 'string' || (typeof name === 'string' && ENGINE_ERRORS.has(name))) {
+        return error
+    }
+    return new HogVMException(message, 'data', { cause: error })
+}
+
+function callStl(
+    fn: (args: any[], name: string, options?: ExecOptions) => any,
+    args: any[],
+    name: string,
+    options?: ExecOptions
+): any {
+    try {
+        return fn(args, name, options)
+    } catch (error) {
+        throw asDataError(error)
+    }
+}
+
 function compareValues(left: any, right: any, operation: Operation): boolean {
     // SQL semantics: a null on either side of an ordering comparison is no match. Without this the
     // native operator reads null as 0, so `length(missing) < 3` would match.
@@ -87,7 +119,7 @@ function compareValues(left: any, right: any, operation: Operation): boolean {
         case Operation.LT_EQ:
             return left <= right
         default:
-            throw new HogVMException(`Invalid comparison operation: ${operation}`)
+            throw new HogVMException(`Invalid comparison operation: ${operation}`, 'contract')
     }
 }
 
@@ -99,7 +131,7 @@ export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOp
     if (response.error) {
         throw response.error
     }
-    throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
+    throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName, 'contract')
 }
 
 export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): Promise<ExecResult> {
@@ -128,10 +160,10 @@ export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?:
                 )
                 vmState.stack.push(result)
             } else {
-                throw new HogVMException('Invalid async function call: ' + response.asyncFunctionName)
+                throw new HogVMException('Invalid async function call: ' + response.asyncFunctionName, 'contract')
             }
         } else {
-            throw new HogVMException('Invalid async function call')
+            throw new HogVMException('Invalid async function call', 'contract')
         }
     }
 }
@@ -153,7 +185,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
     }
     const rootBytecode = bytecodes.root.bytecode
     if (!rootBytecode || rootBytecode.length === 0 || (rootBytecode[0] !== '_h' && rootBytecode[0] !== '_H')) {
-        throw new HogVMException("Invalid HogQL bytecode, must start with '_H'")
+        throw new HogVMException("Invalid HogQL bytecode, must start with '_H'", 'contract')
     }
     const version = rootBytecode[0] === '_H' ? (rootBytecode[1] ?? 0) : 0
 
@@ -231,10 +263,10 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 chunkBytecode = chunk.bytecode
                 chunkGlobals = chunk.globals ?? {}
             } else {
-                throw new HogVMException(`Unknown chunk: ${frame.chunk}`)
+                throw new HogVMException(`Unknown chunk: ${frame.chunk}`, 'contract')
             }
         } else {
-            throw new HogVMException(`Unknown chunk: ${frame.chunk}`)
+            throw new HogVMException(`Unknown chunk: ${frame.chunk}`, 'contract')
         }
         if (frame.ip === 0 && (chunkBytecode[0] === '_H' || chunkBytecode[0] === '_h')) {
             // TODO: store chunkVersion
@@ -246,7 +278,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
     function popStack(): any {
         if (stack.length === 0) {
             logTelemetry()
-            throw new HogVMException('Invalid HogQL bytecode, stack is empty, can not pop')
+            throw new HogVMException('Invalid HogQL bytecode, stack is empty, can not pop', 'contract')
         }
         memUsed -= memStack.pop() ?? 0
         return stack.pop()
@@ -257,7 +289,10 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
         memUsed += memStack[memStack.length - 1]
         maxMemUsed = Math.max(maxMemUsed, memUsed)
         if (memUsed > memLimit && memLimit > 0) {
-            throw new HogVMException(`Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${memUsed} bytes.`)
+            throw new HogVMException(
+                `Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${memUsed} bytes.`,
+                'limit'
+            )
         }
         return stack.push(value)
     }
@@ -269,7 +304,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
 
     function stackKeepFirstElements(count: number): any[] {
         if (count < 0 || stack.length < count) {
-            throw new HogVMException('Stack underflow')
+            throw new HogVMException('Stack underflow', 'contract')
         }
         for (let i = sortedUpValues.length - 1; i >= 0; i--) {
             if (sortedUpValues[i].location >= count) {
@@ -288,14 +323,17 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
 
     function next(): any {
         if (frame.ip >= chunkBytecode.length - 1) {
-            throw new HogVMException('Unexpected end of bytecode')
+            throw new HogVMException('Unexpected end of bytecode', 'contract')
         }
         return chunkBytecode[++frame.ip]
     }
 
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout) {
-            throw new HogVMException(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
+            throw new HogVMException(
+                `Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`,
+                'limit'
+            )
         }
     }
 
@@ -342,10 +380,19 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
 
     function regexMatch(): (regex: string, value: string) => boolean {
         if (!options?.external?.regex?.match) {
-            throw new HogVMException('Set options.external.regex.match for RegEx support')
+            throw new HogVMException('Set options.external.regex.match for RegEx support', 'contract')
         }
-        return (regex: string, value: string): boolean =>
-            regex && value ? !!options.external?.regex?.match(regex, value) : false
+        return (regex: string, value: string): boolean => {
+            if (!regex || !value) {
+                return false
+            }
+            try {
+                return !!options.external?.regex?.match(regex, value)
+            } catch (error) {
+                // The pattern is a value the program supplied, so a pattern the engine refuses is a data error.
+                throw asDataError(error)
+            }
+        }
     }
 
     const logTelemetry = (): void => {
@@ -583,7 +630,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             )
                         )
                     } else {
-                        throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
+                        throw new HogVMException(`Global variable not found: ${chain.join('.')}`, 'contract')
                     }
                     break
                 }
@@ -699,13 +746,14 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 case Operation.CLOSURE: {
                     const callable = popStack()
                     if (!isHogCallable(callable)) {
-                        throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
+                        throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`, 'contract')
                     }
                     const upvalueCount = next()
                     const closureUpValues: number[] = []
                     if (upvalueCount !== callable.upvalueCount) {
                         throw new HogVMException(
-                            `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`
+                            `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`,
+                            'contract'
                         )
                     }
                     const stackStart = frame.stackStart
@@ -723,11 +771,11 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 case Operation.GET_UPVALUE: {
                     const index = next()
                     if (index >= frame.closure.upvalues.length) {
-                        throw new HogVMException(`Invalid upvalue index: ${index}`)
+                        throw new HogVMException(`Invalid upvalue index: ${index}`, 'contract')
                     }
                     const upvalue = upvaluesById[frame.closure.upvalues[index]]
                     if (!isHogUpValue(upvalue)) {
-                        throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                        throw new HogVMException(`Invalid upvalue: ${upvalue}`, 'contract')
                     }
                     if (upvalue.closed) {
                         pushStack(upvalue.value)
@@ -739,11 +787,11 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 case Operation.SET_UPVALUE: {
                     const index = next()
                     if (index >= frame.closure.upvalues.length) {
-                        throw new HogVMException(`Invalid upvalue index: ${index}`)
+                        throw new HogVMException(`Invalid upvalue index: ${index}`, 'contract')
                     }
                     const upvalue = upvaluesById[frame.closure.upvalues[index]]
                     if (!isHogUpValue(upvalue)) {
-                        throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                        throw new HogVMException(`Invalid upvalue: ${upvalue}`, 'contract')
                     }
                     if (upvalue.closed) {
                         upvalue.value = popStack()
@@ -785,10 +833,10 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                         continue // resume the loop without incrementing frame.ip
                     } else {
                         if (temp > stack.length) {
-                            throw new HogVMException('Not enough arguments on the stack')
+                            throw new HogVMException('Not enough arguments on the stack', 'contract')
                         }
                         if (temp > MAX_FUNCTION_ARGS_LENGTH) {
-                            throw new HogVMException('Too many arguments')
+                            throw new HogVMException('Too many arguments', 'contract')
                         }
 
                         if (name === 'import') {
@@ -799,7 +847,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                           .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
                             if (args.length !== 1) {
-                                throw new HogVMException(`Function ${name} requires exactly 1 argument`)
+                                throw new HogVMException(`Function ${name} requires exactly 1 argument`, 'contract')
                             }
                             frame.ip += 1 // advance for when we return
                             frame = {
@@ -840,7 +888,10 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 Object.hasOwn(ASYNC_STL, name))
                         ) {
                             if (asyncSteps >= maxAsyncSteps) {
-                                throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
+                                throw new HogVMException(
+                                    `Exceeded maximum number of async steps: ${maxAsyncSteps}`,
+                                    'limit'
+                                )
                             }
 
                             const args =
@@ -866,11 +917,15 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             const stlFn = STL[name]
                             if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
                                 throw new HogVMException(
-                                    `Function ${name} requires at least ${stlFn.minArgs} arguments`
+                                    `Function ${name} requires at least ${stlFn.minArgs} arguments`,
+                                    'contract'
                                 )
                             }
                             if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
-                                throw new HogVMException(`Function ${name} requires at most ${stlFn.maxArgs} arguments`)
+                                throw new HogVMException(
+                                    `Function ${name} requires at most ${stlFn.maxArgs} arguments`,
+                                    'contract'
+                                )
                             }
                             const args =
                                 version === 0
@@ -878,12 +933,13 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                           .fill(null)
                                           .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
-                            pushStack(stlFn.fn(args, name, options))
+                            pushStack(callStl(stlFn.fn, args, name, options))
                         } else if (Object.hasOwn(BYTECODE_STL, name)) {
                             const argNames = BYTECODE_STL[name][0]
                             if (argNames.length !== temp) {
                                 throw new HogVMException(
-                                    `Function ${name} requires exactly ${argNames.length} arguments`
+                                    `Function ${name} requires exactly ${argNames.length} arguments`,
+                                    'contract'
                                 )
                             }
                             frame.ip += 1 // advance for when we return
@@ -905,11 +961,14 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             setChunkBytecode()
                             callStack.push(frame)
                             if (callStack.length > CALLSTACK_LENGTH) {
-                                throw new HogVMException(`Call stack exceeded maximum length of ${CALLSTACK_LENGTH}`)
+                                throw new HogVMException(
+                                    `Call stack exceeded maximum length of ${CALLSTACK_LENGTH}`,
+                                    'limit'
+                                )
                             }
                             continue // resume the loop without incrementing frame.ip
                         } else {
-                            throw new HogVMException(`Unsupported function call: ${name}`)
+                            throw new HogVMException(`Unsupported function call: ${name}`, 'contract')
                         }
                     }
                     break
@@ -918,17 +977,17 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     checkTimeout()
                     const closure = popStack()
                     if (!isHogClosure(closure)) {
-                        throw new HogVMException(`Invalid closure: ${JSON.stringify(closure)}`)
+                        throw new HogVMException(`Invalid closure: ${JSON.stringify(closure)}`, 'contract')
                     }
                     if (!isHogCallable(closure.callable)) {
-                        throw new HogVMException(`Invalid callable: ${JSON.stringify(closure.callable)}`)
+                        throw new HogVMException(`Invalid callable: ${JSON.stringify(closure.callable)}`, 'contract')
                     }
                     temp = next() // args.length
                     if (temp > stack.length) {
-                        throw new HogVMException('Not enough arguments on the stack')
+                        throw new HogVMException('Not enough arguments on the stack', 'contract')
                     }
                     if (temp > MAX_FUNCTION_ARGS_LENGTH) {
-                        throw new HogVMException('Too many arguments')
+                        throw new HogVMException('Too many arguments', 'contract')
                     }
                     if (closure.callable.__hogCallable__ === 'local') {
                         if (closure.callable.argCount > temp) {
@@ -937,7 +996,8 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             }
                         } else if (closure.callable.argCount < temp) {
                             throw new HogVMException(
-                                `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`
+                                `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`,
+                                'contract'
                             )
                         }
                         frame.ip += 1 // advance for when we return
@@ -951,22 +1011,27 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                         setChunkBytecode()
                         callStack.push(frame)
                         if (callStack.length > CALLSTACK_LENGTH) {
-                            throw new HogVMException(`Call stack exceeded maximum length of ${CALLSTACK_LENGTH}`)
+                            throw new HogVMException(
+                                `Call stack exceeded maximum length of ${CALLSTACK_LENGTH}`,
+                                'limit'
+                            )
                         }
                         continue // resume the loop without incrementing frame.ip
                     } else if (closure.callable.__hogCallable__ === 'stl') {
                         if (!closure.callable.name || !Object.hasOwn(STL, closure.callable.name)) {
-                            throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
+                            throw new HogVMException(`Unsupported function call: ${closure.callable.name}`, 'contract')
                         }
                         const stlFn = STL[closure.callable.name]
                         if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
                             throw new HogVMException(
-                                `Function ${closure.callable.name} requires at least ${stlFn.minArgs} arguments`
+                                `Function ${closure.callable.name} requires at least ${stlFn.minArgs} arguments`,
+                                'contract'
                             )
                         }
                         if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
                             throw new HogVMException(
-                                `Function ${closure.callable.name} requires at most ${stlFn.maxArgs} arguments`
+                                `Function ${closure.callable.name} requires at most ${stlFn.maxArgs} arguments`,
+                                'contract'
                             )
                         }
                         const args = Array(temp)
@@ -980,10 +1045,13 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 args.push(null)
                             }
                         }
-                        pushStack(stlFn.fn(args, closure.callable.name, options))
+                        pushStack(callStl(stlFn.fn, args, closure.callable.name, options))
                     } else if (closure.callable.__hogCallable__ === 'async') {
                         if (asyncSteps >= maxAsyncSteps) {
-                            throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
+                            throw new HogVMException(
+                                `Exceeded maximum number of async steps: ${maxAsyncSteps}`,
+                                'limit'
+                            )
                         }
                         const args = Array(temp)
                             .fill(null)
@@ -993,10 +1061,13 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             finished: false,
                             asyncFunctionName: closure.callable.name,
                             asyncFunctionArgs: args.map((v) => convertHogToJS(v)),
-                            state: { ...getVMState(), asyncSteps: asyncSteps + 1 },
+                            state: {
+                                ...getVMState(),
+                                asyncSteps: asyncSteps + 1,
+                            },
                         } satisfies ExecResult
                     } else {
-                        throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
+                        throw new HogVMException(`Unsupported function call: ${closure.callable.name}`, 'contract')
                     }
                     break
                 }
@@ -1011,7 +1082,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     if (throwStack.length > 0) {
                         throwStack.pop()
                     } else {
-                        throw new HogVMException('Invalid operation POP_TRY: no try block to pop')
+                        throw new HogVMException('Invalid operation POP_TRY: no try block to pop', 'contract')
                     }
                     break
                 case Operation.THROW: {
@@ -1035,7 +1106,8 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                 }
                 default:
                     throw new HogVMException(
-                        `Unexpected node while running bytecode in chunk "${frame.chunk}": ${chunkBytecode[frame.ip]}`
+                        `Unexpected node while running bytecode in chunk "${frame.chunk}": ${chunkBytecode[frame.ip]}`,
+                        'contract'
                     )
             }
 
@@ -1043,6 +1115,11 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
             frame.ip++
         }
     } catch (e) {
-        return { result: null, finished: false, error: e, state: getVMState() } satisfies ExecResult
+        return {
+            result: null,
+            finished: false,
+            error: e,
+            state: getVMState(),
+        } satisfies ExecResult
     }
 }

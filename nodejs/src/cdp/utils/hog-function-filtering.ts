@@ -17,6 +17,8 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
+import { currentRuntimeContractHash } from './filter-runtime'
+import { HogErrorClass, classifyHogError } from './hog-error-classification'
 import { execHog } from './hog-exec'
 
 // Module-level constants for fixed regex patterns to avoid recompilation
@@ -58,7 +60,7 @@ const hogFunctionFilterOutcomes = new Counter({
 const hogFunctionFilterErrors = new Counter({
     name: 'cdp_hog_function_filter_error',
     help: 'A filter threw while being evaluated, by the code path that asked for it',
-    labelNames: ['caller', 'type', 'reason'],
+    labelNames: ['caller', 'type', 'reason', 'class'],
 })
 
 /**
@@ -77,6 +79,8 @@ const hogFunctionPreFilterCounter = new Counter({
 interface HogFilterResult {
     match: boolean
     error?: unknown
+    /** Set beside `error`. Who has to act on it, see HogErrorClass. */
+    errorClass?: HogErrorClass
     logs: LogEntry[]
     metrics: MinimalAppMetric[]
 }
@@ -487,7 +491,8 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        hogFunctionFilterErrors.inc({ caller, type, reason })
+        const errorClass = classifyFilterError(error, reason, filters)
+        hogFunctionFilterErrors.inc({ caller, type, reason, class: errorClass })
 
         logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
@@ -515,6 +520,29 @@ export async function filterFunctionInstrumented(options: {
             message: `Error filtering event ${filterGlobals.uuid ?? ''}: ${error.message}`,
         })
         result.error = error.message
+        result.errorClass = errorClass
     }
     return result
+}
+
+function classifyFilterError(
+    error: unknown,
+    reason: FilterErrorReason,
+    filters: HogFunctionType['filters']
+): HogErrorClass {
+    switch (reason) {
+        case 'not_compiled':
+        case 'no_bytecode':
+            // Nothing ran. The function cannot work until its owner saves it again.
+            return 'legacy'
+        case 'vm_error':
+            return classifyHogError(error, {
+                bytecodeContract: filters?.bytecode_contract,
+                runtimeContract: currentRuntimeContractHash(),
+            })
+        case 'prefilter':
+        case 'unknown':
+            // Our own code threw before or around the VM.
+            return 'platform'
+    }
 }
