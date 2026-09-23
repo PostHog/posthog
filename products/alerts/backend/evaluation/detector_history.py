@@ -309,7 +309,7 @@ def _rebuild(
     now: datetime,
 ) -> tuple[list[_Row], list[str]]:
     """Run the query in full, replace the cache with what it returned, and hand back its rows."""
-    rows, column_names = run_query()
+    rows, column_names = run_query(query_override=matched.prepared(at=now, tz=alert.team.timezone))
     parsed = _parse_rows(rows, alert.team)
     if parsed is not None:
         _write(

@@ -87,15 +87,82 @@ def test_rejects_a_column_that_is_not_the_aggregate() -> None:
 
 
 @pytest.mark.parametrize(
-    "hours,limit,eligible",
-    [(48, "", True), (336, "", False), (336, " LIMIT 1000", True), (48, " LIMIT 20", False)],
+    "hours,limit,eligible,injected",
+    [
+        (48, "", True, 97),
+        (336, "", True, 385),
+        (336, " LIMIT 1000", True, None),
+        (48, " LIMIT 20", False, None),
+        (49_951, "", True, 50_000),
+        (49_952, "", False, None),
+    ],
 )
-def test_requires_the_full_window_to_fit_in_the_result(hours: int, limit: str, eligible: bool) -> None:
+def test_a_missing_limit_is_derived_from_the_window(
+    hours: int, limit: str, eligible: bool, injected: int | None
+) -> None:
     sql = SQL.replace("48 HOUR", f"{hours} HOUR") + limit
     matched = match_detector_series_query(_query(sql), column="value")
     assert (matched is not None) == eligible
     if matched is not None:
         assert matched.window_hours == hours
+        assert matched.injected_limit == injected
+
+
+NESTED_SQL = """
+SELECT h AS window_start, greatest(viewers, senders) AS value FROM (
+    SELECT toStartOfHour(timestamp) AS h,
+           uniqIf(person_id, event = 'view') AS viewers,
+           uniqIf(person_id, event = 'send') AS senders
+    FROM events
+    WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+      AND timestamp < toStartOfHour(now())
+      AND properties.grp = 'g1'
+      AND (event = 'view' OR event = 'send')
+    GROUP BY h
+) ORDER BY window_start ASC
+"""
+
+
+def test_accepts_row_local_scalar_calls_in_predicates() -> None:
+    sql = SQL.replace("count()", "countIf(event = 'send' AND toString(properties.previous) = 'inbox')")
+    matched = match_detector_series_query(_query(sql), column="value")
+    assert matched is not None
+
+
+def test_accepts_a_one_level_projection_over_the_aggregation() -> None:
+    matched = match_detector_series_query(_query(NESTED_SQL), column="value")
+    assert matched is not None
+    assert matched.window_hours == 48
+    assert matched.injected_limit == 97
+    assert matched.column_names == ["window_start", "value"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        ("ORDER BY window_start ASC", ""),
+        ("ORDER BY window_start ASC", "ORDER BY window_start DESC"),
+        ("greatest(viewers, senders)", "any(viewers)"),
+        ("greatest(viewers, senders)", "viewers + missing"),
+        ("GROUP BY h\n)", "GROUP BY h LIMIT 10\n)"),
+        ("FROM events", "FROM persons"),
+    ],
+)
+def test_rejects_projections_that_are_not_bucket_local(mutation: tuple[str, str]) -> None:
+    before, after = mutation
+    assert before in NESTED_SQL
+    assert match_detector_series_query(_query(NESTED_SQL.replace(before, after)), column="value") is None
+
+
+def test_narrowing_a_projection_bounds_the_inner_query() -> None:
+    matched = match_detector_series_query(_query(NESTED_SQL), column="value")
+    assert matched is not None
+    at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
+    narrowed_sql = matched.narrowed_to(3, at=at, tz="UTC")["query"]
+    assert "toIntervalHour(3)" in narrowed_sql
+    assert "toIntervalHour(48)" in narrowed_sql
+    assert "now()" not in narrowed_sql
+    assert "LIMIT 97" in narrowed_sql
 
 
 def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -> None:

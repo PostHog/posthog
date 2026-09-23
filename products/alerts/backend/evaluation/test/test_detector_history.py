@@ -57,6 +57,10 @@ class _Warehouse:
     def last_scan_hours(self) -> int:
         return self._hours(self.overrides[-1])
 
+    def is_rebuild(self, override: dict | None) -> bool:
+        """A full-window scan: no narrowing bound, so the tightest interval is the window itself."""
+        return self._hours(override) == 48
+
 
 class TestDetectorHistory(BaseTest):
     def setUp(self) -> None:
@@ -113,7 +117,7 @@ class TestDetectorHistory(BaseTest):
             second = self._check(warehouse)
 
         assert first is not None and second is not None
-        assert warehouse.overrides[0] is None
+        assert warehouse.is_rebuild(warehouse.overrides[0])
         assert warehouse.overrides[1] is not None
         assert warehouse.last_scan_hours == 3
         assert second[0] == first[0]
@@ -153,7 +157,7 @@ class TestDetectorHistory(BaseTest):
             self.alert.refresh_from_db()
             self._check(warehouse)
 
-        assert warehouse.overrides[-1] is None
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
         assert AlertSeriesPoint.objects.for_team(self.team.pk).filter(alert_config=self.alert).count() == 10
 
     def test_changing_the_team_timezone_discards_the_cached_series(self) -> None:
@@ -165,7 +169,7 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
 
         # Cached buckets were aligned under the old timezone, so the new one must rebuild.
-        assert warehouse.overrides[-1] is None
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
 
     def test_a_first_row_alert_is_not_served_from_the_cache(self) -> None:
         warehouse = _Warehouse(self._dense(10))
@@ -191,7 +195,7 @@ class TestDetectorHistory(BaseTest):
             self.team.save(update_fields=["modifiers"])
             self._check(warehouse)
 
-        assert warehouse.overrides[-1] is None
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
 
     def test_a_retention_floor_change_discards_the_cached_series(self) -> None:
         warehouse = _Warehouse(self._dense(10))
@@ -200,7 +204,7 @@ class TestDetectorHistory(BaseTest):
             with patch(RETENTION_PATH, return_value=12):
                 self._check(warehouse)
 
-        assert warehouse.overrides[-1] is None
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
 
     def test_changing_property_access_restrictions_discards_the_cached_series(self) -> None:
         warehouse = _Warehouse(self._dense(10))
@@ -211,7 +215,7 @@ class TestDetectorHistory(BaseTest):
                 self._check(warehouse)
 
         # Cached buckets were computed before the property was restricted, so they must go.
-        assert warehouse.overrides[-1] is None
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
 
     @parameterized.expand([("inside_the_margin", 2), ("at_the_scan_boundary", 3)])
     def test_a_bucket_that_loses_its_events_loses_its_cached_value(self, _name: str, hours_ago: int) -> None:
@@ -243,7 +247,8 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
             self._check(warehouse)
 
-        assert warehouse.overrides == [None, None]
+        assert len(warehouse.overrides) == 2
+        assert all(warehouse.is_rebuild(o) for o in warehouse.overrides)
 
     def test_deleting_the_alert_takes_its_cached_series_with_it(self) -> None:
         warehouse = _Warehouse(self._dense(10))

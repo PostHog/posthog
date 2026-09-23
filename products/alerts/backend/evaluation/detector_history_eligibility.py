@@ -15,7 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -30,6 +30,19 @@ _MIN_WINDOW_HOURS = 2
 
 _RESERVED_ALIASES = {"timestamp", "event", "distinct_id", "person_id", "properties", "events"}
 _ROW_LOCAL_FIELD_ROOTS = ("timestamp", "event", "distinct_id", "person_id", "properties")
+# Deterministic scalar functions of the row alone — no clock, no randomness, no other rows.
+_ROW_LOCAL_CALLS = (
+    "toString",
+    "toInt",
+    "toFloat",
+    "toIntOrNull",
+    "toFloatOrNull",
+    "lower",
+    "upper",
+    "coalesce",
+    "ifNull",
+    "trim",
+)
 
 
 @frozen
@@ -39,16 +52,111 @@ class _SeriesAliases:
 
 
 @frozen
+class _OuterShape:
+    """A one-level projection over the aggregation: rename the bucket, combine the aggregates."""
+
+    bucket_alias: str
+    value_alias: str
+    inner_bucket: str
+    inner_fields: frozenset[str]
+
+
+_SCALAR_CALLS = ("greatest", "least", "round", "abs", "coalesce", "if")
+
+
+def _scalar_reads(expr: ast.Expr) -> frozenset[str] | None:
+    """The inner aliases a deterministic per-row scalar expression reads, or None if it is not one."""
+    if isinstance(expr, ast.Constant):
+        return frozenset()
+    if isinstance(expr, ast.Field):
+        return frozenset({str(expr.chain[0])}) if len(expr.chain) == 1 else None
+    if isinstance(expr, ast.ArithmeticOperation):
+        left, right = _scalar_reads(expr.left), _scalar_reads(expr.right)
+        return left | right if left is not None and right is not None else None
+    if isinstance(expr, ast.CompareOperation):
+        left, right = _scalar_reads(expr.left), _scalar_reads(expr.right)
+        return left | right if left is not None and right is not None else None
+    if isinstance(expr, ast.Call) and expr.name in _SCALAR_CALLS and not expr.params and not expr.distinct:
+        reads: frozenset[str] = frozenset()
+        for arg in expr.args:
+            found = _scalar_reads(arg)
+            if found is None:
+                return None
+            reads |= found
+        return reads
+    return None
+
+
+def _match_outer(query: ast.SelectQuery, column: str | None) -> _OuterShape | None:
+    """Recognize ``SELECT <bucket>, <scalar over aggregates> FROM (...) ORDER BY <bucket> ASC``."""
+    allowed = {"start", "end", "type", "select", "select_from", "order_by", "limit"}
+    if any(getattr(query, field_.name) for field_ in fields(query) if field_.name not in allowed):
+        return None
+    source = query.select_from
+    if source is None or not isinstance(source.table, ast.SelectQuery):
+        return None
+    if any(
+        getattr(source, field_.name)
+        for field_ in fields(source)
+        if field_.name not in {"start", "end", "type", "table", "alias"}
+    ):
+        return None
+    if len(query.select) != 2 or not all(isinstance(expr, ast.Alias) for expr in query.select):
+        return None
+    bucket, value = query.select
+    assert isinstance(bucket, ast.Alias) and isinstance(value, ast.Alias)
+    if bucket.alias in _RESERVED_ALIASES or value.alias in _RESERVED_ALIASES or bucket.alias == value.alias:
+        return None
+    if column is not None and value.alias != column:
+        return None
+    if not isinstance(bucket.expr, ast.Field) or len(bucket.expr.chain) != 1:
+        return None
+    reads = _scalar_reads(value.expr)
+    if not reads:
+        return None
+    if not query.order_by or len(query.order_by) != 1:
+        return None
+    order = query.order_by[0]
+    if (
+        order.order != "ASC"
+        or order.with_fill
+        or not isinstance(order.expr, ast.Field)
+        or order.expr.chain != [bucket.alias]
+    ):
+        return None
+    return _OuterShape(
+        bucket_alias=bucket.alias,
+        value_alias=value.alias,
+        inner_bucket=str(bucket.expr.chain[0]),
+        inner_fields=reads,
+    )
+
+
+@frozen
 class _HourlySeriesShape:
     window_hours: int
     bucket_alias: str
     value_alias: str
+    injected_limit: int | None
 
 
 class _HourlySeriesMatcher:
-    """Decide whether one parsed query is a single-level, bucket-local hourly aggregation."""
+    """Decide whether one parsed query is a bucket-local hourly aggregation.
 
-    def __init__(self, query: ast.SelectQuery, column: str | None) -> None:
+    With ``outer`` set, ``query`` is the inner aggregation of a recognized one-level projection:
+    its select may carry several aggregates for the projection to combine, the projection owns
+    ordering and the limit, and the output column names are the projection's.
+    """
+
+    def __init__(
+        self,
+        query: ast.SelectQuery,
+        column: str | None,
+        outer: _OuterShape | None = None,
+        explicit_limit: ast.Expr | None = None,
+    ) -> None:
+        self.outer = outer
+        self.explicit_limit = explicit_limit
         self.query = query
         self.column = column
 
@@ -116,6 +224,8 @@ class _HourlySeriesMatcher:
             return self._row_local(expr.expr)
         if isinstance(expr, ast.Tuple):
             return all(self._row_local(part) for part in expr.exprs)
+        if isinstance(expr, ast.Call) and expr.name in _ROW_LOCAL_CALLS and not expr.params and not expr.distinct:
+            return all(self._row_local(arg) for arg in expr.args)
         return False
 
     def _hours(self, expr: ast.Expr) -> int | None:
@@ -151,8 +261,11 @@ class _HourlySeriesMatcher:
         """The (bucket, value) output column names, when the shape allows reusing older buckets."""
         query = self.query
         # Fail closed for new clauses, as well as windows, joins, fill, CTEs and HAVING. Those can
-        # make one bucket depend on rows outside it.
-        allowed = {"start", "end", "type", "select", "select_from", "where", "group_by", "order_by", "limit"}
+        # make one bucket depend on rows outside it. The inner query of a projection owns neither
+        # ordering nor the limit — an inner LIMIT without ORDER BY would make the rows arbitrary.
+        allowed = {"start", "end", "type", "select", "select_from", "where", "group_by"}
+        if self.outer is None:
+            allowed = allowed | {"order_by", "limit"}
         if any(getattr(query, field_.name) for field_ in fields(query) if field_.name not in allowed):
             return None
         source = query.select_from
@@ -164,34 +277,52 @@ class _HourlySeriesMatcher:
             if field_.name not in {"start", "end", "type", "table"}
         ):
             return None
-        if len(query.select) != 2 or not all(isinstance(expr, ast.Alias) for expr in query.select):
+        if len(query.select) < 2 or not all(isinstance(expr, ast.Alias) for expr in query.select):
             return None
-        bucket, value = query.select
-        assert isinstance(bucket, ast.Alias) and isinstance(value, ast.Alias)
-        if bucket.alias in _RESERVED_ALIASES or value.alias in _RESERVED_ALIASES or bucket.alias == value.alias:
+        if self.outer is None and len(query.select) != 2:
             return None
-        if not self._bucket(bucket.expr) or not self._aggregate(value.expr):
+        buckets = [expr for expr in query.select if isinstance(expr, ast.Alias) and self._bucket(expr.expr)]
+        aggregates = [expr for expr in query.select if isinstance(expr, ast.Alias) and not self._bucket(expr.expr)]
+        if len(buckets) != 1:
             return None
-        # An explicit column must name the aggregate. Without one the extractor picks the single
-        # numeric column, which in this two-column shape is the aggregate either way.
-        if self.column is not None and value.alias != self.column:
+        bucket = buckets[0]
+        names = {expr.alias for expr in query.select if isinstance(expr, ast.Alias)}
+        if len(names) != len(query.select) or names & _RESERVED_ALIASES:
             return None
+        if not all(self._aggregate(value.expr) for value in aggregates):
+            return None
+        if self.outer is not None:
+            if bucket.alias != self.outer.inner_bucket:
+                return None
+            if not self.outer.inner_fields <= {value.alias for value in aggregates}:
+                return None
+            value_alias = self.outer.value_alias
+        else:
+            # An explicit column must name the aggregate. Without one the extractor picks the
+            # single numeric column, which in this two-column shape is the aggregate either way.
+            value_alias = aggregates[0].alias
+            if self.column is not None and value_alias != self.column:
+                return None
         if not query.group_by or len(query.group_by) != 1:
             return None
         group = query.group_by[0]
         if not isinstance(group, ast.Field) or group.chain != [bucket.alias]:
             return None
-        if not query.order_by or len(query.order_by) != 1:
-            return None
-        order = query.order_by[0]
-        if (
-            order.order != "ASC"
-            or order.with_fill
-            or not isinstance(order.expr, ast.Field)
-            or order.expr.chain != [bucket.alias]
-        ):
-            return None
-        return _SeriesAliases(bucket=bucket.alias, value=value.alias)
+        if self.outer is None:
+            if not query.order_by or len(query.order_by) != 1:
+                return None
+            order = query.order_by[0]
+            if (
+                order.order != "ASC"
+                or order.with_fill
+                or not isinstance(order.expr, ast.Field)
+                or order.expr.chain != [bucket.alias]
+            ):
+                return None
+            bucket_alias = bucket.alias
+        else:
+            bucket_alias = self.outer.bucket_alias
+        return _SeriesAliases(bucket=bucket_alias, value=value_alias)
 
     def _lower_bound_hours(self, predicate: ast.Expr) -> int | None:
         """The N of a ``timestamp >= toStartOfHour(now()) - INTERVAL N HOUR`` conjunct, else None."""
@@ -215,26 +346,30 @@ class _HourlySeriesMatcher:
             and self._end(predicate.right)
         )
 
-    def _window_hours(self) -> int | None:
-        """The number of hourly buckets the query asks for, when its bounds pin one.
+    def _window_hours(self) -> tuple[int, int | None] | None:
+        """The window in hourly buckets and the limit to inject, when the bounds pin a window.
 
         Every top-level conjunct must be one of the two exact bound shapes or contain no clock at
         all. A now()-dependent predicate in any other shape shifts which rows a bucket holds as
         time advances without moving the window this returns, so the cache would keep buckets a
         full scan no longer reads.
+
+        A query without an explicit LIMIT gets one derived from its own window, so the scans this
+        module issues can never come back truncated. An explicit LIMIT is the author's ceiling
+        and stays a hard constraint on the window instead.
         """
         query = self.query
         if not isinstance(query.where, ast.And):
             return None
-        row_limit = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
-        if query.limit is not None:
+        row_limit = MAX_SELECT_RETURNED_ROWS
+        if self.explicit_limit is not None:
             if (
-                not isinstance(query.limit, ast.Constant)
-                or type(query.limit.value) is not int
-                or query.limit.value <= 0
+                not isinstance(self.explicit_limit, ast.Constant)
+                or type(self.explicit_limit.value) is not int
+                or self.explicit_limit.value <= 0
             ):
                 return None
-            row_limit = min(query.limit.value, MAX_SELECT_RETURNED_ROWS)
+            row_limit = min(self.explicit_limit.value, MAX_SELECT_RETURNED_ROWS)
         hours: int | None = None
         has_end = False
         for predicate in query.where.exprs:
@@ -252,16 +387,20 @@ class _HourlySeriesMatcher:
             return None
         if not _MIN_WINDOW_HOURS < hours < row_limit - _ROW_LIMIT_HEADROOM:
             return None
-        return hours
+        injected = hours + _ROW_LIMIT_HEADROOM + 1 if self.explicit_limit is None else None
+        return hours, injected
 
     def match(self) -> _HourlySeriesShape | None:
         aliases = self._aliases()
         if aliases is None:
             return None
-        hours = self._window_hours()
-        if hours is None:
+        window = self._window_hours()
+        if window is None:
             return None
-        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value)
+        hours, injected = window
+        return _HourlySeriesShape(
+            window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value, injected_limit=injected
+        )
 
 
 @frozen
@@ -275,6 +414,7 @@ class DetectorSeriesQuery:
     window_hours: int
     bucket_alias: str
     value_alias: str
+    injected_limit: int | None
     source: dict = field(repr=False)
     parsed: ast.SelectQuery = field(repr=False)
 
@@ -282,20 +422,24 @@ class DetectorSeriesQuery:
     def column_names(self) -> list[str]:
         return [self.bucket_alias, self.value_alias]
 
+    def prepared(self, *, at: datetime, tz: str) -> dict:
+        """The full query as this module runs it: clock pinned, derived limit made explicit."""
+        return self._override(deepcopy(self.parsed), at=at, tz=tz)
+
     def narrowed_to(self, hours: int, *, at: datetime, tz: str) -> dict:
         """The same query, reading only the most recent ``hours`` buckets, anchored at ``at``.
 
         The added bound sits alongside the original one and is never wider, so the rows it keeps
-        are a suffix of the rows the original query would have grouped. Every ``now()`` in the
-        copy is replaced with ``at`` rendered in the team timezone, so the warehouse evaluates
-        the bounds the caller reasoned about — a warehouse clock that crosses an hour boundary
-        mid-check cannot shift the scan against the cache bookkeeping.
+        are a suffix of the rows the original query would have grouped.
         """
         if hours >= self.window_hours:
             raise ValueError(f"narrowing to {hours}h would not shorten a {self.window_hours}h window")
         narrowed = deepcopy(self.parsed)
-        assert isinstance(narrowed.where, ast.And)
-        narrowed.where.exprs.append(
+        events_query = narrowed
+        if narrowed.select_from is not None and isinstance(narrowed.select_from.table, ast.SelectQuery):
+            events_query = narrowed.select_from.table
+        assert isinstance(events_query.where, ast.And)
+        events_query.where.exprs.append(
             ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
@@ -306,10 +450,21 @@ class DetectorSeriesQuery:
                 ),
             )
         )
-        _pin_clock(narrowed, at=at, tz=tz)
+        return self._override(narrowed, at=at, tz=tz)
+
+    def _override(self, tree: ast.SelectQuery, *, at: datetime, tz: str) -> dict:
+        """Pin the clock, apply the derived limit, and wrap the tree as a query override.
+
+        Pinning replaces every ``now()`` with ``at`` rendered in the team timezone, so the
+        warehouse evaluates the bounds the caller reasoned about — a warehouse clock that crosses
+        an hour boundary mid-check cannot shift the scan against the cache bookkeeping.
+        """
+        _pin_clock(tree, at=at, tz=tz)
+        if self.injected_limit is not None and tree.limit is None:
+            tree.limit = ast.Constant(value=self.injected_limit)
         override = deepcopy(self.source)
         target = override["source"] if override.get("kind") == "DataVisualizationNode" else override
-        target["query"] = narrowed.to_hogql()
+        target["query"] = tree.to_hogql()
         return override
 
 
@@ -356,13 +511,22 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
         return None
     if not isinstance(parsed, ast.SelectQuery):
         return None
-    matched = _HourlySeriesMatcher(parsed, column).match()
+    if parsed.select_from is not None and isinstance(parsed.select_from.table, ast.SelectQuery):
+        outer = _match_outer(parsed, column)
+        if outer is None:
+            return None
+        matched = _HourlySeriesMatcher(
+            parsed.select_from.table, column, outer=outer, explicit_limit=parsed.limit
+        ).match()
+    else:
+        matched = _HourlySeriesMatcher(parsed, column, explicit_limit=parsed.limit).match()
     if matched is None:
         return None
     return DetectorSeriesQuery(
         window_hours=matched.window_hours,
         bucket_alias=matched.bucket_alias,
         value_alias=matched.value_alias,
+        injected_limit=matched.injected_limit,
         source=query,
         parsed=parsed,
     )
