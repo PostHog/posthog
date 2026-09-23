@@ -1226,7 +1226,7 @@ class SignalReportViewSet(
         Deduplication depends on this: a caller looking for the report it is about to file again
         searches for the entity, not for the title someone else wrote. So the search covers the
         report's own prose, its work-log notes, and its evidence in ClickHouse, and matches the
-        terms independently — see `report_search`.
+        terms independently. See `report_search`.
         """
         search = normalize_search_term(self.request.query_params.get("search") or "")
         if not search:

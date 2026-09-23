@@ -25,14 +25,13 @@ def report_search_terms(search: str) -> list[str]:
 def report_search_predicate(terms: list[str], evidence_report_ids: set[str]) -> Q:
     """Match a report whose own content holds every term, or whose evidence already matched.
 
-    Terms are matched independently rather than as one phrase, because a caller searching for a
-    report it has not read writes its own words — "Toronto registration" for a report titled
-    "Registration drops for users in Toronto". A phrase match finds neither that report nor the
-    duplicate the caller is about to file.
+    Terms match independently rather than as one phrase, because a caller searching for a report
+    it has not read writes its own words: "Toronto registration" for a report titled "Registration
+    drops for users in Toronto".
 
     A term may match the title, the summary, or a work-log note, and different terms may match
-    different fields: the summary a research pass rewrote and the note a later pass appended
-    describe the same report, so neither alone is the whole of what the report says.
+    different fields. A research pass rewrites the summary, so what an earlier pass found can live
+    on only in the work log.
 
     `evidence_report_ids` comes from ClickHouse (`fetch_report_ids_for_search_terms`) and already
     holds only reports matching every term, so it joins as an alternative to the Postgres match.

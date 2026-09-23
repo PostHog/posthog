@@ -70,7 +70,7 @@ class TestReportSearch(APIBaseTest):
         assert self._search("toronto") == [str(report.id)]
 
     def test_search_finds_a_report_whose_evidence_alone_matches(self) -> None:
-        # The identifier a caller searches for is often only in the evidence — an emitter's own
+        # The identifier a caller searches for is often only in the evidence: an emitter's own
         # record id never reaches the title. ClickHouse holds that, so it answers alongside Postgres.
         report = self._report("Checkout errors climbing")
         with patch(VIEWS_FETCH_BY_SEARCH, return_value={str(report.id)}) as fetch:

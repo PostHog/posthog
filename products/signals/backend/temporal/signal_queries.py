@@ -801,7 +801,7 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
     A report's evidence lives in ClickHouse, not Postgres: each signal carries the observation
     prose as `content` and the emitter's own record id as `metadata.source_id`. Deduplication
     against the inbox fails without this, because a caller searches for the entity it is looking
-    at — an event name, an endpoint, a ticket id — and that identifier often appears only in the
+    at: an event name, an endpoint, a ticket id. That identifier often appears only in the
     evidence, never in the title or the summary a later pass rewrote.
 
     Each term must appear in the description or the source id of the same report, but not
