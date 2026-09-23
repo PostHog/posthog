@@ -214,8 +214,7 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('### PostHog knowledge sources')).toBeLessThan(
                 result.indexOf('Using the `posthog` tool')
             )
-            // The mandate leads the description, ahead of the grammar it depends on, so
-            // a bare name here reads as a command the dispatcher does not accept.
+            // The mandate leads the description, ahead of the grammar it depends on.
             expect(result).toContain('`call docs-search <json_input>`')
         })
 

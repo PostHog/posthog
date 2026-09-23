@@ -63,10 +63,9 @@ function backtickedNames(text: string): string[] {
     return [...named].sort()
 }
 
-/** Catalog names the guidance mentions anywhere inside a backticked span, so a
- *  name still counts when the span holds a whole invocation
- *  (`call docs-search <json_input>`). Slugs and placeholders that share the shape
- *  drop out against the catalog. */
+/** Unlike `backtickedNames`, this scans inside the span, so a name still counts
+ *  when the span holds a whole invocation (`call docs-search <json_input>`). URL
+ *  slugs that share the shape drop out against the catalog. */
 function namedCatalogTools(text: string): string[] {
     const named = new Set<string>()
     for (const span of text.matchAll(/`([^`\n]+)`/g)) {
@@ -123,8 +122,6 @@ const CATALOG_TOOLS: Tool<ZodObjectAny>[] = CATALOG_TOOL_NAMES.map((name) => ({
     handler: async () => ({}),
 }))
 
-/** What the live dispatcher answers when an advertised name arrives as a command
- *  instead of as a `call` argument. */
 async function replyToBareCommand(name: string): Promise<string> {
     const exec = createExecTool(CATALOG_TOOLS, {} as Context, 'description', 'reference', undefined)
     return exec.handler({} as Context, { command: `${name} {}` }).then(
@@ -157,9 +154,8 @@ describe('exec guidance advertises only resolvable commands', () => {
         expect(advertised).toContain('docs-search')
     })
 
-    // Resolvable is not the same as reachable. The guidance names tools in prose, and
-    // an agent reading a CLI contract types the name as a command, so every name it
-    // uses must come back with the invocation that works rather than a dead end.
+    // Resolvable is not the same as reachable: an agent reading a CLI contract types
+    // an advertised name as a command, so the reply must carry the form that works.
     it('routes every advertised command to the invocation the dispatcher accepts', async () => {
         const deadEnds: string[] = []
         for (const name of advertised) {

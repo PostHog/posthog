@@ -95,7 +95,6 @@ export class InstructionsFormatter {
         const businessKnowledgeSearchEnabled = ctx.tools?.some(
             ({ name }) => name === 'business-knowledge-documents-search'
         )
-        // Tools mode registers each tool separately, so the agent calls them by name.
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
             businessKnowledgeSearchEnabled,
@@ -103,9 +102,9 @@ export class InstructionsFormatter {
         })
     }
 
-    /** The mandate leads the exec tool description, ahead of the section that teaches
-     *  the dispatcher grammar, so on that surface it must spell the invocation out.
-     *  A bare tool name reads as a command there, and the dispatcher rejects it. */
+    /** In tools mode a bare name is how the agent calls a tool. In exec mode this
+     *  mandate leads the tool description, ahead of the section that teaches the
+     *  dispatcher grammar, so a bare name reads as a command and is rejected. */
     private knowledgeFirstSectionsForCapabilities(opts: {
         docsSearchEnabled?: boolean
         businessKnowledgeSearchEnabled?: boolean
