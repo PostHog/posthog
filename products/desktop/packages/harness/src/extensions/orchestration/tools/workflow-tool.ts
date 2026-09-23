@@ -43,9 +43,9 @@ const CONCURRENCY = 8;
  * anchors, not a new settings surface.
  */
 const MODEL_TIERS: Record<string, string> = {
-  strong: "gpt-5.6-sol",
+  strong: "gpt-6-sol",
   medium: "gpt-5.6-terra",
-  cheap: "gpt-5.6-luna",
+  cheap: "gpt-6-luna",
 };
 
 /** A tier keyword resolves to its mapped id; anything else (a bare id or an explicit `provider/id`) passes through unchanged as an escape hatch. */

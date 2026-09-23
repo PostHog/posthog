@@ -36,6 +36,8 @@ from products.signals.backend.slack_formatting import (
     split_markdown_by_headings,
     strip_chart_references,
 )
+from products.signals.backend.slack_report_threads import record_report_slack_thread
+from products.slack_app.backend.facade.api import slack_followup_invite
 
 logger = structlog.get_logger(__name__)
 
@@ -80,8 +82,7 @@ DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport
 # way.
 MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
 
-# Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
-_SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
+_SCOUT_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=scout_report&utm_medium=slack"
 
 
 @dataclass(frozen=True)
@@ -148,42 +149,27 @@ def _slack_retry_after_seconds(exc: Exception) -> int | None:
     return min(retry_after, 3600) if retry_after is not None and retry_after > 0 else None
 
 
-def _post_scout_slack_reply(
-    client: object,
-    *,
-    channel_id: str,
-    thread_ts: object,
-    scout_team_id: int,
-    integration_team_id: int,
-) -> None:
-    """Invite @PostHog follow-ups when the Slack connection uses the scout's environment.
+def _scout_invite_footer(integration: Integration, *, scout_team_id: int, channel_id: str) -> list[dict]:
+    """The follow-up invite footer, when the Slack connection uses the scout's environment.
 
-    Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
-    or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
+    A mention is answered from the connected project, so a connection pointing somewhere else would
+    answer the follow-up from data the reader never asked about. Better to say nothing.
+
+    The invite is the shared report footer, so an install that lacks the scopes the bot needs is
+    offered the setup link instead of a mention nothing would answer.
     """
-    if integration_team_id != scout_team_id:
+    if integration.team_id != scout_team_id:
         logger.info(
             "scout_slack_followup_reply_skipped_environment_mismatch",
             scout_team_id=scout_team_id,
-            integration_team_id=integration_team_id,
+            integration_team_id=integration.team_id,
             channel=channel_id,
         )
-        return
-    if not isinstance(thread_ts, str) or not thread_ts:
-        return
-    try:
-        client.chat_postMessage(  # type: ignore[attr-defined]
-            channel=channel_id,
-            thread_ts=thread_ts,
-            blocks=[{"type": "context", "elements": [{"type": "mrkdwn", "text": _SCOUT_SLACK_REPLY_TEXT}]}],
-            text=_SCOUT_SLACK_REPLY_TEXT,
-            unfurl_links=False,
-            unfurl_media=False,
-        )
-    except Exception:
-        # Swallow everything (not just SlackApiError): a transport-level failure here must never
-        # fail the task and retry the already-delivered parent message.
-        logger.warning("scout_slack_followup_reply_failed", channel=channel_id, exc_info=True)
+        return []
+    # Consent is enforced before a scout report is generated, so the report this footer closes is
+    # already the nudge the AI gate exists to withhold.
+    invite = slack_followup_invite(integration, utm_tags=_SCOUT_INVITE_UTM_TAGS, ai_enabled=True)
+    return [invite] if invite is not None else []
 
 
 def _prettify_scout_name(skill_name: str) -> str:
@@ -293,11 +279,12 @@ def post_scout_emission_to_slack(
     channel_id = _slack_channel_id(channel)
 
     blocks, fallback = build_scout_slack_message(emission)
+    blocks.extend(_scout_invite_footer(integration, scout_team_id=emission.team_id, channel_id=channel_id))
     slack = SlackIntegration(integration)
     client = slack.client
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
-        response = client.chat_postMessage(
+        client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -315,14 +302,6 @@ def post_scout_emission_to_slack(
                 error_code=error_code,
             ) from exc
         raise
-
-    _post_scout_slack_reply(
-        client,
-        channel_id=channel_id,
-        thread_ts=response.get("ts"),
-        scout_team_id=emission.team_id,
-        integration_team_id=integration.team_id,
-    )
 
 
 def _report_header(report: SignalReport) -> str:
@@ -738,13 +717,17 @@ def post_scout_report_to_slack(
     )
     slack = SlackIntegration(integration)
     client = slack.client
+    lead_blocks = [
+        *messages.lead_blocks,
+        *_scout_invite_footer(integration, scout_team_id=run.team_id, channel_id=channel_id),
+    ]
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
         response = _post_scout_report_lead_message(
             client,
             channel_id=channel_id,
             delivery_id=delivery_id,
-            blocks=messages.lead_blocks,
+            blocks=lead_blocks,
             fallback=messages.fallback,
         )
     except SlackApiError as exc:
@@ -757,6 +740,17 @@ def post_scout_report_to_slack(
         raise
 
     thread_ts = response.get("ts")
+    if thread_ts:
+        record_report_slack_thread(
+            slack_workspace_id=integration.integration_id,
+            team_id=report.team_id,
+            report_id=str(report.id),
+            integration_id=integration.id,
+            # The conversation Slack posted into, which for a member target is the direct message
+            # it opened rather than the id we sent. An inbound mention names the conversation.
+            channel=str(response.get("channel") or channel_id),
+            thread_ts=str(thread_ts),
+        )
     if threaded:
         _post_scout_report_thread_replies(
             client,
@@ -767,11 +761,3 @@ def post_scout_report_to_slack(
             fallback=messages.fallback,
             schedule_retry=schedule_thread_reply_retry,
         )
-
-    _post_scout_slack_reply(
-        client,
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        scout_team_id=run.team_id,
-        integration_team_id=integration.team_id,
-    )

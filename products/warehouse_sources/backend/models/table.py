@@ -100,7 +100,64 @@ ExtractErrors = {
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
+    # TOO_MANY_REDIRECTS, raised when the URL pattern points at something that answers with a
+    # redirect (a website endpoint, a share link) instead of the object itself.
+    "Too many redirects": "The files URL redirected too many times, so PostHog couldn't read it. Check that the URL points straight at your bucket rather than at a share or website link, then try again.",
+    # UNKNOWN_IDENTIFIER. A column the table still expects is gone from the files, most often the
+    # incremental field of a source whose upstream schema changed.
+    "Unknown expression or function identifier": "A column PostHog expected isn't in your files any more. Refresh the table schema, then check the fields the sync is set to read.",
 }
+
+
+def raw_error_message(err: Exception) -> str:
+    """The engine's own message text, whichever engine raised it.
+
+    ClickHouse errors carry it on `.message`, which `wrap_clickhouse_query_error` may rewrite, so
+    the raw attribute is read before any wrapping. chdb runs out of process and `run_chdb_query`
+    re-raises its stderr as a RuntimeError, so there the message is just `str(err)`.
+    """
+    if isinstance(err, ClickHouseServerException) and err.message is not None:
+        return err.message
+    return str(err)
+
+
+def classify_warehouse_read_error(err: Exception) -> str | None:
+    """The user-facing message for a read failure that the customer's files, bucket or
+    configuration caused, or None when nothing recognizes the error.
+
+    Both engines read the same objects and report the same conditions, so one lookup over
+    `ExtractErrors` serves the chdb path and the ClickHouse path. A None is what sends an error to
+    tracking, so a needle belongs here only when the customer can act on the result.
+    """
+    message = raw_error_message(err)
+    for needle, user_facing_message in ExtractErrors.items():
+        if needle in message:
+            return user_facing_message
+    return None
+
+
+def is_expected_warehouse_read_error(err: Exception) -> bool:
+    """Whether a read failure is already understood, so reporting it adds nothing.
+
+    Two kinds qualify. The first is a cause the customer owns, which
+    `classify_warehouse_read_error` turns into an actionable message that the caller surfaces
+    instead. The second is a known-transient object-store blip, which the caller retries and which
+    `TransientObjectStoreError` already keeps out of tracking at the Temporal boundary. An
+    unrecognized error is neither, and must still reach error tracking so a real defect stays
+    visible.
+    """
+    if classify_warehouse_read_error(err) is not None:
+        return True
+
+    # Deferred: pipelines.core.delta.errors pulls in posthog.temporal.common.errors ->
+    # temporalio, which must stay off django.setup(), where this model loads in every process.
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415
+        TRANSIENT_OBJECT_STORE_ERRORS,
+    )
+
+    message = raw_error_message(err)
+    return any(needle in message for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+
 
 type DataWarehouseTableColumn = str | dict[str, Any]
 type DataWarehouseTableColumns = dict[str, DataWarehouseTableColumn]
@@ -130,6 +187,11 @@ REJECTED_COLUMN_NAME_CHARACTERS: frozenset[str] = frozenset("`\\\r\n\0")
 # (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
 # subprocess lets us kill it and degrade to the ClickHouse-cluster fallback.
 CHDB_QUERY_TIMEOUT_SECONDS = 30.0
+
+# The table size at which build_function_call switches from s3() to s3Cluster(), restated here
+# because it is not exported. A table at or above it is read across the cluster for a reason, so
+# the single embedded chdb process has no chance of reading it inside the budget above.
+S3_CLUSTER_TABLE_SIZE_MIB = 1024
 
 # ClickHouse's Hive-style partition inference guesses a type per partition-folder value it
 # samples (e.g. our internal `_ph_partition_key`), independently of the physical column type.
@@ -538,6 +600,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # A source added a column mid-stream, so the parquet parts under one table disagree on
         # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
         "reading from files with different schema is not possible",
+        # CHDB_QUERY_TIMEOUT_SECONDS is a deliberate budget, not a promise the read fits in it, so
+        # a dataset that outgrows the budget reports the size of the customer's table rather than
+        # a fault. get_count keeps the largest tables off chdb for the same reason.
+        "chdb query timed out after",
     )
     # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
     # On Linux the same error means the engine lost Delta support and has to reach error tracking.
@@ -551,6 +617,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return True
         return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
+    def _capture_unexpected_chdb_error(self, err: Exception) -> None:
+        """Report a chdb failure only when the ClickHouse fallback does not already answer it.
+
+        Both chdb call sites fall back to the cluster, so a failure the fallback absorbs costs the
+        user nothing, and a failure the customer owns is surfaced by the fallback with an
+        actionable message instead. Reporting either one buries the failures that need a person.
+        An unrecognized failure still reports, which is what keeps a chdb-side regression visible.
+        """
+        if self._is_suppressed_chdb_error(err) or is_expected_warehouse_read_error(err):
+            structlog.get_logger(__name__).debug("chdb read failed, reading through ClickHouse", exc_info=err)
+            return
+        capture_exception(err)
+
     def set_columns(self, columns: dict[str, Any]) -> None:
         """Assign ``columns`` and record its order together.
 
@@ -560,6 +639,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         self.columns = columns
         self.column_order = list(columns.keys())
+
+    def _nested_object_column_type(self, described_type: str) -> str:
+        """The type to store for a described column, as JSON where a key list would go stale.
+
+        Inference describes a JSON object as a named Tuple of the keys its sample held, and that Tuple becomes the
+        `structure` of every read, so a key outside the sample is unreadable. The JSON type carries no key list.
+        An array of objects and a Parquet-backed format keep the Tuple, which reads correctly and types each field.
+        """
+        if self.format != DataWarehouseTableFormat.JSON or clean_type(described_type) != "Tuple":
+            return described_type
+        return "JSON"
 
     def _describe_settings(self) -> dict[str, str | int]:
         settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
@@ -585,7 +675,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
-        logger = structlog.get_logger(__name__)
         try:
             # chdb hangs in CI during tests
             if TEST:
@@ -598,10 +687,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            if self._is_suppressed_chdb_error(chdb_error):
-                logger.debug(chdb_error)
-            else:
-                capture_exception(chdb_error)
+            self._capture_unexpected_chdb_error(chdb_error)
 
             tag_queries(
                 team_id=self.team.pk,
@@ -625,7 +711,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     break
                 except Exception as err:
                     if i >= attempts - 1:
-                        capture_exception(err)
+                        if not is_expected_warehouse_read_error(err):
+                            capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
                         else:
@@ -645,9 +732,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     f"PostHog can't use the column name {column_name!r}. Column names can't contain "
                     "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
                 )
+            clickhouse_type = self._nested_object_column_type(str(item[1]))
             columns[column_name] = DataWarehouseTableIntrospectedColumn(
-                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                clickhouse=item[1],
+                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(clickhouse_type)].__name__,
+                clickhouse=clickhouse_type,
                 valid=True,
             )
 
@@ -686,14 +774,29 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # has no non-empty/readable files for the configured format (e.g. before the
             # first successful sync). The caller handles a None return by resetting and
             # triggering a refresh.
-            if err.code != 636:
+            if err.code != 636 and not is_expected_warehouse_read_error(err):
                 capture_exception(err)
             return None
         except Exception as err:
-            capture_exception(err)
+            if not is_expected_warehouse_read_error(err):
+                capture_exception(err)
             return None
 
-    def get_count(self, safe_expose_ch_error=True) -> int:
+    def _count_fits_the_chdb_budget(self) -> bool:
+        """Whether counting this table is worth one attempt inside run_chdb_query's budget.
+
+        A count reads the whole dataset, and a table at or above the s3Cluster threshold cannot be
+        read that way by one embedded process inside a fixed budget. Trying anyway spends the whole
+        budget on every count of a large table before the cluster does the work regardless, so a
+        table whose recorded size is already over the threshold goes straight to ClickHouse.
+        A table with no recorded size counts as small, because that is what a table holds before
+        its first size calculation.
+        """
+        return self.size_in_s3_mib is None or self.size_in_s3_mib < S3_CLUSTER_TABLE_SIZE_MIB
+
+    def _count_with_chdb(self) -> int | None:
+        """The row count read by the embedded engine, or None when it cannot answer and ClickHouse
+        has to."""
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -705,41 +808,62 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
         try:
-            # chdb hangs in CI during tests
-            if TEST:
-                raise Exception()
-
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"SET use_hive_partitioning = 0; SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
             chdb_result = run_chdb_query(chdb_query)
             reader = csv.reader(StringIO(chdb_result))
-            result = [tuple(row) for row in reader]
+            rows = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            capture_exception(chdb_error)
+            self._capture_unexpected_chdb_error(chdb_error)
+            return None
 
-            try:
-                tag_queries(
-                    team_id=self.team.pk,
-                    table_id=self.id,
-                    warehouse_query=True,
-                    name="get_count",
-                    product=Product.WAREHOUSE,
-                    feature=Feature.QUERY,
-                )
+        # An empty read carries no count, so ClickHouse answers instead of an IndexError on the
+        # row that is not there.
+        return int(rows[0][0]) if rows else None
 
-                result = sync_execute(
-                    f"SELECT count() FROM {s3_table_func}",
-                    args=placeholder_context.values,
-                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
-                )
-            except Exception as err:
+    def get_count(self, safe_expose_ch_error=True) -> int:
+        # chdb hangs in CI during tests
+        if not TEST and self._count_fits_the_chdb_budget():
+            chdb_count = self._count_with_chdb()
+            if chdb_count is not None:
+                return chdb_count
+
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=self.format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=placeholder_context,
+            # The real size, so a table too large for one node is counted across the cluster
+            # instead of on the node chdb already could not finish on.
+            table_size_mib=self.size_in_s3_mib,
+        )
+        try:
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_count",
+                product=Product.WAREHOUSE,
+                feature=Feature.QUERY,
+            )
+
+            result = sync_execute(
+                f"SELECT count() FROM {s3_table_func}",
+                args=placeholder_context.values,
+                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
+            )
+        except Exception as err:
+            if not is_expected_warehouse_read_error(err):
                 capture_exception(err)
-                if safe_expose_ch_error:
-                    self._safe_expose_ch_error(err)
-                else:
-                    raise
+            if safe_expose_ch_error:
+                self._safe_expose_ch_error(err)
+            else:
+                raise
 
         return int(result[0][0])
 
@@ -1158,10 +1282,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         )
 
     def _safe_expose_ch_error(self, err):
-        # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may
-        # rewrite the message for some codes (e.g. STD_EXCEPTION), which would hide the substrings
-        # we key on here.
-        raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
+        # Classify against the raw ClickHouse message: wrap_clickhouse_query_error may rewrite the
+        # message for some codes (e.g. STD_EXCEPTION), which would hide the substrings we key on.
+        raw_message = raw_error_message(err)
+        user_facing_message = classify_warehouse_read_error(err)
         err = wrap_clickhouse_query_error(err)
 
         # Only ClickHouse ServerException-derived errors carry a `.message`. Everything else —
@@ -1194,9 +1318,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if any(needle in raw_message for needle in TRANSIENT_OBJECT_STORE_ERRORS):
             raise TransientObjectStoreError(raw_message)
 
-        for key, value in ExtractErrors.items():
-            if key in raw_message:
-                raise Exception(value)
+        if user_facing_message is not None:
+            raise Exception(user_facing_message)
 
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "

@@ -128,6 +128,25 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 				for index, field := range typed.Fields {
 					parts[index] = field.Name
 				}
+				target := bindings.Traversal(parts[:len(parts)-1])
+				if target.Explicit {
+					for _, field := range typed.Fields {
+						ignoredIdents[field] = true
+					}
+					if target.Failed {
+						failedAt := min(target.FailureAt, len(typed.Fields)-1)
+						validateUnknownIndexedField(&diagnostics, seen, target.Fields, typed.Fields[failedAt], document)
+					} else if target.Valid && target.PropertyNamespace != "" {
+						propertyAt := len(typed.Fields) - 1
+						if target.HasProperty {
+							propertyAt = target.PropertyAt
+						}
+						validateProperty(&diagnostics, seen, schema.Properties(target.PropertyNamespace), typed.Fields[propertyAt])
+					} else if target.Valid && target.Fields != nil {
+						validateIndexedField(&diagnostics, seen, target.Fields, typed.Fields[len(typed.Fields)-1], document)
+					}
+					return true
+				}
 				if namespace, ok := bindings.PropertyNamespace(parts); ok {
 					for _, field := range typed.Fields {
 						ignoredIdents[field] = true
@@ -224,6 +243,32 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding anal
 	*diagnostics = append(*diagnostics, Diagnostic{
 		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
 		Suggestions: closest(ident.Name, binding.Fields(), 5),
+	})
+}
+
+func validateIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident *clickhouse.Ident, document *analysis.Document) {
+	if _, ok := fields.Exact(ident.Name); ok {
+		return
+	}
+	validateUnknownIndexedField(diagnostics, seen, fields, ident, document)
+}
+
+func validateUnknownIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident *clickhouse.Ident, document *analysis.Document) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
+		return
+	}
+	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	var entries []catalog.Entry
+	if fields != nil {
+		entries = fields.Entries()
+	}
+	*diagnostics = append(*diagnostics, Diagnostic{
+		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
+		Suggestions: closest(ident.Name, slices.Values(entries), 5),
 	})
 }
 
