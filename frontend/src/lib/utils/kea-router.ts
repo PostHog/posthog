@@ -38,20 +38,19 @@ const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 // and `/project/settings` out, because they have their own entries in the redirects map.
 const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
 
-// A link written by an agent or by hand can carry a placeholder in place of the project id, for
-// example `/project/<project-id>/replay/home`. The regex above does not see a project prefix there,
-// so the path survives the strip pass, matches no route, and then has the current team prefixed onto
-// the whole thing. The address bar reads `/project/<team id>/project/%3Cproject-id%3E/replay/home`
-// behind the 404 scene, and the user has no way back. Drop the unusable segment instead, so the rest
-// of the link resolves against the current team. The lookahead keeps `/project/new` and
-// `/project/settings` out, because they have their own entries in the redirects map.
+// Same dead end as above, but for a segment that is there and names no project: a link written by an
+// agent or by hand can carry a placeholder, for example `/project/<project-id>/replay/home`. Drop
+// the unusable segment, so the rest of the link resolves against the current team rather than
+// reading `/project/<team id>/project/%3Cproject-id%3E/replay/home` behind the 404 scene.
+// The lookahead exempts the same two redirect routes.
 const unresolvableProjectIdentifierInUrlRegex = /^\/project\/(?!new(?=$|[/?#])|settings(?=$|[/?#]))[^/?#]+/
 
 function stripUnresolvableProjectIdentifier(path: string): string {
-    if (!unresolvableProjectIdentifierInUrlRegex.test(path)) {
+    const match = path.match(unresolvableProjectIdentifierInUrlRegex)
+    if (!match) {
         return path
     }
-    const stripped = path.replace(unresolvableProjectIdentifierInUrlRegex, '')
+    const stripped = path.slice(match[0].length)
     return stripped.startsWith('/') ? stripped : `/${stripped}`
 }
 
