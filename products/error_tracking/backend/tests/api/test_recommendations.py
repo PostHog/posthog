@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -416,9 +417,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         mock_alerts.assert_not_called()
         mock_long_running.assert_not_called()
 
-    def _make_frame(self, lang: str, resolved: bool, created_hours_ago: int = 1) -> ErrorTrackingStackFrame:
+    def _make_frame(
+        self, lang: str, resolved: bool, created_hours_ago: int = 1, team: Team | None = None
+    ) -> ErrorTrackingStackFrame:
         frame = ErrorTrackingStackFrame.objects.create(
-            team=self.team,
+            team=team or self.team,
             raw_id=str(uuid4()),
             contents={"lang": lang},
             resolved=resolved,
@@ -468,12 +471,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_source_maps_compute_ignores_other_teams_frames(self):
         other_team = self.organization.teams.create(name="other")
-        ErrorTrackingStackFrame.objects.create(
-            team=other_team,
-            raw_id=str(uuid4()),
-            contents={"lang": "javascript"},
-            resolved=False,
-        )
+        self._make_frame(lang="javascript", resolved=False, team=other_team)
 
         meta = SourceMapsRecommendation().compute(self.team)
 
@@ -495,12 +493,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         other_team = self.organization.teams.create(name="other")
         self._make_frame(lang="javascript", resolved=False)
         self._make_frame(lang="javascript", resolved=True)
-        ErrorTrackingStackFrame.objects.create(
-            team=other_team,
-            raw_id=str(uuid4()),
-            contents={"lang": "javascript"},
-            resolved=False,
-        )
+        self._make_frame(lang="javascript", resolved=False, team=other_team)
 
         metas = SourceMapsRecommendation().compute_batch([self.team.id, other_team.id])
 

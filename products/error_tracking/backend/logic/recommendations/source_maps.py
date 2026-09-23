@@ -50,13 +50,10 @@ class SourceMapsRecommendation(Recommendation):
     refresh_interval = timedelta(hours=6)
 
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
-        if not team_ids:
-            return {}
-
         since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
 
         with connection.cursor() as cursor:
-            cursor.execute(SAMPLE_QUERY, [list(team_ids), since, SAMPLE_FRAMES])
+            cursor.execute(SAMPLE_QUERY, [team_ids, since, SAMPLE_FRAMES])
             rows = cursor.fetchall()
 
         counts_by_team: dict[int, dict[str, int]] = {}
