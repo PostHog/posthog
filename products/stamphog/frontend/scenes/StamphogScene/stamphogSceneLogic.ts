@@ -84,6 +84,7 @@ export interface stamphogSceneLogicValues {
     openingInstallPage: boolean
     refreshingFromGitHub: boolean
     repoConfigs: StamphogRepoConfigApi[]
+    repoConfigsFailed: boolean
     repoConfigsLoading: boolean
     repoSearch: string
     repositoryToAdd: string | null
@@ -397,7 +398,17 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             addRepositorySuccess: (state, { config }) =>
                 sortByRepository([...state.filter((repo) => repo.id !== config.id), config]),
         },
-        repoSearch: ['', { setRepoSearch: (_, { search }) => search }],
+        // An added repository opens by itself, so a search that hides it has to go.
+        repoSearch: ['', { setRepoSearch: (_, { search }) => search, addRepositorySuccess: () => '' }],
+        // A failed first load leaves the list empty, which must not read as "no repositories yet".
+        repoConfigsFailed: [
+            false,
+            {
+                loadRepoConfigs: () => false,
+                loadRepoConfigsSuccess: () => false,
+                loadRepoConfigsFailure: () => true,
+            },
+        ],
         availableRepositoriesFailed: [
             false,
             {

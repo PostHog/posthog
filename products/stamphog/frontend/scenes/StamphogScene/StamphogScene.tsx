@@ -116,9 +116,28 @@ function SyncedBanner(): JSX.Element | null {
 }
 
 function RepoConfigsTable(): JSX.Element {
-    const { filteredRepoConfigs, repoConfigs, repoConfigsLoading, repoSearch, expandedRepoIds, hasInstallation } =
-        useValues(stamphogSceneLogic)
-    const { setRepoSearch, setRepoExpanded } = useActions(stamphogSceneLogic)
+    const {
+        filteredRepoConfigs,
+        repoConfigs,
+        repoConfigsLoading,
+        repoConfigsFailed,
+        repoSearch,
+        expandedRepoIds,
+        hasInstallation,
+    } = useValues(stamphogSceneLogic)
+    const { setRepoSearch, setRepoExpanded, loadRepoConfigs } = useActions(stamphogSceneLogic)
+
+    if (repoConfigsFailed && repoConfigs.length === 0) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: () => loadRepoConfigs() }}
+                data-attr="stamphog-repo-configs-error"
+            >
+                Could not load your repositories. This is usually temporary.
+            </LemonBanner>
+        )
+    }
 
     const columns: LemonTableColumns<StamphogRepoConfigApi> = [
         {
