@@ -422,6 +422,7 @@ export default function TaskDetailScreen() {
     async (
       text: string,
       attachments: PendingAttachment[],
+      source: "text" | "voice" = "text",
     ): Promise<boolean> => {
       if (!taskId) return false;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -431,7 +432,7 @@ export default function TaskDetailScreen() {
       // turn-end drain won't fire again on its own.
       const queue = useMessageQueueStore.getState();
       const editingId = queue.editingByTaskId[taskId];
-      if (editingId) {
+      if (editingId && source === "text") {
         queue.update(taskId, editingId, { content: text, attachments });
         queue.clearEditing(taskId);
         flushQueuedMessagesIfIdle(taskId);
@@ -871,6 +872,16 @@ export default function TaskDetailScreen() {
             adapter={composerAdapter}
             canChangeAdapter={!!session?.terminalStatus}
             onSend={handleSendPrompt}
+            voiceConversation={
+              taskId && session
+                ? {
+                    taskId,
+                    events: session.events,
+                    pending: session.isPromptPending,
+                    onSend: (text) => handleSendPrompt(text, [], "voice"),
+                  }
+                : undefined
+            }
             restoredDraft={restoredDraft}
             editing={!!editingQueuedId}
             onCancelEdit={handleCancelEdit}

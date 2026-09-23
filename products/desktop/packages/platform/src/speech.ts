@@ -20,3 +20,18 @@ export interface ISpeech {
 }
 
 export const SPEECH_SERVICE = Symbol.for("posthog.platform.speech");
+
+export interface LiveVoiceTransport {
+  createOffer(
+    onMessage: (message: string) => void,
+    onDisconnect: () => void,
+  ): Promise<string>;
+  acceptAnswer(sdp: string): Promise<void>;
+  send(message: string): void;
+  mute(): void;
+  close(): void;
+}
+
+export const LIVE_VOICE_TRANSPORT = Symbol.for(
+  "posthog.platform.liveVoiceTransport",
+);

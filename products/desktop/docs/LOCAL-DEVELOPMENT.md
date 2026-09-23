@@ -232,6 +232,30 @@ Local development can enable the panel with the renderer override:
 posthog.featureFlags.override({ "posthog-desktop-onboarding-test-tools": true })
 ```
 
+## Mobile voice conversations
+
+Deploy the task voice endpoint before the mobile client.
+Set `OPENAI_LIVE_API_KEY` on the Django server to a key with access to `gpt-live-1`.
+Enable `posthog-desktop-voice` for the staff test account in the analytics project used by both clients.
+The server checks staff status, task visibility, AI data processing consent, and the flag.
+A client flag override alone does not grant access.
+
+Build a new native app with `pnpm --filter @posthog/mobile ios` or `android`.
+The WebRTC module is not available in Expo Go or an older installed native build.
+Voice is not shown in the Expo web app.
+
+Open a task and select **Start voice**.
+Audio and recent conversation text go to OpenAI; session recording is disabled.
+Spoken requests use the task's existing text, queue, and steering paths.
+Answer permission requests in the app.
+Leaving the conversation, moving the app to the background, or selecting **End voice** stops microphone capture.
+The client ends voice after five minutes without stopping the task.
+
+Before rollout, test microphone denial, backgrounding, navigation, connection loss, a long reply, and a queued text edit on a phone.
+Check `Voice conversation started` and `Voice conversation ended` for connection failures and incomplete closes.
+The voice `$ai_generation` event uses provider-reported seconds; it does not report token counts or estimated costs.
+Audio, transcripts, SDP, and error text are excluded from these events.
+
 ## Troubleshooting
 
 ### Feature flags never enabled (flag-gated UI missing)

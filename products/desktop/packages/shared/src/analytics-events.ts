@@ -1606,8 +1606,18 @@ export interface AnnouncementAcknowledgedProperties
   ack_type: "ok" | "update";
 }
 
+export interface VoiceConversationEndedProperties {
+  task_id: string;
+  // Provider duration only. Do not capture audio, transcripts, SDP, or error text.
+  voice_duration_seconds: number | null;
+  finalized: boolean;
+  failed: boolean;
+}
+
 // Event names as constants
 export const ANALYTICS_EVENTS = {
+  VOICE_CONVERSATION_STARTED: "Voice conversation started",
+  VOICE_CONVERSATION_ENDED: "Voice conversation ended",
   // App lifecycle
   APP_STARTED: "App started",
   APP_QUIT: "App quit",
@@ -1836,6 +1846,8 @@ export const ANALYTICS_EVENTS = {
 
 // Event property mapping
 export type EventPropertyMap = {
+  [ANALYTICS_EVENTS.VOICE_CONVERSATION_STARTED]: { task_id: string };
+  [ANALYTICS_EVENTS.VOICE_CONVERSATION_ENDED]: VoiceConversationEndedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_VIEWED]: TaskListViewProperties | undefined;
   [ANALYTICS_EVENTS.TASK_CREATED]: TaskCreateProperties;
   [ANALYTICS_EVENTS.TASK_VIEWED]: TaskViewProperties;

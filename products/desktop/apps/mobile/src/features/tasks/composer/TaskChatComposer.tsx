@@ -32,6 +32,10 @@ import {
 } from "react-native";
 import { useVoiceRecording } from "@/features/chat";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
+import {
+  VoiceConversationControl,
+  type VoiceConversationProps,
+} from "@/features/voice/VoiceConversationControl";
 import { logger } from "@/lib/logger";
 import { useThemeColors } from "@/lib/theme";
 import type { MessagingMode } from "../stores/messagingModeStore";
@@ -67,6 +71,7 @@ interface TaskChatComposerProps {
     attachments: PendingAttachment[],
   ) => Promise<boolean>;
   onStop?: () => void;
+  voiceConversation?: VoiceConversationProps;
   disabled?: boolean;
   placeholder?: string;
   initialMessage?: string;
@@ -101,6 +106,7 @@ interface TaskChatComposerProps {
 export function TaskChatComposer({
   onSend,
   onStop,
+  voiceConversation,
   disabled = false,
   placeholder = "Ask a question",
   initialMessage,
@@ -127,6 +133,8 @@ export function TaskChatComposer({
   artifactsSlot,
 }: TaskChatComposerProps) {
   const themeColors = useThemeColors();
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [requestingMicrophone, setRequestingMicrophone] = useState(false);
   const { configOptions, modelGroups, hasLiveConfig } =
     useCloudTaskConfigOptions(adapter, model);
   const modelConfigOption = getModelConfigOption(configOptions);
@@ -299,8 +307,13 @@ export function TaskChatComposer({
   const handleMicPress = async () => {
     if (isRecording) {
       await stopRecording();
-    } else if (!isTranscribing) {
-      await startRecording();
+    } else if (!isTranscribing && !voiceActive && !requestingMicrophone) {
+      setRequestingMicrophone(true);
+      try {
+        await startRecording();
+      } finally {
+        setRequestingMicrophone(false);
+      }
     }
   };
 
@@ -329,6 +342,13 @@ export function TaskChatComposer({
 
   return (
     <>
+      {voiceConversation ? (
+        <VoiceConversationControl
+          {...voiceConversation}
+          disabled={requestingMicrophone || isRecording || isTranscribing}
+          onActiveChange={setVoiceActive}
+        />
+      ) : null}
       <View className="px-4">
         <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
           <View className="overflow-hidden rounded-lg border border-gray-6 bg-card">
@@ -448,7 +468,13 @@ export function TaskChatComposer({
                   canSend ? handleSend : showStop ? handleStop : handleMicPress
                 }
                 onLongPress={handleMicLongPress}
-                disabled={isTranscribing || disabled || sendBlocked}
+                disabled={
+                  isTranscribing ||
+                  disabled ||
+                  sendBlocked ||
+                  requestingMicrophone ||
+                  (voiceActive && !canSend && !showStop)
+                }
                 className={`h-9 w-9 items-center justify-center rounded-lg ${
                   canSend ? "bg-gray-12" : "bg-gray-3"
                 }`}
