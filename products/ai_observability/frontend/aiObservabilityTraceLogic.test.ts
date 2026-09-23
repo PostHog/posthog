@@ -120,6 +120,31 @@ describe('aiObservabilityTraceLogic', () => {
         })
     })
 
+    it.each([
+        ['clears the previous window when a different trace opens without a timestamp', 'other-trace-id', null],
+        ['keeps the window when the same trace reopens without a timestamp', 'test-trace-id', '2024-01-15T12:00:00Z'],
+    ])('%s', async (_, nextTraceId, expectedDateFrom) => {
+        const timestamp = '2024-01-15T12:00:00Z'
+        router.actions.push(
+            addProjectIdIfMissing(
+                combineUrl(urls.aiObservabilityTrace('test-trace-id', { timestamp })).url,
+                MOCK_TEAM_ID
+            )
+        )
+        await expectLogic(logic).toMatchValues({ dateRange: { dateFrom: timestamp, dateTo: null } })
+
+        router.actions.push(
+            addProjectIdIfMissing(
+                combineUrl(urls.aiObservabilityTrace(nextTraceId, { tab: 'evals' })).url,
+                MOCK_TEAM_ID
+            )
+        )
+        await expectLogic(logic).toMatchValues({
+            traceId: nextTraceId,
+            dateRange: { dateFrom: expectedDateFrom, dateTo: null },
+        })
+    })
+
     it('does not write the search query back to the URL when it originates from the URL', async () => {
         // Regression: setSearchQuery's listener wrote the query back to the URL, which
         // re-fired urlToAction, which called setSearchQuery again. For a query that the URL
