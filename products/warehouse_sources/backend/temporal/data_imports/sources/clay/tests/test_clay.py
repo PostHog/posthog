@@ -48,6 +48,8 @@ def test_flatten_record() -> None:
         "Work Email": {"status": "error", "error": "Provider request failed"},
         "Phone": {"status": "running"},
         "Notes": {"status": "empty"},
+        "Owner_fields": {"status": "success", "value": "user column", "fields": None},
+        "Owner": {"status": "success", "value": "Ada", "fields": {"title": "CEO"}},
     }
 
     assert flatten_record(record) == {
@@ -57,6 +59,8 @@ def test_flatten_record() -> None:
         "Work Email": None,
         "Phone": None,
         "Notes": None,
+        "Owner": "Ada",
+        "Owner_fields": "user column",
     }
 
 

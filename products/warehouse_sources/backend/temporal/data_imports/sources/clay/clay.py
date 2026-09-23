@@ -21,7 +21,7 @@ REQUEST_TIMEOUT_SECONDS = 30
 _TABLE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])t_[A-Za-z0-9]+")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ClayResumeConfig:
     next_cursor: str
 
@@ -35,7 +35,8 @@ def flatten_record(record: dict[str, Any]) -> dict[str, Any]:
     """Turn a record of Clay cells into a flat row.
 
     Only `success` cells carry a value. Enrichment columns return a structured object in the
-    cell's `fields`, which goes into a sibling `<column>_fields` column so it is not lost.
+    cell's `fields`, which goes into a sibling `<column>_fields` column so it is not lost. When the
+    table already has a column with that name, the real column wins and the metadata is dropped.
     """
     row: dict[str, Any] = {}
     for name, cell in record.items():
@@ -43,8 +44,9 @@ def flatten_record(record: dict[str, Any]) -> dict[str, Any]:
             row[name] = None
             continue
         row[name] = cell.get("value")
-        if cell.get("fields") is not None:
-            row[f"{name}_fields"] = cell["fields"]
+        fields_column = f"{name}_fields"
+        if cell.get("fields") is not None and fields_column not in record:
+            row[fields_column] = cell["fields"]
     return row
 
 
