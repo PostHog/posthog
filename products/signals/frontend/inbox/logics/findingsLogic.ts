@@ -408,8 +408,8 @@ export const findingsLogic = kea<findingsLogicType>([
                             byId.set(result.value.id, result.value)
                             return
                         }
-                        rememberUnreachableReport(fetchIds[index], result.reason)
-                        transientFailure = transientFailure || !isReportUnreachable(fetchIds[index])
+                        transientFailure =
+                            !rememberUnreachableReport(fetchIds[index], result.reason) || transientFailure
                     })
                     // Every fetch rejected and at least one can recover — throw BEFORE merging cached
                     // rows, so an outage flags `scoutReportsLoadFailed` (warning banner over the stale

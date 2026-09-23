@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api-error'
+
 /**
  * Report ids the report endpoint answered 404 for.
  *
@@ -12,11 +14,16 @@ export function isReportUnreachable(id: string): boolean {
     return unreachableReportIds.has(id)
 }
 
-/** Only a 404 is remembered. Every other failure can be transient, so the id stays retryable. */
-export function rememberUnreachableReport(id: string, reason: unknown): void {
-    if ((reason as { status?: number } | null)?.status === 404) {
-        unreachableReportIds.add(id)
+/**
+ * Remember a failure, and report whether it was terminal. Only a 404 is remembered. Every other
+ * failure can be transient, so the id stays retryable.
+ */
+export function rememberUnreachableReport(id: string, reason: unknown): boolean {
+    if (!(reason instanceof ApiError) || reason.status !== 404) {
+        return false
     }
+    unreachableReportIds.add(id)
+    return true
 }
 
 /** Test-only: the set outlives a logic mount by design. */

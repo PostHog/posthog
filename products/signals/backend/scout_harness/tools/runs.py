@@ -457,19 +457,21 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
         {
             report_id
             for _, _, _, emitted_report_ids, edited_report_ids in materialized
-            for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]
+            for report_id in _touched_report_ids(emitted_report_ids, edited_report_ids)
         },
         team_id=team_id,
     )
     kept_report_ids: dict[str, None] = {}
     for _, _, _, emitted_report_ids, edited_report_ids in materialized:
-        for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]:
+        for report_id in _touched_report_ids(emitted_report_ids, edited_report_ids):
             if report_id in deleted_report_ids:
                 continue
             if report_id not in kept_report_ids and len(kept_report_ids) < FLEET_FINDINGS_SUMMARY_REPORT_CAP:
                 kept_report_ids[report_id] = None
     for _, skill_name, _, emitted_report_ids, edited_report_ids in materialized:
-        if any(report_id in kept_report_ids for report_id in [*(emitted_report_ids or []), *(edited_report_ids or [])]):
+        if any(
+            report_id in kept_report_ids for report_id in _touched_report_ids(emitted_report_ids, edited_report_ids)
+        ):
             scouts.add(skill_name)
     # Authoring supersedes an edit of the same report — one report, one bucket.
     authored_reports: set[str] = set()
@@ -575,6 +577,11 @@ def _without_deleted_reports(rows: list[RunSummary], *, team_id: int) -> list[Ru
         )
         for row in rows
     ]
+
+
+def _touched_report_ids(emitted_report_ids: list[str] | None, edited_report_ids: list[str] | None) -> list[str]:
+    """Every report a run touched, edits first, so the recency order of the caps stays stable."""
+    return [*(edited_report_ids or []), *(emitted_report_ids or [])]
 
 
 def _deleted_report_ids(report_ids: Iterable[str], *, team_id: int) -> set[str]:
