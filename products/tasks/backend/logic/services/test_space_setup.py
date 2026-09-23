@@ -6,8 +6,9 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.contracts import SpaceFeatureRequest, SpaceGoalRequest, SpaceSetupRequest
 from products.tasks.backend.logic.services.space_setup import (
+    DEFAULT_AUTONOMY,
     GOAL_LOOP_BRIEFS,
-    SUMMARY_LOOP_MODEL,
+    LOOP_MODEL,
     build_space_setup_prompt,
 )
 from products.tasks.backend.presentation.serializers import ChannelSetupWriteSerializer
@@ -39,7 +40,7 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
         assert "at least 20% per week" in prompt
         assert "2026-12-01" in prompt
         assert "TMptMUUA" in prompt
-        assert SUMMARY_LOOP_MODEL in prompt
+        assert LOOP_MODEL in prompt
         assert "template-posthog-create-task" in prompt
         assert "decision rule" in prompt
         # The wiki refuses a page whose frontmatter does not name the channel, unquoted.
@@ -47,6 +48,13 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
         assert prompt.index("`workflows-enable`") < prompt.index("`workflows-test-run`")
         assert "leave the loops as drafts" not in prompt
         assert "team_id: 123" in prompt
+        # Every loop carries the same three contracts, and the space starts at the cautious level.
+        assert [brief.name for brief in GOAL_LOOP_BRIEFS] == ["Plan", "Build", "Measure", "Improve"]
+        assert prompt.count("GUARDRAILS (keep this block verbatim") == len(GOAL_LOOP_BRIEFS)
+        assert prompt.count("STATE (canvas shared state keys") == len(GOAL_LOOP_BRIEFS)
+        assert prompt.count("AUTONOMY (read `autonomy`") == len(GOAL_LOOP_BRIEFS)
+        assert f"autonomy: {DEFAULT_AUTONOMY}\n" in prompt
+        assert "### Step 5: make the first plan" in prompt
 
     def test_feature_prompt_has_no_loops(self):
         request = SpaceSetupRequest(
