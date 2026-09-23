@@ -487,7 +487,10 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or "
-        "facetAttribute. Its own filter is excluded so counts reflect the other active filters.",
+        "facetAttribute. Counts come from a pre-aggregated rollup honouring severityLevels, serviceNames and "
+        "this facet's own filter exclusion, but not body search, log-attribute filters, or resource-attribute "
+        "filters. When personId or sessionId is set, counts come from the logs table directly instead, "
+        "honouring every filter exactly.",
     )
     facetResourceAttribute = serializers.CharField(
         required=False,
