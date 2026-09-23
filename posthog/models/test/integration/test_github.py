@@ -141,8 +141,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("stacked", 200, [{"number": 2}], True),
+            ("stacked", 200, [{"head": {"repo": {"full_name": "Example/Repo"}}}], True),
             ("not_stacked", 200, [], False),
+            ("fork_only", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], False),
             ("error_status", 502, {"message": "Bad gateway"}, None),
         ]
     )

@@ -1794,8 +1794,9 @@ class GitHubIntegrationBase:
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
 
     def has_open_pull_request_with_base(self, repository: str, branch: str) -> bool:
-        """Whether an open pull request uses ``branch`` as its base, which means pull requests are stacked on it.
+        """Whether an open pull request from the same repository uses ``branch`` as its base, which means pull requests are stacked on it.
 
+        Fork pull requests do not count, because anyone can open one against any branch.
         Raises GitHubIntegrationError on a failed read, because a missed stacked pull request lets a
         caller commit under it.
         """
@@ -1803,7 +1804,7 @@ class GitHubIntegrationBase:
         response = self._installation_authenticated_get(
             f"https://api.github.com/repos/{repo_path}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
-            params={"base": branch, "state": "open", "per_page": 1},
+            params={"base": branch, "state": "open", "per_page": 100},
         )
         try:
             pulls = response.json() if response is not None and response.status_code == 200 else None
@@ -1814,7 +1815,11 @@ class GitHubIntegrationBase:
                 f"Could not list the pull requests based on {repository}:{branch}",
                 status_code=response.status_code if response is not None else None,
             )
-        return bool(pulls)
+        return any(
+            isinstance(pull, dict)
+            and str(((pull.get("head") or {}).get("repo") or {}).get("full_name", "")).lower() == repo_path.lower()
+            for pull in pulls
+        )
 
     def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
         """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.
