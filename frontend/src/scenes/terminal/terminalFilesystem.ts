@@ -30,6 +30,7 @@ export const MAX_TERMINAL_FILE_BYTES = 4 * 1024 * 1024
 
 export class TerminalFilesystem {
     private nextId = 1
+    readonly writers = new Set<string | number>()
     readonly root: TerminalNode = this.directory('')
     readonly recovery = this.directory('recovery', this.root)
 
