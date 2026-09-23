@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { WizardRunApi, WizardRunTaskApi } from '../generated/api.schemas'
 import { WizardRunSyncCard } from './WizardRunSyncCard'
+import { WizardRunSyncRunPicker } from './WizardRunSyncRunPicker'
 
 const run = {
     status: 'running',
@@ -14,6 +15,8 @@ const run = {
 const tasks = [{ name: 'Install the SDK', status: 'running' }] as WizardRunTaskApi[]
 
 describe('WizardRunSyncCard', () => {
+    afterEach(cleanup)
+
     it('shows the current task only during the running stage', () => {
         const props = {
             run,
@@ -33,5 +36,32 @@ describe('WizardRunSyncCard', () => {
         rerender(<WizardRunSyncCard {...props} run={{ ...run, status: 'completed', stage: null }} />)
         expect(screen.getByText('Completed successfully')).toBeTruthy()
         expect(screen.queryByText('Install the SDK')).toBeNull()
+    })
+
+    it('switches to a different run without restarting the selected run', () => {
+        const currentRun = { ...run, id: 'current', created_at: '2026-01-01T10:00:00Z' }
+        const otherRun = {
+            ...currentRun,
+            id: 'other',
+            workspace: { type: 'local_folder' as const, project_name: 'other-project' },
+        }
+        const onSelect = jest.fn()
+        render(
+            <WizardRunSyncRunPicker
+                runs={[currentRun, otherRun]}
+                activeCount={2}
+                currentRunId={currentRun.id}
+                onSelect={onSelect}
+            />
+        )
+
+        const trigger = screen.getByRole('button', { name: 'Switch Wizard run, 2 active runs' })
+        fireEvent.click(trigger)
+        fireEvent.click(screen.getByText('example-project'))
+        expect(onSelect).not.toHaveBeenCalled()
+
+        fireEvent.click(trigger)
+        fireEvent.click(screen.getByText('other-project'))
+        expect(onSelect).toHaveBeenCalledWith(otherRun)
     })
 })

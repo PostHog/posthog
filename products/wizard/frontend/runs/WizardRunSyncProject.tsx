@@ -47,18 +47,21 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
         <>
             {run && !runHidden && (
                 <div className="fixed bottom-5 right-5 z-[60] max-w-[calc(100vw-2.5rem)]">
-                    {activeCount > 1 && visibleRuns.length > 0 && (
-                        <WizardRunSyncRunPicker
-                            runs={visibleRuns}
-                            activeCount={activeCount}
-                            currentRunId={run.id}
-                            onSelect={selectSyncRun}
-                        />
-                    )}
                     <WizardRunSyncCard
                         run={run}
                         tasks={tasks}
                         elapsedSeconds={elapsedSeconds}
+                        runPicker={
+                            activeCount > 1 &&
+                            visibleRuns.length > 0 && (
+                                <WizardRunSyncRunPicker
+                                    runs={visibleRuns}
+                                    activeCount={activeCount}
+                                    currentRunId={run.id}
+                                    onSelect={selectSyncRun}
+                                />
+                            )
+                        }
                         onExpand={openDetails}
                         onClose={() => closeRun(run.id)}
                         onHide={() => {

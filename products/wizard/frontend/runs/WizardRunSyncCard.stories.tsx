@@ -73,8 +73,8 @@ type Story = StoryObj<typeof meta>
 
 export const Running: Story = {}
 
-export const Stacked: Story = {
-    render: function StackedRunCard(args) {
+export const MultipleRuns: Story = {
+    render: function MultipleRunCard(args) {
         const runs = [
             run,
             {
@@ -94,15 +94,19 @@ export const Stacked: Story = {
         const [selectedRun, setSelectedRun] = useState<WizardRunApi>(run)
 
         return (
-            <div className="w-[340px]">
-                <WizardRunSyncRunPicker
-                    runs={runs}
-                    activeCount={3}
-                    currentRunId={selectedRun.id}
-                    onSelect={setSelectedRun}
-                />
-                <WizardRunSyncCard {...args} run={selectedRun} tasks={selectedRun.id === run.id ? args.tasks : []} />
-            </div>
+            <WizardRunSyncCard
+                {...args}
+                run={selectedRun}
+                tasks={selectedRun.id === run.id ? args.tasks : []}
+                runPicker={
+                    <WizardRunSyncRunPicker
+                        runs={runs}
+                        activeCount={3}
+                        currentRunId={selectedRun.id}
+                        onSelect={setSelectedRun}
+                    />
+                }
+            />
         )
     },
 }

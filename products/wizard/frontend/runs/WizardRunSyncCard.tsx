@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { IconCheckCircle, IconCloud, IconExpand45, IconLaptop, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, Spinner } from '@posthog/lemon-ui'
 
@@ -43,6 +45,7 @@ export function WizardRunSyncCard({
     onExpand,
     onClose,
     onHide,
+    runPicker,
 }: {
     run: WizardRunApi
     tasks: readonly WizardRunTaskApi[]
@@ -50,6 +53,7 @@ export function WizardRunSyncCard({
     onExpand: () => void
     onClose: () => void
     onHide: () => void
+    runPicker?: ReactNode
 }): JSX.Element {
     const currentTask =
         run.status === 'running' && wizardRunStagePosition(run) === 2
@@ -67,6 +71,7 @@ export function WizardRunSyncCard({
             aria-live="polite"
             data-attr="wizard-run-sync-card"
         >
+            {runPicker && <div className="border-b border-primary px-2 py-1">{runPicker}</div>}
             <button
                 type="button"
                 onClick={onExpand}
