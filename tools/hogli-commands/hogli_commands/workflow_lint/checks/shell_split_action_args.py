@@ -123,7 +123,11 @@ def _load_action(action_dir: Path) -> dict[str, object] | None:
 
 
 def unparseable_actions(repo_root: Path) -> list[str]:
-    """Actions whose metadata exists but does not parse.
+    """Repo-relative paths of action metadata files that exist but do not parse.
+
+    The path, not the directory that holds it: an action may be spelled
+    ``action.yml`` or ``action.yaml``, and only the real one can be named in the
+    message or annotated by GitHub.
 
     These must be REPORTED, never skipped. `_load_action` returns None for an
     unreadable action exactly as it does for an absent one, so without this a
@@ -141,14 +145,14 @@ def unparseable_actions(repo_root: Path) -> list[str]:
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (yaml.YAMLError, OSError, UnicodeDecodeError):
-            broken.append(path.parent.relative_to(repo_root).as_posix())
+            broken.append(path.relative_to(repo_root).as_posix())
             continue
         # Parsing is not the bar; being usable is. An empty file, a list or a
         # scalar parses fine and `_load_action` discards it exactly as it
         # discards an absent action, so it would read here as an action with no
         # hazard rather than one nothing could inspect.
         if not isinstance(data, dict):
-            broken.append(path.parent.relative_to(repo_root).as_posix())
+            broken.append(path.relative_to(repo_root).as_posix())
     return broken
 
 
@@ -390,16 +394,16 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
                         file=str(self._repo_root / action),
                     )
                 )
-        for action in unparseable_actions(self._repo_root):
+        for metadata in unparseable_actions(self._repo_root):
             issues.append(
                 Issue(
-                    workflow=action,
+                    workflow=metadata,
                     message=(
-                        f"{action}/action.yml does not parse, so this check cannot tell whether it splices an "
+                        "does not parse, so this check cannot tell whether the action splices an "
                         "input into an inner shell — fix the file; an unreadable action reads exactly like a "
                         "safe one here"
                     ),
-                    file=str(self._repo_root / action),
+                    file=str(self._repo_root / metadata),
                 )
             )
         derived = derive_shell_split_inputs(self._repo_root)

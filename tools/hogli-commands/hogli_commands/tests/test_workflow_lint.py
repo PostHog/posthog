@@ -2426,16 +2426,19 @@ class TestShellSplitActionArgsCheck:
         derived = derive_shell_split_inputs(tmp_path)
         assert (".github/actions/probe" in derived) is spliced, derived
 
-    def test_an_action_whose_metadata_does_not_parse_is_reported(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("metadata", ["action.yml", "action.yaml"])
+    def test_an_action_whose_metadata_does_not_parse_is_reported(self, tmp_path: Path, metadata: str) -> None:
         # An unreadable action returns None exactly as an absent one does, so
         # without this the derivation finds nothing and the check passes clean --
         # the check silently doing nothing, which is what it exists to catch.
+        # Both spellings are reported under the name actually on disk, so the
+        # annotation has a real file to attach to.
         broken = tmp_path / ".github" / "actions" / "broken"
         broken.mkdir(parents=True)
-        (broken / "action.yml").write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
-        assert unparseable_actions(tmp_path) == [".github/actions/broken"]
+        (broken / metadata).write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [f".github/actions/broken/{metadata}"]
         issues = self._run(tmp_path, _caller("--config p/python"))
-        assert any("does not parse" in issue for issue in issues), issues
+        assert any(f"broken/{metadata}: does not parse" in issue for issue in issues), issues
 
     def test_derivation_reads_an_unquoted_shell_c_operand(self, tmp_path: Path) -> None:
         # `sh -c $FLAGS` is if anything worse than a quoted operand: the value is
@@ -2489,7 +2492,7 @@ class TestShellSplitActionArgsCheck:
         directory = tmp_path / ".github" / "actions" / "odd"
         directory.mkdir(parents=True)
         (directory / "action.yml").write_text(content, encoding="utf-8")
-        assert unparseable_actions(tmp_path) == [".github/actions/odd"], content
+        assert unparseable_actions(tmp_path) == [".github/actions/odd/action.yml"], content
 
     @pytest.mark.parametrize(
         ("run", "spliced"),
@@ -2531,7 +2534,7 @@ class TestShellSplitActionArgsCheck:
         directory = tmp_path / ".github" / "actions" / "binary"
         directory.mkdir(parents=True)
         (directory / "action.yml").write_bytes(b"name: A\ndescription: \xff\xfe\n")
-        assert unparseable_actions(tmp_path) == [".github/actions/binary"]
+        assert unparseable_actions(tmp_path) == [".github/actions/binary/action.yml"]
 
     def test_a_nested_action_with_unreadable_metadata_is_reported(self, tmp_path: Path) -> None:
         # The derivation scans `.github/actions/**` recursively; this alarm has to
@@ -2539,7 +2542,7 @@ class TestShellSplitActionArgsCheck:
         nested = tmp_path / ".github" / "actions" / "group" / "inner"
         nested.mkdir(parents=True)
         (nested / "action.yml").write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
-        assert unparseable_actions(tmp_path) == [".github/actions/group/inner"]
+        assert unparseable_actions(tmp_path) == [".github/actions/group/inner/action.yml"]
 
     def test_a_parseable_action_is_not_reported_as_unparseable(self, tmp_path: Path) -> None:
         self._write_action(tmp_path, "fine", """sh -c 'tool "$ARGS"'""")
