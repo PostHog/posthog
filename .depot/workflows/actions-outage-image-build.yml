@@ -53,6 +53,20 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            # Same step as in container-images-cd.yml, so an image built during an outage links
+            # backend exceptions to its release like a normal build does. Never blocks the build:
+            # the action turns the expected failures into an empty id with a warning, and
+            # continue-on-error plus the timeout cover the rest. An empty id is fine: the SDK
+            # treats a blank value as unset.
+            - name: Resolve error tracking release
+              id: release
+              continue-on-error: true
+              timeout-minutes: 5
+              uses: ./.depot/actions/resolve-error-tracking-release
+              with:
+                  api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  release-version: ${{ github.sha }}
+
             - name: Build and push
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -61,10 +75,12 @@ jobs:
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ github.sha }}
                   platforms: linux/amd64,linux/arm64
                   # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage creates. That stage builds in a container with no .git
-                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
