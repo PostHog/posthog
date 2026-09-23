@@ -26,7 +26,8 @@ export function isTemplateLanguage(language: string | undefined): language is Te
 /**
  * Whether the cursor sits inside a template expression: `{...}` for hog templates, `{{ ... }}` or
  * `{% ... %}` for liquid. Only text up to the cursor is considered, so an expression the user has
- * not closed yet still counts as open.
+ * not closed yet still counts as open. A cursor in a string literal of the expression does not count,
+ * because the backend gives no suggestions there.
  */
 export function insideTemplateExpression(textBeforeCursor: string, language: TemplateLanguage): boolean {
     if (language === HogLanguage.liquid) {
@@ -41,6 +42,9 @@ export function insideTemplateExpression(textBeforeCursor: string, language: Tem
                 }
             } else if (character === "'" || character === '"') {
                 index = skipStringLiteral(textBeforeCursor, index)
+                if (index >= textBeforeCursor.length) {
+                    return false
+                }
             } else if (delimiter === closingDelimiter) {
                 closingDelimiter = null
                 index++
@@ -58,6 +62,9 @@ export function insideTemplateExpression(textBeforeCursor: string, language: Tem
             // expression though: in the surrounding prose a lone quote (the apostrophe in
             // "don't") is plain text, not the start of a literal.
             index = skipStringLiteral(textBeforeCursor, index)
+            if (index >= textBeforeCursor.length) {
+                return false
+            }
         } else if (character === '{') {
             depth++
         } else if (character === '}' && depth > 0) {

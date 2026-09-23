@@ -66,6 +66,7 @@ describe('suggestionRetrigger', () => {
         [HogLanguage.hogTemplate, `Hi {concat('{"id": "', event.uuid, '"}')} thanks`, false],
         [HogLanguage.hogTemplate, "Hi {concat('}', person.pro", true],
         [HogLanguage.hogTemplate, "Don't forget {person.pro", true],
+        [HogLanguage.hogTemplate, "Hi {concat('person.pro", false],
         [HogLanguage.liquid, '{{ person.pro', true],
         [HogLanguage.liquid, '{% if person.pro', true],
         [HogLanguage.liquid, '{{ person.properties.name }} ', false],
@@ -78,6 +79,7 @@ describe('suggestionRetrigger', () => {
         [HogLanguage.liquid, '{{ person.name }} {% if person.pro', true],
         [HogLanguage.liquid, "Don't forget {{ person.name }} then {{ person.pro", true],
         [HogLanguage.liquid, '{{ "{%" }} outside', false],
+        [HogLanguage.liquid, "{{ 'person.pro", false],
         [HogLanguage.liquid, '{{ "escaped \\" }}" | append: person.pro', true],
         [HogLanguage.liquid, 'Hi there ', false],
     ])('insideTemplateExpression for %s with %p is %p', (language, before, expected) => {
