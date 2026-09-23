@@ -6,9 +6,11 @@ import {
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import {
     buildRunCreateRequest,
+    DEFAULT_COMPOSER_EFFORT,
     getCapabilityLadder,
     getDefaultModelForRuntimeAdapter,
     getEffortsForModel,
@@ -37,24 +39,44 @@ describe('composerModels', () => {
     ]
 
     it.each([
-        [null, 'gpt-5.6-sol'],
+        [null, 'gpt-6-sol'],
         ['gpt-5.6-luna', 'gpt-5.6-luna'],
         ['openai/gpt-5.6-luna', 'gpt-5.6-luna'],
-        ['claude-opus-4-8', 'gpt-5.6-sol'],
-        ['retired-model', 'gpt-5.6-sol'],
+        ['claude-opus-4-8', 'gpt-6-sol'],
+        ['retired-model', 'gpt-6-sol'],
     ])('selects the Codex default with preference %s', (preference, expected) => {
         const catalogue: ModelChoiceApi[] = [
             ...CATALOGUE,
             {
                 runtime_adapter: 'codex',
-                model: 'gpt-5.6-sol',
-                display_name: 'GPT-5.6 Sol',
-                supported_efforts: ['low', 'medium', 'high'],
+                model: 'gpt-6-sol',
+                display_name: 'GPT-6 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
             },
         ]
 
         expect(getDefaultModelForRuntimeAdapter(catalogue, RuntimeAdapterEnumApi.Codex, preference)).toBe(expected)
     })
+
+    // The picker opens on the Faster/Smarter slider only while the current pair is a rung, so a default
+    // that sits off the ladder sends every fresh selection to Advanced instead.
+    it.each([RuntimeAdapterEnumApi.Claude, RuntimeAdapterEnumApi.Codex])(
+        'defaults %s to a model the ladder runs at the default effort',
+        (adapter) => {
+            const catalogue: ModelChoiceApi[] = MODELS.map((model) => ({
+                runtime_adapter: model.runtimeAdapter as RuntimeAdapterEnumApi,
+                model: model.id,
+                display_name: model.label,
+                supported_efforts: [...model.reasoningEfforts] as ReasoningEffortEnumApi[],
+            }))
+            const model = getDefaultModelForRuntimeAdapter(catalogue, adapter, null)
+
+            expect(getCapabilityLadder(catalogue, adapter)).toContainEqual({
+                model,
+                effort: DEFAULT_COMPOSER_EFFORT,
+            })
+        }
+    )
 
     it.each([
         [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],

@@ -78,6 +78,14 @@ export function modelsForRuntimeAdapter(
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
+// The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
+// so the picker opens on Faster/Smarter; a default that sits off the ladder sends it straight to Advanced.
+function ladderDefaultModel(runtimeAdapter: RuntimeAdapterEnumApi): string | undefined {
+    return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].find(
+        (notch) => notch.effort === DEFAULT_COMPOSER_EFFORT
+    )?.model
+}
+
 export function getDefaultModelForRuntimeAdapter(
     catalogue: ModelChoiceApi[],
     runtimeAdapter: RuntimeAdapterEnumApi,
@@ -85,11 +93,10 @@ export function getDefaultModelForRuntimeAdapter(
 ): string | null {
     const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
     const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    const ladderModel = ladderDefaultModel(runtimeAdapter)
     return (
         models.find((option) => option.model === preferredModel)?.model ??
-        (runtimeAdapter === RuntimeAdapterEnumApi.Codex
-            ? models.find((option) => option.model === 'gpt-5.6-sol')?.model
-            : null) ??
+        models.find((option) => option.model === ladderModel)?.model ??
         models[0]?.model ??
         null
     )
