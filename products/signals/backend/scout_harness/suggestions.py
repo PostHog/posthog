@@ -436,18 +436,28 @@ def plan_suggestion_runs(
     candidates: list[_Candidate] = []
     for team_id, tier in tiers.items():
         state = state_by_team.get(team_id)
+        # The failure backoff does not apply to a quiet project. A `low_activity` stamp runs no
+        # scan and resets no count, so a project that tripped the breaker before it went quiet
+        # would wait up to 16 refresh windows for its next activity check, and nothing that can
+        # happen while it stays quiet would shorten that. The count stays on the row and holds
+        # the next scan back again as soon as one runs.
+        failures = (
+            0
+            if state is None or state.status == SignalScoutSuggestionSet.Status.LOW_ACTIVITY
+            else state.consecutive_failures
+        )
         if state is None or state.last_requested_at is None:
             never_generated, overdue_s = True, float("inf")
         else:
             never_generated = False
-            wait_s = _wait_s(state.consecutive_failures, settings, refresh_s=refresh_s)
+            wait_s = _wait_s(failures, settings, refresh_s=refresh_s)
             # A stale batch is due on the shorter window, and so is a failed one, since a failure
             # on a stale row replaces its status and would otherwise push the retry out to the full
             # window. Both only while the project is picking up batches at all — pulling a
             # repeatedly failing one forward would undo the breaker.
             if (
                 state.status in (SignalScoutSuggestionSet.Status.STALE, SignalScoutSuggestionSet.Status.FAILED)
-                and state.consecutive_failures < settings.failure_breaker_threshold
+                and failures < settings.failure_breaker_threshold
             ):
                 wait_s = min(wait_s, stale_refresh_s)
             overdue_s = (now - state.last_requested_at).total_seconds() - wait_s
@@ -459,7 +469,7 @@ def plan_suggestion_runs(
         # cooldown is shorter than the refresh window it would have to outlast.
         if (
             state is not None
-            and state.consecutive_failures >= settings.failure_breaker_threshold
+            and failures >= settings.failure_breaker_threshold
             and state.last_completed_at is not None
             and state.last_completed_at >= now - cooldown
         ):

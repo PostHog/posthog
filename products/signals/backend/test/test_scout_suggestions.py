@@ -345,6 +345,17 @@ class TestPlanSuggestionRuns(BaseTest):
         SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(last_requested_at=self.now - timedelta(days=8))
         self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [self.team.id])
 
+        # A breaker tripped before the project went quiet must not delay the activity check:
+        # no scan runs while the stamp holds, so nothing would clear the count.
+        SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(
+            consecutive_failures=5, last_completed_at=self.now - timedelta(days=8)
+        )
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [self.team.id])
+        long_cooldown = SuggestionSettings(
+            enabled=True, refresh_days=7, stale_refresh_days=1, failure_cooldown_hours=240
+        )
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(long_cooldown, self.now)], [self.team.id])
+
     def test_the_limit_overrides_the_per_tick_cap(self):
         self._enable_scout(self.team, engaged=True)
         second = self._team("second")
