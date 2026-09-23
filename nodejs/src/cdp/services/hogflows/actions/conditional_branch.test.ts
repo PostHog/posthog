@@ -139,6 +139,7 @@ describe('action.conditional_branch', () => {
             const result = await checkConditions(invocation, action)
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_1'),
+                matchedConditionIndex: 0,
             })
         })
 
@@ -155,6 +156,7 @@ describe('action.conditional_branch', () => {
             const result = await checkConditions(invocation, action)
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_2'),
+                matchedConditionIndex: 1,
             })
         })
 
@@ -171,7 +173,39 @@ describe('action.conditional_branch', () => {
             const result = await checkConditions(invocation, action)
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_1'),
+                matchedConditionIndex: 0,
             })
+        })
+
+        it.each([
+            [
+                'a named condition',
+                [
+                    { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                    { filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, name: 'Visited site' },
+                ],
+                'Matched Condition 2 (Visited site).',
+            ],
+            [
+                'an unnamed condition',
+                [{ filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, name: '  ' }],
+                'Matched Condition 1.',
+            ],
+            [
+                'no condition',
+                [{ filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters }],
+                'No condition matched. The run continues on the "No match" path.',
+            ],
+        ])('logs which branch the run took when it matches %s', async (_, conditions, expectedMessage) => {
+            action.config.conditions = conditions
+            invocation.state.currentAction = { id: action.id, startedAtTimestamp: DateTime.utc().toMillis() }
+            invocation.hogFlow.edges.push({ from: action.id, to: 'condition_1', type: 'continue' })
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+            const handler = new ConditionalBranchHandler({ getMemberCohortIds: () => Promise.resolve([]) })
+
+            await handler.execute({ invocation, action, result })
+
+            expect(result.logs.map((log) => log.message)).toEqual([`[Action:${action.id}] ${expectedMessage}`])
         })
     })
 
@@ -413,15 +447,18 @@ describe('action.conditional_branch', () => {
         })
 
         it('falls through to condition evaluation when eventMatched is not set', async () => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
             const result = await handler.execute({
                 invocation: waitInvocation,
                 action: waitAction,
-                result: createInvocationResult(waitInvocation),
+                result: invocationResult,
             })
 
             // Condition does not match, so the step reschedules itself rather than advancing.
             expect(result.scheduledAt).toBeDefined()
             expect(result.nextAction).toBeUndefined()
+            // A wait re-checks every hour, so a branch outcome log here would repeat on each check.
+            expect(invocationResult.logs).toEqual([])
         })
 
         it('does not fire immediately when the condition has no properties (always-true bytecode)', async () => {
