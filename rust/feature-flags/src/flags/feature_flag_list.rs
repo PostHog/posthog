@@ -11,34 +11,15 @@ use crate::metrics::consts::{
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
-/// Rows `from_pg_keeping_undecodable` left in its list with blank filters, by what failed.
-#[derive(Debug, Default)]
-pub struct UndecodableFlags {
-    /// Not a JSON object, so no format can be read from it.
-    pub non_object: HashSet<FeatureFlagId>,
-    /// A v1 object the typed decoder rejected.
-    pub unreadable_v1: HashSet<FeatureFlagId>,
-}
-
-impl UndecodableFlags {
-    pub fn is_empty(&self) -> bool {
-        self.non_object.is_empty() && self.unreadable_v1.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.non_object.len() + self.unreadable_v1.len()
-    }
-
-    pub fn contains(&self, id: &FeatureFlagId) -> bool {
-        self.non_object.contains(id) || self.unreadable_v1.contains(id)
-    }
-}
+/// Rows `from_pg_keeping_undecodable` kept with blank filters, mapped to whether the
+/// document was a v1 object the typed decoder rejected (`false`: not a JSON object).
+pub type UndecodableFlags = HashMap<FeatureFlagId, bool>;
 
 /// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
 /// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
@@ -151,19 +132,13 @@ impl FeatureFlagList {
         team_id: TeamId,
     ) -> Result<Vec<FeatureFlag>, FlagError> {
         let (mut flags, undecodable) = Self::from_pg_keeping_undecodable(client, team_id).await?;
-        if !undecodable.is_empty() {
-            flags.retain(|flag| !undecodable.contains(&flag.id));
-        }
+        flags.retain(|flag| !undecodable.contains_key(&flag.id));
         Ok(flags)
     }
 
     /// Like `from_pg`, but a row whose `filters` document could not be decoded stays in
-    /// the list with blank filters, and its id is returned by what failed. The cache
-    /// builder needs that identity: a non-object row is omitted whatever its lifecycle, an
-    /// evaluable unreadable v1 object takes its dependents with it, and an inactive
-    /// unreadable v1 object is kept blank and pre-seeded false, as the Python writer does
-    /// without ever reading an inactive document. Evaluation callers use `from_pg`, which
-    /// drops all of them.
+    /// the list with blank filters and is reported in `UndecodableFlags`, so the cache
+    /// builder can classify it and its dependents.
     pub async fn from_pg_keeping_undecodable(
         client: PostgresReader,
         team_id: TeamId,
@@ -243,22 +218,7 @@ impl FeatureFlagList {
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .map(|row| {
-                let FeatureFlagRow {
-                    id,
-                    team_id,
-                    name,
-                    key,
-                    filters,
-                    deleted,
-                    active,
-                    ensure_experience_continuity,
-                    version,
-                    evaluation_runtime,
-                    evaluation_tags,
-                    bucketing_identifier,
-                    has_experiment,
-                } = row;
-                let filters = crate::flags::config_format::decode_raw_filters(filters.0)
+                let filters = crate::flags::config_format::decode_raw_filters(row.filters.0)
                     .unwrap_or_else(|e| {
                         // Serde fails the whole `filters` struct when a required field is
                         // absent, so one bad property filter costs the entire flag. A property
@@ -269,8 +229,8 @@ impl FeatureFlagList {
                         // rest of its flags, rather than failing the read.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
-                            key,
-                            team_id,
+                            row.key,
+                            row.team_id,
                             e
                         );
                         // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
@@ -281,27 +241,23 @@ impl FeatureFlagList {
                             "component" => "feature_flag_list",
                         )
                         .increment(1);
-                        if e.object {
-                            undecodable.unreadable_v1.insert(id);
-                        } else {
-                            undecodable.non_object.insert(id);
-                        }
+                        undecodable.insert(row.id, e.object);
                         FlagFilters::default()
                     });
                 FeatureFlag {
-                    id,
-                    team_id,
-                    name,
-                    key,
+                    id: row.id,
+                    team_id: row.team_id,
+                    name: row.name,
+                    key: row.key,
                     filters,
-                    deleted,
-                    active,
-                    ensure_experience_continuity,
-                    version,
-                    evaluation_runtime,
-                    evaluation_tags,
-                    bucketing_identifier,
-                    has_experiment,
+                    deleted: row.deleted,
+                    active: row.active,
+                    ensure_experience_continuity: row.ensure_experience_continuity,
+                    version: row.version,
+                    evaluation_runtime: row.evaluation_runtime,
+                    evaluation_tags: row.evaluation_tags,
+                    bucketing_identifier: row.bucketing_identifier,
+                    has_experiment: row.has_experiment,
                 }
             })
             .collect();

@@ -100,27 +100,12 @@ impl FlagFilters {
     }
 }
 
-/// A stored document the decoder rejected. `object` tells a v1 object the typed decoder
-/// rejected apart from a document that is not an object at all: a producer may keep the
-/// former blank when it is never read, but the latter has no format to classify.
+/// A rejected document; `object` is true for a v1 object the typed decoder rejected.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
 pub(crate) struct FilterDecodeError {
     pub(crate) error: serde_json::Error,
     pub(crate) object: bool,
-}
-
-impl std::fmt::Display for FilterDecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.error.fmt(f)
-    }
-}
-
-impl std::fmt::Debug for FilterDecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FilterDecodeError")
-            .field("error", &self.error)
-            .field("object", &self.object)
-            .finish()
-    }
 }
 
 #[cfg(test)]

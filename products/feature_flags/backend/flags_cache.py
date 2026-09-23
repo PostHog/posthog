@@ -124,17 +124,13 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
 
 
 def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
-    """The flag ids a stored row's release conditions reference, read from its original
-    ``filters`` document, or ``None`` when this cache cannot carry the row.
+    """The flag ids a stored row's release conditions reference, or ``None`` when this
+    cache cannot carry the row.
 
-    The cache is read by v1 evaluators, so a document is classified before anything
-    serializes or reads it: an absent or numeric-1 ``version`` is v1, and every other
-    discriminator (``detect_config_format``) or a document that is not an object, JSON
-    null included, is omitted whatever the row's lifecycle, so an inactive v2 row is
-    never blanked into a v1-shaped entry. An unevaluable v1 object is never read (``_blank_inactive_filters``
-    empties it), so its content is not checked, which keeps the established handling of
-    old disabled rows. An evaluable v1 object whose conditions cannot be read is omitted
-    like any other malformed row instead of failing the team.
+    A non-object or non-v1 document is rejected whatever the row's lifecycle, so an
+    inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
+    not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
+    conditions cannot be read is rejected instead of failing the team.
     """
     filters = flag.filters
     if not isinstance(filters, Mapping):
@@ -144,7 +140,6 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     if not flag.active or flag.deleted:
         return set()
     try:
-        referenced_cohort_ids(filters)
         return _parse_dependency_ids(flag_dependency_properties(filters))
     except (AttributeError, TypeError):
         return None
@@ -164,7 +159,6 @@ def _omit_unsupported_flags(team_id: int, flags: list[FeatureFlag]) -> list[Feat
     """
     excluded: set[int] = set()
     dependents: dict[int, set[int]] = defaultdict(set)
-    supported: list[FeatureFlag] = []
     for flag in flags:
         dependency_ids = _stored_dependency_ids(flag)
         if dependency_ids is None:
@@ -172,7 +166,6 @@ def _omit_unsupported_flags(team_id: int, flags: list[FeatureFlag]) -> list[Feat
             continue
         for dependency_id in dependency_ids:
             dependents[dependency_id].add(flag.id)
-        supported.append(flag)
     unsupported = sorted(excluded)
     queue = deque(excluded)
     while queue:
@@ -187,7 +180,7 @@ def _omit_unsupported_flags(team_id: int, flags: list[FeatureFlag]) -> list[Feat
             unsupported_flag_ids=unsupported,
             dependent_flag_ids=sorted(excluded.difference(unsupported)),
         )
-    return [flag for flag in supported if flag.id not in excluded]
+    return [flag for flag in flags if flag.id not in excluded]
 
 
 # Cohort model fields that change only during recalculation, not definition edits.

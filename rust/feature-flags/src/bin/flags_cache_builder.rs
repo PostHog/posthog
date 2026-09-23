@@ -1307,10 +1307,9 @@ mod tests {
     async fn build_once_persists_the_team_without_its_unsupported_flags() {
         use common_hypercache::writer::HyperCacheWriter;
         use common_redis::{MockRedisClient, MockRedisValue};
-        use common_s3::MockS3Client;
         use feature_flags::flags::cache_writer::make_cache_config;
         use feature_flags::flags::flag_models::{FeatureFlagRow, HypercacheFlagsWrapper};
-        use feature_flags::utils::test_utils::TestContext;
+        use feature_flags::utils::test_utils::{dummy_s3_client, TestContext};
         use std::sync::Arc;
 
         let context = TestContext::new(None).await;
@@ -1341,13 +1340,10 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let mut s3 = MockS3Client::new();
-        s3.expect_put_string()
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
         let redis = Arc::new(MockRedisClient::new());
         let writer = HyperCacheWriter::new(
             redis.clone(),
-            Arc::new(s3),
+            dummy_s3_client(),
             make_cache_config("us-east-1", "test-bucket", None),
         );
 

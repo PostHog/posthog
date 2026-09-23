@@ -51,9 +51,9 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let (flags, undecodable) =
+    let (mut flags, undecodable) =
         FeatureFlagList::from_pg_keeping_undecodable(pg_reader.clone(), team_id).await?;
-    let mut flags = omit_unsupported_flags(team_id, flags, &undecodable);
+    omit_unsupported_flags(team_id, &mut flags, &undecodable);
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -77,30 +77,27 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
-/// Drop the stored rows this cache cannot carry, and the rows whose dependency
-/// conditions reference one, transitively: every non-v1 or non-object document whatever
-/// its lifecycle, so an inactive one is never blanked into a v1-shaped entry, and every
-/// evaluable v1 object the typed decoder rejected. An unevaluable unreadable v1 object
-/// stays, blank, because the Python writer never reads an inactive document either.
-///
-/// Mirrors Python's `_omit_unsupported_flags()` in
-/// `products/feature_flags/backend/flags_cache.py`, where the full rationale lives.
+/// Drop the stored rows this cache cannot carry, and their dependents transitively:
+/// non-v1 and non-object documents whatever their lifecycle, and evaluable v1 objects the
+/// typed decoder rejected. Mirrors Python's `_omit_unsupported_flags()` in
+/// `products/feature_flags/backend/flags_cache.py`, where the rationale lives.
 fn omit_unsupported_flags(
     team_id: TeamId,
-    flags: Vec<FeatureFlag>,
+    flags: &mut Vec<FeatureFlag>,
     undecodable: &UndecodableFlags,
-) -> Vec<FeatureFlag> {
+) {
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
             !flag.filters.is_v1()
-                || undecodable.non_object.contains(&flag.id)
-                || (is_evaluable(flag) && undecodable.unreadable_v1.contains(&flag.id))
+                || undecodable
+                    .get(&flag.id)
+                    .is_some_and(|&v1_object| !v1_object || is_evaluable(flag))
         })
         .map(|flag| flag.id)
         .collect();
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
-    for flag in flags.iter().filter(|flag| !unsupported.contains(&flag.id)) {
+    for flag in flags.iter() {
         for dependency_id in extract_direct_flag_dependency_ids(flag) {
             dependents.entry(dependency_id).or_default().push(flag.id);
         }
@@ -126,10 +123,7 @@ fn omit_unsupported_flags(
             "Omitted flags the service cache cannot carry"
         );
     }
-    flags
-        .into_iter()
-        .filter(|flag| !excluded.contains(&flag.id))
-        .collect()
+    flags.retain(|flag| !excluded.contains(&flag.id));
 }
 
 /// Keep the flags worth caching: evaluable ones, plus unevaluable ones that another
@@ -1158,18 +1152,17 @@ mod tests {
             .await
             .expect("Failed to build flags cache");
 
+        let rows = fixture["flags"].as_array().unwrap();
         let published: HashMap<i32, &FeatureFlag> =
             wrapper.flags.iter().map(|f| (f.id, f)).collect();
-        let expected_keys: HashSet<&str> = fixture["flags"]
-            .as_array()
-            .unwrap()
+        let expected_keys: HashSet<&str> = rows
             .iter()
             .filter(|flag| flag["expect"] == "kept")
             .map(|flag| flag["key"].as_str().unwrap())
             .collect();
         let published_keys: HashSet<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
         assert_eq!(published_keys, expected_keys);
-        for flag in fixture["flags"].as_array().unwrap() {
+        for flag in rows {
             let key = flag["key"].as_str().unwrap();
             if flag["expect"] != "kept" {
                 continue;
@@ -1195,16 +1188,11 @@ mod tests {
         }
 
         let meta = &wrapper.evaluation_metadata;
-        let expected_missing: Vec<i32> = fixture["flags"]
-            .as_array()
-            .unwrap()
+        let mut expected_missing: Vec<i32> = rows
             .iter()
             .filter(|flag| flag["missing_dependency"] == true)
             .map(|flag| ids[flag["key"].as_str().unwrap()])
-            .collect::<HashSet<_>>()
-            .into_iter()
             .collect();
-        let mut expected_missing = expected_missing;
         expected_missing.sort_unstable();
         assert_eq!(meta.flags_with_missing_deps, expected_missing);
         let staged: HashSet<i32> = meta.dependency_stages.iter().flatten().copied().collect();

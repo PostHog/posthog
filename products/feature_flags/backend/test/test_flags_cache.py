@@ -724,10 +724,8 @@ class TestOmitUnsupportedFlags(BaseTest):
             created_by=self.user,
             filters=cohort_filters(unsupported_cohort.id, version=2),
         )
-        dependent_filters = cohort_filters(dependent_cohort.id)
-        dependent_filters["groups"][0]["properties"].append(
-            {"type": "flag", "key": str(unsupported.id), "value": ["true"], "operator": "exact"}
-        )
+        dependent_filters = _dependency_filters(unsupported.id)
+        dependent_filters["groups"][0]["properties"].append({"type": "cohort", "value": dependent_cohort.id})
         FeatureFlag.objects.create(team=self.team, key="dependent", created_by=self.user, filters=dependent_filters)
 
         single = _get_feature_flags_for_service(self.team)
