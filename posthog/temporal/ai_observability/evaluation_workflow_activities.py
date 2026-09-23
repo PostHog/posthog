@@ -173,11 +173,12 @@ _STATUS_REASON_SUBJECTS = {
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email the members who kept this notification on when an evaluation enters the ERROR state."""
+    """Email org members who have not turned this notification off when an evaluation enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
-        from posthog.tasks.email import NotificationSetting, get_members_to_notify
+        from posthog.models.organization_notification_lock import notification_locks_for_users
+        from posthog.tasks.email import NotificationSetting, should_send_notification
 
         if not is_email_available(with_absolute_urls=True):
             logger.info(
@@ -214,8 +215,15 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             },
         )
 
-        for membership in get_members_to_notify(team, NotificationSetting.AI_EVALUATION_DISABLED.value):
-            message.add_user_recipient(membership.user)
+        members = list(team.organization.members.all())
+        locks_by_user = notification_locks_for_users(
+            [member.id for member in members], organization_id=team.organization_id
+        )
+        for member in members:
+            if should_send_notification(
+                member, NotificationSetting.AI_EVALUATION_DISABLED.value, locks=locks_by_user.get(member.id, {})
+            ):
+                message.add_user_recipient(member)
 
         if message.to:
             message.send()
