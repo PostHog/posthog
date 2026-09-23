@@ -28,6 +28,16 @@ describe('dataRetentionBannerLogic', () => {
             response: [200, { ...RETENTION, retention_months: null, retained_from: null }],
             retentionMonths: null,
         },
+        {
+            name: 'treats a backend that does not serve the route as retention not enforced',
+            response: [404, { detail: 'Endpoint not found.' }],
+            retentionMonths: null,
+        },
+        {
+            name: 'treats a route that refuses the method as retention not enforced',
+            response: [405, { detail: 'Method not allowed.' }],
+            retentionMonths: null,
+        },
     ])('$name', async ({ response, retentionMonths }) => {
         useMocks({ get: { '/api/projects/:team_id/events_retention/': () => response } })
         initKeaTests()
