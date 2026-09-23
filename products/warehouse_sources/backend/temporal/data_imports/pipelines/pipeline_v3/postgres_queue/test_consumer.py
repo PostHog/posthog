@@ -1503,11 +1503,33 @@ class TestFailRun:
         with (
             patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
             patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._auto_widen_reset_is_pending", return_value=False),
             patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
         ):
             await consumer._fail_run(batch, reason=reason, conn=consumer._poll_conn)
 
         assert mock_disable.called is expect_disabled
+
+    @pytest.mark.asyncio
+    async def test_a_widening_with_a_reset_already_stamped_keeps_its_schedule(self):
+        # Disabling pauses the schema's schedule, and the stamped reset only runs on the next
+        # scheduled sync — so disabling here strands the recovery the pipeline just promised.
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._auto_widen_reset_is_pending", return_value=True),
+            patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
+        ):
+            await consumer._fail_run(
+                batch,
+                reason="Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                conn=consumer._poll_conn,
+            )
+
+        assert mock_disable.called is False
 
     @pytest.mark.asyncio
     async def test_disable_failure_does_not_crash_the_consumer(self):
