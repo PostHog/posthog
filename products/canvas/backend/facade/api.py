@@ -8,9 +8,11 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db.models import Q, QuerySet
+from django.http import HttpRequest
 
 from posthog.models.user import User
 
+from products.canvas.backend.artifacts import canvas_artifact as _canvas_artifact
 from products.canvas.backend.connectors import (
     call_connector_tool as call_connector_tool,
     canvas_connectors_enabled as canvas_connectors_enabled,
@@ -18,6 +20,7 @@ from products.canvas.backend.connectors import (
     mcp_provider_host as mcp_provider_host,
     native_connector_listings as native_connector_listings,
 )
+from products.canvas.backend.facade.contracts import CanvasArtifact
 from products.canvas.backend.facade.enums import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,
@@ -42,6 +45,19 @@ from products.canvas.backend.teaching import (
 )
 from products.canvas.backend.welcome import seed_home_canvas as seed_home_canvas
 from products.tasks.backend.facade import api as tasks_facade
+
+
+def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none_match: str | None) -> CanvasArtifact:
+    request = HttpRequest()
+    request.META["HTTP_HOST"] = host
+    if if_none_match is not None:
+        request.META["HTTP_IF_NONE_MATCH"] = if_none_match
+    response = _canvas_artifact(request, token, artifact_path)
+    return CanvasArtifact(
+        status_code=response.status_code,
+        body=response.content,
+        headers=dict(response.items()),
+    )
 
 
 def canvas_belongs_to_task(*, team_id: int, user_id: int | None, canvas_id: str, task_id: UUID) -> bool:

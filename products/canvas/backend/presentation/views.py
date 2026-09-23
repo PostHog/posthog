@@ -6,7 +6,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
-from django.http import HttpResponseBase
+from django.http import HttpRequest, HttpResponse, HttpResponseBase
 from django.utils import timezone
 from django.utils.cache import get_conditional_response
 
@@ -42,6 +42,7 @@ from products.canvas.backend.facade.api import (
     connector_listings,
     default_layout,
     native_connector_listings,
+    render_canvas_artifact,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
     validate_layout,
@@ -102,6 +103,20 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
 logger = structlog.get_logger(__name__)
+
+
+def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
+    result = render_canvas_artifact(
+        host=request.get_host(),
+        token=token,
+        artifact_path=artifact_path,
+        if_none_match=request.headers.get("If-None-Match"),
+    )
+    response = HttpResponse(result.body, status=result.status_code)
+    for name, value in result.headers.items():
+        response[name] = value
+    return response
+
 
 # The canvas's build lifecycle returns this many recent builds (the published
 # build is unioned in even when it has aged past the window).

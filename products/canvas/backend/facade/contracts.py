@@ -40,3 +40,12 @@ class NotebookCanvasVersion:
     build_status: str | None
     artifact_url: str | None
     build_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class CanvasArtifact:
+    """The framework-free result returned when reading a built artifact."""
+
+    status_code: int
+    body: bytes
+    headers: dict[str, str]
