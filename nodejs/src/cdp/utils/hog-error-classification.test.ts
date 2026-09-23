@@ -58,6 +58,11 @@ describe('classifyHogError', () => {
                 { properties: { url: 'x' } },
             ],
             ["a throw in the filter's own code", "throw Error('boom')", {}],
+            [
+                'a membership test on a property the event does not have',
+                "return 'admin' in person.properties.roles",
+                { person: { id: 'p', properties: {} } },
+            ],
         ])('%s', async (_name, hog, globals) => {
             const error = await failingFilter(hog, globals)
             for (const bytecodeContract of [undefined, stale, runtime]) {

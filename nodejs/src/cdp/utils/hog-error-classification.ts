@@ -27,10 +27,12 @@ type KindedError = { kind: HogVMErrorKind }
 
 const KINDS: ReadonlySet<string> = new Set<HogVMErrorKind>(['contract', 'data', 'limit'])
 
+export const isHogVMErrorKind = (value: unknown): value is HogVMErrorKind =>
+    typeof value === 'string' && KINDS.has(value)
+
 // By shape rather than instanceof: the error can come from another realm or an older build of the VM.
 const isHogVMException = (error: object): error is KindedError =>
-    error instanceof HogVMException ||
-    (typeof (error as Partial<KindedError>).kind === 'string' && KINDS.has((error as KindedError).kind))
+    error instanceof HogVMException || isHogVMErrorKind((error as Partial<KindedError>).kind)
 
 /**
  * The first VM error in the cause chain. Callers wrap the VM's error to add the field or the

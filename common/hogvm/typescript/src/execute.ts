@@ -65,6 +65,15 @@ function callStl(
     }
 }
 
+/** For an operator whose failure depends on the values it met, such as `in` on a non-container. */
+function onValues<T>(fn: () => T): T {
+    try {
+        return fn()
+    } catch (error) {
+        throw asDataError(error)
+    }
+}
+
 function compareValues(left: any, right: any, operation: Operation): boolean {
     // SQL semantics: a null on either side of an ordering comparison is no match. Without this the
     // native operator reads null as 0, so `length(missing) < 3` would match.
@@ -532,24 +541,24 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     pushStack(compareValues(popStack(), popStack(), Operation.LT_EQ))
                     break
                 case Operation.LIKE:
-                    pushStack(like(popStack(), popStack(), false, options?.external?.regex?.match))
+                    pushStack(onValues(() => like(popStack(), popStack(), false, options?.external?.regex?.match)))
                     break
                 case Operation.ILIKE:
-                    pushStack(like(popStack(), popStack(), true, options?.external?.regex?.match))
+                    pushStack(onValues(() => like(popStack(), popStack(), true, options?.external?.regex?.match)))
                     break
                 case Operation.NOT_LIKE:
-                    pushStack(!like(popStack(), popStack(), false, options?.external?.regex?.match))
+                    pushStack(!onValues(() => like(popStack(), popStack(), false, options?.external?.regex?.match)))
                     break
                 case Operation.NOT_ILIKE:
-                    pushStack(!like(popStack(), popStack(), true, options?.external?.regex?.match))
+                    pushStack(!onValues(() => like(popStack(), popStack(), true, options?.external?.regex?.match)))
                     break
                 case Operation.IN:
                     temp = popStack()
-                    pushStack(popStack().includes(temp))
+                    pushStack(onValues(() => popStack().includes(temp)))
                     break
                 case Operation.NOT_IN:
                     temp = popStack()
-                    pushStack(!popStack().includes(temp))
+                    pushStack(!onValues(() => popStack().includes(temp)))
                     break
                 case Operation.REGEX:
                     temp = popStack()
@@ -670,16 +679,16 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     break
                 case Operation.GET_PROPERTY:
                     temp = popStack() // property
-                    pushStack(getNestedValue(popStack(), [temp]))
+                    pushStack(onValues(() => getNestedValue(popStack(), [temp])))
                     break
                 case Operation.GET_PROPERTY_NULLISH:
                     temp = popStack() // property
-                    pushStack(getNestedValue(popStack(), [temp], true))
+                    pushStack(onValues(() => getNestedValue(popStack(), [temp], true)))
                     break
                 case Operation.SET_PROPERTY:
                     temp = popStack() // value
                     temp2 = popStack() // field
-                    setNestedValue(popStack(), [temp2], temp)
+                    onValues(() => setNestedValue(popStack(), [temp2], temp))
                     break
                 case Operation.DICT:
                     temp = next() * 2 // number of elements to remove from the stack

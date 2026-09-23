@@ -55,6 +55,10 @@ describe('hogvm execute', () => {
             expect(kindOf(['_H', 1, op.STRING, 'boom', op.CALL_GLOBAL, 'Error', 1, op.THROW])).toBe('data')
             // A number where the library expects a string: the engine's TypeError depends on the event.
             expect(kindOf(['_H', 1, op.STRING, ',', op.INTEGER, 42, op.CALL_GLOBAL, 'splitByString', 2])).toBe('data')
+            // `'admin' in properties.roles` on an event without roles: `in` meets null.
+            expect(kindOf(['_H', 1, op.NULL, op.STRING, 'admin', op.IN])).toBe('data')
+            // An index of 0 that came from a value, so the compiler could not refuse it.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.ARRAY, 1, op.INTEGER, 0, op.GET_PROPERTY])).toBe('data')
         })
 
         test('limit: the program hit a resource ceiling', () => {
