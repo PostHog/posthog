@@ -167,9 +167,15 @@ describe('WatchFeedCard helpers', () => {
                 },
             },
             {
-                name: 'promotes the first reasoning sentence with citations stripped, rest becomes the body',
+                name: 'derives the headline from the summary when the summarizer title is empty',
+                scannerType: 'summarizer',
+                output: { title: '', summary: 'Applied a coupon (t 12). Abandoned the cart.' },
+                expected: { title: 'Applied a coupon (00:12).', body: { text: 'Abandoned the cart.' } },
+            },
+            {
+                name: 'promotes the first reasoning sentence, rest becomes the body',
                 scannerType: 'monitor',
-                output: { reasoning: 'Retried the form (t 45) twice. The submit then failed.' },
+                output: { reasoning: 'Retried the form twice. The submit then failed.' },
                 expected: { title: 'Retried the form twice.', body: { text: 'The submit then failed.' } },
             },
             {
@@ -185,10 +191,22 @@ describe('WatchFeedCard helpers', () => {
                 expected: { title: 'Scored 9.5 on intent.', body: { text: 'Opened billing after.' } },
             },
             {
-                name: 'leaves no floating punctuation where a mid-sentence citation was stripped',
+                name: 'keeps a mid-sentence citation as a plain timestamp',
                 scannerType: 'monitor',
                 output: { reasoning: 'Compares plans at (t 30), then upgrades. Leaves happy.' },
-                expected: { title: 'Compares plans at, then upgrades.', body: { text: 'Leaves happy.' } },
+                expected: { title: 'Compares plans at (00:30), then upgrades.', body: { text: 'Leaves happy.' } },
+            },
+            {
+                name: 'never splits the headline at an abbreviation',
+                scannerType: 'monitor',
+                output: { reasoning: 'Hit errors, e.g. a 500 vs. the usual 200. They retried.' },
+                expected: { title: 'Hit errors, e.g. a 500 vs. the usual 200.', body: { text: 'They retried.' } },
+            },
+            {
+                name: 'keeps the space before a dot-prefixed word',
+                scannerType: 'monitor',
+                output: { reasoning: 'Opened the .env editor. Saved it.' },
+                expected: { title: 'Opened the .env editor.', body: { text: 'Saved it.' } },
             },
         ])('$name', ({ scannerType, output, expected }) => {
             expect(watchCardHeadline(observation(scannerType, output))).toEqual(expected)

@@ -15,7 +15,7 @@ import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
-import { citedTimestampRange, stripCitations } from '../../utils/citations'
+import { citedTextToPlainText, citedTimestampRange } from '../../utils/citations'
 import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
@@ -153,9 +153,10 @@ export function observationClipRange(observation: ReplayObservationApi): { start
 
 /**
  * The card's bold headline, plus the prose that follows it. A summarizer authored a title, so its
- * summary rides along whole (with citation chips). The other types only wrote `reasoning`, so the
- * first sentence is promoted to the headline (citations stripped, since a chip mid-headline reads
- * as noise) and the rest becomes the body, already plain.
+ * summary rides along whole (with citation chips). Otherwise the first sentence of the prose the
+ * scan wrote (an untitled summarizer's summary, the other types' reasoning) is promoted to the
+ * headline, with citation chips rendered as plain timestamps so a mid-sentence citation keeps
+ * its place, and the rest becomes the body, already plain.
  */
 export function watchCardHeadline(
     observation: ReplayObservationApi
@@ -167,27 +168,28 @@ export function watchCardHeadline(
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
         (result.scanner_type as ScannerType | undefined)
-    if (scannerType === 'summarizer') {
-        if (typeof result.title !== 'string' || !result.title) {
-            return null
-        }
+    if (scannerType === 'summarizer' && typeof result.title === 'string' && result.title) {
         const summary = typeof result.summary === 'string' ? result.summary : null
         return {
             title: result.title,
             body: summary ? { text: summary, segments: result.summary_segments } : null,
         }
     }
-    if (typeof result.reasoning !== 'string' || !result.reasoning) {
+    // The summarizer's title defaults to "", so an untitled summary still earns a derived headline.
+    const [text, segments] =
+        scannerType === 'summarizer'
+            ? [result.summary, result.summary_segments]
+            : [result.reasoning, result.reasoning_segments]
+    if (typeof text !== 'string' || !text) {
         return null
     }
-    // A stripped mid-sentence citation leaves a floating space before the next punctuation mark
-    // ("plans at (t 30)," becomes "plans at ,"), so pull the punctuation back in.
-    const plain = stripCitations(result.reasoning, result.reasoning_segments).replace(/\s+([,.;:!?])/g, '$1')
+    const plain = citedTextToPlainText(text, segments).replace(/\s+/g, ' ').trim()
     if (!plain) {
         return null
     }
-    // A sentence ends at ./!/? followed by whitespace, so "9.5" or "$0.50" never splits mid-number.
-    const match = plain.match(/^[\s\S]*?[.!?](?=\s|$)/)
+    // A sentence ends at ./!/? followed by whitespace and a non-lowercase character, so "9.5",
+    // "$0.50", "e.g. this", and "8 vs. 5" never split mid-sentence.
+    const match = plain.match(/^[\s\S]*?[.!?](?=\s+(?![a-z])|$)/)
     const title = (match?.[0] ?? plain).trim()
     const rest = plain.slice(match?.[0]?.length ?? plain.length).trim()
     return { title, body: rest ? { text: rest } : null }
