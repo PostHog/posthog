@@ -30,7 +30,13 @@ interface AnomaliesWindow {
 // See _parse_bound in products/logs/backend/series_bands.py.
 function parseBound(value: string, now: dayjs.Dayjs): dayjs.Dayjs {
     const relative = dateStringToComponents(value)
-    return relative ? componentsToDayJs(relative, now) : dayjs(value)
+    if (!relative) {
+        return dayjs(value)
+    }
+    // The backend resolves a relative value in UTC, where a day is always 24 hours. Browser calendar
+    // arithmetic makes "-7d" 169 hours across a fall daylight saving change, and the backend refuses
+    // that span. Resolve in UTC, then return to the browser zone, which formatting and the calendar read.
+    return componentsToDayJs(relative, now.utc()).local()
 }
 
 export function resolveAnomaliesWindow(dateRange: DateRange, now: dayjs.Dayjs): AnomaliesWindow | null {
