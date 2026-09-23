@@ -138,6 +138,12 @@ export const BatchExportsCreateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                             })
                             .describe(
                                 'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
@@ -241,6 +247,12 @@ export const BatchExportsCreateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -296,6 +308,12 @@ export const BatchExportsCreateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -314,7 +332,7 @@ export const BatchExportsCreateBody = () => zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -333,7 +351,7 @@ export const BatchExportsCreateBody = () => zod
                                     .describe('Optional Snowflake role to assume for the session.'),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -587,6 +605,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                             })
                             .describe(
                                 'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
@@ -692,6 +716,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -747,6 +777,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -765,7 +801,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -784,7 +820,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe('Optional Snowflake role to assume for the session.'),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -936,15 +972,19 @@ export const FileDownloadBatchExportsCreateParams = () => zod.object({
 })
 
 export const fileDownloadBatchExportsCreateBodyOneFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyTwoFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCreateBody = () => zod.union([
@@ -974,7 +1014,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['events']),
@@ -1010,7 +1053,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['persons']),
@@ -1044,7 +1090,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['sessions']),
@@ -1078,7 +1127,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['hogql']),
@@ -1120,6 +1172,7 @@ export const FileDownloadBatchExportsCancelCreateParams = () => zod.object({
 })
 
 export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCancelCreateBody = () => zod
@@ -1148,7 +1201,10 @@ export const FileDownloadBatchExportsCancelCreateBody = () => zod
                     .number()
                     .min(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin)
                     .nullish()
-                    .describe('Split download into multiple files of at most this size in MB'),
+                    .default(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault)
+                    .describe(
+                        'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                    ),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod

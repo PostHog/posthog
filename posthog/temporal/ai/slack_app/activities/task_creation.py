@@ -547,6 +547,7 @@ def create_posthog_code_task_for_repo_activity(
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.signals.backend.facade import api as signals_facade
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -560,6 +561,16 @@ def create_posthog_code_task_for_repo_activity(
     )
     slack = SlackIntegration(integration)
 
+    # A report notification invites the reader to reply in its thread, so a mention there is the
+    # team discussing that report. Resolved from the context thread, which on a fork is the source
+    # thread the requester pointed at rather than the DM the agent answers in.
+    signal_report_id = signals_facade.report_id_for_slack_thread(
+        slack_workspace_id=inputs.slack_team_id,
+        team_id=integration.team_id,
+        channel=inputs.fork_source_channel or channel,
+        thread_ts=inputs.fork_source_thread_ts or thread_ts,
+    )
+
     # Idempotency guard: this activity runs under a retry policy but its body is
     # not idempotent — a retry after the mapping write would create a duplicate
     # task + run, re-upload attachments to it, and repoint the mapping, orphaning
@@ -567,11 +578,19 @@ def create_posthog_code_task_for_repo_activity(
     # concurrent duplicate mention) already created the task; a run left QUEUED
     # by a crash before the workflow start is recovered by the orphaned-run
     # janitor sweep.
-    if SlackThreadTaskMapping.objects.filter(
+    existing_mapping = SlackThreadTaskMapping.objects.filter(
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
-    ).exists():
+    ).first()
+    if existing_mapping is not None:
+        if signal_report_id:
+            tasks_facade.link_slack_task_to_report(
+                team_id=integration.team_id,
+                task_id=str(existing_mapping.task_id),
+                report_id=signal_report_id,
+                user_id=user_id,
+            )
         logger.info(
             "posthog_code_task_creation_skipped_existing_mapping",
             channel=channel,
@@ -662,9 +681,7 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    run_prefs = resolve_run_preferences(
-        integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
-    )
+    run_prefs = resolve_run_preferences(override=model_override, team_id=integration.team_id, user_id=user_id)
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -783,6 +800,13 @@ def create_posthog_code_task_for_repo_activity(
                 "conversation_type": resolve_conversation_type(slack, event, channel),
             },
         )
+        if signal_report_id:
+            tasks_facade.link_slack_task_to_report(
+                team_id=integration.team_id,
+                task_id=str(created.task_id),
+                report_id=signal_report_id,
+                user_id=user_id,
+            )
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {
             "slack_mention_workflow_id": derive_mention_workflow_id(inputs),
@@ -1179,8 +1203,6 @@ def _apply_followup_model_override(
 
 
 def _run_preference_state(
-    integration: Any,
-    slack_user_id: str,
     model_override: SlackAppModelOverride | None,
     *,
     team_id: int | None = None,
@@ -1195,9 +1217,7 @@ def _run_preference_state(
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
     from products.tasks.backend.facade.run_config import get_provider_for_runtime_adapter
 
-    prefs = resolve_run_preferences(
-        integration, slack_user_id, override=model_override, team_id=team_id, user_id=user_id
-    )
+    prefs = resolve_run_preferences(override=model_override, team_id=team_id, user_id=user_id)
     provider = get_provider_for_runtime_adapter(prefs.runtime_adapter) if prefs.runtime_adapter else None
     state = {
         "runtime_adapter": prefs.runtime_adapter,
@@ -1361,11 +1381,7 @@ def _resume_task_with_new_run(
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
-    extra_state.update(
-        _run_preference_state(
-            integration, slack_user_id, model_override, team_id=mapping.task.team_id, user_id=run_actor.id
-        )
-    )
+    extra_state.update(_run_preference_state(model_override, team_id=mapping.task.team_id, user_id=run_actor.id))
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)

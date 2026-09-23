@@ -2,15 +2,13 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
@@ -74,14 +72,14 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPS_FLYER,
+            name=ExternalDataSourceType.APPSFLYER,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports and raw event data into the PostHog Data warehouse.
 
 You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. The app id is your app's identifier as shown in the dashboard (e.g. `id123456789` for iOS or the package name for Android). Add one source per app.
 
-Raw data tables (installs, in-app events and ad revenue) and the Master API report need an AppsFlyer subscription that covers them, and AppsFlyer limits raw data to the last 90 days.""",
+Raw data tables (installs, in-app events, uninstalls, retargeting conversions, ad revenue and the Protect360 fraud reports) and the Master API report need an AppsFlyer subscription that covers them. Protect360 is a separate add-on. AppsFlyer limits raw data to the last 90 days.""",
             iconPath="/static/services/appsflyer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsflyer",
             releaseStatus=ReleaseStatus.ALPHA,

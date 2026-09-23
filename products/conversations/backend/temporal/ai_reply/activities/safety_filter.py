@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as json_module
+from dataclasses import replace
 
 import structlog
 from pydantic import BaseModel, Field, model_validator
@@ -11,8 +12,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SAFETY_REVIEWED_CHARS, UTILITY_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_output_config,
     anthropic_text,
     create_message,
+    llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
@@ -116,7 +119,7 @@ class SafetyFilterResult(BaseModel):
 async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
-        return await _safety_filter(input)
+        return replace(await _safety_filter(input), llm_attempts=llm_attempts())
 
 
 async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:
@@ -131,6 +134,7 @@ async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:
         max_tokens=512,
         system=SAFETY_FILTER_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        **anthropic_output_config(SafetyFilterResult),
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)

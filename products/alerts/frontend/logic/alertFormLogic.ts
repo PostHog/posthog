@@ -10,7 +10,6 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,7 +22,7 @@ import {
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
-import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
 import {
     blockSubmitWithoutEntitlement,
@@ -31,6 +30,7 @@ import {
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import {
     AlertConfig,
@@ -66,6 +66,7 @@ export type AlertFormType = Pick<
     | 'config'
     | 'skip_weekend'
     | 'schedule_restriction'
+    | 'schedule_start_time'
     | 'detector_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
@@ -73,7 +74,7 @@ export type AlertFormType = Pick<
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
-    insight?: QueryBasedInsightModel['id']
+    insight?: InsightModel['id']
 }
 
 export function canCheckOngoingInterval(
@@ -142,7 +143,7 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
@@ -233,7 +234,7 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+function alertToFormType(alert: AlertType, insightId: InsightModel['id']): AlertFormType {
     return {
         ...alert,
         insight: insightId,
@@ -556,6 +557,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
+                          schedule_start_time: null,
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,

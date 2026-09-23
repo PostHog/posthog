@@ -74,6 +74,7 @@ from products.data_warehouse.backend.facade.api import trigger_external_data_wor
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
+    FIXED_DISMISSAL_REASONS,
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -101,7 +102,7 @@ from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
-    pr_bearing_task_run_filter,
+    implementation_pr_report_filter,
     primary_pull_request,
     pull_request_matches_id,
 )
@@ -112,8 +113,9 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
-    SignalReportAssignment,
+    SignalReportCheck,
     SignalReportRefund,
+    SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -122,6 +124,7 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -131,20 +134,30 @@ from products.signals.backend.report_claims import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
+    source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_merge import (
+    MAX_MERGE_REASON_LENGTH,
+    MAX_MERGE_SOURCE_REPORTS,
+    ReportMergeError,
+    merge_reports,
+    was_merged_away,
+)
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PullRequestChecksPermissionErrorSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCiStatusesResponseSerializer,
     PullRequestCommentsResponseSerializer,
@@ -159,12 +172,14 @@ from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportCheckSerializer,
     SignalReportClaimSerializer,
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
     SignalReportMetricRefreshResponseSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
+    SignalReportSuggestedReviewersArtefactSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -177,6 +192,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -489,6 +505,8 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SignalTeamConfigSerializer
     queryset = SignalTeamConfig.objects.all()
     scope_object = "task"
+    # The read returns the singleton, so the inherited limit and offset params are noise.
+    pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -502,11 +520,15 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # notification channel) would 404.
         return get_or_create_team_extension(self.team, SignalTeamConfig)
 
-    @extend_schema(exclude=True)
+    @extend_schema(summary="Read the project's signals config")
     def list(self, request: Request, *args, **kwargs) -> Response:
         return Response(SignalTeamConfigSerializer(self._get_config()).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="Update the project's signals config",
+        description="Partial update of the per-project singleton. Omitted fields keep their value.",
+        responses={200: SignalTeamConfigSerializer},
+    )
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
         serializer = self.get_serializer(config, data=request.data, partial=True)
@@ -552,9 +574,14 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
-    "or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, "
-    "analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent "
-    "picked the wrong repository for this report, ideally with corrected_repository naming the right one. "
+    "or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing "
+    "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
+    "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
+    "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
+    "The dismissal codes (report_unclear, analysis_wrong, "
+    "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
+    "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
+    "corrected_repository naming the right one. "
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
@@ -574,15 +601,17 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 
 
 # Statuses a report may have held before being archived and still resolve straight out of the
-# archive. Mirrors the model's direct resolve edge (pending_input | ready -> resolved) plus RESOLVED
-# itself, which makes archive-then-resolve idempotent. FAILED is deliberately absent: the model
-# refuses FAILED -> RESOLVED directly, and suppression must not launder a failed report into looking
-# successfully resolved.
+# archive. Mirrors the model's direct resolve edge (pending_input | ready | failed -> resolved) plus
+# RESOLVED itself, which makes archive-then-resolve idempotent. FAILED is included because the model
+# resolves it directly, so the archive grants it nothing it could not do on its own — and a report
+# that failed in processing can only be reached through the archive, because a dismissal is the only
+# verdict the inbox offered it.
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.FAILED,
     }
 )
 
@@ -599,8 +628,9 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is only allowed from a researched status (ready or "
-            "pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). "
+            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "or from a suppressed report that previously held one of those statuses or resolved. "
+            "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one."
         ),
     )
@@ -650,6 +680,13 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if (
+            attrs.get("state") == SignalReportState.POTENTIAL
+            and attrs.get("dismissal_reason") in FIXED_DISMISSAL_REASONS
+        ):
+            raise serializers.ValidationError(
+                {"dismissal_reason": "A fixed reason requires state 'suppressed' or 'resolved'."}
+            )
         if attrs.get("corrected_repository") and attrs.get("dismissal_reason") != DISMISSAL_REASON_WRONG_REPO:
             raise serializers.ValidationError(
                 {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}
@@ -710,6 +747,59 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
+
+
+class SignalReportMergeRequestSerializer(serializers.Serializer):
+    source_report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        # min_length (not just allow_empty=False) so the non-empty constraint surfaces as
+        # `minItems: 1` in the generated OpenAPI/Zod schema, not only as a server-side 400.
+        min_length=1,
+        max_length=MAX_MERGE_SOURCE_REPORTS,
+        help_text=(
+            "Ids of the duplicate reports to fold into this one (1–"
+            f"{MAX_MERGE_SOURCE_REPORTS}). Each must be a live report in this project: a resolved, "
+            "archived or deleted report is rejected with 409, as is the survivor's own id. "
+            "Duplicates in the list are de-duplicated. The whole merge applies or none of it does."
+        ),
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_MERGE_REASON_LENGTH,
+        help_text=(
+            "Optional one-line explanation of why these reports are the same issue. Recorded on "
+            "each source's 'duplicate of' link and on the note left on the survivor. Capped at "
+            f"{MAX_MERGE_REASON_LENGTH} characters."
+        ),
+    )
+
+
+class SignalReportMergeSourceResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(source="report_id", help_text="The source report that was folded into the survivor.")
+    artefacts_moved = serializers.IntegerField(
+        help_text=(
+            "How many work-log artefacts moved to the survivor (notes, findings, pull requests, "
+            "task runs, code references, commits, checks)."
+        )
+    )
+    signals_moved = serializers.IntegerField(
+        help_text=(
+            "How many signals the survivor took on from this source. The signals themselves are "
+            "re-pointed asynchronously; the survivor's counters already include them."
+        )
+    )
+    released_claim = serializers.BooleanField(
+        help_text="Whether an active work claim held by another actor was released before the move."
+    )
+
+
+class SignalReportMergeResponseSerializer(serializers.Serializer):
+    report = SignalReportSerializer(help_text="The surviving report, as it stands after the merge.")
+    sources = SignalReportMergeSourceResultSerializer(
+        many=True, help_text="One result per merged source, in request order (after de-duplication)."
+    )
 
 
 # The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
@@ -885,8 +975,42 @@ def _is_person_at_the_ui(request: Request) -> bool:
     )
 
 
+# Each action reports only its own outcomes, so the two sets stay separate rather than becoming one
+# union that would admit a deletion status on the reingest response.
+SIGNAL_REPORT_DELETION_STATUSES = ["deletion_started", "already_running"]
+SIGNAL_REPORT_REINGESTION_STATUSES = ["reingestion_started", "already_running"]
+
+
+class SignalReportDeletionStatusSerializer(serializers.Serializer):
+    """Envelope the report delete returns once it has kicked off the deletion workflow."""
+
+    status = serializers.ChoiceField(
+        choices=SIGNAL_REPORT_DELETION_STATUSES,
+        help_text="Whether this request started the deletion or found one already running.",
+    )
+    report_id = serializers.UUIDField(help_text="Report being deleted.")
+
+
+class SignalReportReingestionStatusSerializer(serializers.Serializer):
+    """Envelope the reingest action returns once it has kicked off the re-ingestion workflow."""
+
+    status = serializers.ChoiceField(
+        choices=SIGNAL_REPORT_REINGESTION_STATUSES,
+        help_text="Whether this request started the re-ingestion or found one already running.",
+    )
+    report_id = serializers.UUIDField(help_text="Report being re-ingested.")
+
+
 @extend_schema_view(
-    destroy=extend_schema(exclude=True),
+    destroy=extend_schema(
+        summary="Delete a signal report",
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportDeletionStatusSerializer, description="A deletion is already running."
+            ),
+            202: OpenApiResponse(response=SignalReportDeletionStatusSerializer, description="Deletion started."),
+        },
+    ),
 )
 class SignalReportViewSet(
     TeamAndOrgViewSetMixin,
@@ -911,7 +1035,7 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -940,6 +1064,8 @@ class SignalReportViewSet(
             return self._apply_signal_report_status_filter(qs)
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
+            qs = self._annotate_artefact_count(qs)
+            qs = self._annotate_channel_id(qs)
             qs = self._apply_signal_report_status_filter(qs)
             qs = self._annotate_latest_actionability(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
@@ -947,6 +1073,14 @@ class SignalReportViewSet(
             return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
+        renders_reports = self.action not in self._MULTI_REPORT_ACTIONS
+        if renders_reports:
+            # Both annotations are correlated subqueries, and the ordering keeps the page limit
+            # above them, so they cost one artefact walk per report in the team. `list` reads them
+            # from batched per-page lookups instead, and `bulk_state` renders no report.
+            qs = self._annotate_artefact_count(qs)
+        if renders_reports or self._channel_id_filter_value() is not None:
+            qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
@@ -961,14 +1095,20 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_inbox_scope_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability(qs)
+        if self._needs_already_addressed_annotation():
+            qs = self._annotate_latest_already_addressed(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
         qs = self._apply_signal_report_inbox_view_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
-        qs = self._annotate_signal_report_priority(qs)
-        qs = self._apply_signal_report_priority_filter(qs)
+        if self._needs_priority_annotation():
+            qs = self._annotate_signal_report_priority(qs)
+            qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        qs = self._annotate_is_suggested_reviewer(qs)
+        if self.action != "bulk_state":
+            # `bulk_state` answers with one outcome per id, never a serialized report, and the list
+            # ordering that reads this value does not apply to it either.
+            qs = self._annotate_is_suggested_reviewer(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
             # This correlated subquery costs one walk per matching row. Multi-row actions do
             # without it: `list` serves the value from a batched page lookup, and `bulk_state`
@@ -977,6 +1117,10 @@ class SignalReportViewSet(
         return qs
 
     def _scope_signal_report_queryset(self, queryset):
+        # The serializer renders the reverse OneToOne rows inline.
+        return queryset.filter(team=self.team).select_related("refund", "tracker_issue")
+
+    def _annotate_artefact_count(self, queryset):
         # Count via a correlated subquery instead of `Count("artefacts")`,
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
@@ -986,6 +1130,11 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
+        return queryset.annotate(
+            artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField())
+        )
+
+    def _annotate_channel_id(self, queryset):
         channel_id_subquery = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
@@ -1002,15 +1151,7 @@ class SignalReportViewSet(
             .values("live_channel_id")[:1],
             output_field=models.UUIDField(),
         )
-        # The serializer renders the reverse OneToOne rows inline.
-        return (
-            queryset.filter(team=self.team)
-            .select_related("refund", "tracker_issue")
-            .annotate(
-                artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
-                channel_id=channel_id_subquery,
-            )
-        )
+        return queryset.annotate(channel_id=channel_id_subquery)
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
     # actions) and is never a valid filter target either.
@@ -1191,41 +1332,8 @@ class SignalReportViewSet(
         report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
         return queryset.filter(id__in=report_ids_with_prefix)
 
-    def _latest_suggested_reviewers_qs(self):
-        """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
-        outer report (`OuterRef("id")`).
-
-        suggested_reviewers is append-only, so only the newest row is the live reviewer set —
-        older versions remain as history and must not match. A row is current iff no newer row of
-        the same type exists for its report.
-        """
-        has_newer = Exists(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("report_id"),
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                created_at__gt=OuterRef("created_at"),
-            )
-        )
-        return SignalReportArtefact.objects.filter(
-            report_id=OuterRef("id"),
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        ).filter(~has_newer)
-
     def _implementation_pr_report_filter(self):
-        assignment_pr = Q(assignment__pr_url__isnull=False) & ~Q(assignment__pr_url="")
-        task_pr = SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
-            team_id=self.team.id,
-        )
-        return (
-            assignment_pr
-            | task_pr
-            | Q(
-                id__in=SignalReportArtefact.objects.filter(team_id=self.team.id, pull_request__isnull=False).values(
-                    "report_id"
-                )
-            )
-        )
+        return implementation_pr_report_filter(team_id=self.team.id)
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether an attached
@@ -1259,23 +1367,7 @@ class SignalReportViewSet(
             wants_unclaimed = False
         else:
             raise serializers.ValidationError({"unclaimed": f"Invalid value: {raw!r}. Allowed: true, false."})
-        has_review_pr = Q(
-            assignment__pr_url__isnull=False,
-            assignment__pr_state__in=[
-                SignalReportAssignment.PrState.UNKNOWN,
-                SignalReportAssignment.PrState.DRAFT,
-                SignalReportAssignment.PrState.OPEN,
-            ],
-        ) & ~Q(assignment__pr_url="")
-        task_pr = SignalReport.reports_for_task_ids_filter(
-            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter()),
-            team_id=self.team.id,
-        )
-        new_links = SignalReportArtefact.objects.filter(team_id=self.team.id, pull_request__isnull=False)
-        active_prs = new_links.filter(pull_request__state__in=["unknown", "draft", "open"])
-        has_review_pr = Q(id__in=active_prs.values("report_id")) | (
-            (~Q(id__in=new_links.values("report_id")) & has_review_pr) | task_pr
-        )
+        has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
             ~Q(status=SignalReport.Status.RESOLVED) & ~reports_with_active_claim(team_id=self.team_id) & ~has_review_pr
         )
@@ -1290,16 +1382,21 @@ class SignalReportViewSet(
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
 
-    def _apply_signal_report_channel_filter(self, queryset):
+    def _channel_id_filter_value(self) -> uuid.UUID | None:
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
         # leaves the list unchanged (the general view lists every report); a non-UUID is a 400.
         raw = self.request.query_params.get("channel_id")
         if raw is None or not raw.strip():
-            return queryset
+            return None
         try:
-            channel_id = uuid.UUID(raw.strip())
+            return uuid.UUID(raw.strip())
         except (ValueError, AttributeError):
             raise serializers.ValidationError({"channel_id": f"Invalid value: {raw!r}. Expected a UUID."})
+
+    def _apply_signal_report_channel_filter(self, queryset):
+        channel_id = self._channel_id_filter_value()
+        if channel_id is None:
+            return queryset
         return queryset.filter(channel_id=channel_id)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
@@ -1322,26 +1419,14 @@ class SignalReportViewSet(
         reviewer_github_logins = list(
             get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
         )
-        uuid_filters = [json.dumps([{"user_uuid": user_uuid}]) for user_uuid in reviewer_user_uuids]
-        if not uuid_filters and not reviewer_github_logins:
+        if not reviewer_user_uuids and not reviewer_github_logins:
             return queryset.none()
-        reviewer_clauses = ["content::jsonb @> %s::jsonb"] * len(uuid_filters)
-        reviewer_params: list[str] = list(uuid_filters)
-        for github_login in reviewer_github_logins:
-            reviewer_clauses.append(
-                "EXISTS (SELECT 1 FROM jsonb_array_elements(content::jsonb) reviewer "
-                "WHERE lower(reviewer->>'github_login') = %s "
-                "AND NULLIF(reviewer->>'user_uuid', '') IS NULL)"
-            )
-            reviewer_params.append(github_login)
-        reviewer_where = " OR ".join(reviewer_clauses)
         return queryset.filter(
-            Exists(
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                self._latest_suggested_reviewers_qs().extra(
-                    where=[reviewer_where],
-                    params=reviewer_params,
-                )
+            id__in=report_ids_naming_reviewers(
+                team_id=self.team.id,
+                user_uuids=reviewer_user_uuids,
+                github_logins=reviewer_github_logins,
+                logins_match_unidentified_only=True,
             )
         )
 
@@ -1467,6 +1552,20 @@ class SignalReportViewSet(
                 status=SignalReport.Status.PENDING_INPUT,
                 latest_actionability_value=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             )
+        if inbox_view == "needs_decision":
+            return queryset.filter(
+                Q(status=SignalReport.Status.FAILED)
+                | (
+                    Q(
+                        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
+                        latest_actionability_value__in=[
+                            ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                            ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                        ],
+                    )
+                    & ~self._implementation_pr_report_filter()
+                )
+            )
         if inbox_view == "monitoring":
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
@@ -1552,10 +1651,28 @@ class SignalReportViewSet(
         )
 
     def _annotate_latest_actionability(self, queryset):
-        return queryset.annotate(
-            latest_actionability_value=self._latest_actionability_field("actionability"),
-            latest_already_addressed_value=self._latest_actionability_field("already_addressed"),
-        )
+        return queryset.annotate(latest_actionability_value=self._latest_actionability_field("actionability"))
+
+    def _annotate_latest_already_addressed(self, queryset):
+        return queryset.annotate(latest_already_addressed_value=self._latest_actionability_field("already_addressed"))
+
+    def _needs_already_addressed_annotation(self) -> bool:
+        # A second correlated subquery over the same artefact row, so it is worth carrying only for
+        # the two request shapes that read it: the `already_addressed` filter, and the Actionable
+        # view, which hides reports whose issue is already being handled.
+        raw = self.request.query_params.get("already_addressed")
+        if raw is not None and raw.strip():
+            return True
+        return self.request.query_params.get("view") == "actionable"
+
+    def _needs_priority_annotation(self) -> bool:
+        # The priority value is a correlated subquery too, and the serializer renders priority from
+        # the prefetched artefacts instead, so only a priority filter or a priority sort needs it.
+        params = self.request.query_params
+        if params.get("priority") or params.get("use_priority_preference", "false").lower() == "true":
+            return True
+        priority_clause = self._SIGNAL_REPORT_ORDERING_FIELDS["priority"]
+        return any(clause.lstrip("-") == priority_clause for clause in self._parse_signal_report_ordering())
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
@@ -1591,7 +1708,7 @@ class SignalReportViewSet(
 
     def _annotate_is_suggested_reviewer(self, queryset):
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
-        # and checking jsonb containment on the artefact content list. This stays fresh
+        # and matching it against the indexed reviewer rows. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
         # Never true for ready + not_actionable — there is nothing actionable to review.
         # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
@@ -1599,24 +1716,23 @@ class SignalReportViewSet(
         # account is stored by uuid alone, and entries predating `user_uuid` carry only a login.
         user = cast(User, self.request.user)
         github_login = self._get_github_login(user)
-        identity_filters = [json.dumps([{"user_uuid": str(user.uuid)}])]
-        if github_login:
-            # github_login comes from our own UserSocialAuth DB, not user input.
-            identity_filters.append(json.dumps([{"github_login": github_login}]))
-        identity_where = " OR ".join(["content::jsonb @> %s::jsonb"] * len(identity_filters))
-
-        suggested_exists = Exists(
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            self._latest_suggested_reviewers_qs().extra(
-                where=[identity_where],
-                params=identity_filters,
-            )
+        matching_report_ids = report_ids_naming_reviewers(
+            team_id=self.team.id,
+            user_uuids=[str(user.uuid)],
+            github_logins=[github_login] if github_login else [],
+            logins_match_unidentified_only=False,
+        )
+        names_the_user = (
+            Q(id__in=matching_report_ids)
+            if self.action == "list"
+            else Q(Exists(matching_report_ids.filter(report_id=OuterRef("id"))))
         )
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
                 When(status=SignalReport.Status.FAILED, then=Value(False)),
-                default=suggested_exists,
+                When(names_the_user, then=Value(True)),
+                default=Value(False),
                 output_field=BooleanField(),
             ),
         )
@@ -1949,9 +2065,9 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, "
+                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
                     "not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters."
+                    "implementation-PR filters. needs_decision also includes failed reports without a judgment."
                 ),
             ),
             OpenApiParameter(
@@ -2119,6 +2235,16 @@ class SignalReportViewSet(
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
             first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+
+        # Same trade for the two artefact-derived fields the row renders: one query each over the
+        # page, rather than a correlated subquery the sort makes Postgres run for every report in
+        # the team. The serializer reads both off the instance, as it does for the other actions.
+        with tracer.start_as_current_span("signals.reports.list.fetch_artefact_fields"):
+            artefact_counts = SignalReportArtefact.counts_by_report(report_ids)
+            live_channel_ids = SignalReportArtefact.live_channel_ids_by_report(report_ids)
+            for report in reports:
+                report.artefact_count = artefact_counts.get(str(report.id), 0)
+                report.channel_id = live_channel_ids.get(str(report.id))
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -2139,7 +2265,35 @@ class SignalReportViewSet(
             return self.get_paginated_response(data)
         return Response(data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="List the org members who can be suggested as reviewers",
+        parameters=[
+            OpenApiParameter(
+                name="query",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive filter on name or email.",
+            )
+        ],
+        # A map keyed by user UUID, so there is no serializer shape to declare.
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Member's full name."},
+                            "email": {"type": "string", "description": "Member's email address."},
+                        },
+                        "required": ["name", "email"],
+                    },
+                },
+                description="Candidate reviewers keyed by user UUID.",
+            )
+        },
+    )
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
@@ -2202,7 +2356,11 @@ class SignalReportViewSet(
 
             return Response(reviewers)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="Set a report's suggested reviewers",
+        request=SignalReportArtefactWriteSerializer,
+        responses={200: SignalReportSuggestedReviewersArtefactSerializer},
+    )
     @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
     def reviewers(self, request, **kwargs):
         """Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
@@ -2256,6 +2414,7 @@ class SignalReportViewSet(
 
         # Hide the report from the list immediately while signal deletion continues asynchronously.
         updated_fields = report.transition_to(SignalReport.Status.DELETED)
+        report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
@@ -2334,6 +2493,82 @@ class SignalReportViewSet(
         )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
+        request_serializer=SignalReportMergeRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportMergeResponseSerializer,
+                description="The surviving report after the merge, plus one result per merged source.",
+            ),
+            404: OpenApiResponse(description="The surviving report was not found in this project."),
+            409: OpenApiResponse(
+                description=(
+                    "Both ends of a merge must be a live report of this project. Returned when "
+                    "the survivor is resolved, or when a source is the survivor itself, is resolved "
+                    "or archived, is still being researched, carries more signals than one merge "
+                    "can move, or belongs to another project. Nothing is applied."
+                )
+            ),
+        },
+        summary="Merge duplicate reports into this one",
+        description=(
+            "Fold one or more duplicate reports into this report, which survives. The sources' "
+            "signals, work-log artefacts, pull requests, task runs and checks move onto the "
+            "survivor, the survivor's signal counters take on theirs, and each source is archived "
+            "with a 'duplicate of' link back to the survivor. A source's open pull request stays "
+            "open, because the survivor holds it after the move. Pick the survivor deliberately: "
+            "prefer the older report, and prefer the one with an open implementation PR or an "
+            "active claim. Any active claim on a source is released, so re-claim the survivor if "
+            "you were working on one. Titles and summaries are not combined, so edit it afterwards "
+            "if it needs a rewrite. A merged report keeps its URL but cannot be restored, because "
+            "its signals now belong to the survivor."
+        ),
+        operation_id="signals_reports_merge_create",
+    )
+    @action(detail=True, methods=["post"], url_path="merge", required_scopes=["task:write"])
+    def merge(self, request: ValidatedRequest, pk=None, **kwargs):
+        survivor = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        # Resolved before the merge transaction, so a bad X-PostHog-Task-Id header 400s before
+        # anything moves (the same rule as the refund and artefact write paths).
+        attribution = resolve_request_attribution(request, self.team.id)
+
+        try:
+            result = merge_reports(
+                team=self.team,
+                survivor=survivor,
+                source_ids=[str(source_id) for source_id in data["source_report_ids"]],
+                attribution=attribution,
+                reason=(data.get("reason") or "").strip() or None,
+            )
+        except ReportMergeError as e:
+            return Response({"error": e.detail}, status=status.HTTP_409_CONFLICT)
+
+        report_user_action(
+            request.user,
+            "signals_report_merged",
+            properties={
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "report_id": result.survivor_id,
+                "actor_kind": attribution.kind,
+                "source_count": len(result.sources),
+                "released_claim_count": sum(1 for source in result.sources if source.released_claim),
+                "signals_moved": sum(source.signals_moved for source in result.sources),
+            },
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
+
+        survivor.refresh_from_db()
+        return Response(
+            SignalReportMergeResponseSerializer(
+                {"report": survivor, "sources": result.sources},
+                context=self._enriched_report_context(survivor),
+            ).data
+        )
 
     @extend_schema(
         summary="Leave feedback on a report",
@@ -2649,9 +2884,8 @@ class SignalReportViewSet(
 
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
-            # through the archive into RESOLVED from a status the model refuses to resolve from —
-            # candidate/in_progress (landing in RESOLVED with no title or summary), or failed
-            # (a failed pipeline run presented as successfully resolved). So a suppressed report may
+            # through the archive into RESOLVED from candidate/in_progress with no title or summary.
+            # A suppressed report may
             # only resolve when it was in a directly-resolvable status before being archived.
             # Deliberately narrower than restore_target_status()'s researched set, which exists to
             # answer "where does restore put this report back", not "may it resolve".
@@ -2662,15 +2896,29 @@ class SignalReportViewSet(
             ):
                 return (
                     SignalReportBulkStateOutcome.SKIPPED,
-                    "Only a report that was ready, awaiting input, or already resolved when it was "
+                    "Only a report that was ready, awaiting input, failed, or already resolved when it was "
                     "archived can be resolved from the archive.",
                 )
 
             # "potential" on a suppressed report means "restore" (un-archive): return it to the state
             # it held before suppression when that was a researched, user-visible report, instead of
-            # always dropping back to potential. snooze_for is irrelevant here and ignored.
+            # always dropping back to potential.
             effective_target = target_status
             if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
+                if snooze_for is not None or dismissal_reason == "already_fixed":
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "This report is archived. Refresh it before continuing.",
+                    )
+                # A merged report has no signals of its own left: they moved to the survivor, and
+                # so did its work log. Restoring it would put an empty duplicate back in the inbox
+                # and start it collecting again alongside the report it was folded into.
+                if was_merged_away(report):
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "This report was merged into another one and can't be restored. Open the report it was "
+                        "merged into instead.",
+                    )
                 effective_target = report.restore_target_status()
 
             effective_snooze_for = snooze_for if target == "potential" else None
@@ -2707,6 +2955,10 @@ class SignalReportViewSet(
                 # superseded and the receiver closes it. The PR-merge webhook resolves through
                 # transition_to directly and never sets this, so a merged PR is left alone.
                 report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
+                # Name the caller in the comments the receiver leaves on the linked pull request
+                # and tracker issue. An external agent keeps its user principal, so it names the
+                # person who ran it rather than nobody.
+                report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
 
                 report.save(update_fields=updated_fields)
 
@@ -2714,7 +2966,9 @@ class SignalReportViewSet(
             # and so multiple dismissals (with different rationales) can stack over time.
             # Captured for suppress, snooze (transition to potential), and resolve flows — on a
             # resolve it records why the report was resolved with user attribution.
-            if writes_dismissal_feedback:
+            if writes_dismissal_feedback or (
+                target_status == SignalReport.Status.SUPPRESSED and not already_holds_verdict
+            ):
                 user = self.request.user
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None
@@ -2997,6 +3251,7 @@ class SignalReportViewSet(
             resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
+                report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)
             SignalReportArtefact.append_dismissal(
                 team_id=self.team.id,
@@ -3097,7 +3352,16 @@ class SignalReportViewSet(
             }
         )
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="Re-ingest a report's signals",
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportReingestionStatusSerializer, description="A re-ingestion is already running."
+            ),
+            202: OpenApiResponse(response=SignalReportReingestionStatusSerializer, description="Re-ingestion started."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
     def reingest(self, request, pk=None, **kwargs):
         """Re-ingest a report's signals (same team access as other report actions)."""
@@ -3153,6 +3417,10 @@ class SignalReportViewSet(
             ),
             404: OpenApiResponse(
                 description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            403: OpenApiResponse(
+                response=PullRequestChecksPermissionErrorSerializer,
+                description="GitHub is connected without permission to read pull request checks.",
             ),
             502: OpenApiResponse(description="GitHub could not return the checks."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -3753,6 +4021,26 @@ class SignalReportViewSet(
                 {"error": f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        if result.get("error_code") == "github_checks_permission_missing":
+            logger.info(
+                "signals pr checks missing GitHub Checks permission",
+                team_id=self.team.id,
+                repository=repository,
+                pr_number=pr_number,
+            )
+            return Response(
+                PullRequestChecksPermissionErrorSerializer(
+                    {
+                        "code": "github_checks_permission_missing",
+                        "error": (
+                            "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant "
+                            "the Checks permission."
+                        ),
+                        "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+                    }
+                ).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if not result.get("success"):
             return Response(
                 {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
@@ -4040,16 +4328,28 @@ def append_suggested_reviewers(
             # Same rule for reason. Only fall back to the manual-add note when the field was
             # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
             effective_name = resolved.github_name if resolved.explicit_name else prior_name
-            effective_reason = resolved.reason if resolved.explicit_reason else prior_reason
+            effective_reason = resolved.reason if resolved.explicit_reason else bounded_reviewer_reason(prior_reason)
             if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
+            safe_commits = (
+                [
+                    {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                    if isinstance(commit, dict)
+                    else commit
+                    for commit in prior_commits
+                ]
+                if isinstance(prior_commits, list)
+                else []
+            )
             new_content.append(
                 {
                     "github_login": resolved.github_login,
                     "user_uuid": resolved.user_uuid,
                     "github_name": effective_name if isinstance(effective_name, str) else None,
-                    "relevant_commits": prior_commits if isinstance(prior_commits, list) else [],
+                    "relevant_commits": safe_commits,
                     "reason": effective_reason or None,
+                    "source_skill": prior.get("source_skill") if prior else None,
+                    "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
                 }
             )
 
@@ -4198,6 +4498,92 @@ def _record_reviewer_edit(
 
 @extend_schema_view(
     list=extend_schema(
+        summary="List a report's checks",
+        description=(
+            "List the forward-looking checks on a report. A check says what must stay true after "
+            "the report was acted on, and the coordinator records each verdict as a `check_result` "
+            "artefact on the report."
+        ),
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportCheckSerializer(many=True)},
+        operation_id="signals_report_checks_list",
+    ),
+    retrieve=extend_schema(
+        summary="Get a single check",
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportCheckSerializer},
+        operation_id="signals_report_checks_retrieve",
+    ),
+    destroy=extend_schema(
+        summary="Cancel a check",
+        description=(
+            "Stop a check that is still open — active, or pending its report resolving. Its recorded "
+            "results stay on the report."
+        ),
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportCheckSerializer},
+        operation_id="signals_report_checks_destroy",
+    ),
+)
+class SignalReportCheckViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Checks attached to a signal report: read and cancel.
+
+    There is no create here. A check is authored by a scout run or by the research pipeline, both
+    through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
+    of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
+    endpoint accepts one. Anyone who can read the report can read its checks, and a person can
+    still stop one.
+
+    There is no update: a check is a claim about the future, and editing its threshold after a
+    result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
+    """
+
+    serializer_class = SignalReportCheckSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    queryset = SignalReportCheck.objects.unscoped().order_by("-created_at")
+    http_method_names = ["get", "delete", "head", "options"]
+
+    def _validated_report(self) -> SignalReport:
+        report_id = self.parents_query_dict["report_id"]
+        try:
+            uuid.UUID(str(report_id))
+        except (ValueError, TypeError):
+            raise NotFound()
+        report = (
+            SignalReport.objects.filter(id=report_id, team=self.team)
+            .exclude(status=SignalReport.Status.DELETED)
+            .first()
+        )
+        if report is None:
+            raise NotFound()
+        return report
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(report_id=self._validated_report().id, team=self.team)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        check = cast(SignalReportCheck, self.get_object())
+        stopped = cancel_check(
+            check, reason="stopped_by_person", attribution=resolve_request_attribution(request, self.team.id)
+        )
+        if not stopped:
+            return Response(
+                {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(check).data)
+
+
+@extend_schema_view(
+    list=extend_schema(
         summary="List a report's artefacts",
         description=(
             "List every artefact on a report — the full work log: signal findings (the evidence "
@@ -4236,7 +4622,9 @@ class SignalReportArtefactViewSet(
     - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
-    - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
+    - POST / PATCH / DELETE manage artefacts, except for the types the pipeline owns
+      (`NON_WRITABLE_ARTEFACT_TYPES`) and, for DELETE, the append-only `task_run` log; all of
+      those return 400 naming the type.
       Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
       are latest-wins, so appending a new version supersedes the previous one as the report's
       canonical status. Content is validated against the type's schema. Team scoping is
@@ -4304,6 +4692,16 @@ class SignalReportArtefactViewSet(
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
         uuids_union = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
         uuid_map = resolve_org_users_by_uuid(self.team.id, uuids_union) if uuids_union else {}
+        skills_union = source_skills_from_suggested_reviewer_artefacts(artefacts)
+        scout_display_names = (
+            dict(
+                SignalScoutConfig.objects.for_team(self.team.id)
+                .filter(skill_name__in=skills_union)
+                .values_list("skill_name", "display_name")
+            )
+            if skills_union
+            else {}
+        )
         serializer = SignalReportArtefactSerializer(
             artefacts,
             many=True,
@@ -4311,6 +4709,7 @@ class SignalReportArtefactViewSet(
                 **self.get_serializer_context(),
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
+                "signals_scout_display_names": scout_display_names,
             },
         )
         if page is not None:
@@ -4456,13 +4855,16 @@ class SignalReportArtefactViewSet(
                     return Response(
                         {"detail": "Claim is stale or belongs to another actor."}, status=status.HTTP_409_CONFLICT
                     )
-            artefact = SignalReportArtefact.append(
-                team_id=self.team.id,
-                report_id=report_id,
-                content=parsed_content,
-                attribution=attribution,
-                claim_id=str(claim_id) if claim_id else None,
-            )
+            try:
+                artefact = SignalReportArtefact.append(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    content=parsed_content,
+                    attribution=attribution,
+                    claim_id=str(claim_id) if claim_id else None,
+                )
+            except ArtefactContentValidationError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, SuggestedReviewers):
             # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
             transaction.on_commit(
@@ -4575,7 +4977,10 @@ class SignalReportArtefactViewSet(
         description=(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
             "the report's canonical status to the previous version (latest-wins over what remains). "
-            "`task_run` artefacts are an append-only work log and cannot be deleted."
+            "`task_run` artefacts are an append-only work log and cannot be deleted. Neither can the "
+            "types this API cannot write, which the pipeline owns: "
+            # Interpolated from the constant the guard tests, so the contract cannot drift from it.
+            f"{', '.join(f'`{artefact_type}`' for artefact_type in sorted(NON_WRITABLE_ARTEFACT_TYPES))}."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
@@ -4592,6 +4997,14 @@ class SignalReportArtefactViewSet(
             # a client at the cap free its own slots.
             return Response(
                 {"error": f"{artefact.type} artefacts are an append-only work log and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if artefact.type in NON_WRITABLE_ARTEFACT_TYPES:
+            # System-generated types can't be created or edited through the API, so they can't be
+            # deleted through it either. Deleting the latest row of one reverts the report's canonical
+            # status — e.g. resurfacing a superseded implementation_decision, which then reopens a PR.
+            return Response(
+                {"error": f"Artefact type '{artefact.type}' is read-only and cannot be deleted through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS

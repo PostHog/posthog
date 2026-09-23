@@ -111,6 +111,7 @@ class TestEnrichmentCore(BaseTest):
         geoip_country_code=None,
         domain="stripe.com",
         provider=None,
+        phase=None,
     ):
         person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
         bridge_error = None
@@ -131,7 +132,7 @@ class TestEnrichmentCore(BaseTest):
         ctx = EnrichmentContext(
             organization_id=str(self.organization.id),
             domain=domain,
-            phase=EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP,
+            phase=phase or (EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP),
             distinct_id=distinct_id,
             role_at_organization=role_at_organization,
             geoip_country_code=geoip_country_code,
@@ -518,11 +519,29 @@ class TestEnrichmentCore(BaseTest):
 
         assert outcome.provider_fields is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data == {
+        assert record.data["icp_fit_evaluation_kind"] == "initial"
+        assert outcome.fit_evaluated_at is not None
+        assert record.data["icp_fit_evaluated_at"] == outcome.fit_evaluated_at.isoformat()
+        data = {k: v for k, v in record.data.items() if not k.startswith("icp_fit_eval")}
+        assert data == {
             "icp_fit_status": "not_found",
             "icp_fit_version": "v0.6",
             "icp_fit_lists_version": "test-lists-1",
         }
+
+    @parameterized.expand(
+        [
+            ("at_signup", EnrichmentPhase.AT_SIGNUP, "initial"),
+            ("recheck", EnrichmentPhase.RECHECK, "recheck"),
+            ("sweep", EnrichmentPhase.SWEEP, "sweep"),
+        ]
+    )
+    def test_fit_evaluation_kind_derives_from_the_phase(self, _name, phase, expected_kind):
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        self._enrich(ProviderLookup(fields=fields, raw_payload=_company()), phase=phase, domain="acme.ai")
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_evaluation_kind"] == expected_kind
 
     def test_no_active_lists_degrades_to_clay_and_fields_only(self):
         IcpScoringConfig.objects.update(is_active=False)

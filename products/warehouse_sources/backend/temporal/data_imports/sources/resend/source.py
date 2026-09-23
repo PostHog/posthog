@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -51,7 +49,7 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAut
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RESEND,
+            name=ExternalDataSourceType.RESEND,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Resend",
             releaseStatus=ReleaseStatus.GA,
@@ -196,7 +194,10 @@ Either way, the connection needs **full access** so the following resources can 
 
         if config.auth_method.selection == "oauth":
             return False, "Your Resend connection is invalid or expired. Please reconnect it."
-        return False, "Invalid Resend API key"
+        return (
+            False,
+            "Resend rejected the API key. Generate a new API key in your Resend dashboard, then enter it here.",
+        )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

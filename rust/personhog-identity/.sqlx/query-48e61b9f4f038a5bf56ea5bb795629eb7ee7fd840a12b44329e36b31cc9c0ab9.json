@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_load_claim_record' */ SELECT moved FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "moved",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "48e61b9f4f038a5bf56ea5bb795629eb7ee7fd840a12b44329e36b31cc9c0ab9"
+}

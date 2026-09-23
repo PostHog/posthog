@@ -3,22 +3,25 @@ import {
   GITHUB_CONNECT_TIMEOUT_MESSAGE,
   GITHUB_INSTALL_PENDING_MESSAGE,
 } from "@posthog/core/integrations/connectErrors";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogFooter,
-  Button,
-} from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { GithubConnectionEmpty } from "@posthog/ui/features/integrations/components/GithubConnectionEmpty";
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
+import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useReducedMotion } from "framer-motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { CloudGithubSetupDialogContent } from "./CloudGithubSetupDialogContent";
 
 const FOCUS_SUCCESS_DELAY_MS = 500;
 const CONNECTED_SEQUENCE_MS = 1_200;
+const GITHUB_PERMISSIONS_DOCS_URL =
+  "https://posthog.com/docs/libraries/github?tab=Desktop";
 
 interface CloudGithubSetupDialogProps {
   hasGithubIntegration?: boolean;
@@ -30,7 +33,7 @@ export function CloudGithubSetupDialog({
   hasGithubIntegration,
   onConnected,
   onClose,
-}: CloudGithubSetupDialogProps) {
+}: CloudGithubSetupDialogProps): ReactElement {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { hasGithubIntegration: hasTeamGithubIntegration } =
@@ -114,7 +117,7 @@ export function CloudGithubSetupDialog({
       ? GITHUB_CONNECT_TIMEOUT_MESSAGE
       : isPending
         ? GITHUB_INSTALL_PENDING_MESSAGE
-        : null;
+        : undefined;
   const waitingForGithub =
     (connectionStarted || isConnecting) &&
     !hasError &&
@@ -123,56 +126,18 @@ export function CloudGithubSetupDialog({
     !showConnectedAnimation;
 
   return (
-    <AlertDialog open onOpenChange={() => undefined}>
-      <AlertDialogContent>
-        <div className="p-2">
-          <GithubConnectionEmpty
-            connected={showConnectedAnimation}
-            loading={waitingForGithub}
-            title={
-              showConnectedAnimation
-                ? "GitHub connected"
-                : waitingForGithub
-                  ? "Waiting for GitHub"
-                  : "GitHub authentication required"
-            }
-            description={
-              showConnectedAnimation
-                ? "You're ready to use Cloud tasks."
-                : waitingForGithub
-                  ? "Finish authorizing in your browser, then return here."
-                  : (connectionMessage ??
-                    "Cloud tasks require GitHub authentication.")
-            }
-            descriptionClassName={
-              hasError || isTimedOut ? "text-destructive" : undefined
-            }
-            showLearnMore={!showConnectedAnimation}
-          >
-            {!showConnectedAnimation && (
-              <Button
-                type="button"
-                variant="primary"
-                loading={waitingForGithub}
-                disabled={!canConnect || waitingForGithub}
-                onClick={() => void handleConnect()}
-              >
-                {hasError || isTimedOut ? "Try again" : "Connect GitHub"}
-              </Button>
-            )}
-          </GithubConnectionEmpty>
-        </div>
-
-        <AlertDialogFooter>
-          <Button
-            type="button"
-            variant={showConnectedAnimation ? "primary" : "outline"}
-            onClick={handleClose}
-          >
-            {showConnectedAnimation ? "Close" : "Cancel"}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <CloudGithubSetupDialogContent
+      connected={showConnectedAnimation}
+      loading={waitingForGithub}
+      hasError={hasError}
+      isTimedOut={isTimedOut}
+      canConnect={canConnect}
+      connectionMessage={connectionMessage}
+      onConnect={() => void handleConnect()}
+      onOpenPermissions={() =>
+        void openUrlInBrowser(GITHUB_PERMISSIONS_DOCS_URL)
+      }
+      onClose={handleClose}
+    />
   );
 }

@@ -31,7 +31,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -40,7 +39,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
@@ -538,6 +540,10 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
+
+            <div className="flex flex-wrap items-center gap-3 px-4 pb-2">
+                <McpSharedFilters pageKey="mcp-tool-detail" dataAttrPrefix="mcp-tool-detail" />
+            </div>
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(64))')"
+export SKIP_ASYNC_MIGRATIONS_SETUP=1
+export PROMETHEUS_MULTIPROC_DIR=/tmp/posthog_celery_prometheus
+
+exec celery -A posthog worker -Ofair \
+    --queues=ai_research_privacy \
+    --concurrency=1 \
+    --prefetch-multiplier=1 \
+    --without-gossip --without-mingle --without-heartbeat

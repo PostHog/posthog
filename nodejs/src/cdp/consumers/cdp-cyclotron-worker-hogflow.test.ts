@@ -471,6 +471,56 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
+        it('reads the person fresh at dequeue when the flow has a push step', async () => {
+            const pushFlow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow with a push')
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                            push: {
+                                type: 'function_push',
+                                config: { template_id: 'template-native-push', inputs: {} } as any,
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'push', type: 'continue' },
+                            { from: 'push', to: 'exit', type: 'continue' },
+                        ],
+                    } as any)
+                    .build()
+            )
+            const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
+
+            await processor.processInvocations([
+                createSerializedHogFlowInvocation(pushFlow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                }),
+            ])
+
+            expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
+                forceFresh: true,
+            })
+        })
+
+        it('keeps the cached read at dequeue when the flow has no push step', async () => {
+            const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
+
+            await processor.processInvocations([
+                createSerializedHogFlowInvocation(hogFlows[0], {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                }),
+            ])
+
+            expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
+                forceFresh: false,
+            })
+        })
+
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team
 
@@ -15,6 +16,8 @@ from products.tasks.backend.logic.services.connection_token import (
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
+
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
@@ -158,24 +161,68 @@ class TestAgentProxyCallback(TestCase):
         self.assertTrue(response.json()["dispatched"])
         signal_milestone.assert_called_once_with(milestone)
 
-    def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
+    @parameterized.expand([("omitted", None), ("completed", True), ("idle_resume", False)])
+    def test_awaiting_input_dispatches_for_interactive_run(self, _name: str, turn_completed: bool | None) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+        body = self._body(kind="awaiting_input", agent_active=False)
+        if turn_completed is not None:
+            body["turn_completed"] = turn_completed
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             response = self._post(
-                self._body(kind="awaiting_input", agent_active=False),
+                body,
                 token=self._token(run),
                 run_id=str(run.id),
             )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["dispatched"])
-        notify.assert_called_once()
+        self.assertEqual(response.json()["dispatched"], turn_completed is not False)
+        signal_turn_completed.assert_called_once()
+        if turn_completed is False:
+            notify.assert_not_called()
+        else:
+            notify.assert_called_once()
+        self.assertEqual(
+            (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before,
+            int(turn_completed is False),
+        )
 
-    def test_awaiting_input_skipped_for_background_run(self) -> None:
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+    def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(self) -> None:
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
         notify.assert_not_called()
+        signal_turn_completed.assert_called_once()
+
+    def test_turn_failed_signals_workflow_completion_as_failed(self) -> None:
+        with patch(
+            "products.tasks.backend.agent_proxy_callback.signal_workflow_completion"
+        ) as signal_workflow_completion:
+            response = self._post(self._body(kind="turn_failed", agent_active=False), token=self._token())
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["dispatched"])
+        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+
+    def test_turn_failed_not_dispatched_for_unknown_run(self) -> None:
+        run = self.task.create_run()
+        run_id = str(run.id)
+        token = self._token(run)
+        TaskRun.objects.filter(id=run_id).delete()
+        with patch(
+            "products.tasks.backend.agent_proxy_callback.signal_workflow_completion"
+        ) as signal_workflow_completion:
+            response = self._post(self._body(kind="turn_failed", agent_active=False), token=token, run_id=run_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["dispatched"])
+        signal_workflow_completion.assert_not_called()
 
     def test_unknown_run_returns_200_not_dispatched(self) -> None:
         run = self.task.create_run()

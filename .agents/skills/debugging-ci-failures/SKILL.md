@@ -161,6 +161,11 @@ practice that is most of the queue. So:
 - The branch names one PR but carries many. A failure on it is not evidence
   against that PR until you find the change that caused it; the branch's other
   merge commits are the first suspects.
+- A `…-bisection` branch is the exception to "the other merge commits are the
+  first suspects": Trunk creates it after a batch fails, and it carries only
+  master plus the one PR. The test PR's body names the master SHA it is based
+  on; if master's run at that SHA passed the same test, the failure is an
+  environment-dependent race (`fixing-flaky-tests` step 1), not this PR's.
 - In the digest this is the `blocking_merge_queue` state.
 
 ### 3. Read the CI report comment (for a PR)
@@ -326,6 +331,9 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   browser through the chrome-devtools MCP. `status.depot.dev` covers the case
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
+- A PR can route its backend tests to Depot CI. Then `Django Tests Pass` only
+  relays the Depot result, and `gh run rerun` reads the same failure again.
+  The log of its `Relay the Depot verdict` step lists the retry options.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards

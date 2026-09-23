@@ -83,8 +83,11 @@ const businessKnowledgeSourcesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
             query: {
+                added_by: params.added_by,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
+                source_type: params.source_type,
             },
         })
         const filtered = {
@@ -108,7 +111,18 @@ const businessKnowledgeSourcesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/business-knowledge')
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/business-knowledge/${item.id}`)
+                    )
+                ),
+            },
+            '/business-knowledge'
+        )
     },
 })
 
@@ -157,7 +171,7 @@ const BusinessKnowledgeSourcesRetrieveSchema = () => {
 
 const businessKnowledgeSourcesRetrieve = (): ToolBase<
     ReturnType<typeof BusinessKnowledgeSourcesRetrieveSchema>,
-    Schemas.KnowledgeSource
+    WithPostHogUrl<Schemas.KnowledgeSource>
 > => ({
     name: 'business-knowledge-sources-retrieve',
     schema: BusinessKnowledgeSourcesRetrieveSchema(),
@@ -167,7 +181,7 @@ const businessKnowledgeSourcesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        return await withPostHogUrl(context, result, `/business-knowledge/${result.id}`)
     },
 })
 

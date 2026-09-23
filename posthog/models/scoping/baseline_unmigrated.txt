@@ -103,6 +103,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptDependency
 LLMPromptLabel
 LLMProviderKey
 LLMSkill

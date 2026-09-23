@@ -2,11 +2,16 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase, override_settings
 
+from asgiref.sync import async_to_sync
+from parameterized import parameterized
+
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.session_recordings.session_recording_v2_service import (
     FIVE_SECONDS,
     RecordingBlock,
     list_blocks,
+    list_blocks_async,
     listing_cache_key,
 )
 
@@ -71,6 +76,17 @@ class TestSessionRecordingV2Service(TestCase):
         blocks = list_blocks(self.recording)
 
         assert blocks == []
+
+    @parameterized.expand([("sync", False), ("async", True)])
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_missing_recording_api_url_is_not_reported_as_no_blocks(self, _name, use_async, mock_fetch):
+        mock_fetch.side_effect = RecordingApiConfigurationError("RECORDING_API_URL is not configured")
+
+        with self.assertRaises(RecordingApiConfigurationError):
+            if use_async:
+                async_to_sync(list_blocks_async)(self.recording)
+            else:
+                list_blocks(self.recording)
 
     @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_empty_list_when_no_blocks(self, mock_fetch):

@@ -419,6 +419,7 @@ def review_widget_source(
     source: str,
     input_names: list[str],
     client: Anthropic | None = None,
+    request_ids: list[str | None] | None = None,
     is_cancelled: Callable[[], bool] = lambda: False,
 ) -> WidgetSecurityReview:
     resolved_client = client or build_anthropic_client(
@@ -453,6 +454,8 @@ def review_widget_source(
                 stream=True,
                 timeout=remaining_seconds,
             )
+            if request_ids is not None:
+                request_ids.append(stream.response.headers.get("x-request-id"))
             content = _read_stream(stream, is_cancelled, deadline)
         except WidgetSourceGenerationCancelled:
             raise
@@ -515,6 +518,7 @@ def generate_widget_source(
     input_names: list[str],
     model: str = DEFAULT_WIDGET_MODEL,
     client: Anthropic | None = None,
+    request_ids: list[str | None] | None = None,
     is_cancelled: Callable[[], bool] = lambda: False,
     base_source: str | None = None,
     change_prompt: str | None = None,
@@ -580,6 +584,8 @@ def generate_widget_source(
                 stream=True,
                 timeout=min(WIDGET_MODEL_TIMEOUT_SECONDS[model], remaining_seconds),
             )
+            if request_ids is not None:
+                request_ids.append(stream.response.headers.get("x-request-id"))
             content = _read_stream(stream, is_cancelled, deadline)
         except WidgetSourceGenerationCancelled:
             raise

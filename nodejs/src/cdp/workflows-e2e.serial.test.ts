@@ -4288,6 +4288,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 10 },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
             pollDelayMs: 100,
+            batchMaxSize: 1,
+            heartbeatTimeoutMs: hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
         })
         // The consumer only calls connect/disconnect/isHealthy on the worker.
         const workerForConsumer = wrapJob
@@ -4299,7 +4301,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
               } as unknown as CyclotronV2Worker)
             : cyclotronWorker
         const internalFetchService = new InternalFetchService(hub.INTERNAL_API_BASE_URL, hub.INTERNAL_API_SECRET)
-        const queryService = new HogFlowBatchPersonQueryService(internalFetchService)
+        const queryService = new HogFlowBatchPersonQueryService(
+            internalFetchService,
+            hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS
+        )
         return new CdpCyclotronWorkerBatchResolve(hub, deps, workerForConsumer, queryService, internalFetchService)
     }
 
@@ -4518,6 +4523,85 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             }
         }, 10000)
     })
+
+    it('keeps the job lock and worker health during a slow audience fetch', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const personId = new UUIDT().toString()
+        const originalTimeout = hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS
+        hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS = 45_000
+        const audiencePage = Promise.withResolvers<void>()
+        const statusPuts: Array<{ status: string }> = []
+        let audienceCalls = 0
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+            stallTimeoutMs: 15_000,
+            maxTouchCount: 2,
+            cleanupGraceMs: 99_999_000,
+            cleanupBatchSize: 100,
+            cleanupIntervalMs: 60_000,
+        })
+
+        mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                audienceCalls += 1
+                expect(opts.timeoutMs).toBe(45_000)
+                await audiencePage.promise
+                return {
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(JSON.stringify({ users_affected: [personId], cursor: null, has_more: false })),
+                    dump: async () => {},
+                }
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return {
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: async () => {},
+                }
+            }
+            throw new Error(`Unexpected internalFetch call to ${url}`)
+        })
+
+        try {
+            await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .expect(200)
+
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+            await waitForExpect(() => expect(audienceCalls).toBe(1), 5000)
+            await new Promise((resolve) => setTimeout(resolve, 32_000))
+
+            expect(resolverWorker.isHealthy().status).toBe('ok')
+            const sweep = await janitor.runOnce()
+            expect(sweep.stalled).toBe(0)
+            expect(sweep.poisoned).toBe(0)
+
+            audiencePage.resolve()
+            await waitForExpect(() => expect(statusPuts).toEqual([{ status: 'completed' }]), 10_000)
+            expect(audienceCalls).toBe(1)
+            const jobs = await cyclotronPool.query(
+                'SELECT queue_name, janitor_touch_count FROM cyclotron_jobs WHERE parent_run_id = $1',
+                [parentRunId]
+            )
+            expect(jobs.rows.filter((job) => job.queue_name === 'hogflow')).toHaveLength(1)
+            for (const job of jobs.rows) {
+                expect(job.janitor_touch_count).toBe(0)
+            }
+        } finally {
+            audiencePage.resolve()
+            hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS = originalTimeout
+            await janitor.stop()
+        }
+    }, 60_000)
 
     // Regression test: batch-resolved invocations used to skip trigger_masking entirely
     // (only the event-triggered pipeline applied it), so a scheduled batch workflow with

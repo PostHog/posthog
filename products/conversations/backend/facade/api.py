@@ -23,6 +23,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -103,6 +104,137 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+def accept_github_event(delivery: WebhookDelivery) -> None:
+    """The inbound GitHub App webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import github_events  # noqa: PLC0415
+
+    github_events.accept_github_event(delivery)
+
+
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_event(delivery)
+
+
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack click enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_interactivity(delivery)
+
+
+def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Slack workspace is connected to.
+
+    Both Slack endpoints ask through here. Ingress asks before it dispatches, and forwards the
+    signed request to the other region when the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    return slack_events.slack_delivery_ownership(delivery)
+
+
+def accept_teams_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    teams_events.accept_teams_event(delivery)
+
+
+def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Teams tenant is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    return teams_events.teams_delivery_ownership(delivery)
+
+
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun inbox route enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_inbound_message(delivery)
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun outbound capture route enters conversations here."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_outbound_message(delivery)
+
+
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun catch-all route enters conversations here, for either direction."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_captured_message(delivery)
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the delivery's inbox address belongs to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the captured message was sent from."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_outbound_delivery_ownership(delivery)
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the catch-all delivery belongs to."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_capture_delivery_ownership(delivery)
+
+
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel sending as this address.
+
+    The other region asks before it ingests a captured outbound message, because a sender active
+    in both regions would otherwise land on the wrong team's thread.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_sender_is_active_here(sender_email)
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The answer the outbound route owes a region that still probes it with `sender_lookup=1`.
+
+    Delete this with the provider that reaches it, once both regions run the ingress version.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_legacy_sender_lookup_status(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:
@@ -338,6 +470,7 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
             "slack_author_name",
             "teams_author_name",
             "teams_author_email",
+            "github_login",
             "email_from_name",
             "slack_author_email",
             "email_from",
@@ -499,8 +632,10 @@ def list_resolved_ticket_revisions(
     *,
     since: datetime,
     limit: int,
+    offset: int = 0,
+    ticket_id: UUID | None = None,
 ) -> list[ResolvedTicketRevision]:
-    if limit <= 0:
+    if limit <= 0 or offset < 0:
         return []
     team = _support_learning_team(team_id)
     if team is None:
@@ -510,14 +645,16 @@ def list_resolved_ticket_revisions(
     has_public_human_reply = public_human_ticket_replies(comment_team_ids).filter(
         item_id=Cast(OuterRef("id"), output_field=CharField()),
     )
+    ticket_query = Ticket.objects.filter(
+        team_id=team.id,
+        status=Status.RESOLVED,
+    )
+    if ticket_id is None:
+        ticket_query = ticket_query.filter(Q(updated_at__gte=since) | Q(last_message_at__gte=since))
+    else:
+        ticket_query = ticket_query.filter(id=ticket_id)
     tickets = list(
-        Ticket.objects.filter(
-            team_id=team.id,
-            status=Status.RESOLVED,
-        )
-        .filter(Q(updated_at__gte=since) | Q(last_message_at__gte=since))
-        .filter(Exists(has_public_human_reply))
-        .order_by("-updated_at", "-id")[:limit]
+        ticket_query.filter(Exists(has_public_human_reply)).order_by("-updated_at", "-id")[offset : offset + limit]
     )
     if not tickets:
         return []
@@ -527,7 +664,7 @@ def list_resolved_ticket_revisions(
         for comment in public_human_ticket_replies(comment_team_ids, [str(ticket.id) for ticket in tickets])
         .order_by("item_id", "-created_at", "-id")
         .distinct("item_id")
-        .only("id", "item_id")
+        .only("id", "item_id", "created_at")
     }
     revisions: list[ResolvedTicketRevision] = []
     for ticket in tickets:
@@ -539,6 +676,7 @@ def list_resolved_ticket_revisions(
                 ticket_id=ticket.id,
                 ticket_number=ticket.ticket_number,
                 resolution_comment_id=resolution_comment.id,
+                revision_at=max(ticket.updated_at, resolution_comment.created_at),
                 source_team_id=ticket.team_id,
                 display_label=f"ticket #{ticket.ticket_number}",
                 deep_link=f"{settings.SITE_URL}/project/{ticket.team_id}/support/tickets/{ticket.ticket_number}",
