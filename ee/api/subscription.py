@@ -2153,18 +2153,13 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         error = delivery.error if isinstance(delivery.error, dict) else None
         if error is None and delivery.status != SubscriptionDelivery.Status.FAILED:
             return None
+        recipient_failure = self._vetted_recipient_failure(delivery)
         return {
-            "type": self._failure_type(error),
-            "detail": self._failure_detail(delivery, error),
+            "type": self._failure_type(error, recipient_failure),
+            "detail": self._failure_detail(recipient_failure, error),
         }
 
-    def _failure_type(self, error: Optional[dict]) -> str:
-        raw = error.get("type") if error else None
-        if isinstance(raw, str) and self.FAILURE_TYPE_PATTERN.match(raw):
-            return raw
-        return self.UNKNOWN_FAILURE_TYPE
-
-    def _failure_detail(self, delivery: SubscriptionDelivery, error: Optional[dict]) -> Optional[str]:
+    def _vetted_recipient_failure(self, delivery: SubscriptionDelivery) -> Optional[dict]:
         # Only messages the delivery pipeline already vetted for the subscription owner are surfaced.
         # error["message"] is not one of them: the catch-all failure path fills it with str(exception),
         # which can carry an upstream response body. recipient_results[].human_readable_error is, and
@@ -2176,7 +2171,24 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
                 continue
             message = result.get("human_readable_error")
             if isinstance(message, str) and message:
-                return message
+                return result
+        return None
+
+    def _failure_type(self, error: Optional[dict], recipient_failure: Optional[dict]) -> str:
+        # A failure that returns cleanly (no_assets, auto-disable) leaves the top-level error null and
+        # keeps its stable key on the recipient result, so read the result that supplies the detail
+        # when the top-level payload carries no usable classification.
+        recipient_error = recipient_failure.get("error") if recipient_failure else None
+        for payload in (error, recipient_error if isinstance(recipient_error, dict) else None):
+            raw = payload.get("type") if payload else None
+            if isinstance(raw, str) and self.FAILURE_TYPE_PATTERN.match(raw):
+                return raw
+        return self.UNKNOWN_FAILURE_TYPE
+
+    def _failure_detail(self, recipient_failure: Optional[dict], error: Optional[dict]) -> Optional[str]:
+        message = recipient_failure.get("human_readable_error") if recipient_failure else None
+        if isinstance(message, str) and message:
+            return message
         if error and error.get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
             message = error.get("message")
             if isinstance(message, str) and message:

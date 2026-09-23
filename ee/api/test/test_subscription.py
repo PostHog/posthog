@@ -2749,6 +2749,22 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 [],
                 {"type": "unknown", "detail": None},
             ),
+            # A run that fails by returning cleanly (no_assets, auto-disable) records no top-level
+            # error and keeps its stable key on the recipient result.
+            (
+                "recipient_error_type_classifies_a_clean_return_failure",
+                SubscriptionDelivery.Status.FAILED,
+                None,
+                [
+                    {
+                        "recipient": "test@posthog.com",
+                        "status": "failed",
+                        "error": {"message": "No assets to deliver", "type": "no_assets"},
+                        "human_readable_error": "Nothing could be generated to send this time.",
+                    }
+                ],
+                {"type": "no_assets", "detail": "Nothing could be generated to send this time."},
+            ),
             ("successful_run_has_no_failure_reason", SubscriptionDelivery.Status.COMPLETED, None, [], None),
         ]
     )
