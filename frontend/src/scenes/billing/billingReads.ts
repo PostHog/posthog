@@ -20,7 +20,13 @@ import type {
     BillingUsageTimeseriesRetrieveParams,
 } from 'products/billing/frontend/generated/api.schemas'
 
-/** The billing reads the app makes. Consumers call these and never name a billing route. */
+/**
+ * The billing reads the app makes. Consumers call these and never name a billing route.
+ *
+ * Both implementations return the same shape from each method. Where the routes answer differently,
+ * the legacy implementation adapts its answer to the organization API's shape, so deleting it later
+ * changes no consumer.
+ */
 export interface BillingReads {
     usageSeriesUrl(params: BillingUsageTimeseriesRetrieveParams): string
     spendSeriesUrl(params: BillingSpendTimeseriesRetrieveParams): string
