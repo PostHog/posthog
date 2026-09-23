@@ -13,7 +13,8 @@ logger = structlog.get_logger(__name__)
 INFLIGHT_KEY = "alerts:evaluations:inflight"
 
 # A check cannot outlive its workflow's execution timeout, so a lease this long can never lapse
-# while the check it belongs to may still reach ClickHouse.
+# while the check it belongs to may still reach ClickHouse. A running evaluation re-holds its slot
+# under the much shorter evaluation_slot_lease, so a worker that dies frees it soon after.
 SLOT_LEASE_SECONDS = int(alert_timeouts(None).workflow_execution.total_seconds())
 
 _BOOKKEEPING_ATTEMPTS = 3
@@ -63,6 +64,18 @@ end
 return removed
 """
 
+_REFRESH_OWNED_SCRIPT = """
+local key = KEYS[1]
+local alert_id = ARGV[1]
+local held_until = tonumber(ARGV[2])
+local current = redis.call('ZSCORE', key, alert_id)
+if current and tonumber(current) == held_until then
+    redis.call('ZADD', key, ARGV[3], alert_id)
+    return 1
+end
+return 0
+"""
+
 
 def max_inflight_evaluations() -> int:
     return settings.ALERTS_MAX_INFLIGHT_EVALUATIONS
@@ -78,9 +91,9 @@ def admit_evaluation_slots(alert_ids: list[str], *, limit: int, expires_at: floa
     return [_decode(member) for member in admitted]
 
 
-def hold_evaluation_slot(alert_id: str) -> float:
+def hold_evaluation_slot(alert_id: str, *, lease_seconds: float = SLOT_LEASE_SECONDS) -> float:
     """Take the slot for an evaluation that is about to run and return the expiry that identifies this holder."""
-    expires_at = time.time() + SLOT_LEASE_SECONDS
+    expires_at = time.time() + lease_seconds
     for attempt in range(_BOOKKEEPING_ATTEMPTS):
         try:
             redis.get_client().zadd(INFLIGHT_KEY, {alert_id: expires_at})
@@ -90,6 +103,12 @@ def hold_evaluation_slot(alert_id: str) -> float:
                 raise
             time.sleep(_BOOKKEEPING_RETRY_SECONDS)
     raise AssertionError("unreachable")
+
+
+def refresh_evaluation_slot(alert_id: str, *, held_until: float, expires_at: float) -> bool:
+    """Move the holder's expiry to expires_at and report whether the holder still owned the slot."""
+    owned = redis.get_client().eval(_REFRESH_OWNED_SCRIPT, 1, INFLIGHT_KEY, alert_id, held_until, expires_at)
+    return bool(owned)
 
 
 def release_evaluation_slots(alert_ids: list[str], *, held_until: float) -> None:

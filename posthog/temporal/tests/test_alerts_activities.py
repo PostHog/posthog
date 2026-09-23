@@ -1,5 +1,6 @@
 import time
 import uuid
+import asyncio
 import threading
 import contextlib
 import dataclasses
@@ -30,6 +31,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -60,7 +62,7 @@ from posthog.temporal.alerts.admission import (
     hold_evaluation_slot,
     inflight_alert_ids,
 )
-from posthog.temporal.alerts.retry_policy import alert_timeouts
+from posthog.temporal.alerts.retry_policy import SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -690,6 +692,72 @@ class TestEvaluateAlert:
 
         assert str(alert.id) in inflight_alert_ids()
 
+    async def test_evaluate_re_holds_its_slot_while_the_query_runs(self, alert) -> None:
+        short_lease = dataclasses.replace(
+            alert_timeouts(None),
+            evaluation_slot_lease=SlotLease(lease=timedelta(seconds=1), refresh=timedelta(seconds=0.1)),
+        )
+
+        def _query_until_the_slot_is_re_held(evaluated_alert, *, evaluation_id):
+            alert_id = str(evaluated_alert.id)
+            first_expiry = get_client().zscore(INFLIGHT_KEY, alert_id)
+            give_up_at = time.monotonic() + 5
+            while get_client().zscore(INFLIGHT_KEY, alert_id) == first_expiry:
+                assert time.monotonic() < give_up_at, "the running evaluation never re-held its slot"
+                time.sleep(0.05)
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with (
+            patch("posthog.temporal.alerts.activities.alert_timeouts", return_value=short_lease),
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=_query_until_the_slot_is_re_held,
+            ),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.new_state == AlertState.NOT_FIRING
+        assert inflight_alert_ids() == set()
+
+    async def test_cancelled_evaluate_kills_its_query_and_frees_the_slot(self, alert) -> None:
+        query_running = threading.Event()
+        query_killed = threading.Event()
+        query_thread_done = threading.Event()
+        evaluation_ids: list[str] = []
+
+        def _query_until_killed(evaluated_alert, *, evaluation_id):
+            evaluation_ids.append(evaluation_id)
+            query_running.set()
+            try:
+                query_killed.wait(timeout=5)
+                raise CHQueryErrorQueryWasCancelled("killed", code=394)
+            finally:
+                query_thread_done.set()
+
+        def _kill(team_id, client_query_id):
+            query_killed.set()
+
+        env = ActivityEnvironment()
+        with (
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_query_until_killed),
+            patch("posthog.temporal.alerts.activities.cancel_query_on_cluster", side_effect=_kill) as kill,
+        ):
+            attempt = asyncio.ensure_future(
+                env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), team_id=alert.team_id))
+            )
+            await asyncio.to_thread(query_running.wait, 5)
+            assert str(alert.id) in inflight_alert_ids()
+            env.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await attempt
+            await asyncio.to_thread(query_thread_done.wait, 5)
+
+        kill.assert_called_once_with(alert.team_id, evaluation_ids[0])
+        assert inflight_alert_ids() == set()
+        assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)() is False
+
     async def test_evaluate_runs_without_a_lease_when_redis_is_unavailable(self, alert) -> None:
         with (
             patch("posthog.temporal.alerts.activities.hold_evaluation_slot", side_effect=ConnectionError("redis down")),
@@ -798,23 +866,26 @@ class TestEvaluateAlert:
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
     # A server-wide or per-user memory limit is the same kind of cluster pressure: recording it as
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
+    # A killed query is the cancelled attempt's own doing, and recording it would write a check
+    # the attempt that killed it never asked for.
     @pytest.mark.parametrize(
-        "error_class",
+        "error",
         [
-            ClickHouseAtCapacity,
-            ClickHouseClusterMemoryLimitExceeded,
-            SocketTimeoutError,
-            NetworkError,
-            LLMDetectorUnavailableError,
+            ClickHouseAtCapacity(),
+            ClickHouseClusterMemoryLimitExceeded(),
+            SocketTimeoutError(),
+            NetworkError(),
+            LLMDetectorUnavailableError(),
+            CHQueryErrorQueryWasCancelled("killed", code=394),
         ],
     )
-    async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
+    async def test_evaluate_reraises_ch_transient_error(self, alert, error) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=error_class(),
+            side_effect=error,
         ):
             env = ActivityEnvironment()
-            with pytest.raises(error_class):
+            with pytest.raises(type(error)):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
         # The retry keeps its slot, or the scheduler admits past the limit during the backoff.
         assert str(alert.id) in inflight_alert_ids()
@@ -1321,6 +1392,18 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
+
+
+@pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])
+def test_alert_timeouts_never_restart_a_live_attempt(calculation_interval) -> None:
+    timeouts = alert_timeouts(calculation_interval)
+    # A per-attempt timeout under the budget restarts a slow attempt while its query still runs.
+    assert timeouts.evaluate_start_to_close == timeouts.activity_schedule_to_close
+    # The retried attempt must take the slot over before it lapses, or the scheduler fills it in between.
+    slot = timeouts.evaluation_slot_lease
+    assert slot.lease - slot.refresh > timeouts.heartbeat_timeout
+    activities = timeouts.prepare_start_to_close + timeouts.activity_schedule_to_close + timeouts.notify_start_to_close
+    assert timeouts.workflow_execution >= activities
 
 
 @pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])

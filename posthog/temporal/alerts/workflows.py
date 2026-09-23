@@ -221,7 +221,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
             prepare_result = await temporalio.workflow.execute_activity(
                 prepare_alert,
                 PrepareAlertActivityInputs(alert_id=inputs.alert_id),
-                start_to_close_timeout=dt.timedelta(minutes=2),
+                start_to_close_timeout=timeouts.prepare_start_to_close,
                 schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                 retry_policy=ALERT_PREPARE_RETRY_POLICY,
             )

@@ -1,8 +1,10 @@
 import json
+import time
 import asyncio
 import hashlib
 import traceback
-from collections.abc import Awaitable, Callable
+import contextlib
+from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import TypeVar
@@ -21,10 +23,11 @@ from posthog.schema import AlertState
 
 from posthog.hogql.errors import TableAccessDeniedError
 
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -48,12 +51,13 @@ from posthog.temporal.alerts.admission import (
     hold_evaluation_slot,
     inflight_alert_ids,
     max_inflight_evaluations,
+    refresh_evaluation_slot,
     release_evaluation_slot,
     release_evaluation_slots,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
 from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
-from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, alert_timeouts
+from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
     AdmittedEvaluations,
@@ -251,14 +255,14 @@ def _has_active_destinations(alert: AlertConfiguration) -> bool:
     )
 
 
-def _hold_evaluation_slot_best_effort(alert_id: str) -> float | None:
+def _hold_evaluation_slot_best_effort(alert_id: str, *, lease_seconds: float) -> float | None:
     """Hold for evaluate_alert, which already sits on the reservation prepare_alert refreshed.
 
     Failing here would surface a Redis outage to users as an errored check, so the evaluation runs
     without a lease of its own and the reservation lapses on its own.
     """
     try:
-        return hold_evaluation_slot(alert_id)
+        return hold_evaluation_slot(alert_id, lease_seconds=lease_seconds)
     except Exception:
         logger.exception("alerts.admission.hold_failed", alert_id=alert_id)
         return None
@@ -276,6 +280,52 @@ def _attempt_will_retry(error: Exception, retry_policy: RetryPolicy) -> bool:
     return not retry_policy.maximum_attempts or temporalio.activity.info().attempt < retry_policy.maximum_attempts
 
 
+class _SlotHolder:
+    """The evaluation slot one attempt holds, identified by the expiry it last wrote."""
+
+    def __init__(self, alert_id: str, held_until: float | None) -> None:
+        self.alert_id = alert_id
+        self.held_until = held_until
+
+    @contextlib.asynccontextmanager
+    async def refreshing(self, lease: SlotLease | None) -> AsyncIterator[None]:
+        """Re-hold the slot under the lease while the body runs, so it lapses soon after a worker dies."""
+        if lease is None or self.held_until is None:
+            yield
+            return
+        stop = asyncio.Event()
+        refresher = asyncio.create_task(self._refresh_until(stop, lease))
+        try:
+            yield
+        finally:
+            # Wait for the refresher rather than cancel it, so a refresh in flight cannot write a new
+            # expiry after the release that follows has checked the old one.
+            stop.set()
+            await refresher
+
+    async def _refresh_until(self, stop: asyncio.Event, lease: SlotLease) -> None:
+        while self.held_until is not None:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=lease.refresh.total_seconds())
+                return
+            except TimeoutError:
+                pass
+            expires_at = time.time() + lease.lease.total_seconds()
+            try:
+                owned = await asyncio.to_thread(
+                    refresh_evaluation_slot, self.alert_id, held_until=self.held_until, expires_at=expires_at
+                )
+            except Exception:
+                logger.exception("alerts.admission.refresh_failed", alert_id=self.alert_id)
+                continue
+            # Another attempt took the slot over, so this one has nothing left to refresh or release.
+            self.held_until = expires_at if owned else None
+
+    async def release(self) -> None:
+        if self.held_until is not None:
+            await asyncio.to_thread(release_evaluation_slot, self.alert_id, held_until=self.held_until)
+
+
 async def _run_holding_slot(
     alert_id: str,
     held_until: float | None,
@@ -283,26 +333,36 @@ async def _run_holding_slot(
     *,
     retry_policy: RetryPolicy,
     keeps_slot: Callable[[_T], bool],
+    lease: SlotLease | None = None,
+    on_cancel: Callable[[], Awaitable[None]] | None = None,
 ) -> _T:
     """Run one attempt of a check while it holds its evaluation slot.
 
-    The slot is released when the attempt finishes for good: a result keeps_slot rejects, or a
-    failure Temporal will not retry. A retryable failure keeps it, because releasing during the
-    backoff lets the scheduler admit past the limit under the very overload that causes the retries;
-    the next attempt's hold takes the slot over. A cancelled attempt keeps it too, since its query
-    thread may still be running; the lease bounds that case.
+    With a lease the slot is re-held for as long as the attempt runs, so a worker that dies frees it
+    soon after. Without one it stays until the scheduler's expiry, which suits prepare_alert: its
+    attempts run without a heartbeat timeout, so a slow one cannot be presumed dead.
+
+    The slot is released when the attempt finishes for good: a result keeps_slot rejects, a failure
+    Temporal will not retry, or a cancellation. A retryable failure keeps it, because releasing
+    during the backoff lets the scheduler admit past the limit under the very overload that causes
+    the retries; the next attempt's hold takes the slot over. A cancelled attempt runs on_cancel
+    first, so the work it started is stopped before the slot that counted it is given back.
     """
+    holder = _SlotHolder(alert_id, held_until)
     try:
-        async with Heartbeater():
+        async with Heartbeater(), holder.refreshing(lease):
             result = await run()
     except asyncio.CancelledError:
+        if on_cancel is not None:
+            await on_cancel()
+        await holder.release()
         raise
     except Exception as error:
-        if held_until is not None and not _attempt_will_retry(error, retry_policy):
-            await asyncio.to_thread(release_evaluation_slot, alert_id, held_until=held_until)
+        if not _attempt_will_retry(error, retry_policy):
+            await holder.release()
         raise
-    if held_until is not None and not keeps_slot(result):
-        await asyncio.to_thread(release_evaluation_slot, alert_id, held_until=held_until)
+    if not keeps_slot(result):
+        await holder.release()
     return result
 
 
@@ -443,7 +503,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
         # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
+        # client_query_id names every query of this attempt, so a cancelled attempt can kill them.
         tag_queries(
+            team_id=alert.team_id,
+            client_query_id=evaluation_id,
             alert_config_id=str(alert.id),
             product=Product.PRODUCT_ANALYTICS,
             feature=Feature.ALERTING,
@@ -460,6 +523,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert_evaluation_result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
+            raise
+        except CHQueryErrorQueryWasCancelled:
+            # A cancelled attempt kills its query and decides what to record; the thread it left
+            # behind must not write a check of its own.
             raise
         except LLMDetectorUnavailableError:
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
@@ -569,20 +636,41 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
+    team_id = inputs.team_id
+
     async def _load_and_evaluate() -> EvaluateAlertResult:
+        nonlocal team_id
         # Route and evaluate the same snapshot. A second read after choosing the executor
         # could pick up an AI detector and run its model call on the shared pool.
         alert = await _load_alert_for_evaluation(inputs)
+        team_id = alert.team_id
         executor = _LLM_EVALUATE_EXECUTOR if is_llm_detector_config(alert.detector_config) else None
         return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
 
-    held_until = await asyncio.to_thread(_hold_evaluation_slot_best_effort, inputs.alert_id)
+    async def _stop_query() -> None:
+        # Cancellation cannot reach the thread the query runs in, so kill the query in ClickHouse by
+        # the id it was tagged with. Best effort: the attempt is over whether or not the kill lands.
+        if team_id is None:
+            return
+        try:
+            await asyncio.to_thread(cancel_query_on_cluster, team_id, evaluation_id)
+        except Exception:
+            logger.exception("alerts.evaluate.cancel_query_failed", alert_id=inputs.alert_id)
+
+    timeouts = alert_timeouts(inputs.calculation_interval)
+    held_until = await asyncio.to_thread(
+        _hold_evaluation_slot_best_effort,
+        inputs.alert_id,
+        lease_seconds=timeouts.evaluation_slot_lease.lease.total_seconds(),
+    )
     return await _run_holding_slot(
         inputs.alert_id,
         held_until,
         _load_and_evaluate,
-        retry_policy=alert_timeouts(inputs.calculation_interval).evaluate_retry_policy,
+        retry_policy=timeouts.evaluate_retry_policy,
         keeps_slot=lambda _result: False,
+        lease=timeouts.evaluation_slot_lease,
+        on_cancel=_stop_query,
     )
 
 
