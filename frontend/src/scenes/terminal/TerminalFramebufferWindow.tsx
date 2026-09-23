@@ -24,9 +24,15 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
     } = useActions(terminalLogic)
     const windowRef = useRef<HTMLDivElement>(null)
     const screenRef = useRef<HTMLDivElement>(null)
+    const resizeRef = useRef<{ x: number; y: number; width: number } | null>(null)
     const [fullscreen, setFullscreen] = useState(false)
     const [captured, setCaptured] = useState(false)
     const [error, setError] = useState<string | null>(null)
+
+    const resizeWindow = (width: number): void => {
+        const maximum = Math.min(window.innerWidth - 32, ((window.innerHeight - 160) * 4) / 3)
+        windowRef.current?.style.setProperty('--terminal-display-width', `${Math.min(maximum, Math.max(480, width))}px`)
+    }
 
     useEffect(() => {
         const screen = screenRef.current
@@ -97,7 +103,7 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                 role="dialog"
                 aria-label="Terminal display"
                 aria-modal="false"
-                className="TerminalFramebufferWindow rounded border bg-surface-primary shadow-lg overflow-hidden flex flex-col"
+                className="TerminalFramebufferWindow relative rounded border bg-surface-primary shadow-lg overflow-hidden flex flex-col"
                 data-attr="terminal-display-window"
             >
                 <header className="flex items-center gap-1 border-b p-1 shrink-0">
@@ -157,7 +163,9 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                             }
                         }}
                         data-attr="terminal-display-fullscreen"
-                    />
+                    >
+                        {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                    </LemonButton>
                     <LemonButton
                         size="small"
                         icon={<IconX />}
@@ -217,7 +225,7 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                     }}
                     onContextMenu={(event) => event.preventDefault()}
                 />
-                <div className="text-xs text-secondary px-3 py-2 border-t shrink-0">
+                <div className="text-xs text-secondary pl-3 pr-6 py-2 border-t shrink-0">
                     <span>
                         Arrows move · Ctrl fires · Space opens doors · Shift runs · Esc opens the menu or releases the
                         mouse · Shift+Tab releases keyboard focus
@@ -228,6 +236,51 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                         </p>
                     )}
                 </div>
+                {!fullscreen && (
+                    <button
+                        type="button"
+                        aria-label="Resize terminal display"
+                        title="Drag to resize. Arrow keys resize when focused."
+                        className="TerminalFramebufferWindow__resize absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize touch-none"
+                        data-attr="terminal-display-resize"
+                        data-shortcuts-ignore="all"
+                        onPointerDown={(event) => {
+                            if (event.button !== 0 || !windowRef.current) {
+                                return
+                            }
+                            releaseDisplayInput()
+                            resizeRef.current = {
+                                x: event.clientX,
+                                y: event.clientY,
+                                width: windowRef.current.getBoundingClientRect().width,
+                            }
+                            event.currentTarget.setPointerCapture(event.pointerId)
+                        }}
+                        onPointerMove={(event) => {
+                            const start = resizeRef.current
+                            if (start) {
+                                const dx = event.clientX - start.x
+                                const dy = ((event.clientY - start.y) * 4) / 3
+                                resizeWindow(start.width + (Math.abs(dx) > Math.abs(dy) ? dx : dy))
+                            }
+                        }}
+                        onPointerUp={(event) => {
+                            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                event.currentTarget.releasePointerCapture(event.pointerId)
+                            }
+                        }}
+                        onLostPointerCapture={() => (resizeRef.current = null)}
+                        onPointerCancel={() => (resizeRef.current = null)}
+                        onKeyDown={(event) => {
+                            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                const delta = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -32 : 32
+                                resizeWindow((windowRef.current?.getBoundingClientRect().width ?? 672) + delta)
+                            }
+                        }}
+                    />
+                )}
             </div>
         </DraggableWithSnapZones>,
         document.body

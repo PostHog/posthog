@@ -88,7 +88,9 @@ The VM uses 512 MiB of memory and a separate 256 MiB temporary filesystem for in
 Stopping the terminal discards the installed tools and local files; verified downloads can be reused from the browser cache.
 The VM has no network bridge, so pi can run locally but cannot call models, log in, or download packages.
 Running `doom` installs fbDOOM and Freedoom game data, then opens the framebuffer in a floating window.
-Drag its title bar to move it, use the fullscreen button to expand it, or close it to interrupt the foreground program with Ctrl+C.
+Drag its title bar to move it or its bottom-right corner to resize it; the image keeps its aspect ratio.
+The resize handle also accepts arrow keys when focused.
+Use Fullscreen to fill the screen, or close the window to interrupt the foreground program with Ctrl+C.
 The display takes keyboard input only while focused; Shift+Tab returns focus to the window controls.
 Arrow keys move, Ctrl fires, Space opens doors, Shift runs, and Escape opens the game menu.
 Capture mouse enables relative mouse movement; Escape releases capture.

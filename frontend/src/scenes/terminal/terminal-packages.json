@@ -38,7 +38,7 @@
             }
         }
     },
-    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/a48fca832bfb901f58059c274f76c3848444c269",
+    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/3252dde63282c859393fad84ae89de2f4b19b95e",
     "kernel": {
         "file": "images/linux-fb-bzimage.bin",
         "sha256": "33ca60bd4832f0cf202845fa7ac1a60776c0215e8a20d21a3f07d3722f99e415"
