@@ -117,6 +117,7 @@ class TestAzureCostManagementSource:
             "401 Client Error: Unauthorized for url: https://login.microsoftonline.com",
             "401 Client Error: Unauthorized for url: https://management.azure.com",
             "403 Client Error: Forbidden for url: https://management.azure.com — no access",
+            "Azure Cost Management has no cost history on this scope: url=https://management.azure.com/q",
         ],
     )
     def test_non_retryable_errors_match_credential_and_permission_failures(self, observed_error: str) -> None:

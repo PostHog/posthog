@@ -130,6 +130,9 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
             "401 Client Error: Unauthorized for url: https://login.microsoftonline.com": "Azure AD rejected the service principal credentials. Check the application (client) ID and client secret, then reconnect.",
             "401 Client Error: Unauthorized for url: https://management.azure.com": "Azure rejected the access token for Cost Management. Check that the app registration is still enabled, then reconnect.",
             "403 Client Error: Forbidden for url: https://management.azure.com": "The service principal cannot read Cost Management on this scope. Give it the Cost Management Reader role on the scope, then reconnect.",
+            # The forecast endpoint treats this as an empty result, so only a cost or dimensions
+            # call reaches here. Retrying cannot add cost history Azure does not hold.
+            "Azure Cost Management has no cost history on this scope": "Azure has no cost history on this scope yet, so there is nothing to sync. Wait until the scope has spend, then enable this table again.",
         }
 
     def get_retryable_errors(self) -> set[str]:

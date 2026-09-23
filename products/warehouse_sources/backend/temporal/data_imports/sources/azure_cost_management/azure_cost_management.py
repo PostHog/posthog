@@ -50,8 +50,20 @@ RETRY_AFTER_HEADERS = (
 COMMAND_NAME = "PostHogDataWarehouse"
 
 
+# Cost Management answers 424 Failed Dependency when it cannot compute an answer from the scope's
+# own cost history. On the forecast endpoint that is the normal state of a new or quiet
+# subscription: there is nothing to project from yet.
+FAILED_DEPENDENCY_STATUS = 424
+
+
 class AzureCostManagementRetryableError(Exception):
     """Transient upstream failure (throttle or 5xx) worth retrying."""
+
+    pass
+
+
+class AzureCostManagementNoCostHistoryError(Exception):
+    """Azure holds no cost history on this scope to answer the request from."""
 
     pass
 
@@ -380,6 +392,12 @@ class AzureCostManagementClient:
                 self._sleep(delay)
                 continue
 
+            # Not a failure to report or retry: the scope simply has no cost history yet.
+            if response.status_code == FAILED_DEPENDENCY_STATUS:
+                raise AzureCostManagementNoCostHistoryError(
+                    f"Azure Cost Management has no cost history on this scope: url={url}"
+                )
+
             if not response.ok:
                 self._logger.error(
                     f"Azure Cost Management error: status={response.status_code}, body={response.text}, url={url}"
@@ -484,7 +502,13 @@ def get_rows(
         pending_next_link = None
 
         while True:
-            payload = client.request("POST", _validated_next_link(next_link) if next_link else url, body)
+            try:
+                payload = client.request("POST", _validated_next_link(next_link) if next_link else url, body)
+            except AzureCostManagementNoCostHistoryError:
+                if config.kind != "forecast":
+                    raise
+                logger.debug("Azure Cost Management: no cost history on this scope yet, so no forecast")
+                return
             rows, next_link = rows_from_query_result(payload, normalized_scope)
             if rows:
                 yield rows
