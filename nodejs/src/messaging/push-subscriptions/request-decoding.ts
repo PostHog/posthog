@@ -10,6 +10,14 @@ export class RequestParsingError extends Error {}
  * distinguishes it from RequestParsingError; the view answers both the same way. */
 export class UnspecifiedCompressionFallbackParsingError extends Error {}
 
+export class InflatedBodyTooLargeError extends Error {}
+
+/** Django inflates without a bound. Here decoding runs on the one event loop that serves every
+ * request and its cost grows with the inflated size, so a 16 KiB body that inflates to 16 MiB would
+ * stall every other request on the process. A registration is under 1 KiB, so no SDK request comes
+ * near this. */
+export const MAX_INFLATED_BYTES = 64 * 1024
+
 const GZIP_COMPRESSIONS = new Set(['gzip', 'gzip-js'])
 const BODY_CONTENT_TYPES = new Set(['', 'text/plain', 'application/json'])
 
@@ -64,8 +72,13 @@ export function decompress(data: Buffer | string | null, compression: string): u
             )
         }
         try {
-            current = gunzipSync(Buffer.isBuffer(current) ? current : Buffer.from(current))
+            current = gunzipSync(Buffer.isBuffer(current) ? current : Buffer.from(current), {
+                maxOutputLength: MAX_INFLATED_BYTES,
+            })
         } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
+                throw new InflatedBodyTooLargeError('Inflated body too large.')
+            }
             throw new RequestParsingError(`Failed to decompress data. ${String(error)}`)
         }
     }
@@ -96,7 +109,10 @@ export function decompress(data: Buffer | string | null, compression: string): u
         // Django retries as gzip before giving up, so a body it accepts this way must not fail here.
         try {
             return decompress(current, 'gzip')
-        } catch {
+        } catch (fallbackError) {
+            if (fallbackError instanceof InflatedBodyTooLargeError) {
+                throw fallbackError
+            }
             throw new UnspecifiedCompressionFallbackParsingError(`Invalid JSON: ${String(error)}`)
         }
     }

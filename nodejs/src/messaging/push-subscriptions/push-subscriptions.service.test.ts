@@ -110,13 +110,17 @@ describe('PushSubscriptionsService', () => {
         expect(capturedProperties().$unset).toEqual(['$device_push_subscription_my-firebase-project'])
     })
 
-    it('rejects a body over the size limit before parsing it', async () => {
-        const oversized = Buffer.alloc(16 * 1024 + 1, 'a')
-
-        const result = await service.handle({ method: 'POST', body: oversized })
+    const inflatesPastLimit = gzipSync(Buffer.from(JSON.stringify({ ...valid, pad: 'a'.repeat(64 * 1024) })))
+    it.each([
+        ['a raw body over the size limit', Buffer.alloc(16 * 1024 + 1, 'a'), undefined],
+        ['a small gzip body that inflates past the limit', inflatesPastLimit, 'gzip'],
+        ['the same body sent without declaring gzip', inflatesPastLimit, undefined],
+    ])('rejects %s as too large', async (_name, body, contentEncoding) => {
+        const result = await service.handle({ method: 'POST', body, contentEncoding })
 
         expect(result.status).toEqual(413)
         expect(result.body).toMatchObject({ code: 'request_too_large' })
+        expect(capture.capture).not.toHaveBeenCalled()
     })
 
     it('accepts a body exactly at the size limit', async () => {

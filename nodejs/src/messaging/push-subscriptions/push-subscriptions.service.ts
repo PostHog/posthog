@@ -7,7 +7,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { verifyPushIdentityToken } from './identity-token'
 import { PushCaptureService } from './push-capture'
-import { RawRequest, decodeRequest } from './request-decoding'
+import { InflatedBodyTooLargeError, RawRequest, decodeRequest } from './request-decoding'
 
 export type PushRejectionCode =
     | 'method_not_allowed'
@@ -116,7 +116,10 @@ export class PushSubscriptionsService {
                 return reject('invalid_json', 400, 'validation_error', 'Invalid JSON body.')
             }
             data = decoded.data as Record<string, any>
-        } catch {
+        } catch (error) {
+            if (error instanceof InflatedBodyTooLargeError) {
+                return reject('request_too_large', 413, 'validation_error', 'Request body too large.')
+            }
             return reject('invalid_json', 400, 'validation_error', 'Invalid JSON body.')
         }
 
