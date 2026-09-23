@@ -1,7 +1,6 @@
 import { Gauge } from 'prom-client'
 
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
-import { logger } from '~/common/utils/logger'
+import { InternalCaptureEvent, InternalCaptureService, isRemoteOriginError } from '~/common/services/internal-capture'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
@@ -101,13 +100,28 @@ export class CapturedEventsService {
             return
         }
 
+        // capture() logs and counts every failure. A batch holds thousands of events and one slow
+        // window fails all of them, so the flush reports at most one exception and drops the
+        // remote-origin failures that no caller can act on.
+        let unexpectedFailure: unknown
+        let unexpectedFailures = 0
+
         await Promise.all(
             events.map((event) =>
-                this.internalCaptureService.capture(event).catch((error) => {
-                    logger.error('Error capturing internal event', { error })
-                    captureException(error)
+                this.internalCaptureService.capture(event, 'CapturedEventsService.flush').catch((error) => {
+                    if (isRemoteOriginError(error)) {
+                        return
+                    }
+                    unexpectedFailure ??= error
+                    unexpectedFailures++
                 })
             )
         )
+
+        if (unexpectedFailures > 0) {
+            captureException(unexpectedFailure, {
+                extra: { failed_events: unexpectedFailures, flushed_events: events.length },
+            })
+        }
     }
 }
