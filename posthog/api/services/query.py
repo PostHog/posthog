@@ -301,9 +301,9 @@ def _metadata_response_from_language_service(
     for raw_notice in raw_notices:
         if not isinstance(raw_notice, dict):
             raise TypeError("notice must be an object")
-        message = raw_notice.get("message")
-        start = raw_notice.get("start")
-        end = raw_notice.get("end")
+        message = raw_notice["message"]
+        start = raw_notice["start"]
+        end = raw_notice["end"]
         fix = raw_notice.get("fix")
         if (
             not isinstance(message, str)

@@ -536,6 +536,9 @@ class TestLanguageServiceRouting(SimpleTestCase):
             ("diagnostics_nested", {"diagnostics": [None]}, "SELECT event FROM events"),
             ("notices_collection", {"notices": {}}, "SELECT event FROM events"),
             ("notices_nested", {"notices": [None]}, "SELECT event FROM events"),
+            ("notices_missing_message", {"notices": [{"start": 7, "end": 12}]}, "SELECT event FROM events"),
+            ("notices_missing_start", {"notices": [{"message": "field", "end": 12}]}, "SELECT event FROM events"),
+            ("notices_missing_end", {"notices": [{"message": "field", "start": 7}]}, "SELECT event FROM events"),
             (
                 "notices_out_of_range",
                 {"notices": [{"message": "field", "start": 7, "end": 999}]},
