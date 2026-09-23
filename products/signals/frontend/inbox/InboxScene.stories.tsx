@@ -21,7 +21,9 @@ import {
     pullRequestReports,
     reportTabReports,
 } from './__mocks__/inboxMocks'
+import { inviteImpactExample, inviteMonitoringReport } from './__mocks__/impactFollowUpConceptMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
+import { ImpactContextPreview } from './components/detail/ImpactFollowUpConcept'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
@@ -94,6 +96,64 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+export const InboxMonitoringImpact: Story = {
+    parameters: { mockDate: '2026-09-23' },
+    decorators: [
+        routeTo(urls.inbox('reports')),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    {
+                        results: allReports.map((report) =>
+                            report.id === inviteMonitoringReport.id ? inviteMonitoringReport : report
+                        ),
+                        count: allReports.length,
+                        next: null,
+                        previous: null,
+                    },
+                ],
+                '/api/projects/:id/signals/reports/:reportId': (req) => {
+                    const report =
+                        req.params.reportId === inviteMonitoringReport.id
+                            ? inviteMonitoringReport
+                            : allReports.find((candidate) => candidate.id === req.params.reportId)
+                    return report ? [200, report] : [404, { detail: 'Not found.' }]
+                },
+                '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
+                    200,
+                    {
+                        report: null,
+                        signals: mockSignals(req.params.reportId as string, 4)
+                            .filter((_, index) => index !== 1)
+                            .map((signal) => ({ ...signal, timestamp: '2026-09-21T12:00:00Z' })),
+                    },
+                ],
+                '/api/projects/:id/signals/reports/:reportId/pr_checks/': () => [
+                    200,
+                    {
+                        checks: [
+                            {
+                                name: 'CI preflight',
+                                status: 'completed',
+                                conclusion: 'success',
+                                url: 'https://github.com/PostHog/posthog/actions/runs/12002/jobs/1',
+                            },
+                        ],
+                    },
+                ],
+                '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: [] }],
+            },
+        }),
+    ],
+    render: () => (
+        <>
+            <InboxScene />
+            <ImpactContextPreview reportId={inviteMonitoringReport.id} example={inviteImpactExample} surface="both" />
+        </>
+    ),
+}
 
 function reportWithEvidenceItems(count: number): Story {
     return {

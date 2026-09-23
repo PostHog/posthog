@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { IconCheckCircle, IconClock, IconQuestion, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
@@ -423,5 +424,94 @@ export function ImpactFollowUpConcept({ example, stage, version }: ImpactFollowU
             {runway}
             {footer}
         </article>
+    )
+}
+
+export function ImpactContextPreview({
+    reportId,
+    example,
+    surface,
+    stage = 'watching',
+}: {
+    reportId: string
+    example: ImpactFollowUpExample
+    surface: 'report' | 'inbox' | 'both'
+    stage?: FollowUpStage
+}): JSX.Element | null {
+    const [mount, setMount] = useState<{ node: HTMLElement; surface: 'report' | 'inbox' } | null>(null)
+
+    useEffect(() => {
+        let currentHost: HTMLElement | null = null
+        const sync = (): void => {
+            const impactSection = Array.from(document.querySelectorAll('main section')).find(
+                (section) => section.querySelector(':scope > h2')?.textContent?.trim() === 'Impact'
+            )
+            const reportTarget = surface !== 'inbox' ? impactSection : null
+            const cardLink = surface !== 'report' ? document.querySelector(`a[href$="/${reportId}"]`) : null
+            const inboxTarget = cardLink?.querySelector('div.flex-col')
+            const target = reportTarget ?? inboxTarget
+            const kind = reportTarget ? 'report' : 'inbox'
+
+            if (target === currentHost?.parentElement) {
+                return
+            }
+            currentHost?.remove()
+            if (!target) {
+                currentHost = null
+                setMount(null)
+                return
+            }
+
+            const node = document.createElement('div')
+            if (kind === 'inbox') {
+                target.insertBefore(node, target.lastElementChild)
+            } else {
+                target.append(node)
+                const reportStatus = Array.from(document.querySelectorAll('dt')).find(
+                    (term) => term.textContent?.trim() === 'Report status'
+                )?.nextElementSibling
+                if (reportStatus instanceof HTMLElement) {
+                    reportStatus.style.textTransform = 'capitalize'
+                }
+            }
+            currentHost = node
+            setMount({ node, surface: kind })
+        }
+        const observer = new MutationObserver(sync)
+        observer.observe(document.body, { childList: true, subtree: true })
+        sync()
+        return () => {
+            observer.disconnect()
+            currentHost?.remove()
+        }
+    }, [reportId, surface])
+
+    if (!mount) {
+        return null
+    }
+
+    return createPortal(
+        mount.surface === 'report' ? (
+            <div className="mt-4 flex flex-col gap-2">
+                <span className="text-xs text-secondary">Preview only · invented impact data</span>
+                <ImpactFollowUpConcept example={example} stage={stage} version="poster-runway" />
+            </div>
+        ) : (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary pt-2 text-xs">
+                <span className="rounded-full border border-primary px-2 py-0.5 font-semibold">Monitoring</span>
+                <strong className="text-success">Looks good so far</strong>
+                <span className="text-secondary">0 invite 500s since release</span>
+                <span className="ml-auto whitespace-nowrap">1 / 3 days · 2 / 5 clear errors</span>
+                <div className="flex w-full gap-1" aria-label="1 of 3 days and 2 of 5 clear errors observed">
+                    <div className="h-1.5 w-1/2 rounded-full bg-fill-primary">
+                        <div className="h-full w-1/3 rounded-full bg-accent" />
+                    </div>
+                    <div className="h-1.5 w-1/2 rounded-full bg-fill-primary">
+                        <div className="h-full w-2/5 rounded-full bg-accent" />
+                    </div>
+                </div>
+            </div>
+        ),
+        mount.node
     )
 }

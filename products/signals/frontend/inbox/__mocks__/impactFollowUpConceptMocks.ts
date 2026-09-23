@@ -1,3 +1,6 @@
+import { pullRequestReports, reportTabReports } from './inboxMocks'
+import { SignalReport, SignalReportStatus } from '../types'
+
 export type FollowUpStage = 'planned' | 'watching' | 'finished'
 export type FollowUpVerdict = 'met' | 'failed' | 'inconclusive'
 
@@ -241,3 +244,49 @@ export const impactFollowUpExamples: ImpactFollowUpExample[] = [
         nextStep: 'Check the warning destination before declaring success.',
     },
 ]
+
+export const inviteImpactExample: ImpactFollowUpExample = {
+    ...impactFollowUpExamples[0],
+    id: 'invite-validation',
+    title: 'Incomplete invite rows',
+    outcome: 'Show a clear error instead of a 500',
+    goal: 'Incomplete invite rows never return 500, and people see a clear error.',
+    goalShort: '0 invite 500s · errors shown',
+    watchingNote: 'No 500s so far. We still need more invalid attempts to check the error message.',
+    resultNote: 'Invalid rows show a clear error without a 500. The report can close.',
+    primarySignal: 'Invite form 500s',
+    baseline: '9 in 3 days',
+    watchingValue: '0 in 1 day',
+    finishedValue: '0 in 3 days',
+    sampleLabel: 'Clear errors shown',
+    beforeTrend: [3, 4, 2],
+    afterTrend: [0, 0, 0],
+    chartLabel: 'Invite form 500s each day',
+    chartGoalLabel: '0 invite 500s',
+    releaseGate: 'Invite form release confirmed',
+    minimumEvidence: 'At least 5 invalid invite attempts with a clear error',
+    query: `SELECT toDate(timestamp) AS day, countIf(properties.result = 'server_error') AS errors, countIf(properties.result = 'validation_error') AS clear_errors
+FROM events WHERE event = 'example_invite_attempt_finished' AND timestamp >= {release_time}
+GROUP BY day ORDER BY day`,
+    evidence: [
+        { signal: 'Invite form 500s', baseline: '9', target: '0', watching: '0', finished: '0', result: 'met', watchingResult: 'met' },
+        { signal: 'Clear errors shown', baseline: '0', target: '≥5', watching: '2', finished: '8', result: 'met', watchingResult: 'waiting' },
+    ],
+}
+
+export const inviteMonitoringReport: SignalReport = {
+    ...reportTabReports[0],
+    status: 'monitoring' as SignalReportStatus,
+    created_at: '2026-09-18T12:00:00Z',
+    updated_at: '2026-09-22T12:00:00Z',
+    summary: `${reportTabReports[0].summary}\n\n## Impact\n\nAfter release, incomplete recipient rows should show a clear error instead of a 500.`,
+    implementation_pr_url: pullRequestReports[0].implementation_pr_url,
+    implementation_pr_state: 'merged',
+    implementation_pr_merged: true,
+    pull_requests: pullRequestReports[0].pull_requests?.map((pullRequest) => ({
+        ...pullRequest,
+        state: 'merged' as const,
+        merged: true,
+        merged_at: '2026-09-22T12:00:00Z',
+    })),
+}

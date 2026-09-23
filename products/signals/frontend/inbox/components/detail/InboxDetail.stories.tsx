@@ -20,10 +20,12 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
+import { inviteImpactExample, inviteMonitoringReport } from '../../__mocks__/impactFollowUpConceptMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
+import { ImpactContextPreview } from './ImpactFollowUpConcept'
 import { ReportDetail } from './ReportDetail'
 import { ReportDetailLegacy } from './ReportDetailLegacy'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -133,6 +135,21 @@ const readyToImplementMocks = mswDecorator({
     },
 })
 
+const impactContextMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
+            200,
+            {
+                report: null,
+                signals: mockSignals(req.params.reportId as string, 4)
+                    .filter((_, index) => index !== 1)
+                    .map((signal) => ({ ...signal, timestamp: '2026-09-21T12:00:00Z' })),
+            },
+        ],
+        '/api/projects/:id/signals/reports/:reportId/pr_checks/': () => [200, successfulPrChecks],
+    },
+})
+
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Detail',
     parameters: {
@@ -206,6 +223,37 @@ export const Report: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportMonitoringImpact: Story = {
+    parameters: { mockDate: '2026-09-23' },
+    decorators: [impactContextMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={inviteMonitoringReport} />
+            <ImpactContextPreview
+                reportId={inviteMonitoringReport.id}
+                example={inviteImpactExample}
+                surface="report"
+            />
+        </Frame>
+    ),
+}
+
+export const ReportImpactResolved: Story = {
+    parameters: { mockDate: '2026-09-26' },
+    decorators: [impactContextMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={{ ...inviteMonitoringReport, status: SignalReportStatus.RESOLVED }} />
+            <ImpactContextPreview
+                reportId={inviteMonitoringReport.id}
+                example={inviteImpactExample}
+                surface="report"
+                stage="finished"
+            />
         </Frame>
     ),
 }
