@@ -48,7 +48,10 @@ const meta: Meta<typeof TerminalScene> = {
     title: 'Scenes-App/Terminal',
     component: TerminalScene,
     parameters: { layout: 'padded', featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL] },
-    beforeEach: () => {
+    beforeEach: ({ parameters }) => {
+        if (parameters.liveRuntime) {
+            return
+        }
         // Visual snapshots must not depend on firmware downloads or Linux boot timing.
         const start = spyOn(TerminalRuntime.prototype, 'start').mockImplementation(
             async (_server, _signal, onReady) => {
@@ -292,6 +295,11 @@ const meta: Meta<typeof TerminalScene> = {
 export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
+
+export const LiveRuntime: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+}
 export const Docked: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
