@@ -1070,8 +1070,8 @@ class OAuthCoopMiddleware:
     window.opener when a cross-origin popup navigates to our pages — breaking
     popup-based OAuth flows that rely on the opener reference to detect completion.
 
-    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
-    reference is preserved.
+    We set COOP to "unsafe-none" on OAuth paths, and on the social-auth and signup
+    pages that an OAuth flow passes through, so the opener reference is preserved.
     """
 
     OAUTH_PATH_PREFIXES = (
@@ -1100,16 +1100,30 @@ class OAuthCoopMiddleware:
             return False
         return parts[1] in load_backends(settings.AUTHENTICATION_BACKENDS)
 
+    def _targets_oauth_flow(self, next_url: str) -> bool:
+        if not next_url:
+            return False
+        normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+        return self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES)
+
+    def _needs_opener_reference(self, request) -> bool:
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES):
+            return True
+        if self._is_social_auth_path(path):
+            # The provider redirects back to /complete/ without a next parameter, so read the destination
+            # that social-auth stored in the session at /login/.
+            session = getattr(request, "session", None)
+            session_next = session.get("next", "") if session is not None else ""
+            return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
+        if path in ("/login", "/login/", "/signup", "/signup/"):
+            return self._targets_oauth_flow(request.GET.get("next", ""))
+        return False
+
     def __call__(self, request):
         response = self.get_response(request)
-        path = request.path
-        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES) or self._is_social_auth_path(path):
+        if self._needs_opener_reference(request):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif path in ("/login", "/login/", "/signup", "/signup/"):
-            next_url = request.GET.get("next", "")
-            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
-            if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):
-                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
 
