@@ -20,6 +20,7 @@ describe('app entry boot', () => {
     let bootApp: jest.Mock
     let stylesheet: ReturnType<typeof deferred<boolean>>
     let documentListeners: jest.SpyInstance<void, Parameters<typeof document.addEventListener>>
+    let hasOwnAtAppEvaluation: string
 
     beforeEach(() => {
         jest.resetModules()
@@ -28,6 +29,7 @@ describe('app entry boot', () => {
         modulesLoaded = []
         bootApp = jest.fn()
         stylesheet = deferred<boolean>()
+        hasOwnAtAppEvaluation = 'unknown'
         window.ESBUILD_CSS_READY = stylesheet.promise
         document.body.innerHTML = '<div id="root"></div>'
         window.__posthogAppRoot = createRoot(document.getElementById('root')!)
@@ -44,6 +46,7 @@ describe('app entry boot', () => {
                 throw new Error('App evaluated before Zod configuration')
             }
             modulesLoaded.push('App')
+            hasOwnAtAppEvaluation = typeof Object.hasOwn
             return {
                 App: (): JSX.Element => {
                     if (bootApp.mock.calls.length !== 1) {
@@ -110,6 +113,23 @@ describe('app entry boot', () => {
             expect(bootApp).toHaveBeenCalledTimes(1)
         }
     )
+
+    it('shims Object.hasOwn before the app chunk evaluates on a pre-ES2022 engine', async () => {
+        const nativeHasOwn = Object.hasOwn
+        Reflect.deleteProperty(Object, 'hasOwn')
+
+        try {
+            await loadEntry()
+            await act(async () => stylesheet.resolve(true))
+
+            expect(hasOwnAtAppEvaluation).toBe('function')
+            expect(Object.hasOwn({ present: undefined }, 'present')).toBe(true)
+            expect(Object.hasOwn({}, 'absent')).toBe(false)
+            expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
+        } finally {
+            Object.defineProperty(Object, 'hasOwn', { value: nativeHasOwn, writable: true, configurable: true })
+        }
+    })
 
     it.each(['loaded', 'absent'] as const)('boots when the stylesheet is %s', async (stylesheetState) => {
         if (stylesheetState === 'absent') {

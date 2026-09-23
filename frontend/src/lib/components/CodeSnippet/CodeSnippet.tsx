@@ -18,9 +18,18 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import terraform from './terraformLanguage'
 
-// `common` already registers most of our languages (including rust, c, and cpp) — only add the missing ones.
-const lowlight = createLowlight(common)
-lowlight.register({ dart, elixir, groovy, http, terraform })
+// Built on first highlight, not at module scope. lowlight calls `Object.hasOwn`, which older engines
+// lack, and a throw here blanks every bundle that reaches this file. See ~/object-has-own-polyfill.
+let lowlight: ReturnType<typeof createLowlight> | undefined
+
+function getLowlight(): ReturnType<typeof createLowlight> {
+    if (!lowlight) {
+        lowlight = createLowlight(common)
+        // `common` already registers most of our languages (including rust, c, and cpp) — only add the missing ones.
+        lowlight.register({ dart, elixir, groovy, http, terraform })
+    }
+    return lowlight
+}
 
 export enum Language {
     Text = 'text',
@@ -222,10 +231,10 @@ export function CodeLine({
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const highlighted = useMemo(
-        () => (lowlight.registered(language) ? lowlight.highlight(language, text) : lowlight.highlightAuto(text)),
-        [language, text]
-    )
+    const highlighted = useMemo(() => {
+        const instance = getLowlight()
+        return instance.registered(language) ? instance.highlight(language, text) : instance.highlightAuto(text)
+    }, [language, text])
     const style = wrapLines ? ({ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const) : {}
 
     return (

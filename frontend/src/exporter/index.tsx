@@ -1,6 +1,9 @@
 import '~/styles'
 import './Exporter.scss'
 
+// Must evaluate before Exporter, which reaches lib/components/CodeSnippet and initializes lowlight
+// at module scope. See ../object-has-own-polyfill.
+import '../object-has-own-polyfill'
 // The relative path keeps this with the side-effect imports when imports are sorted, so it evaluates
 // before any module that builds a zod schema. See lib/configureZod.
 import '../lib/configureZod'
