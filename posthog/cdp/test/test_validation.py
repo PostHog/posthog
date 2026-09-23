@@ -1016,7 +1016,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("valid_bracket", "{person.properties['self-serve']}", False),
             ("hyphenated_single", "{person.properties.self-serve}", True),
             ("hyphenated_multi", "{event.properties.multi-word-name}", True),
-            ("subtraction_with_spaces", "{event.properties.count - total}", False),
+            ("subtraction_with_spaces", "{event.properties.count - inputs.total}", False),
             ("subtraction_field_minus_field", "{event.properties.amount - event.properties.discount}", False),
         ]
     )
@@ -1048,11 +1048,54 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         expected = generate_template_bytecode(equivalent, set(), function_type="destination", is_dwh_source=False)
         assert rewritten == expected
 
+    def test_destination_templates_accept_lambda_locals_and_node_callables(self):
+        for template in (
+            "{arrayMap(a -> { let b := a return b }, [1])}",
+            "{arrayMap(tryBase64Decode, event.properties.ids)}",
+        ):
+            assert generate_template_bytecode(template, set(), function_type="destination"), template
+
+    def test_template_globals_check_covers_every_function_type_and_input_shape(self):
+        # Every non-transformation type resolves its inputs against the same invocation globals, and a
+        # bad root inside a json input or a list fails the same way as a plain string.
+        for function_type, template in (
+            ("destination", {"headers": {"x-id": "{distinct_id}"}}),
+            ("destination", ["ok", "{properties.foo}"]),
+            ("source_webhook", "{distinct_id}"),
+            ("internal_destination", "{timestamp}"),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                generate_template_bytecode(template, set(), function_type=function_type)
+            assert "Variable not available in inputs" in str(ctx.exception), (function_type, template)
+
+        # Roots a specific path provides stay allowed everywhere, so a template valid on one path is
+        # never refused on another.
+        for function_type, template in (
+            ("source_webhook", "{request.body.distinct_id}"),
+            ("destination", "{variables.total}"),
+            ("destination", "{groups.company.properties.name}"),
+            ("transformation", "{arrayMap(a -> a, [1])}"),
+        ):
+            assert generate_template_bytecode(template, set(), function_type=function_type), (function_type, template)
+
+    def test_destination_templates_refuse_a_python_only_callback(self):
+        # max2 is in the Python standard library and not in the Node VM, so a template that passes it
+        # as a callback fails on every event.
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode("{arrayMap(max2, [1, 2])}", set(), function_type="destination")
+        assert "Variable not available in inputs: max2" in str(ctx.exception)
+
+    def test_destination_templates_skip_the_globals_check_when_the_function_stays_off(self):
+        with self.assertRaises(Exception):
+            generate_template_bytecode("{distinct_id}", set(), function_type="destination")
+        assert generate_template_bytecode("{distinct_id}", set(), function_type="destination", validate_globals=False)
+
     def test_record_alias_not_rewritten_without_dwh_source(self):
-        # Without a warehouse source, `record` is left untouched (compiles like any other global).
-        untouched = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
-        rewritten = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
-        assert untouched != rewritten
+        # Without a warehouse source there is no `record` global at run time, so it is refused like any other.
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
+        assert "Variable not available in inputs: record" in str(ctx.exception)
+        assert generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
 
     def test_record_alias_rewriter_only_touches_record_fields(self):
         # AST-level: a `record` field is rewritten; a non-record field and a same-named string
