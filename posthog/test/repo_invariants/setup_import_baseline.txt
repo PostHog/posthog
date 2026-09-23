@@ -16,7 +16,6 @@
 #
 # Third-party packages on the setup path today (cheap entries listed too, so a slow CI
 # runner cannot push a known package over the threshold):
-botocore
 celery
 clickhouse_driver
 cryptography
@@ -26,7 +25,6 @@ google
 grpc
 kombu
 oauth2_provider
-pkg_resources
 psycopg
 redis
 rich

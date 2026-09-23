@@ -76,6 +76,7 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .user_facet_settings import UserFacetSettings
+from .webauthn_credential import WebauthnCredential
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -176,6 +177,7 @@ __all__ = [
     "UserScenePersonalisation",
     "UserHomeSettings",
     "UserFacetSettings",
+    "WebauthnCredential",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",
