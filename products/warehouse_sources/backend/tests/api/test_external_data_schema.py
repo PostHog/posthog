@@ -1223,7 +1223,15 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_xmin_rejected_for_non_postgres(self):
+    @parameterized.expand(
+        [
+            ("xmin", "xmin", "postgres"),
+            ("cdc", "cdc", "cdc is not supported"),
+        ]
+    )
+    def test_update_schema_replication_sync_type_rejected_for_unsupported_source(
+        self, _name: str, sync_type: str, expected_message: str
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.MYSQL,
@@ -1238,13 +1246,17 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"sync_type": "xmin", "primary_key_columns": ["id"]},
-        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": sync_type, "primary_key_columns": ["id"]},
+            )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "postgres" in str(response.json()).lower()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected_message in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 

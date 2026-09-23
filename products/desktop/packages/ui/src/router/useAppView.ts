@@ -80,6 +80,8 @@ function deriveFromMatches(matches: Match[]): AppView {
     case "/reports/$reportId":
       return { type: "report" };
     case "/loops":
+    case "/spaces/$channelId/loops/":
+    case "/spaces/$channelId/loops/$loopId":
       return { type: "loops" };
     case "/archived":
       return { type: "archived" };

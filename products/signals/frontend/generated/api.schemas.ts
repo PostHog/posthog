@@ -239,6 +239,20 @@ export const SignalReportAssignmentPrStateEnumApi = {
     Merged: 'merged',
 } as const
 
+/**
+ * * `approved` - Approved
+ * * `changes_requested` - Changes requested
+ * * `review_required` - Review required
+ */
+export type SignalReportPullRequestReviewDecisionEnumApi =
+    (typeof SignalReportPullRequestReviewDecisionEnumApi)[keyof typeof SignalReportPullRequestReviewDecisionEnumApi]
+
+export const SignalReportPullRequestReviewDecisionEnumApi = {
+    Approved: 'approved',
+    ChangesRequested: 'changes_requested',
+    ReviewRequired: 'review_required',
+} as const
+
 export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
 
 export const SignalActorKindEnumApi = {
@@ -296,6 +310,17 @@ export interface SignalReportPullRequestApi {
     state: SignalReportAssignmentPrStateEnumApi
     /** Whether this PR merged. */
     merged: boolean
+    /** Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.
+     *
+     * * `approved` - Approved
+     * * `changes_requested` - Changes requested
+     * * `review_required` - Review required */
+    review_decision: SignalReportPullRequestReviewDecisionEnumApi | null
+    /**
+     * When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.
+     * @nullable
+     */
+    merged_at: string | null
     /** Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task. */
     readonly attached_by: SignalReportPullRequestAttachedByApi | null
     /**
@@ -5619,6 +5644,15 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     SearchOpportunity: 'search_opportunity',
 } as const
 
+export type SignalSourceSyncStatusEnumApi =
+    (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
+
+export const SignalSourceSyncStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
 /**
  * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
  */
@@ -5633,11 +5667,8 @@ export interface SignalSourceConfigApi {
     config?: SignalSourceConfigApiConfig
     readonly created_at: string
     readonly updated_at: string
-    /**
-     * Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.
-     * @nullable
-     */
-    readonly status: string | null
+    /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
+    readonly status: SignalSourceSyncStatusEnumApi | null
 }
 
 export interface PaginatedSignalSourceConfigListApi {
@@ -5663,11 +5694,8 @@ export interface PatchedSignalSourceConfigApi {
     config?: PatchedSignalSourceConfigApiConfig
     readonly created_at?: string
     readonly updated_at?: string
-    /**
-     * Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.
-     * @nullable
-     */
-    readonly status?: string | null
+    /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
+    readonly status?: SignalSourceSyncStatusEnumApi | null
 }
 
 export interface SignalUserAutonomyConfigApi {

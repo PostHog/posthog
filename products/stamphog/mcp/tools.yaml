@@ -123,6 +123,26 @@ tools:
     stamphog-repo-configs-update:
         operation: stamphog_repo_configs_update
         enabled: false
+    stamphog-review-runs-create:
+        operation: stamphog_review_runs_create
+        enabled: true
+        scopes:
+            - stamphog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Request a stamphog review
+        description: >
+            Ask stamphog to review one pull request now, by `repository` (owner/name) and `pr_number`. The repository
+            must be connected and enabled in Stamphog. The request replaces the trigger label, so it works in label mode
+            too, but every other rule still applies: stamphog refuses drafts, closed PRs, bot-authored PRs, PRs from
+            outside the repository, and PRs whose author lacks write access, and the error message says why. Stamphog
+            decides the verdict itself: a passing review posts a real GitHub approval, anything else posts a comment.
+            The review runs in the background, so this returns the run right away (status `queued`). Poll
+            `stamphog-review-runs-get` with its id for the verdict and reasoning. When a run already covers the PR's
+            current head, that run is returned with `created: false` instead of starting another.
+        feature_flag: stamphog
     stamphog-review-runs-get:
         operation: stamphog_review_runs_retrieve
         enabled: true
@@ -135,9 +155,11 @@ tools:
         title: Get stamphog review run
         description: >
             Get a single review run by id — the record of one automated review pass over a pull request. Returns the
-            lifecycle `status`, final `verdict`, and an allowlisted `gate_result` (gate_blocked, final_verdict). The raw
-            reviewer transcript, PR payload, and policy contents are deliberately not exposed — they carry repository
-            content a project member without repo access must not read.
+            lifecycle `status`, final `verdict`, an allowlisted `gate_result` (gate_blocked, final_verdict), and the
+            reviewer's `reasoning` (its explanation, the showstoppers that blocked approval, the review text stamphog
+            posts on GitHub, and a plain-language change summary). The reasoning fields are null until the reviewer has
+            run. Poll this after `stamphog-review-runs-create` until `status` is completed, gated, failed, or
+            superseded. The raw reviewer transcript, PR payload, patches, and policy contents are not exposed.
         feature_flag: stamphog
     stamphog-review-runs-list:
         operation: stamphog_review_runs_list
@@ -154,9 +176,10 @@ tools:
             List stamphog's automated review runs for pull requests in this project, newest first. Filter by
             `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its
             lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the
-            reviewer ran. The raw reviewer output (full reasoning transcript) is omitted from list results — use
-            `stamphog-review-runs-get` for the full detail.
+            reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to
+            read it.
         feature_flag: stamphog
         response:
             exclude:
                 - output
+                - reasoning

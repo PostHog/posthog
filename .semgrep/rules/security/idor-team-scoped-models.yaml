@@ -301,6 +301,7 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |NotebookNodeRun
+                              |NotebookRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
@@ -349,6 +350,7 @@ rules:
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
+                              |SignalReportSlackThread
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -717,6 +719,7 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |NotebookNodeRun
+                        |NotebookRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
@@ -765,6 +768,7 @@ rules:
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
+                        |SignalReportSlackThread
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
