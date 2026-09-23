@@ -162,10 +162,10 @@ For example, with the corresponding tables and properties available to the user:
 | `SELECT e.group_0.properties.\| FROM events AS e` | Properties for group index 0 only                                       |
 | `SELECT e.pdi.person.\| FROM events AS e`         | Fields reached through the person distinct-ID helper                    |
 
-Catalog publication revisions and Redis coordination keys include the traversal capability version.
-The revision retains the warehouse-alias prefix so older Django workers can accept enriched snapshots.
-New Django workers refresh older flat snapshots on use instead of accepting them until expiry.
-During a mixed Django rollout, old workers can still publish flat snapshots; new workers reject those revisions and republish the traversal-capable catalog.
+`CATALOG_VERSION` is the single version for catalog publication and Redis coordination.
+Revisions use `v2:<timestamp>`, and Redis coordination hashes the numeric version with the service target, team, and user.
+Django refreshes snapshots with older revision prefixes on use instead of accepting them until expiry.
+Older Django workers do not accept the new prefix; a mixed rollout can cause extra publications or Python fallback while the service is feature flagged.
 The frontend request and response contracts do not change, and the existing eligibility checks and Python fallback still apply.
 
 ## Query analysis
@@ -417,9 +417,9 @@ fails startup unless dedicated signing keys are configured.
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
 The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
-Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
+Django refreshes cached catalogs without the current version prefix before it uses their responses.
 Each request attempts at most one publication and one post-publication retry; marker and lease paths add only bounded Go rechecks.
-The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
+The retry must return the current catalog version, but a concurrent publication for the same team and user can supersede the requested revision.
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
 Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.

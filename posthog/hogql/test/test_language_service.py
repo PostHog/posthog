@@ -165,7 +165,7 @@ class TestLanguageServiceFeatureFlag(SimpleTestCase):
 
 class TestCatalogPublicationCoordination(SimpleTestCase):
     result = LanguageServiceResult(
-        body={"valid": True, "catalogRevision": "warehouse-aliases-v1:ready"},
+        body={"valid": True, "catalogRevision": "v2:ready"},
         duration_seconds=0,
         response_size_bytes=0,
     )
@@ -180,6 +180,10 @@ class TestCatalogPublicationCoordination(SimpleTestCase):
         result = coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
 
         assert result is self.result
+        version_two_marker = redis_client.get.call_args.args[0]
+        with patch("posthog.hogql.language_service.CATALOG_VERSION", 3):
+            coordinate_catalog_publication(12, 34, "http://language-service:8091", check_catalog, publish_catalog)
+        assert redis_client.get.call_args.args[0] != version_two_marker
         redis_client.lock.assert_not_called()
         publish_catalog.assert_not_called()
 

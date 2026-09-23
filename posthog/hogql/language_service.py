@@ -41,7 +41,8 @@ if TYPE_CHECKING:
 
 FEATURE_FLAG = "hogql-language-service"
 AFFINITY_HEADER = "X-HogQL-Affinity-Key"
-TRAVERSAL_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:traversals-v1:"
+CATALOG_VERSION = 2
+CATALOG_REVISION_PREFIX = f"v{CATALOG_VERSION}:"
 
 _CATALOG_PUBLICATION_MARKER_TTL_SECONDS = 5
 _CATALOG_PUBLICATION_LOCK_TTL_SECONDS = 10
@@ -82,7 +83,7 @@ def coordinate_catalog_publication(
     publish_catalog: Callable[[], None],
     timings: HogQLTimings | None = None,
 ) -> LanguageServiceResult | None:
-    scope = sha256(f"{service_target}:{team_id}:{user_id}:{TRAVERSAL_CATALOG_REVISION_PREFIX}".encode()).hexdigest()
+    scope = sha256(f"{service_target}:{team_id}:{user_id}:{CATALOG_VERSION}".encode()).hexdigest()
     key_prefix = f"hogql-language-service:catalog-publication:{{{scope}}}"
     marker_key = f"{key_prefix}:success"
     lock_key = f"{key_prefix}:lock"
