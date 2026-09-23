@@ -982,7 +982,8 @@ class LockPhaseTransactionPolicy(MigrationPolicy):
                 f"❌ BLOCKED: {len(lock_phases)} lock-phase operations ({', '.join(sorted(set(lock_phases)))}) share "
                 "one transaction, which holds every lock until COMMIT. Pass every key on a table to one "
                 "DropForeignKey with column=[...], every table of one retirement to one SafeDropTable, and give "
-                "the rest migrations of their own."
+                "the rest migrations of their own. For keys into several busy parents, set atomic = False "
+                "instead, so each DropForeignKey commits alone."
             )
         others = sorted({name for name in names if name not in _LOCK_PHASE_OPERATIONS})
         if others:
