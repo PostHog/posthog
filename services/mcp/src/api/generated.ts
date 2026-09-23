@@ -10444,10 +10444,27 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
+
+
+    export const LLMDetectorConfigType = {
+      Llm: 'llm',
+    } as const;
+
+    export interface LLMDetectorConfig {
+      /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+      instructions?: string | null;
+      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+      threshold?: number | null;
+      type: LLMDetectorConfigType;
+      /** How many recent points the model is shown (default: 90) */
+      window?: number | null;
+    }
+
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig;
 
     /**
      * * `real_time` - real_time
@@ -10503,6 +10520,11 @@ export namespace Schemas {
       readonly insight_short_id: string;
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name: string;
+      /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available: boolean | null;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -10661,7 +10683,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Anomaly score for each point (null if insufficient data). */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -22556,8 +22578,12 @@ export namespace Schemas {
     export interface FileDownloadHogQLRequest {
       file: FileDownloadDestinationFileConfig;
       model: FileDownloadHogQLRequestModel;
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+      data_interval_start?: string;
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+      data_interval_end?: string;
     }
 
     export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest | FileDownloadHogQLRequest;
@@ -46273,11 +46299,11 @@ export namespace Schemas {
       model: FileDownloadBatchExportOnDemandModelEnum;
       include?: string[];
       exclude?: string[];
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query?: string;
-      /** Start of the data interval to export */
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
-      /** End of the data interval to export */
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
       data_interval_end?: string;
     }
 
@@ -46299,8 +46325,12 @@ export namespace Schemas {
        *
        * * `hogql` - hogql */
       model: FileDownloadHogQLModelEnum;
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+      data_interval_start?: string;
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+      data_interval_end?: string;
     }
 
     /**
@@ -46308,7 +46338,7 @@ export namespace Schemas {
      */
     export interface FileDownloadCountRowsResponse {
       /**
-         * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+         * Number of rows the query returns with the supplied interval bounds. Data arriving between counting and exporting can change the result.
          * @minimum 0
          */
       count: number;
@@ -68929,6 +68959,11 @@ export namespace Schemas {
       readonly insight_short_id?: string;
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name?: string;
+      /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available?: boolean | null;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -111370,6 +111405,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
      * @maximum 500
@@ -111384,6 +111423,10 @@ export namespace Schemas {
      * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     /**
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
@@ -111403,6 +111446,10 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
      * @minimum 1
      * @maximum 500
@@ -111413,6 +111460,21 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
+    };
+
+    export type McpAnalyticsSessionsActivityOverviewParams = {
+    /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     };
 
     export type McpGatewayAuditListParams = {
