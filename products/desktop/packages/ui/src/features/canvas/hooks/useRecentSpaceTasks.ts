@@ -203,11 +203,10 @@ export function useRecentSpaceTasks(
   // already-open row a new array — enough to re-render every session row in the
   // tree on every expand.
   const cache = useRef(new Map<string, CachedSpaceTasks>());
-  // Read through a ref rather than as a dependency, and left out of the reuse
-  // key below. Opening a session marks it viewed, and ordering on that the
-  // moment it changes moves the row the reader just clicked — down a tier, and
-  // sometimes off the five the space shows. The rows take the viewed state
-  // again the next time the list itself changes.
+  // Out of the reuse key below, and read through a ref so it is not a
+  // dependency either. Opening a session marks it viewed, and ordering on that
+  // the moment it changes moves the row the reader just clicked — down a tier,
+  // and sometimes off the five the space shows.
   const viewedAtRef = useRef(viewedAt);
   viewedAtRef.current = viewedAt;
 

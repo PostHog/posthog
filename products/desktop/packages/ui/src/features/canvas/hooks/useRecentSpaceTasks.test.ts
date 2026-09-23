@@ -27,7 +27,11 @@ vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
 
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 
-import { spacePeople, useRecentSpaceTasks } from "./useRecentSpaceTasks";
+import {
+  type SpaceTasks,
+  spacePeople,
+  useRecentSpaceTasks,
+} from "./useRecentSpaceTasks";
 
 function user(name: string): UserBasic {
   return {
@@ -99,6 +103,17 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client: queryClient }, children);
 }
 
+function rowsOf(view: { result: { current: Map<string, SpaceTasks> } }) {
+  return view.result.current.get("space-1")?.items.map((item) => item.id);
+}
+
+/** The tree with one space open, once its first page has arrived. */
+async function openSpace() {
+  const view = renderHook(() => useRecentSpaceTasks(["space-1"]), { wrapper });
+  await waitFor(() => expect(rowsOf(view)).toEqual(["unread", "fresh"]));
+  return view;
+}
+
 describe("useRecentSpaceTasks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,14 +131,7 @@ describe("useRecentSpaceTasks", () => {
   });
 
   it("keeps a row where it is when the reader opens it", async () => {
-    const view = renderHook(() => useRecentSpaceTasks(["space-1"]), {
-      wrapper,
-    });
-    await waitFor(() =>
-      expect(
-        view.result.current.get("space-1")?.items.map((item) => item.id),
-      ).toEqual(["unread", "fresh"]),
-    );
+    const view = await openSpace();
 
     // Opening the unread session marks it viewed. Its dot clears, but the row
     // must not drop below the quiet one under the reader's pointer.
@@ -133,20 +141,11 @@ describe("useRecentSpaceTasks", () => {
     };
     view.rerender();
 
-    expect(
-      view.result.current.get("space-1")?.items.map((item) => item.id),
-    ).toEqual(["unread", "fresh"]);
+    expect(rowsOf(view)).toEqual(["unread", "fresh"]);
   });
 
   it("takes the viewed state again when the space's sessions change", async () => {
-    const view = renderHook(() => useRecentSpaceTasks(["space-1"]), {
-      wrapper,
-    });
-    await waitFor(() =>
-      expect(
-        view.result.current.get("space-1")?.items.map((item) => item.id),
-      ).toEqual(["unread", "fresh"]),
-    );
+    const view = await openSpace();
 
     mocks.timestamps = {
       ...mocks.timestamps,
@@ -159,10 +158,6 @@ describe("useRecentSpaceTasks", () => {
     });
     await queryClient.refetchQueries();
 
-    await waitFor(() =>
-      expect(
-        view.result.current.get("space-1")?.items.map((item) => item.id),
-      ).toEqual(["fresh", "unread"]),
-    );
+    await waitFor(() => expect(rowsOf(view)).toEqual(["fresh", "unread"]));
   });
 });
