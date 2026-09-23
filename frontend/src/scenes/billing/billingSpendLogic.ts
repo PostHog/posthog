@@ -122,6 +122,8 @@ export interface billingSpendLogicValues {
     finalHiddenSeries: number[]
     heading: string
     headingTooltip: string | null
+    reportedProjects: BillingProjectApi[]
+    reportedProjectsLoading: boolean
     series: {
         breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
@@ -134,8 +136,6 @@ export interface billingSpendLogicValues {
     showSeries: boolean
     spendChartExportUrl: string
     spendExportUrl: string
-    reportedProjects: BillingProjectApi[]
-    reportedProjectsLoading: boolean
     teamOptions: {
         key: string
         label: string

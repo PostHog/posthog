@@ -190,6 +190,8 @@ export interface billingUsageLogicValues {
     finalHiddenSeries: number[]
     heading: string
     headingTooltip: string | null
+    reportedProjects: BillingProjectApi[]
+    reportedProjectsLoading: boolean
     series: {
         breakdown_type: BillingUsageResponseBreakdownType | null
         breakdown_value: string | string[] | null
@@ -200,8 +202,6 @@ export interface billingUsageLogicValues {
     }[]
     showEmptyState: boolean
     showSeries: boolean
-    reportedProjects: BillingProjectApi[]
-    reportedProjectsLoading: boolean
     teamOptions: {
         key: string
         label: string
