@@ -4,7 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -2378,3 +2378,17 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "reference_not_found"
+
+    def test_label_move_deadlock_is_a_retryable_conflict(self):
+        self._make_prompt("base")
+        with patch(
+            "posthog.api.llm_prompt.set_prompt_label",
+            side_effect=OperationalError("deadlock detected"),
+        ):
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/llm_prompts/name/base/labels/production/",
+                data={"version": 1},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "Try again" in response.json()["detail"]
