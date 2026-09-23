@@ -1,6 +1,11 @@
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { FileSystemHomeFolderApi } from '~/generated/core/api.schemas'
+
+import { splitPath } from './utils'
 
 export function isHomeFolder(item: TreeDataItem, homeFolder: FileSystemHomeFolderApi | null): boolean {
     return !!(
@@ -30,11 +35,31 @@ export function withHomeFolderEmptyState(
                           ? {
                                 ...child,
                                 displayName: (
-                                    <span className="block py-1 text-xs leading-relaxed">
-                                        <span className="block">This is your public home folder in this project.</span>
-                                        <span className="block mt-1">
-                                            Drag files here, or use the folder's menu to create something new.
-                                        </span>
+                                    <span className="flex items-center gap-1 py-1 text-xs">
+                                        <span>Your home folder is empty</span>
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    This folder is public, not private. Everyone in this project can see
+                                                    what you put here. Find it at{' '}
+                                                    <strong>{splitPath(homeFolder.path).join(' / ')}</strong>.
+                                                </>
+                                            }
+                                            placement="right"
+                                            openOnClick
+                                        >
+                                            <LemonButton
+                                                size="xsmall"
+                                                noPadding
+                                                icon={<IconInfo />}
+                                                aria-label="About your home folder"
+                                                data-attr="home-folder-info"
+                                                onClick={(event) => {
+                                                    event.preventDefault()
+                                                    event.stopPropagation()
+                                                }}
+                                            />
+                                        </Tooltip>
                                     </span>
                                 ),
                             }
