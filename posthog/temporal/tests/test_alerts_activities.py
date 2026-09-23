@@ -1,6 +1,8 @@
+import time
 import uuid
 import contextlib
-from datetime import UTC, datetime
+import dataclasses
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
@@ -48,10 +50,10 @@ from posthog.temporal.alerts.activities import (
 )
 from posthog.temporal.alerts.admission import (
     INFLIGHT_KEY,
-    count_inflight_evaluations,
+    SLOT_LEASE_SECONDS,
+    admit_evaluation_slots,
     hold_evaluation_slot,
     inflight_alert_ids,
-    reserve_evaluation_slots,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -79,6 +81,15 @@ def clear_inflight_slots():
     get_client().delete(INFLIGHT_KEY)
     yield
     get_client().delete(INFLIGHT_KEY)
+
+
+def _reserve_as_the_scheduler(alert_id: str) -> None:
+    admit_evaluation_slots([alert_id], limit=1, expires_at=time.time() + SLOT_LEASE_SECONDS)
+
+
+def _hold_as_a_later_attempt(alert_id: str) -> None:
+    with time_machine.travel(datetime.now(UTC) + timedelta(minutes=1), tick=False):
+        hold_evaluation_slot(alert_id)
 
 
 def _valid_trends_query() -> dict:
@@ -291,10 +302,10 @@ class TestPrepareAlert:
         ctx = time_machine.travel(frozen_time, tick=False) if frozen_time else contextlib.nullcontext()
         with ctx:
             a = await _create_alert(ateam, **setup_kwargs)
-            reserve_evaluation_slots([str(a.id)])
+            _reserve_as_the_scheduler(str(a.id))
             env = ActivityEnvironment()
             result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
-            assert count_inflight_evaluations() == 0
+            assert inflight_alert_ids() == set()
 
         assert result.action == PrepareAction.SKIP
         assert result.reason == expected_reason
@@ -309,18 +320,25 @@ class TestPrepareAlert:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
 
-    async def test_failed_preparation_frees_the_slot(self) -> None:
+    @pytest.mark.parametrize(
+        "attempt,still_held",
+        [pytest.param(1, True, id="retried"), pytest.param(3, False, id="last_attempt")],
+    )
+    async def test_failed_preparation_keeps_the_slot_until_the_last_attempt(
+        self, attempt: int, still_held: bool
+    ) -> None:
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, attempt=attempt)
         with pytest.raises(ValidationError):
-            await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id="not-a-uuid"))
-        assert count_inflight_evaluations() == 0
+            await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id="not-a-uuid"))
+        assert ("not-a-uuid" in inflight_alert_ids()) is still_held
 
     async def test_skip_leaves_the_slot_a_later_attempt_holds(self, ateam) -> None:
         a = await _create_alert(ateam, skip_weekend=True, schedule_start_time="08:30")
 
         def _hold_as_a_retried_attempt(alert: AlertConfiguration) -> bool:
             # A retried attempt takes the slot while this attempt is still deciding to skip.
-            with time_machine.travel("2024-12-21T08:00:01Z", tick=False):
-                hold_evaluation_slot(str(alert.id))
+            _hold_as_a_later_attempt(str(alert.id))
             return True
 
         with (
@@ -467,7 +485,6 @@ class TestEvaluateAlert:
             assert str(evaluated_alert.id) in inflight_alert_ids()
             return AlertEvaluationResult(value=5.0, breaches=None)
 
-        reserve_evaluation_slots([str(alert.id)])
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
             side_effect=_check_while_holding_the_slot,
@@ -475,7 +492,34 @@ class TestEvaluateAlert:
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
-        assert count_inflight_evaluations() == 0
+        assert inflight_alert_ids() == set()
+        assert result.new_state == AlertState.NOT_FIRING
+
+    async def test_evaluate_leaves_the_slot_a_later_attempt_holds(self, alert) -> None:
+        def _check_while_a_retried_attempt_takes_over(evaluated_alert):
+            _hold_as_a_later_attempt(str(evaluated_alert.id))
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=_check_while_a_retried_attempt_takes_over,
+        ):
+            await ActivityEnvironment().run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert str(alert.id) in inflight_alert_ids()
+
+    async def test_evaluate_runs_without_a_lease_when_redis_is_unavailable(self, alert) -> None:
+        with (
+            patch("posthog.temporal.alerts.activities.hold_evaluation_slot", side_effect=ConnectionError("redis down")),
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=5.0, breaches=None),
+            ),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
         assert result.new_state == AlertState.NOT_FIRING
         assert result.should_notify is False
         assert result.alert_check_id  # stringified UUID, truthy
@@ -571,6 +615,8 @@ class TestEvaluateAlert:
             env = ActivityEnvironment()
             with pytest.raises(error_class):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+        # The retry keeps its slot, or the scheduler admits past the limit during the backoff.
+        assert str(alert.id) in inflight_alert_ids()
 
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()

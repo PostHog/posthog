@@ -88,9 +88,10 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             alerts = await self._retrieve_due_alerts(inputs)
             pending = list(alerts)
             while pending and temporalio.workflow.now() < deadline:
+                expires_at = (temporalio.workflow.now() + alert_timeouts(None).workflow_execution).timestamp()
                 admitted = await temporalio.workflow.execute_activity(
                     admit_alert_evaluations,
-                    AdmitEvaluationsInputs(alert_ids=[alert.alert_id for alert in pending]),
+                    AdmitEvaluationsInputs(alert_ids=[alert.alert_id for alert in pending], expires_at=expires_at),
                     start_to_close_timeout=dt.timedelta(seconds=30),
                     retry_policy=_ADMISSION_ACTIVITY_RETRY_POLICY,
                 )
@@ -101,11 +102,11 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     unstarted = await self._start_checks(batch)
                     failed_ids.extend(unstarted.failed_ids)
                     if unstarted.alert_ids:
-                        await self._release_slots(unstarted.alert_ids, admitted.expires_at)
+                        await self._release_slots(unstarted.alert_ids, expires_at)
                 if pending:
                     await temporalio.workflow.sleep(_ADMISSION_POLL_INTERVAL)
             # A short page means nothing else is due; a full page may hide more behind it.
-            if pending or len(alerts) < inputs.max_alerts_per_run:
+            if pending or not alerts or len(alerts) < inputs.max_alerts_per_run:
                 break
 
         if pending:
@@ -118,8 +119,8 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
     async def _release_slots(self, alert_ids: list[str], expires_at: float) -> None:
         """Give back reservations no child will use: the start failed, or the check was already running.
 
-        A running check holds its slot under its own expiry, so a release keyed on this admission's
-        expiry cannot take that slot away.
+        Admission returned only ids written under this expiry, and a running check holds its slot
+        under its own, so a release keyed on it cannot take that slot away.
         """
         await temporalio.workflow.execute_activity(
             release_alert_evaluation_slots,
@@ -232,7 +233,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
             try:
                 evaluation = await temporalio.workflow.execute_activity(
                     evaluate_alert,
-                    EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
+                    EvaluateAlertActivityInputs(
+                        alert_id=inputs.alert_id, calculation_interval=inputs.calculation_interval
+                    ),
                     start_to_close_timeout=timeouts.evaluate_start_to_close,
                     schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     heartbeat_timeout=timeouts.heartbeat_timeout,

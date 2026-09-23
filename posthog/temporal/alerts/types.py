@@ -42,14 +42,13 @@ class ScheduleDueAlertChecksWorkflowInputs:
 @frozen
 class AdmitEvaluationsInputs:
     alert_ids: list[str]
+    # Chosen by the workflow so every attempt of one admission writes, and later releases, the same expiry.
+    expires_at: float
 
 
 @frozen
 class AdmittedEvaluations:
     alert_ids: list[str]
-    # The expiry this admission wrote; a release carrying it removes only the entries it made.
-    expires_at: float
-    occupied: int
 
 
 @frozen
@@ -94,6 +93,7 @@ class PrepareAlertResult:
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertActivityInputs:
     alert_id: str
+    calculation_interval: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

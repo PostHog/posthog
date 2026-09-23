@@ -85,6 +85,7 @@ class _SchedulerRun:
     start_child: AsyncMock
     sleep: AsyncMock
     admitted: list[list[str]]
+    admission_expiries: list[float]
     released: list[tuple[list[str], float]]
 
 
@@ -99,6 +100,7 @@ def _admission_scheduler(
     pages = iter(due_pages)
     capacities = iter(free_capacity)
     admitted: list[list[str]] = []
+    admission_expiries: list[float] = []
     released: list[tuple[list[str], float]] = []
     clock = itertools.count(0, seconds_per_clock_read)
     started_at = datetime(2026, 9, 22, 10, 0, tzinfo=UTC)
@@ -110,10 +112,8 @@ def _admission_scheduler(
             admitted_ids = list(args[0].alert_ids)[: next(capacities, len(args[0].alert_ids))]
             if admitted_ids:
                 admitted.append(admitted_ids)
-            # Each admission gets its own expiry, so a release can be matched to the admission it came from.
-            return AdmittedEvaluations(
-                alert_ids=admitted_ids, expires_at=float(len(admitted)), occupied=len(admitted_ids)
-            )
+                admission_expiries.append(args[0].expires_at)
+            return AdmittedEvaluations(alert_ids=admitted_ids)
         if activity is release_alert_evaluation_slots:
             released.append((list(args[0].alert_ids), args[0].held_until))
             return None
@@ -138,6 +138,7 @@ def _admission_scheduler(
             start_child=start_child,
             sleep=sleep,
             admitted=admitted,
+            admission_expiries=admission_expiries,
             released=released,
         )
 
@@ -282,7 +283,7 @@ async def test_schedule_due_alert_checks_skips_already_running_children() -> Non
 
     run.start_child.assert_awaited_once()
     # The running child released its own slot already, so the reservation this run made goes back.
-    assert run.released == [(["alert-1"], 1.0)]
+    assert run.released == [(["alert-1"], run.admission_expiries[0])]
 
 
 @pytest.mark.asyncio
@@ -307,7 +308,7 @@ async def test_schedule_due_alert_checks_attempts_remaining_children_before_repo
             await ScheduleDueAlertChecksWorkflow().run()
 
     assert run.start_child.await_count == 2
-    assert run.released == [(["alert-0"], 1.0)]
+    assert run.released == [(["alert-0"], run.admission_expiries[0])]
 
 
 def test_schedule_is_registered_in_init_schedules():

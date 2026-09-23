@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -13,7 +14,7 @@ from posthog.schema import AlertCalculationInterval
 from posthog.models import Team
 from posthog.redis import get_client
 from posthog.temporal.alerts.activities import _RetrievedAlerts, retrieve_due_alerts
-from posthog.temporal.alerts.admission import INFLIGHT_KEY, reserve_evaluation_slots
+from posthog.temporal.alerts.admission import INFLIGHT_KEY, SLOT_LEASE_SECONDS, admit_evaluation_slots
 from posthog.temporal.alerts.types import AlertInfo, ScheduleDueAlertChecksWorkflowInputs
 from posthog.temporal.tests.test_alerts_activities import _create_alert
 
@@ -127,7 +128,8 @@ async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_th
     with time_machine.travel("2026-09-10T12:00:00Z", tick=False):
         first_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
         second_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
-        reserve_evaluation_slots([alert.alert_id for alert in first_sweep])
+        admitted = [alert.alert_id for alert in first_sweep]
+        admit_evaluation_slots(admitted, limit=len(admitted), expires_at=time.time() + SLOT_LEASE_SECONDS)
         third_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
 
     oldest_due_alert_ids = [str(alert.id) for alert in due_alerts[:2]]
@@ -154,7 +156,9 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
     async def fake_get_alerts() -> _RetrievedAlerts:
-        return _RetrievedAlerts(alerts=[MagicMock()] * 9, due_count=42, oldest_due_at=None, polled_at=polled_at)
+        return _RetrievedAlerts(
+            alerts=[MagicMock()] * 9, due_count=42, oldest_due_at=None, polled_at=polled_at, in_flight_count=3
+        )
 
     with (
         patch(
@@ -178,6 +182,10 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     assert created_counter_names == expected_counter_names
     assert capacity_counter.add.call_args_list == [call(11), call(10), call(9)]
     assert selected_counter.add.call_args_list == [call(9), call(9), call(9)]
+    assert [gauge_call.args[0] for gauge_call in meter.create_gauge.call_args_list] == [
+        "insight_alert_evaluations_inflight"
+    ] * 3
+    assert meter.create_gauge.return_value.set.call_args_list == [call(3)] * 3
     meter.with_additional_attributes.assert_not_called()
 
 
@@ -188,7 +196,9 @@ async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
     async def fake_get_alerts() -> _RetrievedAlerts:
-        return _RetrievedAlerts(alerts=expected_alerts, due_count=1, oldest_due_at=None, polled_at=polled_at)
+        return _RetrievedAlerts(
+            alerts=expected_alerts, due_count=1, oldest_due_at=None, polled_at=polled_at, in_flight_count=0
+        )
 
     record_due_metrics = MagicMock()
     get_metric_meter = MagicMock(return_value=MagicMock(spec=MetricMeter))

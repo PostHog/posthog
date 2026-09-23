@@ -6,7 +6,6 @@ import structlog
 
 from posthog import redis
 from posthog.temporal.alerts.retry_policy import alert_timeouts
-from posthog.temporal.alerts.types import AdmittedEvaluations
 
 logger = structlog.get_logger(__name__)
 
@@ -17,33 +16,35 @@ INFLIGHT_KEY = "alerts:evaluations:inflight"
 # while the check it belongs to may still reach ClickHouse.
 SLOT_LEASE_SECONDS = int(alert_timeouts(None).workflow_execution.total_seconds())
 
-_UNLIMITED = 2**31
 _BOOKKEEPING_ATTEMPTS = 3
 _BOOKKEEPING_RETRY_SECONDS = 0.2
 
 # One step, so overlapping scheduler runs cannot both fill the same room. Only ids absent from the
-# set are added, and every candidate that is a member afterwards is returned: a retried admission
-# whose first reply was lost gets the same ids back, and a member the scheduler did not write keeps
-# the score its running check holds.
+# set are added, under the expiry the scheduler chose, and only candidates carrying that expiry are
+# returned: a retried admission whose first reply was lost gets the same ids back, and a member
+# another run or a running check wrote is neither started nor touched by this one.
 _ADMIT_SCRIPT = """
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
-local expires_at = ARGV[3]
+local expires_at = tonumber(ARGV[3])
 redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
 local free = limit - redis.call('ZCARD', key)
 local admitted = {}
 for i = 4, #ARGV do
     local alert_id = ARGV[i]
-    if redis.call('ZSCORE', key, alert_id) then
-        admitted[#admitted + 1] = alert_id
+    local current = redis.call('ZSCORE', key, alert_id)
+    if current then
+        if tonumber(current) == expires_at then
+            admitted[#admitted + 1] = alert_id
+        end
     elseif free > 0 then
-        redis.call('ZADD', key, expires_at, alert_id)
+        redis.call('ZADD', key, ARGV[3], alert_id)
         admitted[#admitted + 1] = alert_id
         free = free - 1
     end
 end
-return {redis.call('ZCARD', key), admitted}
+return admitted
 """
 
 # Temporal can retry an activity while the timed-out attempt is still running, and the scheduler can
@@ -71,27 +72,10 @@ def _decode(member: bytes | str) -> str:
     return member.decode() if isinstance(member, bytes) else member
 
 
-def _admit(alert_ids: list[str], *, limit: int, now: float) -> AdmittedEvaluations:
-    expires_at = now + SLOT_LEASE_SECONDS
-    occupied, admitted = redis.get_client().eval(_ADMIT_SCRIPT, 1, INFLIGHT_KEY, now, limit, expires_at, *alert_ids)
-    return AdmittedEvaluations(
-        alert_ids=[_decode(member) for member in admitted], expires_at=expires_at, occupied=int(occupied)
-    )
-
-
-def admit_evaluation_slots(alert_ids: list[str], *, limit: int) -> AdmittedEvaluations:
-    """Admit candidates in order while the set has room and return the ids that hold a slot."""
-    now = time.time()
-    if not alert_ids:
-        return AdmittedEvaluations(
-            alert_ids=[], expires_at=now + SLOT_LEASE_SECONDS, occupied=count_inflight_evaluations()
-        )
-    return _admit(alert_ids, limit=limit, now=now)
-
-
-def reserve_evaluation_slots(alert_ids: list[str]) -> float:
-    """Take slots regardless of the limit and return the expiry they were given."""
-    return _admit(alert_ids, limit=_UNLIMITED, now=time.time()).expires_at
+def admit_evaluation_slots(alert_ids: list[str], *, limit: int, expires_at: float) -> list[str]:
+    """Admit candidates in order while the set has room and return the ids held under expires_at."""
+    admitted = redis.get_client().eval(_ADMIT_SCRIPT, 1, INFLIGHT_KEY, time.time(), limit, expires_at, *alert_ids)
+    return [_decode(member) for member in admitted]
 
 
 def hold_evaluation_slot(alert_id: str) -> float:
@@ -134,9 +118,3 @@ def inflight_alert_ids() -> set[str]:
     client = redis.get_client()
     client.zremrangebyscore(INFLIGHT_KEY, "-inf", time.time())
     return {_decode(member) for member in client.zrange(INFLIGHT_KEY, 0, -1)}
-
-
-def count_inflight_evaluations() -> int:
-    client = redis.get_client()
-    client.zremrangebyscore(INFLIGHT_KEY, "-inf", time.time())
-    return int(client.zcard(INFLIGHT_KEY))

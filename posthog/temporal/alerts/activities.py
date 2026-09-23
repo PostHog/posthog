@@ -1,7 +1,9 @@
 import asyncio
 import traceback
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from typing import TypeVar
 
 from django.db import transaction
 from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
@@ -9,6 +11,7 @@ from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
 import temporalio.activity
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
@@ -47,6 +50,7 @@ from posthog.temporal.alerts.admission import (
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
 from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
+from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, alert_timeouts
 from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
     AdmittedEvaluations,
@@ -83,6 +87,8 @@ from products.notifications.backend.facade.api import (
 
 logger = structlog.get_logger(__name__)
 
+_T = TypeVar("_T")
+
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
@@ -92,6 +98,7 @@ class _RetrievedAlerts:
     due_count: int
     oldest_due_at: datetime | None
     polled_at: datetime
+    in_flight_count: int
 
 
 @temporalio.activity.defn
@@ -120,9 +127,8 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .filter(insight__deleted=False)
         )
         # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
-        selectable_query = due_alerts_query
-        if in_flight := inflight_alert_ids():
-            selectable_query = selectable_query.exclude(id__in=in_flight)
+        in_flight = inflight_alert_ids()
+        selectable_query = due_alerts_query.exclude(id__in=in_flight) if in_flight else due_alerts_query
         alerts_query = (
             selectable_query.annotate(_interval_order=calculation_interval_order)
             .annotate(
@@ -165,6 +171,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             due_count=due_alert_metrics["due_count"],
             oldest_due_at=due_alert_metrics["oldest_due_at"],
             polled_at=polled_at,
+            in_flight_count=len(in_flight),
         )
 
     retrieved = await get_alerts()
@@ -188,6 +195,9 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             "insight_alert_scheduler_alerts_selected",
             "Due alerts selected across successful alert scheduler retrieval runs",
         ).add(len(retrieved.alerts))
+        meter.create_gauge("insight_alert_evaluations_inflight", "Alert checks holding an evaluation slot").set(
+            retrieved.in_flight_count
+        )
     except Exception:
         logger.exception("Failed to record alert scheduler capacity metrics")
     return retrieved.alerts
@@ -195,14 +205,16 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
 
 @temporalio.activity.defn
 async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEvaluations:
-    admitted = await asyncio.to_thread(admit_evaluation_slots, inputs.alert_ids, limit=max_inflight_evaluations())
+    admitted = await asyncio.to_thread(
+        admit_evaluation_slots, inputs.alert_ids, limit=max_inflight_evaluations(), expires_at=inputs.expires_at
+    )
     try:
-        get_metric_meter().create_gauge(
-            "insight_alert_evaluations_inflight", "Alert checks holding an evaluation slot"
-        ).set(admitted.occupied)
+        get_metric_meter().create_counter(
+            "insight_alert_evaluations_admitted", "Alert checks admitted to an evaluation slot"
+        ).add(len(admitted))
     except Exception:
-        logger.exception("Failed to record alert evaluation slot metrics")
-    return admitted
+        logger.exception("Failed to record alert admission metrics")
+    return AdmittedEvaluations(alert_ids=admitted)
 
 
 @temporalio.activity.defn
@@ -219,6 +231,61 @@ def _has_active_destinations(alert: AlertConfiguration) -> bool:
         )
         > 0
     )
+
+
+def _hold_evaluation_slot_best_effort(alert_id: str) -> float | None:
+    """Hold for evaluate_alert, which already sits on the reservation prepare_alert refreshed.
+
+    Failing here would surface a Redis outage to users as an errored check, so the evaluation runs
+    without a lease of its own and the reservation lapses on its own.
+    """
+    try:
+        return hold_evaluation_slot(alert_id)
+    except Exception:
+        logger.exception("alerts.admission.hold_failed", alert_id=alert_id)
+        return None
+
+
+def _attempt_will_retry(error: Exception, retry_policy: RetryPolicy) -> bool:
+    if isinstance(error, ApplicationError):
+        if error.non_retryable:
+            return False
+        error_type = error.type
+    else:
+        error_type = type(error).__name__
+    if error_type in (retry_policy.non_retryable_error_types or ()):
+        return False
+    return not retry_policy.maximum_attempts or temporalio.activity.info().attempt < retry_policy.maximum_attempts
+
+
+async def _run_holding_slot(
+    alert_id: str,
+    held_until: float | None,
+    run: Callable[[], Awaitable[_T]],
+    *,
+    retry_policy: RetryPolicy,
+    keeps_slot: Callable[[_T], bool],
+) -> _T:
+    """Run one attempt of a check while it holds its evaluation slot.
+
+    The slot is released when the attempt finishes for good: a result keeps_slot rejects, or a
+    failure Temporal will not retry. A retryable failure keeps it, because releasing during the
+    backoff lets the scheduler admit past the limit under the very overload that causes the retries;
+    the next attempt's hold takes the slot over. A cancelled attempt keeps it too, since its query
+    thread may still be running; the lease bounds that case.
+    """
+    try:
+        async with Heartbeater():
+            result = await run()
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if held_until is not None and not _attempt_will_retry(error, retry_policy):
+            await asyncio.to_thread(release_evaluation_slot, alert_id, held_until=held_until)
+        raise
+    if held_until is not None and not keeps_slot(result):
+        await asyncio.to_thread(release_evaluation_slot, alert_id, held_until=held_until)
+    return result
 
 
 @temporalio.activity.defn
@@ -320,15 +387,13 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     # The scheduler's reservation names no owner, and prepare_alert runs without a heartbeat timeout,
     # so a timed-out attempt that finishes late would otherwise remove the lease a retried attempt holds.
     held_until = await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id)
-    keep_slot = False
-    try:
-        async with Heartbeater():
-            result = await _prepare()
-        keep_slot = result.action == PrepareAction.EVALUATE
-    finally:
-        if not keep_slot:
-            await asyncio.to_thread(release_evaluation_slot, inputs.alert_id, held_until=held_until)
-    return result
+    return await _run_holding_slot(
+        inputs.alert_id,
+        held_until,
+        _prepare,
+        retry_policy=ALERT_PREPARE_RETRY_POLICY,
+        keeps_slot=lambda result: result.action == PrepareAction.EVALUATE,
+    )
 
 
 def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
@@ -488,12 +553,14 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
-    held_until = await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id)
-    try:
-        async with Heartbeater():
-            return await _evaluate()
-    finally:
-        await asyncio.to_thread(release_evaluation_slot, inputs.alert_id, held_until=held_until)
+    held_until = await asyncio.to_thread(_hold_evaluation_slot_best_effort, inputs.alert_id)
+    return await _run_holding_slot(
+        inputs.alert_id,
+        held_until,
+        _evaluate,
+        retry_policy=alert_timeouts(inputs.calculation_interval).evaluate_retry_policy,
+        keeps_slot=lambda _result: False,
+    )
 
 
 @temporalio.activity.defn
