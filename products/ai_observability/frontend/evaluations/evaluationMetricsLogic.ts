@@ -224,16 +224,27 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     const dateFrom = values.dateFilter.dateFrom || '-1d'
                     const dateTo = values.dateFilter.dateTo || null
 
+                    // Threshold lookups avoid evaluating a separate condition for every evaluation on each run.
                     const numericPass =
-                        values.evaluations
-                            .filter(
-                                (evaluation) =>
-                                    evaluation.output_type === 'numeric' && evaluation.output_config.passing_rule
-                            )
-                            .map(
-                                (evaluation) =>
-                                    `(properties.$ai_evaluation_id = ${escapeHogQLString(evaluation.id)} AND ${numericEvaluationPassedHogQL(evaluation)})`
-                            )
+                        (['gte', 'lte'] as const)
+                            .flatMap((operator) => {
+                                const rules = values.evaluations.flatMap((evaluation) => {
+                                    const rule = evaluation.output_config.passing_rule
+                                    return evaluation.output_type === 'numeric' &&
+                                        rule?.operator === operator &&
+                                        Number.isFinite(rule.threshold)
+                                        ? [{ id: evaluation.id, threshold: rule.threshold }]
+                                        : []
+                                })
+                                if (rules.length === 0) {
+                                    return []
+                                }
+                                const ids = rules.map(({ id }) => escapeHogQLString(id)).join(', ')
+                                const thresholds = rules.map(({ threshold }) => threshold).join(', ')
+                                return [
+                                    `toFloat(properties.$ai_evaluation_numeric_result) ${operator === 'gte' ? '>=' : '<='} transform(properties.$ai_evaluation_id, [${ids}], [${thresholds}], toFloat(NULL))`,
+                                ]
+                            })
                             .join(' OR ') || 'false'
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,

@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import {
     EVALUATION_BOOLEAN_GRADED_HOGQL,
     EVALUATION_NOT_SKIPPED_HOGQL,
+    EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_RESULT_TRUE_HOGQL,
 } from './constants'
 import { evaluationMetricsLogic, EvaluationStatsRow } from './evaluationMetricsLogic'
@@ -123,14 +124,16 @@ describe('evaluationMetricsLogic', () => {
             },
         ])
         await waitFor(() => expect(metricsLogic.values.stats[0]?.evaluation_id).toBe('new'))
-        expect(queryMock.mock.calls[1][0].query).toContain('>= 50')
+        expect(queryMock.mock.calls[1][0].query).toContain(
+            ">= transform(properties.$ai_evaluation_id, ['new'], [50], toFloat(NULL))"
+        )
 
         resolveOld({ results: [['old', 4, 0, 0, 4, 50, 0]] })
         await expectLogic(metricsLogic).toFinishAllListeners()
         expect(metricsLogic.values.stats[0].evaluation_id).toBe('new')
     })
 
-    it.each(['gte', 'lte'] as const)('includes numeric %s outcomes in the overview pass rate', (operator) => {
+    it.each(['gte', 'lte'] as const)('includes numeric %s outcomes in the overview pass rate', async (operator) => {
         evaluationsLogic.actions.loadEvaluationsSuccess([
             evaluation('boolean', null),
             {
@@ -140,6 +143,12 @@ describe('evaluationMetricsLogic', () => {
             },
             { ...evaluation('ungraded', null), output_type: 'numeric', output_config: {} },
         ])
+        await expectLogic(metricsLogic).toFinishAllListeners()
+        const query = queryMock.mock.calls.at(-1)?.[0].query
+        expect(query).toContain(
+            `${operator === 'gte' ? '>=' : '<='} transform(properties.$ai_evaluation_id, ['numeric'], [0], toFloat(NULL))`
+        )
+        expect(query).not.toContain("'ungraded'")
         metricsLogic.actions.loadStatsSuccess([
             stats('boolean', 10, 10),
             {
@@ -171,6 +180,34 @@ describe('evaluationMetricsLogic', () => {
         expect(math).toContain("properties.$ai_evaluation_id = 'numeric'")
         expect(math).toContain('properties.$ai_evaluation_applicable')
         expect(math).toContain(EVALUATION_NOT_SKIPPED_HOGQL)
+    })
+
+    it('keeps thresholds aligned with their evaluation IDs and comparison directions', async () => {
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            ...(
+                [
+                    { id: "quality'check", operator: 'gte', threshold: 7 },
+                    { id: 'cost', operator: 'lte', threshold: 0.05 },
+                    { id: 'accuracy', operator: 'gte', threshold: 0.9 },
+                    { id: 'invalid', operator: 'gte', threshold: NaN },
+                    { id: 'infinite', operator: 'lte', threshold: Infinity },
+                ] as const
+            ).map(({ id, operator, threshold }) => ({
+                ...evaluation(id, null),
+                output_type: 'numeric' as const,
+                output_config: { passing_rule: { operator, threshold } },
+            })),
+            evaluation('boolean', null),
+        ])
+        await expectLogic(metricsLogic).toFinishAllListeners()
+
+        const query = queryMock.mock.calls.at(-1)?.[0].query
+        expect(query).toContain(
+            ">= transform(properties.$ai_evaluation_id, ['quality\\'check', 'accuracy'], [7, 0.9], toFloat(NULL))"
+        )
+        expect(query).toContain("<= transform(properties.$ai_evaluation_id, ['cost'], [0.05], toFloat(NULL))")
+        expect(query).not.toMatch(/'invalid'|'infinite'|NaN|Infinity/)
+        expect(query).toContain(`AND ${EVALUATION_NUMERIC_GRADED_HOGQL}) as numeric_pass_count`)
     })
 
     it.each([false, true])('has no pass rate when numeric runs have no graded outcomes (rule: %s)', (hasRule) => {
@@ -277,5 +314,6 @@ describe('evaluationMetricsLogic', () => {
         const query = queryMock.mock.calls.at(-1)?.[0]
         expect(query.query).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
         expect(query.query).toContain(`${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_BOOLEAN_GRADED_HOGQL}`)
+        expect(query.query).toContain(`countIf((false) AND ${EVALUATION_NUMERIC_GRADED_HOGQL})`)
     })
 })
