@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
 
@@ -432,40 +433,35 @@ class DetectorSeriesQuery:
         warehouse evaluates the bounds the caller reasoned about — a warehouse clock that crosses
         an hour boundary mid-check cannot shift the scan against the cache bookkeeping.
         """
-        _pin_clock(tree, at=at, tz=tz)
+        tree = _ClockPinner(at, tz).visit(tree)
         override = deepcopy(self.source)
         target = override["source"] if override.get("kind") == "DataVisualizationNode" else override
         target["query"] = tree.to_hogql()
         return override
 
 
-def _pin_clock(node: ast.AST, *, at: datetime, tz: str) -> None:
-    """Replace every ``now()`` under ``node`` with ``at`` as an epoch literal in timezone ``tz``.
+class _ClockPinner(CloningVisitor):
+    """Replaces every ``now()`` with a fixed epoch instant rendered in timezone ``tz``.
 
     The matcher only admits ``now()`` inside the recognized window bounds, so this touches
-    nothing else.
+    nothing else. Epoch seconds, not a wall-clock string: during a DST fold the same local time
+    names two instants, and a string rendering would resolve to the wrong one for a whole hour.
     """
-    # Epoch seconds, not a wall-clock string: during a DST fold the same local time names two
-    # instants, and a string rendering would resolve to the wrong one for a whole hour.
-    pinned = ast.Call(
-        name="toTimeZone",
-        args=[
-            ast.Call(name="fromUnixTimestamp", args=[ast.Constant(value=int(at.timestamp()))]),
-            ast.Constant(value=tz),
-        ],
-    )
-    for field_ in fields(node):
-        value = getattr(node, field_.name)
-        if isinstance(value, ast.Call) and value.name == "now" and not value.args:
-            setattr(node, field_.name, deepcopy(pinned))
-        elif isinstance(value, ast.AST):
-            _pin_clock(value, at=at, tz=tz)
-        elif isinstance(value, list):
-            for index, item in enumerate(value):
-                if isinstance(item, ast.Call) and item.name == "now" and not item.args:
-                    value[index] = deepcopy(pinned)
-                elif isinstance(item, ast.AST):
-                    _pin_clock(item, at=at, tz=tz)
+
+    def __init__(self, at: datetime, tz: str) -> None:
+        super().__init__()
+        self.pinned = ast.Call(
+            name="toTimeZone",
+            args=[
+                ast.Call(name="fromUnixTimestamp", args=[ast.Constant(value=int(at.timestamp()))]),
+                ast.Constant(value=tz),
+            ],
+        )
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "now" and not node.args:
+            return deepcopy(self.pinned)
+        return super().visit_call(node)
 
 
 def match_detector_series_query(query: object, *, column: str | None) -> DetectorSeriesQuery | None:
