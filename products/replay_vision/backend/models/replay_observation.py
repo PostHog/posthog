@@ -118,6 +118,7 @@ class ReplayObservation(UUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # DEPRECATED: No code reads or writes these fields.
     media_render_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
     media_render_attempted_at = models.DateTimeField(null=True, blank=True)
 
@@ -147,6 +148,7 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
+            # DEPRECATED: No query needs this index.
             models.Index(
                 fields=["-created_at"],
                 name="rlo_succeeded_created_idx",
