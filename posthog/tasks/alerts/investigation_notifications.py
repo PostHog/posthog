@@ -26,6 +26,7 @@ import structlog
 
 from posthog.schema import AlertState
 
+from posthog.db_schema_lag import is_schema_lag_error
 from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
     prepare_alert_insight_chart_url,
@@ -48,6 +49,9 @@ INVESTIGATION_NOTIFY_GRACE_MINUTES = 5
 # force-dispatch that would fire a notification the verdict gate was meant to hold.
 INVESTIGATION_RUNNING_GRACE_MINUTES = 90
 
+# The sweep has no candidate ceiling, so a backlog must not become one alert query per candidate.
+SWEEP_CHUNK_SIZE = 100
+
 
 def run_investigation_notification_safety_net() -> int:
     """Dispatch notifications for gated AlertChecks whose investigation stalled.
@@ -63,9 +67,12 @@ def run_investigation_notification_safety_net() -> int:
     # legitimately-held check from this safety net; `investigation_agent_enabled`
     # is a stickier configuration knob and picks up exactly the checks whose
     # dispatch could have been the workflow's responsibility.
+    # Do not select_related the alert here: that puts every AlertConfiguration column in the
+    # scan's SELECT, so a column the database has not migrated yet fails the sweep before it
+    # reads a row. The filter joins the table for `investigation_agent_enabled` without
+    # selecting from it.
     candidates = (
-        AlertCheck.objects.select_related("alert_configuration")
-        .filter(
+        AlertCheck.objects.filter(
             state=AlertState.FIRING,
             notification_sent_at__isnull=True,
             notification_suppressed_by_agent=False,
@@ -87,10 +94,11 @@ def run_investigation_notification_safety_net() -> int:
             )
             | Q(created_at__lte=running_cutoff)
         )
+        .prefetch_related("alert_configuration")
     )
 
     notified = 0
-    for check in candidates.iterator():
+    for check in candidates.iterator(chunk_size=SWEEP_CHUNK_SIZE):
         alert = check.alert_configuration
         if alert is None or not alert.enabled:
             continue
@@ -112,7 +120,12 @@ def run_investigation_notification_safety_net() -> int:
                     alert, locked, breaches, extra_properties=extra_properties, render_chart=False
                 )
                 record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
-        except Exception:
+        except Exception as error:
+            if is_schema_lag_error(error):
+                # A missing column fails every later candidate the same way, so let it out for
+                # the caller to count once instead of logging it per check and returning a
+                # partial count.
+                raise
             logger.exception(
                 "alert.investigation_safety_net_failed",
                 alert_id=str(alert.id),
