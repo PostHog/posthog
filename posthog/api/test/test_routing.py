@@ -56,6 +56,12 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
+class OrderedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = Annotation.objects.filter(date_marker__isnull=False).order_by("date_marker")
+    serializer_class = AnnotationSerializer
+
+
 def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
     queryset = stable_queryset_ordering(Annotation.objects.order_by("date_marker"))
 
@@ -95,6 +101,8 @@ test_router = DefaultRouterPlusPlus()
 # which would mask the team_id-lookup behavior these tests cover.
 test_team_nested_router = test_router.register(r"team_nested", FooViewSet, "team_nested")
 test_team_nested_router.register(r"foos", FooViewSet, "team_nested_foos", ["team_id"])
+test_ordered_router = test_router.register(r"team_ordered", OrderedFooViewSet, "team_ordered")
+test_ordered_router.register(r"foos", OrderedFooViewSet, "team_ordered_foos", ["team_id"])
 
 test_projects_router = test_router.register(r"projects", FooViewSet, "projects")
 test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"])
@@ -174,6 +182,19 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
+
+    def test_team_nested_pagination_adds_primary_key_tiebreaker(self):
+        marker = timezone.now()
+        first = Annotation.objects.create(team=self.team, organization=self.organization, date_marker=marker)
+        second = Annotation.objects.create(team=self.team, organization=self.organization, date_marker=marker)
+
+        first_page = self.client.get(f"/api/team_ordered/{self.team.id}/foos/?limit=1")
+        second_page = self.client.get(f"/api/team_ordered/{self.team.id}/foos/?limit=1&offset=1")
+
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(second_page.status_code, 200)
+        self.assertEqual(first_page.json()["results"][0]["id"], first.id)
+        self.assertEqual(second_page.json()["results"][0]["id"], second.id)
 
     def test_project_nested_filtering(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/")
