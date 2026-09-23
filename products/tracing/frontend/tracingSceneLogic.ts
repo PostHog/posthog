@@ -409,7 +409,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             },
         ],
         sceneTab: [
-            DEFAULT_SCENE_TAB,
+            DEFAULT_SCENE_TAB as TracingSceneTab,
             {
                 setSceneTab: (_, { tab }) => tab,
             },
