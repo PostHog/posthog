@@ -225,6 +225,19 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
 
         mock_track_expiry.assert_not_called()
 
+    def test_stale_etag_cleanup_error_still_stamps_expiry(self) -> None:
+        hc = self.hypercache
+        team = Team(id=self.team_id)
+
+        with (
+            patch.object(hc.cache_client, "delete", side_effect=redis.exceptions.TimeoutError()),
+            patch.object(object_storage, "write"),
+            patch.object(hc, "_track_expiry") as mock_track_expiry,
+        ):
+            hc.set_cache_value(team, self.sample_data)
+
+        mock_track_expiry.assert_called_once()
+
     def test_get_etag_redis_error_returns_none(self):
         def load_fn(team):
             return {"default": "data"}

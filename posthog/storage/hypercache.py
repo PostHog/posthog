@@ -684,7 +684,12 @@ class HyperCache:
             self._mirror_to_secondary(lambda c: c.delete(etag_key))
             self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
-            self.cache_client.delete(etag_key)
+            if self.enable_etag:
+                # An ETag that outlives the value it described answers 304 for data the cache
+                # no longer holds, so this delete has to fail the write.
+                self.cache_client.delete(etag_key)
+            else:
+                self._delete_stale_etag(etag_key)
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
@@ -702,8 +707,26 @@ class HyperCache:
                 self._mirror_to_secondary(lambda c: c.delete(etag_key))
                 self.cache_client.set(cache_key, json_data, timeout=timeout)
                 # Clean up stale ETag if ETags were previously enabled
-                self.cache_client.delete(etag_key)
+                self._delete_stale_etag(etag_key)
             return len(json_data)
+
+    def _delete_stale_etag(self, etag_key: str) -> None:
+        """Best-effort cleanup of an ETag key left from when ``enable_etag`` was True.
+
+        Readers ignore the key while ETags are disabled, so a failed delete costs nothing.
+        It must not fail the payload write next to it, which would cost the caller the
+        colder tiers and the expiry stamp.
+        """
+        try:
+            self.cache_client.delete(etag_key)
+        except _REDIS_ERRORS as e:
+            logger.warning(
+                "HyperCache stale ETag cleanup failed",
+                namespace=self.namespace,
+                value=self.value,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
         """
