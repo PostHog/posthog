@@ -225,7 +225,7 @@ def resolve_review_arm(
 # Pins for the per-chunk warm validation sessions, bundled like the review arm so a mode can swap
 # the whole seat at once.
 VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL = "claude-opus-5"
+VALIDATION_MODEL = "claude-opus-5-5"
 VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -248,7 +248,7 @@ def validation_arm_for_mode(
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
 # The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-RESOLUTION_MODEL: str | None = "claude-opus-5"
+RESOLUTION_MODEL: str | None = "claude-opus-5-5"
 RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -369,7 +369,7 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 # a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
 # exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
 # exhaustive xhigh pass.
-OUTCOME_JUDGE_MODEL = "claude-opus-5"
+OUTCOME_JUDGE_MODEL = "claude-opus-5-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.
