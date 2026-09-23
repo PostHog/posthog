@@ -2991,6 +2991,7 @@ class TestLockPhaseTransactionPolicy:
             ("both_shapes_at_once", True, ["remove_constraint", "untrack_two"], ["column=[...]", "RemoveConstraint"]),
             ("a_table_drop_beside_a_key_drop", True, ["untrack_one", "safe_drop"], ["SafeDropTable"]),
             ("a_no_op_beside_the_drop", True, ["no_op_sql", "untrack_one"], []),
+            ("a_state_only_django_op_beside_the_drop", True, ["alter_options", "untrack_one"], []),
             ("two_drops_nested_one_level_down", True, ["nested_two"], ["column=[...]"]),
             ("atomic_false_commits_each_drop_alone", False, ["remove_constraint", "untrack_two"], []),
         ]
@@ -3004,6 +3005,7 @@ class TestLockPhaseTransactionPolicy:
             "remove_constraint": migrations.RemoveConstraint(model_name="child", name="exactly_one_owner"),
             "safe_drop": SafeDropTable("posthog_retired"),
             "no_op_sql": migrations.RunSQL(migrations.RunSQL.noop, migrations.RunSQL.noop),
+            "alter_options": migrations.AlterModelOptions(name="child", options={"ordering": ["id"]}),
             "nested_two": migrations.SeparateDatabaseAndState(database_operations=[self._untrack(owner, other)]),
         }
         migration = MagicMock()

@@ -65,9 +65,15 @@ def _descend(ops) -> Iterator[Any]:
             yield op
 
 
+# Django operations whose database_forwards does nothing.
+_STATE_ONLY_OPERATIONS = {"AlterModelOptions", "AlterModelManagers"}
+
+
 def _runs_sql(op) -> bool:
-    """False for a RunSQL or RunPython that only carries state and runs nothing."""
+    """False for an operation that only changes Django state and runs nothing."""
     name = op.__class__.__name__
+    if name in _STATE_ONLY_OPERATIONS:
+        return False
     if name == "RunSQL":
         return bool(getattr(op, "sql", None))
     if name == "RunPython":
