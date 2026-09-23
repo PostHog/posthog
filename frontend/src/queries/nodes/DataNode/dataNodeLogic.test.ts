@@ -904,6 +904,32 @@ describe('dataNodeLogic', () => {
         }
     })
 
+    it('resolves an in-flight load when a dashboard refresh delivers results for the same query', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        // A dashboard tile mounts with its insight but no chart numbers yet, so the tile starts its
+        // own load while the dashboard runs its refresh cycle for the same tile.
+        logic = dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: null } as any })
+        logic.mount()
+        mockedQuery.mockReturnValueOnce(new Promise(() => {}))
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toMatchValues({ dataLoading: true })
+
+        // The dashboard cycle finishes first and pushes its results in through the cachedResults prop.
+        const results = [commonResult]
+        dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: results } as any })
+
+        // `dataLoading` is what InsightVizDisplay reads, so leaving it set holds the tile on a
+        // spinner even though the tile already has the results.
+        await expectLogic(logic).toMatchValues({
+            dataLoading: false,
+            responseError: null,
+            response: partial({ result: results }),
+        })
+    })
+
     it('stops polling when the scan endpoint 404s', async () => {
         jest.useFakeTimers()
         try {

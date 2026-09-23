@@ -470,6 +470,9 @@ export interface dashboardLogicActions {
     clearInitialDashboardSettingsOverride: () => {
         value: true
     }
+    clearStrandedRefreshStatuses: () => {
+        value: true
+    }
     copyToDashboard: (
         tile: DashboardTile,
         fromDashboard: number,
@@ -1422,6 +1425,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
         setInitialDashboardSettingsOverride: (settings: DashboardSettings) => ({ settings }),
         clearInitialDashboardSettingsOverride: true,
+        clearStrandedRefreshStatuses: true,
         clearDashboardSettingsUrlOverrides: true,
         previewDashboardChanges: true,
         previewDashboardChangesFailure: true,
@@ -2291,6 +2295,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return rest
                 },
                 cancelDashboardRefresh: () => ({}),
+                // A tile enrolled by a batch that never reached it stays queued but not started, and
+                // no per-tile outcome ever clears it. Drop those so the tile falls back to its data
+                // instead of holding the loading state until the person reloads the page.
+                clearStrandedRefreshStatuses: (state) =>
+                    Object.fromEntries(
+                        Object.entries(state).filter(([, status]) => !(status.queued && !status.loading))
+                    ),
             },
         ],
         // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
@@ -4167,6 +4178,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed
+
+                const strandedTileCount = Object.values(values.refreshStatus).filter(
+                    (status) => status.queued && !status.loading
+                ).length
+                if (strandedTileCount > 0) {
+                    actions.clearStrandedRefreshStatuses()
+                    posthog.capture('dashboard tiles unstranded', {
+                        dashboard_id: dashboardId,
+                        stranded_tile_count: strandedTileCount,
+                    })
+                }
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 // and all tiles were refreshed

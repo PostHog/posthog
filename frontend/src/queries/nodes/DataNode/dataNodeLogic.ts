@@ -178,6 +178,17 @@ function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
         : undefined
 }
 
+function hasRenderableResults(cachedResults: unknown): boolean {
+    if (!cachedResults || typeof cachedResults !== 'object') {
+        return false
+    }
+    const record = cachedResults as Record<string, unknown>
+    return (
+        ('result' in record && record.result !== null && record.result !== undefined) ||
+        ('results' in record && record.results !== null && record.results !== undefined)
+    )
+}
+
 const concurrencyController = new ConcurrencyController(1)
 const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
@@ -951,7 +962,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values, cache }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -991,6 +1002,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
+            if (
+                values.dataLoading &&
+                props.cachedResults !== oldProps.cachedResults &&
+                hasRenderableResults(props.cachedResults)
+            ) {
+                // A dashboard refresh delivered results for this node while the node's own load was
+                // still in flight. `setResponse` alone leaves `dataLoading` true, and nothing else
+                // resolves that load, so the tile keeps its spinner while already holding the data.
+                // The abort below rejects the in-flight request. Remember which request that was,
+                // so the loader treats the rejection as reconciled instead of as a failed tile.
+                cache.reconciledAbortController = cache.abortController
+                actions.abortAnyRunningQuery()
+                actions.loadDataSuccess(props.cachedResults)
+                posthog.capture('data node load reconciled', { data_node_key: props.key })
+                return
+            }
             // Use cached results if available, otherwise this logic will load the data again
             actions.setResponse(props.cachedResults)
         }
@@ -1128,6 +1155,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         error.queryId = queryId
                         if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
+                            if (cache.reconciledAbortController === abortController) {
+                                cache.reconciledAbortController = null
+                                breakpoint()
+                                return values.response
+                            }
                         }
                         breakpoint()
                         throw error

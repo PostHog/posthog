@@ -3,7 +3,8 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import posthog from 'posthog-js'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -147,6 +148,10 @@ function ResizeThrottledViz({ throttled, children }: { throttled: boolean; child
         </div>
     )
 }
+
+// Server-side query time is capped well below this, so a tile still loading after it is stranded
+// on the client rather than slow.
+const TILE_STUCK_LOADING_MS = 3 * 60 * 1000
 
 type AlertModalState = {
     alertId?: AlertType['id']
@@ -345,6 +350,31 @@ function InsightCardInternal(
     const hasResults = !!insight?.result || !!(insight as any)?.results
     const sharedView = isSharedView()
 
+    const [stuckLoading, setStuckLoading] = useState(false)
+    const [stuckRetryAttempt, setStuckRetryAttempt] = useState(0)
+    const watchForStuckLoading = !hasResults && (loading || !!loadingQueued) && placement !== DashboardPlacement.Export
+    useEffect(() => {
+        if (!watchForStuckLoading) {
+            setStuckLoading(false)
+            return
+        }
+        const timeout = window.setTimeout(() => {
+            setStuckLoading(true)
+            posthog.capture('dashboard tile stuck loading', {
+                dashboard_id: dashboardId ?? null,
+                insight_short_id: insight.short_id,
+                waited_seconds: TILE_STUCK_LOADING_MS / 1000,
+            })
+        }, TILE_STUCK_LOADING_MS)
+        return () => window.clearTimeout(timeout)
+    }, [watchForStuckLoading, stuckRetryAttempt, dashboardId, insight.short_id])
+
+    const retryStuckTile = useCallback(() => {
+        setStuckLoading(false)
+        setStuckRetryAttempt((attempt) => attempt + 1)
+        refresh?.()
+    }, [refresh])
+
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
         // Check for access denied - use the same logic as other components
@@ -370,6 +400,19 @@ function InsightCardInternal(
                     title={errorMessage || "You don't have permission to view this insight."}
                     titleStatus={403}
                     excludeDetail
+                />
+            )
+        }
+
+        if (stuckLoading) {
+            return (
+                <InsightErrorState
+                    title="This tile didn't finish loading"
+                    excludeDetail
+                    query={insight.query}
+                    excludeActions={sharedView}
+                    placement={placement}
+                    onRetry={sharedView || !refresh ? undefined : retryStuckTile}
                 />
             )
         }
