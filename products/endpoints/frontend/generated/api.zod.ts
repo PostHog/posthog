@@ -169,7 +169,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
  * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
  */
 export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.object({
-    version: zod.number().optional(),
+    version: zod.number().optional().describe('Endpoint version to preview. Defaults to the current version.'),
     bucket_overrides: zod
         .record(zod.string(), zod.string())
         .nullish()

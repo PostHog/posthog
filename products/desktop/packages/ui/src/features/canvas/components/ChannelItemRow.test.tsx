@@ -1,6 +1,7 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { useArchiveShortcut } from "@posthog/ui/features/archive/useArchiveShortcut";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
@@ -86,7 +87,7 @@ const actions = {
   open: () => {},
   togglePin: () => {},
   setPinned: () => {},
-  archive: () => {},
+  archive: vi.fn(),
   remove: () => {},
   fileCanvas: () => {},
 };
@@ -148,6 +149,7 @@ beforeEach(() => {
     selectedTaskIds: [],
     lastClickedId: null,
   });
+  actions.archive.mockClear();
 });
 
 describe("ChannelItemRow", () => {
@@ -524,8 +526,13 @@ describe("ChannelItemRow", () => {
     await openCard();
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("button", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("button", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
   });
 
   it("opens the same menu on right-click", () => {
@@ -534,8 +541,69 @@ describe("ChannelItemRow", () => {
     fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("menuitem", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
+  });
+
+  it("archives the active menu task before the visible task", () => {
+    const archiveVisibleTask = vi.fn();
+    function VisibleTaskShortcut() {
+      useArchiveShortcut({
+        onArchive: archiveVisibleTask,
+        enabled: true,
+        priority: "visible-task",
+      });
+      return null;
+    }
+    renderInList(
+      <>
+        <VisibleTaskShortcut />
+        <ChannelItemRow actions={actions} isActive={false} item={item()} />
+      </>,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(actions.archive).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "task-1" }),
+    );
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+      repeat: true,
+    });
+
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
+    fireEvent.keyUp(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(archiveVisibleTask).toHaveBeenCalledOnce();
   });
 
   it("opens a task in a new tab from the context menu", () => {
@@ -585,9 +653,15 @@ describe("ChannelItemRow", () => {
 
       expect(useSidebarPeekStore.getState().peek).toBe(true);
 
-      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, {
+        key: "a",
+        code: "KeyA",
+        ctrlKey: true,
+        shiftKey: true,
+      });
       act(() => vi.runAllTimers());
 
+      expect(actions.archive).toHaveBeenCalledOnce();
       expect(useSidebarPeekStore.getState().peek).toBe(false);
     } finally {
       cleanup();

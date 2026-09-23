@@ -9,12 +9,16 @@ import (
 )
 
 var (
-	ErrInvalidScope    = errors.New("team ID and user ID must be positive")
-	ErrInvalidRevision = errors.New("invalid catalog revision")
-	ErrInvalidCatalog  = errors.New("catalog must contain tables and properties")
-	ErrInvalidAliases  = errors.New("table aliases must map non-empty alternate names directly to canonical table keys")
-	ErrCatalogTooLarge = errors.New("catalog exceeds cache capacity")
+	ErrInvalidScope     = errors.New("team ID and user ID must be positive")
+	ErrInvalidRevision  = errors.New("invalid catalog revision")
+	ErrInvalidCatalog   = errors.New("catalog must contain tables and properties")
+	ErrInvalidAliases   = errors.New("table aliases must map non-empty alternate names directly to canonical table keys")
+	ErrCatalogTooLarge  = errors.New("catalog exceeds cache capacity")
+	ErrInvalidRelations = errors.New("catalog contains invalid traversal relations")
 )
+
+const MaxRelationDefinitions = 4096
+const MaxRelationFields = 120000
 
 type Registry struct {
 	mu         sync.Mutex
@@ -68,6 +72,61 @@ func ValidateCatalog(value *Catalog) error {
 		}
 		if _, aliasIsCanonical := value.Tables[alias]; aliasIsCanonical && alias != target {
 			return ErrInvalidAliases
+		}
+	}
+	if len(value.Relations) > MaxRelationDefinitions {
+		return ErrInvalidRelations
+	}
+	relationFields := 0
+	validateFields := func(fields map[string]Field) error {
+		for _, field := range fields {
+			if field.Relation != "" && field.PropertyNamespace != "" {
+				return ErrInvalidRelations
+			}
+			if field.Relation != "" {
+				if _, ok := value.Relations[field.Relation]; !ok {
+					return ErrInvalidRelations
+				}
+			}
+			if field.PropertyNamespace != "" {
+				if _, ok := value.Properties[field.PropertyNamespace]; !ok {
+					return ErrInvalidRelations
+				}
+			}
+		}
+		return nil
+	}
+	for _, table := range value.Tables {
+		if err := validateFields(table.Fields); err != nil {
+			return err
+		}
+	}
+	for name, relation := range value.Relations {
+		ownsFields := relation.Fields != nil
+		referencesTable := relation.Table != ""
+		if name == "" || ownsFields == referencesTable || (!referencesTable && len(relation.PropertyNamespaces) > 0) {
+			return ErrInvalidRelations
+		}
+		relationFields += len(relation.Fields) + len(relation.PropertyNamespaces)
+		if relationFields > MaxRelationFields {
+			return ErrInvalidRelations
+		}
+		if ownsFields {
+			if err := validateFields(relation.Fields); err != nil {
+				return err
+			}
+			continue
+		}
+		table, ok := value.Tables[relation.Table]
+		if !ok {
+			return ErrInvalidRelations
+		}
+		for fieldName, namespace := range relation.PropertyNamespaces {
+			field, fieldExists := table.Fields[fieldName]
+			_, namespaceExists := value.Properties[namespace]
+			if fieldName == "" || !fieldExists || field.Relation != "" || namespace == "" || !namespaceExists {
+				return ErrInvalidRelations
+			}
 		}
 	}
 	return nil

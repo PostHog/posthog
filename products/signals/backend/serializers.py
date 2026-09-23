@@ -52,6 +52,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalReportWorkState,
@@ -519,6 +520,18 @@ class SignalReportPullRequestSerializer(serializers.Serializer):
         choices=SignalReportAssignment.PrState.choices, help_text="Latest known GitHub state."
     )
     merged = serializers.BooleanField(help_text="Whether this PR merged.")
+    review_decision = serializers.ChoiceField(
+        choices=SignalReportPullRequest.ReviewDecision.choices,
+        allow_null=True,
+        help_text=(
+            "Current GitHub code review decision: approved, changes_requested, or review_required. "
+            "Null when GitHub does not provide a review decision."
+        ),
+    )
+    merged_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.",
+    )
     attached_by = serializers.SerializerMethodField(
         help_text="Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task."
     )
