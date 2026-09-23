@@ -117,8 +117,6 @@ The format only names these owners.
 It does not define when a path is an addition.
 It does not define what a consumer does with the owners of additions.
 A consumer decides both, for example from the change set of a pull request.
-A consumer also chooses which version of the ownership files the resolver reads, for example through the repository root that it passes (section 7.1).
-For example, it can read the version before a change, so that the change cannot alter the owners that apply to it.
 
 1. A string is a list with one entry. Each entry MUST be a non-empty string, as in 3.1.
 2. An empty list means that the file or the rule names no owners of additions. A file or a rule with no owners of additions MAY leave the key out.
@@ -134,6 +132,8 @@ For example, it can read the version before a change, so that the change cannot 
 ## 4. Resolution
 
 A consumer SHOULD get resolutions from a resolver, not by reading ownership files itself.
+A consumer chooses which version of the ownership files the resolver reads, through the repository root that it passes (section 7.1).
+For example, a consumer can read the version before a change, so that the change cannot alter the owners that apply to it.
 A resolver MUST return the same resolution as the steps below for every path, except where it documents an extension. Section 8 lists the extensions of `owners-yaml`. A resolver MAY use a different method.
 
 To resolve a path `P`:
@@ -237,7 +237,7 @@ An author MUST NOT put these fields in a file other than the root file. A linter
 1. A channel is a string that starts with `#`.
 2. `false` means the team has no channel for that purpose.
 3. A key of `teams` MUST be a team slug. It MUST NOT be a person handle.
-4. When the root file declares `producers`, each key of a `notifications` mapping MUST be in that list. When it does not, any non-empty name is valid.
+4. When the root file declares `producers`, each key of a `notifications` mapping MUST name a producer from that list. A mapping MAY leave out any producer. When the root file does not declare `producers`, any non-empty name is valid.
 5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`. A typo then silences automation. Automation does not post to an unwanted channel. One rejected entry makes the whole mapping unreadable. A tool that keeps the other entries sends the rejected producer to the `slack` channel.
 
 To find the channel for a team slug `T`, a purpose, and an optional producer:
@@ -465,6 +465,4 @@ rules:
 
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
-- **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones entirely, so a file with two matching rules that set different fields now resolves differently.
-- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, section 7.2 adds the `additions` member, and section 7.4 says that a consumer treats a missing member as an empty array. A file without the field resolves as before. Section 4 step 1 also removes a trailing `/`, so a directory path resolves the same with or without it. Section 3.5 rule 4 now states that a trailing `/` does not match the directory path itself. Because of the step 1 change, a request for `docs/` no longer matches a rule `docs/`, and it no longer reads the ownership file in `docs`.
-- **1**, amended (unreleased): Section 1 defines author, tool, resolver, linter, and consumer, and each requirement on behavior names one of them. Section 4 requires a resolver to return the same resolution as its steps, except for documented extensions. Section 4 step 1 states the order of normalization. A linter now has to report unknown top-level fields, and a resolver no longer has to report root-only fields in other files. No resolution changes.
+- **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones. Section 3.6 adds the optional `additions` field. Section 7.2 adds the `additions` member, and a consumer treats a missing member as empty (section 7.4). Section 4 step 1 removes a trailing `/`, so a request for `docs/` resolves the same as `docs`.
