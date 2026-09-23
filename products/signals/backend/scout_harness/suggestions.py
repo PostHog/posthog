@@ -3,10 +3,11 @@
 The chat button mints a `SIGNALS_CHAT` task the user then waits on while the agent scans the
 project. This module runs the same scan ahead of time, headless, for every eligible project and
 stores 3-5 structured suggestions on `SignalScoutSuggestionSet`, so the scouts tab can offer them
-with zero wait. Three pieces live here, all temporalio-free and cheap to import:
+with zero wait. Four pieces live here, all temporalio-free and cheap to import:
 
 - the structured-output contract the headless run returns (`ScoutSuggestionBatch`)
 - the planner: which teams to refresh this tick, in priority order (`plan_suggestion_runs`)
+- the dispatch-time activity check on the picked candidates (`select_teams_to_scan`)
 - persistence: write a batch, carry dismissals forward, dismiss / mark created
 
 The runner that mints the headless task for one team lives in `suggestions_runner.py`, because it
@@ -31,9 +32,13 @@ from django.db.models import F, Max, Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from pydantic import BaseModel, Field
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -68,6 +73,12 @@ MAX_DESCRIPTION_CHARS = SPEC_DESCRIPTION_MAX_LENGTH
 
 # Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"
+
+# Row cap on the per-candidate activity read, so the check stays cheap on a large project. A read
+# that hits the cap reports only "at least this many events", which already clears every threshold
+# the check can hold; only a read that finishes under it has exact numbers, and those are the
+# small projects the check is about.
+ACTIVITY_READ_MAX_ROWS = 100_000
 
 SuggestionKind = Literal["canonical", "custom"]
 SuggestionConfidence = Literal["low", "medium", "high"]
@@ -170,6 +181,12 @@ class SuggestionSettings:
     failure_breaker_threshold: int = 3
     failure_cooldown_hours: int = 24
     max_runtime_s: int = SUGGESTIONS_MAX_RUNTIME_S
+    # The dispatch-time activity check. A project under either line is stamped `low_activity`
+    # instead of scanned, because the scan could only refuse it. Either threshold at 0 turns
+    # that half of the check off; both at 0 turns the check off.
+    activity_window_days: int = 14
+    min_events_in_window: int = 100
+    min_active_days_in_window: int = 3
 
 
 def _int_in(payload: dict[str, Any], key: str, default: int, *, low: int, high: int) -> int:
@@ -202,6 +219,9 @@ def parse_suggestion_settings(payload: dict[str, Any] | None) -> SuggestionSetti
         failure_breaker_threshold=_int_in(payload, "failure_breaker_threshold", 3, low=1, high=100),
         failure_cooldown_hours=_int_in(payload, "failure_cooldown_hours", 24, low=1, high=24 * 30),
         max_runtime_s=_int_in(payload, "max_runtime_s", SUGGESTIONS_MAX_RUNTIME_S, low=60, high=30 * 60),
+        activity_window_days=_int_in(payload, "activity_window_days", 14, low=1, high=90),
+        min_events_in_window=_int_in(payload, "min_events_in_window", 100, low=0, high=ACTIVITY_READ_MAX_ROWS),
+        min_active_days_in_window=_int_in(payload, "min_active_days_in_window", 3, low=0, high=90),
     )
 
 
@@ -378,8 +398,13 @@ def _wait_s(consecutive_failures: int, settings: SuggestionSettings, *, refresh_
     return refresh_s * (2**doublings)
 
 
-def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = None) -> list[PlannedSuggestionRun]:
-    """The teams to refresh this tick, best first, capped at `max_children_per_tick`.
+def plan_suggestion_runs(
+    settings: SuggestionSettings, now: datetime | None = None, *, limit: int | None = None
+) -> list[PlannedSuggestionRun]:
+    """The teams to refresh this tick, best first, capped at `limit` (`max_children_per_tick`).
+
+    The coordinator overselects, because the dispatch-time activity check drops candidates after
+    the plan is made and a tick should still fill when several are skipped.
 
     The queue is recomputed from DB state every tick (no stored queue), so changing eligibility is a
     payload edit, never a migration of queued work. Allowlisted teams are always candidates
@@ -387,7 +412,8 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
     geometrically so a broken project cannot hold a slot every refresh period.
     """
     now = now or timezone.now()
-    if not settings.enabled or settings.max_children_per_tick == 0:
+    limit = settings.max_children_per_tick if limit is None else limit
+    if not settings.enabled or limit <= 0:
         return []
     tiers, engagement = _candidate_teams_by_tier(settings, now)
     for team_id in canonical_team_ids(settings.team_allowlist):
@@ -450,10 +476,7 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
             )
         )
     candidates.sort(key=lambda candidate: candidate.sort_key)
-    return [
-        PlannedSuggestionRun(team_id=candidate.team_id, tier=candidate.tier)
-        for candidate in candidates[: settings.max_children_per_tick]
-    ]
+    return [PlannedSuggestionRun(team_id=candidate.team_id, tier=candidate.tier) for candidate in candidates[:limit]]
 
 
 def stamp_requested(team_ids: list[int], now: datetime | None = None) -> None:
@@ -468,6 +491,164 @@ def stamp_requested(team_ids: list[int], now: datetime | None = None) -> None:
         [SignalScoutSuggestionSet(team_id=team_id) for team_id in team_ids], ignore_conflicts=True
     )
     SignalScoutSuggestionSet.all_teams.filter(team_id__in=team_ids).update(last_requested_at=now)
+
+
+# ---------------------------------------------------------------------------
+# Dispatch-time activity check
+# ---------------------------------------------------------------------------
+
+
+LOW_ACTIVITY_SKIP_REASON = "low_activity"
+
+
+@frozen
+class TeamActivity:
+    """What the bounded read saw for one project inside the activity window."""
+
+    event_count: int
+    active_days: int
+    # The read stopped at `ACTIVITY_READ_MAX_ROWS`, so the numbers are a floor, not a count.
+    capped: bool
+
+
+@frozen
+class ActivitySelection:
+    dispatch: tuple[PlannedSuggestionRun, ...]
+    skipped_team_ids: tuple[int, ...]
+
+
+def activity_check_enabled(settings: SuggestionSettings) -> bool:
+    return settings.min_events_in_window > 0 or settings.min_active_days_in_window > 0
+
+
+def read_team_activity(team_id: int, *, window_days: int) -> TeamActivity:
+    """Events and distinct active days for a project and its child environments in the window.
+
+    Ingestion is environment-scoped while the batch is per canonical project, so the two are
+    counted together. The row cap bounds the read on a large project; past it the numbers say
+    only "at least this many", which already clears every threshold the check can hold.
+    """
+    team_ids = list(Team.objects.filter(Q(id=team_id) | Q(parent_team_id=team_id)).values_list("id", flat=True))
+    tag_queries(trigger="signals_scout_suggestions_activity_check")
+    rows = sync_execute(
+        """
+        SELECT count(), uniqExact(toDate(timestamp))
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND timestamp >= now() - toIntervalDay(%(window_days)s)
+        """,
+        {"team_ids": team_ids, "window_days": window_days},
+        settings={"max_rows_to_read": ACTIVITY_READ_MAX_ROWS, "read_overflow_mode": "break"},
+        team_id=team_id,
+    )
+    event_count = int(rows[0][0]) if rows else 0
+    active_days = int(rows[0][1]) if rows else 0
+    return TeamActivity(event_count=event_count, active_days=active_days, capped=event_count >= ACTIVITY_READ_MAX_ROWS)
+
+
+def team_is_active_enough(activity: TeamActivity, settings: SuggestionSettings) -> bool:
+    if activity.capped:
+        return True
+    if settings.min_events_in_window and activity.event_count < settings.min_events_in_window:
+        return False
+    if settings.min_active_days_in_window and activity.active_days < settings.min_active_days_in_window:
+        return False
+    return True
+
+
+def select_teams_to_scan(
+    planned: Iterable[PlannedSuggestionRun], settings: SuggestionSettings, *, limit: int
+) -> ActivitySelection:
+    """The planned candidates worth a scan, in order, up to `limit`.
+
+    One bounded read per candidate, over the picked set only, never over the pool. A project
+    under either activity line is stamped `low_activity` and reported as a skipped run rather
+    than dispatched, because the scan could only refuse it. Candidates past `limit` are left
+    untouched, so a tick that fills early re-plans them next tick. Allowlisted projects are
+    scanned whatever the read says, for dogfood and support.
+    """
+    candidates = list(planned)
+    if not activity_check_enabled(settings):
+        return ActivitySelection(dispatch=tuple(candidates[:limit]), skipped_team_ids=())
+    exempt = canonical_team_ids(settings.team_allowlist)
+    dispatch: list[PlannedSuggestionRun] = []
+    skipped: list[int] = []
+    for run in candidates:
+        if len(dispatch) >= limit:
+            break
+        if run.team_id in exempt:
+            dispatch.append(run)
+            continue
+        try:
+            activity = read_team_activity(run.team_id, window_days=settings.activity_window_days)
+        except Exception:
+            # A read that cannot answer must not cost the project its refresh window.
+            logger.warning("scout_suggestions: activity read failed", team_id=run.team_id, exc_info=True)
+            dispatch.append(run)
+            continue
+        if team_is_active_enough(activity, settings):
+            dispatch.append(run)
+            continue
+        skipped.append(run.team_id)
+        _record_low_activity(run.team_id, activity=activity, settings=settings, tier=run.tier)
+    return ActivitySelection(dispatch=tuple(dispatch), skipped_team_ids=tuple(skipped))
+
+
+def _record_low_activity(
+    team_id: int, *, activity: TeamActivity, settings: SuggestionSettings, tier: int | None
+) -> None:
+    mark_low_activity(team_id)
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None:
+        return
+    capture_suggestions_generated(
+        team,
+        status="skipped",
+        skip_reason=LOW_ACTIVITY_SKIP_REASON,
+        tier=tier,
+        extra_properties={
+            "activity_window_days": settings.activity_window_days,
+            "activity_event_count": activity.event_count,
+            "activity_active_days": activity.active_days,
+        },
+    )
+
+
+def capture_suggestions_generated(
+    team: Team,
+    *,
+    status: str,
+    skip_reason: str | None = None,
+    suggestion_count: int = 0,
+    runtime_s: float = 0.0,
+    task_run_id: str | None = None,
+    tier: int | None = None,
+    model: str | None = None,
+    triggered_by: str = "schedule",
+    extra_properties: dict[str, Any] | None = None,
+) -> None:
+    """The one emitter of `$scout_suggestions_generated`, so a completed run and a skipped one
+    are read from the same event and the daily roll-up needs no new column."""
+    try:
+        posthoganalytics.capture(
+            event="$scout_suggestions_generated",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team.id,
+                "status": status,
+                "skip_reason": skip_reason,
+                "suggestion_count": suggestion_count,
+                "runtime_s": round(runtime_s, 1),
+                "task_run_id": task_run_id,
+                "tier": tier,
+                "model": model,
+                "triggered_by": triggered_by,
+                **(extra_properties or {}),
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning("scout_suggestions: failed to capture generated event", team_id=team.id)
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +854,20 @@ def mark_generation_failed(team_id: int, *, task_run_id: str | None) -> SignalSc
     return row
 
 
+def mark_low_activity(team_id: int) -> SignalScoutSuggestionSet:
+    """A project too quiet to scan. The prior items stay readable, the same as a failed
+    generation, and the failure breaker is left alone: a quiet project is not a broken one. The
+    planner re-checks it once the refresh window passes, so traffic picked up in the meantime
+    costs at most one window."""
+    with transaction.atomic():
+        row = _lock_row(team_id, create=True)
+        assert row is not None
+        row.status = SignalScoutSuggestionSet.Status.LOW_ACTIVITY
+        row.last_completed_at = timezone.now()
+        row.save(update_fields=["status", "last_completed_at", "updated_at"])
+    return row
+
+
 # A generated conclusion, with or without items; `failed` and `stale` already say what they are.
 _EXPIRING_STATUSES = (SignalScoutSuggestionSet.Status.FRESH, SignalScoutSuggestionSet.Status.EMPTY)
 
@@ -778,30 +973,40 @@ def mark_stale_if_fleet_changed(team_id: int) -> None:
 
 
 __all__ = [
+    "ACTIVITY_READ_MAX_ROWS",
+    "LOW_ACTIVITY_SKIP_REASON",
     "MAX_SUGGESTIONS_PER_BATCH",
     "SIGNALS_SCOUT_SUGGESTIONS_FLAG",
     "SUGGESTIONS_ACTIVITY_SLACK_S",
     "SUGGESTIONS_AI_STAGE",
     "SUGGESTIONS_MAX_RUNTIME_S",
+    "ActivitySelection",
     "PlannedSuggestionRun",
     "ScoutSuggestionBatch",
     "ScoutSuggestionItem",
     "SuggestionSettings",
+    "TeamActivity",
+    "activity_check_enabled",
     "build_suggestions_prompt",
     "canonical_team_ids",
+    "capture_suggestions_generated",
     "dismiss_suggestion",
     "enabled_skill_names",
     "find_suggestion",
     "fleet_context",
     "mark_generation_failed",
+    "mark_low_activity",
     "mark_stale_if_fleet_changed",
     "mark_suggestion_created",
     "parse_suggestion_settings",
     "persist_suggestion_batch",
     "plan_suggestion_runs",
     "read_suggestion_settings",
+    "read_team_activity",
     "reserved_scout_names",
+    "select_teams_to_scan",
     "stamp_requested",
     "suggestions_allowed_for_team",
+    "team_is_active_enough",
     "visible_items",
 ]
