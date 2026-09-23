@@ -156,6 +156,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+# What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
+# because that module pulls the HTTP stack in and this one is loaded on every Django start.
+GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+
 class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -192,6 +197,12 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # github_writeback.py). Off by default, because the comment is public on the issue thread and
     # tells everybody watching it that we are working on it, which is a team's call to make.
     github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
+    # Label every self-driving pull request, so GitHub search, saved searches, and notification
+    # rules can separate them from the rest of the shared bot identity's pull requests (see
+    # pull_request_label.py). Off by default, because the label lands on a repository the team
+    # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
+    pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
+    pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
