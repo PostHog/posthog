@@ -237,9 +237,7 @@ def _execute(
 
 def _replayable_against_sources(compiled: CompiledCheck, team: Team, staged: StagedSubjectOverride) -> CompiledCheck:
     replayable = replayable_failing_rows_query(team.pk, staged.saved_query_id, compiled.failing_rows)
-    if replayable is None:
-        return compiled
-    return replace(compiled, printed_failing_rows_query=replayable)
+    return replace(compiled, printed_failing_rows_query=replayable or "")
 
 
 def _execute_compiled(

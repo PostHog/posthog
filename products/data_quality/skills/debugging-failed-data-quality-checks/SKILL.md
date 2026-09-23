@@ -56,7 +56,7 @@ On the newest run, read:
 
 - `status` and `error`
 - `check_config` and `check_severity`: what the run asserted, which can differ from the check today
-- `compiled_query`: HogQL that selects the failing rows
+- `compiled_query`: HogQL that selects the failing rows. For `row_count` it returns the count instead, so judge that check by `observed_value`.
 - `audited_staged_refresh`: true when the run checked a refresh before it was published
 
 Retention clears `compiled_query` after 30 days.

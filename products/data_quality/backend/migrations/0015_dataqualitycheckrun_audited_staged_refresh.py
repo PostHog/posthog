@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(
                 db_default=False,
                 default=False,
-                help_text="True when the run read a refresh that was staged but not yet published, under the materialization gate.",
+                help_text="True when the run audited a refresh that was staged but not yet published, under the materialization gate.",
             ),
         ),
     ]
