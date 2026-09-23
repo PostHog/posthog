@@ -13,14 +13,13 @@ import type { DateRange } from '~/queries/schema/schema-general'
 import {
     ANOMALIES_ROLLING_OPTIONS,
     MAX_WINDOW_START_AGE_DAYS,
+    anomaliesWindowDays,
     oldestAllowedStart,
     resolveAnomaliesWindow,
     stepAnomaliesWindow,
     weekStartingOn,
 } from 'products/logs/frontend/anomaliesDateWindow'
 import { logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
-
-const LAST_DAY_OF_WEEK = 6
 
 function formatLabel(dateRange: DateRange, now: dayjs.Dayjs): string {
     const rolling = ANOMALIES_ROLLING_OPTIONS.find((option) => option.dateFrom === dateRange.date_from)
@@ -44,12 +43,10 @@ export function AnomaliesDatePicker(): JSX.Element {
     const canStepBack = !!stepAnomaliesWindow(dateRange, -1, now)
     const canStepForward = !!stepAnomaliesWindow(dateRange, 1, now)
 
-    const weekStartMs = dateRange.date_to
-        ? resolveAnomaliesWindow(dateRange, now)?.start.startOf('day').valueOf()
-        : undefined
-    const weekStart = weekStartMs !== undefined ? dayjs(weekStartMs) : null
+    const bandDays = anomaliesWindowDays(dateRange, now)
+    const bandFirstMs = bandDays?.firstMs
     // LemonCalendar resets its month whenever this prop changes identity, so it must not change on every render.
-    const leftmostMonth = useMemo(() => dayjs(weekStartMs).startOf('month'), [weekStartMs])
+    const leftmostMonth = useMemo(() => dayjs(bandFirstMs).startOf('month'), [bandFirstMs])
 
     const getDateState = ({ date }: { date: dayjs.Dayjs }): LemonCalendarDateState => {
         const day = date.startOf('day')
@@ -59,14 +56,14 @@ export function AnomaliesDatePicker(): JSX.Element {
         if (day.isBefore(oldest)) {
             return { disabledReason: `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired` }
         }
-        if (!weekStart) {
+        if (!bandDays) {
             return {}
         }
-        const offset = day.diff(weekStart, 'day')
+        const dayMs = day.valueOf()
         return {
-            isStart: offset === 0,
-            isBetween: offset > 0 && offset < LAST_DAY_OF_WEEK,
-            isEnd: offset === LAST_DAY_OF_WEEK,
+            isStart: dayMs === bandDays.firstMs,
+            isBetween: dayMs > bandDays.firstMs && dayMs < bandDays.lastMs,
+            isEnd: dayMs === bandDays.lastMs,
         }
     }
 

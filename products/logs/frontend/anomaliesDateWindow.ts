@@ -44,6 +44,26 @@ export function oldestAllowedStart(now: dayjs.Dayjs): dayjs.Dayjs {
     return now.subtract(MAX_WINDOW_START_AGE_HOURS - START_AGE_MARGIN_HOURS, 'hour')
 }
 
+/** The local midnights of the first and last calendar day a fixed window covers, for the calendar band. */
+export function anomaliesWindowDays(
+    dateRange: DateRange,
+    now: dayjs.Dayjs
+): { firstMs: number; lastMs: number } | null {
+    // A rolling window has no end to band, and its start moves with the clock.
+    if (!dateRange.date_to) {
+        return null
+    }
+    const window = resolveAnomaliesWindow(dateRange, now)
+    if (!window) {
+        return null
+    }
+    return {
+        firstMs: window.start.startOf('day').valueOf(),
+        // The end bound is exclusive, so the last covered day is the one that holds the final charted moment.
+        lastMs: window.end.subtract(1, 'millisecond').startOf('day').valueOf(),
+    }
+}
+
 export function weekStartingOn(day: dayjs.Dayjs): DateRange {
     const start = day.startOf('day')
     return { date_from: start.toISOString(), date_to: start.add(WEEK_HOURS, 'hour').toISOString() }

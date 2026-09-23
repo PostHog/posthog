@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { stepAnomaliesWindow, weekStartingOn } from './anomaliesDateWindow'
+import { anomaliesWindowDays, stepAnomaliesWindow, weekStartingOn } from './anomaliesDateWindow'
 
 const NOW = dayjs('2026-09-23T11:00:00Z')
 
@@ -62,6 +62,28 @@ describe('anomaliesDateWindow', () => {
         },
     ])('$name', ({ dateRange, direction, expected }) => {
         expect(stepAnomaliesWindow(dateRange, direction, NOW)).toEqual(expected)
+    })
+
+    test.each([
+        {
+            name: 'a picked week bands the seven days it covers',
+            dateRange: { date_from: '2026-09-07T00:00:00.000Z', date_to: '2026-09-14T00:00:00.000Z' },
+            expected: { first: '2026-09-07T00:00:00.000Z', last: '2026-09-13T00:00:00.000Z' },
+        },
+        {
+            name: 'a stepped 24 hour window bands two days, not a week',
+            dateRange: { date_from: '2026-09-21T11:00:00.000Z', date_to: '2026-09-22T11:00:00.000Z' },
+            expected: { first: '2026-09-21T00:00:00.000Z', last: '2026-09-22T00:00:00.000Z' },
+        },
+        {
+            name: 'a rolling window has no band',
+            dateRange: { date_from: '-7d', date_to: null },
+            expected: null,
+        },
+    ])('$name', ({ dateRange, expected }) => {
+        const days = anomaliesWindowDays(dateRange, NOW)
+        const asDates = days && { first: dayjs(days.firstMs).toISOString(), last: dayjs(days.lastMs).toISOString() }
+        expect(asDates).toEqual(expected)
     })
 
     it('a picked day spans 168 hours from its midnight', () => {
