@@ -8,7 +8,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { ViewsTab } from 'scenes/data-warehouse/scene/ViewsTab'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -23,6 +22,7 @@ import { DataQualityOverview } from 'products/data_quality/frontend/overview/Dat
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
 import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ViewsTab } from './ViewsTab'
 
 export const scene: SceneExport = {
     component: ModelsScene,

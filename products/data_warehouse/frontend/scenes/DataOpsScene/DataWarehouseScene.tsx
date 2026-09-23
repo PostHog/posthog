@@ -5,9 +5,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { MonitoringTab } from 'scenes/data-warehouse/scene/MonitoringTab'
-import { OverviewTab } from 'scenes/data-warehouse/scene/OverviewTab'
-import { SettingsTab } from 'scenes/data-warehouse/scene/SettingsTab'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -18,6 +15,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { MonitoringTab } from './tabs/MonitoringTab'
+import { OverviewTab } from './tabs/OverviewTab'
+import { SettingsTab } from './tabs/SettingsTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
