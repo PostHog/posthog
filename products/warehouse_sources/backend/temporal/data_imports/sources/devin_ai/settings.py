@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 200
 
 
-@dataclass
+@dataclass(frozen=True)
 class DevinAIEndpointConfig:
     name: str
     # Path template under the API root; `{org_id}` is filled from the source config. A fan-out child
