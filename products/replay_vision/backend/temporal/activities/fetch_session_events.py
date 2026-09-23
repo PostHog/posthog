@@ -241,9 +241,8 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0.
     active_seconds = metadata.get("active_seconds") or 0
     ineligible = _activity_ineligibility(active_seconds, duration_seconds)
-    # Recorded for every recording the gate judges, admitted or not, because the share of scans with this
-    # idle shape is otherwise unmeasurable, and the ratio threshold cannot be tuned without it. The duration
-    # floor above guarantees a non-zero divisor.
+    # Recorded for every recording the gate judges, admitted or not, because the ratio threshold cannot be
+    # tuned without the distribution behind it. The duration floor above guarantees a non-zero divisor.
     record_session_active_ratio(
         outcome=ineligible.kind.value if ineligible is not None else "admitted",
         ratio=active_seconds / duration_seconds,

@@ -32,12 +32,13 @@ REPLAY_VISION_INELIGIBLE_KINDS = Counter(
     ["kind"],
 )
 
-# Bunched at the bottom because the shape this separates is a backgrounded tab, which sits under a few percent.
+# Weighted to the low end, because the shape this has to separate out is a backgrounded tab, which sits
+# under a few percent.
 _ACTIVE_RATIO_BUCKETS = (0.01, 0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0)
 
 REPLAY_VISION_SESSION_ACTIVE_RATIO = Histogram(
     "replay_vision_session_active_ratio",
-    "Active seconds over wall duration for every recording the scan-time activity gate judged, labelled with the "
+    "Active seconds over wall duration for every recording the scan-time activity gate judged, labeled with the "
     "verdict. This is the denominator MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER has to be tuned against",
     ["outcome"],
     buckets=_ACTIVE_RATIO_BUCKETS,
