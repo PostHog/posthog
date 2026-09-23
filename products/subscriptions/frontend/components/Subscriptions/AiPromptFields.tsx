@@ -23,10 +23,29 @@ import {
     updateAiSubscriptionDisplayOption,
 } from './utils'
 
-export function AiPromptSubscriptionIntroduction(): JSX.Element {
+export function AiPromptSubscriptionIntroduction({
+    parentResource,
+    canSwitchToSnapshot,
+}: {
+    /** The dashboard or insight the form was opened from, when it was opened from one. */
+    parentResource?: 'dashboard' | 'insight'
+    /** Whether the form still offers the snapshot option the user can switch to. */
+    canSwitchToSnapshot?: boolean
+}): JSX.Element {
     return (
         <LemonBanner type="info" className="text-sm">
-            Tell us what you want to know. We'll surface the relevant information from your project data in each report.
+            <p className="mb-0">
+                Tell us what you want to know. We'll surface the relevant information from your project data in each
+                report.
+            </p>
+            {parentResource ? (
+                <p className="mb-0 mt-2">
+                    A report from a prompt covers your whole project, not only this {parentResource}.
+                    {canSwitchToSnapshot
+                        ? ` To send this ${parentResource} itself, choose "Insight or dashboard snapshot".`
+                        : null}
+                </p>
+            ) : null}
         </LemonBanner>
     )
 }
