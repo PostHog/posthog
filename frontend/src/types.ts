@@ -5208,7 +5208,6 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
-    is_hobby?: boolean
     current_user: UserType | null
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
