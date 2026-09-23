@@ -109,7 +109,12 @@ def persist_stable_chunks_choice(request: HttpRequest, response: HttpResponse) -
     param = request.GET.get(STABLE_CHUNKS_PARAM)
     if param == "1":
         response.set_cookie(
-            STABLE_CHUNKS_COOKIE, "1", max_age=_COOKIE_MAX_AGE_SECONDS, secure=request.is_secure(), samesite="Lax"
+            STABLE_CHUNKS_COOKIE,
+            "1",
+            max_age=_COOKIE_MAX_AGE_SECONDS,
+            secure=request.is_secure(),
+            httponly=True,
+            samesite="Lax",
         )
     elif param == "0":
         response.delete_cookie(STABLE_CHUNKS_COOKIE)

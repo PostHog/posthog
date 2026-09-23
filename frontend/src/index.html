@@ -40,6 +40,7 @@
         {# the modulepreload hints below, because browsers ignore an import map added after module #}
         {# loading has started. #}
         {% if stable_chunks_importmap %}
+            {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe, generic.html-templates.security.var-in-script-tag.var-in-script-tag (import_map_json escapes every "<" to \u003c, so the JSON cannot end the script element) #}
             <script type="importmap" nonce="{{ request.csp_nonce }}">{{ stable_chunks_importmap|safe }}</script>
         {% endif %}
         {% for url in preload_js_urls %}
