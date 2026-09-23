@@ -21,6 +21,7 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.onboarding import (
     onboarding_test_tools_enabled,
@@ -37,6 +38,8 @@ from products.tasks.backend.presentation.serializers import (
     ChannelInstructionsWriteSerializer,
     ChannelMembersWriteSerializer,
     ChannelSerializer,
+    ChannelSetupResponseSerializer,
+    ChannelSetupWriteSerializer,
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
     ChannelWriteSerializer,
@@ -115,6 +118,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "patch_instructions",
         "delete_instructions",
         "set_context_generation",
+        "start_setup",
         "star",
     ]
 
@@ -448,6 +452,39 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "invalid_task":
             return Response({"detail": "Task not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelContextGenerationSerializer({"task_id": result}).data)
+
+    @extend_schema(
+        request=ChannelSetupWriteSerializer,
+        responses={
+            201: OpenApiResponse(response=ChannelSetupResponseSerializer, description="The setup task that started"),
+        },
+        summary="Set a space up for a goal or a feature",
+        description=(
+            "Starts one unattended task in the channel that resolves the metric, writes the context page and, "
+            "for a goal, creates the tracking canvas and the loops. The task becomes the channel's context "
+            "generation task."
+        ),
+    )
+    @action(methods=["POST"], detail=True, url_path="setup")
+    def start_setup(self, request, pk=None, **kwargs):
+        serializer = ChannelSetupWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_id = self._user_id()
+        if user_id is None:
+            raise PermissionDenied("Space setup runs as the requesting user")
+        try:
+            started = tasks_facade.start_space_setup(
+                pk,
+                self.team,
+                user_id,
+                request=serializer.to_request(),
+                client_provenance=get_task_client_provenance(request),
+            )
+        except ComputeBillingLimitExceeded as error:
+            return compute_quota_limit_response(error.reason)
+        if started is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelSetupResponseSerializer(started).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=ChannelStarWriteSerializer,

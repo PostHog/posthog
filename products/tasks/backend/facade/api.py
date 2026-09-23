@@ -103,6 +103,14 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.space_setup import (
+    SPACE_SETUP_FEED_EVENT,
+    SPACE_SETUP_MODEL,
+    SPACE_SETUP_REASONING_EFFORT,
+    SPACE_SETUP_RUNTIME_ADAPTER,
+    build_space_setup_prompt,
+    space_setup_task_title,
+)
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -9619,6 +9627,67 @@ def set_channel_context_generation(
             channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
         )
         return str(task_id) if task_id else None
+
+
+def start_space_setup(
+    channel_id: str | UUID,
+    team: Team,
+    user_id: int,
+    *,
+    request: contracts.SpaceSetupRequest,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.SpaceSetupStartedDTO | None:
+    """Start the one task that sets a space up for a goal or a feature.
+
+    The task runs unattended in the channel and publishes the context page itself, so it
+    takes over the channel's context generation marker the same way a CONTEXT.md
+    generation task does. ``None`` when the channel is not visible to the user.
+    """
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team.id, user_id)
+        if channel is None:
+            return None
+        repository = request.repository or (channel.repositories[0] if channel.repositories else None)
+        request = replace(request, repository=repository)
+        task = Task.create_and_run(
+            team=team,
+            title=space_setup_task_title(channel.name, request),
+            description=build_space_setup_prompt(
+                channel_id=str(channel.id), channel_name=channel.name, request=request
+            ),
+            origin_product=Task.OriginProduct.SPACE_SETUP,
+            user_id=user_id,
+            channel=channel,
+            create_pr=False,
+            posthog_mcp_scopes="full",
+            runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+            model=SPACE_SETUP_MODEL,
+            reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+            initial_permission_mode="auto",
+            client_provenance=client_provenance,
+        )
+        ChannelContextGeneration.objects.update_or_create(
+            channel_id=channel.id, defaults={"team_id": team.id, "task_id": task.id}
+        )
+        _emit_space_setup_started(channel, user_id, request=request, task_id=task.id)
+        return contracts.SpaceSetupStartedDTO(task_id=task.id)
+
+
+def _emit_space_setup_started(
+    channel: Channel, user_id: int, *, request: contracts.SpaceSetupRequest, task_id: UUID
+) -> None:
+    subject = request.goal.statement if request.goal is not None else request.feature.name if request.feature else ""
+    try:
+        ChannelFeedMessage.objects.create(
+            team_id=channel.team_id,
+            channel_id=channel.id,
+            author_id=user_id,
+            author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+            event=SPACE_SETUP_FEED_EVENT,
+            payload={"kind": request.kind, "subject": subject, "task_id": str(task_id)},
+        )
+    except Exception:
+        logger.exception("Failed to emit space_setup_started feed message", extra={"channel_id": str(channel.id)})
 
 
 def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:

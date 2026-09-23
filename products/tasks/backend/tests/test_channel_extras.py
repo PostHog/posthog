@@ -2,6 +2,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone as django_timezone
 
@@ -13,7 +14,14 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.tasks.backend.models import Channel, ChannelStar, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    ChannelContextGeneration,
+    ChannelFeedMessage,
+    ChannelStar,
+    Task,
+    TaskRun,
+)
 
 
 class ChannelExtrasBaseTest(APIBaseTest):
@@ -151,6 +159,60 @@ class TestChannelInstructions(ChannelExtrasBaseTest):
         response = self.client.patch(f"{self.base}/instructions/", {"content": "v2"}, format="json")
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "current_version" in response.json()
+
+
+class TestChannelSetup(ChannelExtrasBaseTest):
+    GOAL_BODY = {
+        "kind": "goal",
+        "goal": {"statement": "Increase the weekly activation rate", "target": "20%", "deadline": "2026-12-01"},
+    }
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_goal_setup_starts_a_task_in_the_channel(self, _mock_workflow):
+        with team_scope(self.team.id):
+            self.channel.repositories = ["posthog/posthog"]
+            self.channel.save(update_fields=["repositories"])
+
+        response = self.client.post(f"{self.base}/setup/", self.GOAL_BODY, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        task = Task.objects.get(id=response.json()["task_id"])
+        assert task.channel_id == self.channel.id
+        assert task.origin_product == Task.OriginProduct.SPACE_SETUP
+        assert task.created_by_id == self.user.id
+        assert "Increase the weekly activation rate" in task.description
+        assert "posthog/posthog" in task.description
+        run = TaskRun.objects.get(task=task)
+        assert run.state["model"] == "gpt-5.6-sol"
+        assert run.state["reasoning_effort"] == "high"
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "full"
+        assert ChannelContextGeneration.objects.unscoped().get(channel=self.channel).task_id == task.id
+        feed = ChannelFeedMessage.objects.unscoped().get(channel=self.channel, event="space_setup_started")
+        assert feed.payload["kind"] == "goal"
+        assert feed.payload["task_id"] == str(task.id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_setup_of_a_hidden_channel_is_not_found(self, mock_workflow):
+        other = self._create_user("other@posthog.com")
+        with team_scope(self.team.id):
+            personal = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=other
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/task_channels/{personal.id}/setup/", self.GOAL_BODY, format="json"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_workflow.assert_not_called()
+        assert not Task.objects.filter(channel=personal).exists()
+
+    def test_setup_without_the_matching_payload_is_rejected(self):
+        response = self.client.post(f"{self.base}/setup/", {"kind": "goal"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "goal"
+        assert not Task.objects.filter(channel=self.channel).exists()
 
 
 class TestChannelContextGeneration(ChannelExtrasBaseTest):

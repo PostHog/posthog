@@ -34,6 +34,10 @@ from products.tasks.backend.facade.contracts import (
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
+    SpaceFeatureRequest,
+    SpaceGoalRequest,
+    SpaceSetupRequest,
+    SpaceSetupStartedDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskCreateResponseDTO,
@@ -2519,6 +2523,118 @@ class ChannelContextGenerationSerializer(serializers.Serializer):
     """The task currently generating this channel's CONTEXT.md, or null."""
 
     task_id = serializers.UUIDField(allow_null=True)
+
+
+class SpaceSetupKind(models.TextChoices):
+    GOAL = "goal", "Goal"
+    FEATURE = "feature", "Feature"
+
+
+class SpaceGoalDirection(models.TextChoices):
+    AT_LEAST = "at_least", "At least"
+    AT_MOST = "at_most", "At most"
+
+
+class SpaceGoalPeriod(models.TextChoices):
+    DAY = "day", "Day"
+    WEEK = "week", "Week"
+    MONTH = "month", "Month"
+
+
+class SpaceGoalWriteSerializer(serializers.Serializer):
+    """The metric a goal space should move."""
+
+    statement = serializers.CharField(
+        max_length=2000, help_text="The goal in one or two sentences, e.g. 'Increase the weekly activation rate'."
+    )
+    period = serializers.ChoiceField(
+        choices=SpaceGoalPeriod.choices, default=SpaceGoalPeriod.WEEK, help_text="How often the metric is measured."
+    )
+    direction = serializers.ChoiceField(
+        choices=SpaceGoalDirection.choices,
+        default=SpaceGoalDirection.AT_LEAST,
+        help_text="Whether the target is a floor ('at_least') or a ceiling ('at_most').",
+    )
+    target = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Target value as typed, e.g. '20%' or '1500'.",
+    )
+    deadline = serializers.DateField(required=False, allow_null=True, help_text="Date the target should be reached.")
+    insight_short_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Short id of an existing insight that measures the goal, when there is one.",
+    )
+
+
+class SpaceFeatureWriteSerializer(serializers.Serializer):
+    """The feature a feature space is set up around."""
+
+    name = serializers.CharField(max_length=200, help_text="Feature name as people call it.")
+    description = serializers.CharField(
+        max_length=2000, required=False, allow_blank=True, default="", help_text="What the feature does, in a sentence."
+    )
+    flag_key = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Key of the feature flag that gates it, if any.",
+    )
+
+
+def _blank_to_none(data: dict, *, keep: frozenset[str] = frozenset()) -> dict:
+    """Optional text fields arrive as "" from a form; the contracts use None for "not given"."""
+    return {key: (None if value == "" and key not in keep else value) for key, value in data.items()}
+
+
+class ChannelSetupWriteSerializer(serializers.Serializer):
+    """Request body for starting the task that sets a space up for a goal or a feature."""
+
+    kind = serializers.ChoiceField(choices=SpaceSetupKind.choices, help_text="What the space is set up for.")
+    goal = SpaceGoalWriteSerializer(required=False, help_text="Required when kind is 'goal'.")
+    feature = SpaceFeatureWriteSerializer(required=False, help_text="Required when kind is 'feature'.")
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        kind = attrs["kind"]
+        if kind == SpaceSetupKind.GOAL and not attrs.get("goal"):
+            raise serializers.ValidationError({"goal": "A goal setup needs a goal."})
+        if kind == SpaceSetupKind.FEATURE and not attrs.get("feature"):
+            raise serializers.ValidationError({"feature": "A feature setup needs a feature."})
+        return attrs
+
+    def to_request(self) -> SpaceSetupRequest:
+        data = self.validated_data
+        goal = data.get("goal")
+        feature = data.get("feature")
+        return SpaceSetupRequest(
+            kind=data["kind"],
+            goal=SpaceGoalRequest(**_blank_to_none(goal)) if goal else None,
+            feature=SpaceFeatureRequest(**_blank_to_none(feature, keep=frozenset({"description"})))
+            if feature
+            else None,
+            repository=data.get("repository") or None,
+        )
+
+
+class ChannelSetupResponseSerializer(DataclassSerializer):
+    """The setup task that was started for the channel."""
+
+    class Meta:
+        dataclass = SpaceSetupStartedDTO
+        fields = ["task_id"]
 
 
 class ChannelStarWriteSerializer(serializers.Serializer):

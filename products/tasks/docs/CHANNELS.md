@@ -39,6 +39,7 @@ Base path: `/api/projects/{id}/task_channels/`.
 | `DELETE /{id}/`                                 | Delete an empty public or private channel. Personal and general spaces cannot be deleted.            |
 | `GET /{id}/members/`                            | List private channel members. Return an empty list for public and personal channels.                 |
 | `PUT /{id}/members/ {user_ids}`                 | Replace a private channel's members. Keep the creator.                                               |
+| `POST /{id}/setup/ {kind, goal, feature}`       | Start the task that sets the space up for a goal or a feature. Returns `task_id` with status 201.   |
 
 Listing channels does not create them. Call `provision_defaults` to create the default channels.
 Send `limit` and `offset` to get one page with `count`, `next`, `previous`, and `results`.
@@ -58,6 +59,12 @@ The endpoint returns 400 for invalid users or public or personal channels. It re
 A `channel_type` update switches a shared channel between `public` and `private`.
 Making a channel private removes every membership row and seeds the creator and the requester.
 Making a channel public removes every membership row. The name must be free among active public channels, or the request returns 400.
+
+Space setup runs as one unattended task in the channel, the same way CONTEXT.md generation does.
+`kind` is `goal` or `feature`; `goal` carries `statement`, `period`, `direction`, `target`, `deadline`, and `insight_short_id`; `feature` carries `name`, `description`, and `flag_key`.
+`repository` defaults to the channel's first repository. The task runs on `gpt-5.6-sol` at high reasoning effort with full PostHog MCP scopes and becomes the channel's context generation task.
+A goal setup also creates a tracking canvas and five workflow-backed loops (goal manager, delivery, experiment monitor, daily summary, system review); a feature setup writes the context page only.
+The endpoint posts a `space_setup_started` feed message with `kind`, `subject`, and `task_id`. It returns 404 for an inaccessible channel.
 
 Channel updates, deletion, membership changes, private channel handoffs, feed posts, instructions, context generation, and stars lock the channel row.
 Each write checks access after it acquires the lock. A request from a removed member fails even if it started before removal.
