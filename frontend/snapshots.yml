@@ -8796,6 +8796,14 @@ snapshots:
         hash: v1.k794b7964.37cf7e1adca49250d4f897857db29d76a66dc7cbb760544ef25f61bc6130b3b7.TF_emc4uFiR_iOQdgadWVFwc-SBVaHUQ9beOf8dPyV0
     scenes-app-heatmap--blocked-preview-narrow--light:
         hash: v1.k794b7964.2a26b4a7919f380c0652a40336fe0f6c081591c723a175fd9c6e27fb871a5af7.aENTH12b6uQfQpI_sKhhhrS4c0qSPPlY61EmZEdj7Uo
+    scenes-app-heatmap--empty-with-data-at-another-width--dark:
+        hash: v1.k794b7964.ceb0ee9e077303c6859f2d5ef31cb974b2db546fe3ae736b40c025cdd9dd5ce1.IvEDL1NkmIslYJ8V5j6XsEK9k1P5ORPA-e0SlDcmIKk
+    scenes-app-heatmap--empty-with-data-at-another-width--light:
+        hash: v1.k794b7964.773927ab6dee60e47a84f30de223effb52dc3f57f7f7153d24807fcee0c92d1d.i0y3P_e1EoOCI3hd8nynrNVGRFMcCdJTNusJPiOzyew
+    scenes-app-heatmap--empty-with-similar-urls--dark:
+        hash: v1.k794b7964.8b492692a483806a22e9fa2c676490faf557a7245134dddd868fec57bc0af21f.GB2J4ik1aoCgKvh5KH573sYMBv1bGxGmuzYpKnyAIrQ
+    scenes-app-heatmap--empty-with-similar-urls--light:
+        hash: v1.k794b7964.cef018c7859bdc01e51614500656027d816a6db8b48dff269951b2d4e9caab5e.g2wPXw79i47pOxKOsUWC_kyeEqw-QyLkC_0g5Iy6sFs
     scenes-app-heatmap--generating--dark:
         hash: v1.k794b7964.9d4260c0f995e7dab1dce843dea2bb4d65cde7985de37c3d9c22bc1076e99222.0K0DVWC3ZQ2Azz6yFsqNOS-6TDOAzN1irTWpegrFNks
     scenes-app-heatmap--generating--light:
@@ -8881,7 +8889,7 @@ snapshots:
     scenes-app-heatmap-new--unauthorized-iframe--light:
         hash: v1.k794b7964.8e355023754bf9c2c1dc31cbadba79e6b524ad9a66528c649ab150f7eaf0cc05.yqUC0NlgolBVjXQsucJcRfdlu5npQvynKZSy7oAnd_8
     scenes-app-heatmap-recording--recording-mode-with-clickmap--dark:
-        hash: v1.k794b7964.5391a9fc4891c9c7ae154895493807ff0e569a5a1d7bdef43ca0f48b878a59cc.JaAh4Zz4E8c0ompabfRmWhcN-VsLNhZd3607c4RPJAw
+        hash: v1.k794b7964.690a738ccf7c2d51783f90674de9f2d820c1425f7bad5ac08ef5b3d05c050c77.aNuqccZzEnE0mSzQaTa_fC4qBWKrgD95UTP6SJ8q7rE
     scenes-app-heatmap-recording--recording-mode-with-clickmap--light:
         hash: v1.k794b7964.b971c6a8c3c44007c4b2de5797ac84541c34cef1ec16e0b6d760908b4d804302.DIupEQcozzEHDmS1urKBQx7LPhToY6N0FGgL2osOcUw
     scenes-app-heatmaps-saved--list--dark:
