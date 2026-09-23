@@ -3,10 +3,12 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -163,6 +165,31 @@ class TestFlagValueViewSet(APIBaseTest):
             {"name": "valid_variant"},
         ]
         self.assertEqual(data["results"], expected_values)
+
+    def test_flag_values_respects_object_level_access_control(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other_user = self._create_user("other_user@posthog.com")
+
+        flag = FeatureFlag.objects.create(
+            name="Hidden Flag",
+            key="hidden-flag",
+            team=self.team,
+            created_by=self.user,
+            filters={
+                "groups": [{"rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "secret-variant", "rollout_percentage": 100}]},
+            },
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(other_user)
+        response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(
         [

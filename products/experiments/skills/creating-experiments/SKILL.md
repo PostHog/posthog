@@ -18,10 +18,36 @@ Choose settings from the project's facts rather than asking, and say which choic
 The right bucketing, metric and running time depend on the project: who sees the page, which SDKs evaluate the flag, how often the metric event happens.
 Read that before configuring anything.
 
-1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` plus a URL fragment for a page) and a **candidate metric event**.
+1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` for a page) and a **candidate metric event**.
    Confirm both exist with `read-data-schema`. Don't ask the user for event names you can find.
-2. If the `experiment-setup-context` tool is available, call it once with `target_event`, `target_url_contains` (for a page) and `metric_event`.
-   If it is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+   For a page, read `event_property_values` for `$host` and `$pathname` on the target event as well.
+   The response samples the values rather than listing them all, so read it for the shape the project records (a trailing slash, a `www.` prefix, the casing) rather than as proof that a value is absent.
+   An exact filter has to carry that shape: `/pricing` matches nothing where every pageview says `/pricing/`, and `example.com` matches nothing where the host is `www.example.com`.
+2. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
+   For a web surface, add `target_properties` with an exact `$host`.
+   Add an exact `$pathname` as well when the surface is one page.
+   `target_url_contains` is a substring match on `$current_url`.
+   A bare domain matches any host that contains it, `notexample.com` included, and a homepage path matches every page under it.
+   Both overstate the traffic and the exposure rate.
+   For a surface that spans several pages, keep the exact `$host` and put only the path fragment in `target_url_contains`.
+   Add `metric_properties` in the same call when the candidate metric counts only some occurrences of its event.
+   If the tool is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+
+   Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`.
+   The call rejects the `flag_evaluates_to` operator with a 400 that names it.
+   For the homepage of one domain:
+
+   ```json
+   {
+     "target_event": "$pageview",
+     "target_properties": [
+       { "key": "$host", "type": "event", "operator": "exact", "value": ["www.example.com"] },
+       { "key": "$pathname", "type": "event", "operator": "exact", "value": ["/"] }
+     ],
+     "metric_event": "your_conversion_event"
+   }
+   ```
+
 3. Apply [references/setup-decisions.md](references/setup-decisions.md) to the result. It maps each fact to a choice (bucketing, where the flag is evaluated, exposure, primary metric, running time, precedent) and to a tier for the summary.
 4. Carry those choices into steps 1 to 3.
 

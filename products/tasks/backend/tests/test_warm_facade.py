@@ -1271,8 +1271,11 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert "await_user_message" not in run.state
         assert run.state["pr_base_branch"] is None
 
-    def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
+    @parameterized.expand([(False, 429, "posthog_code_billing_limit_exceeded"), (True, 403, "permission_denied")])
+    def test_create_endpoint_denies_before_warm_activation(self, pending_deletion, expected_status, expected_code):
         warm_task, run = self._warm_run()
+        self.organization.is_pending_deletion = pending_deletion
+        self.organization.save(update_fields=["is_pending_deletion"])
 
         with patch(
             "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason",
@@ -1284,8 +1287,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 format="json",
             )
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert response.json()["code"] == "posthog_code_billing_limit_exceeded"
+        assert response.status_code == expected_status
+        assert response.json()["code"] == expected_code
         warm_task.refresh_from_db()
         run.refresh_from_db()
         assert warm_task.description == ""
