@@ -56,16 +56,18 @@ LOOP_GUARDRAILS = """GUARDRAILS (keep this block verbatim in every revision of t
 - Publish durable learning to the context page with the context tools (task-context-wiki-* when available, otherwise channel-instructions-*). Re-read before writing and pass the head you read. Preserve every section you do not own.
 - End with the four-line status: where we are (goal value against baseline and target), what is being worked on, what needs a person, what happens next."""
 
-LOOP_STATE = """STATE (canvas shared state keys and their shapes; keep this block verbatim)
-- `goal`: {"value", "baseline", "target", "period", "trend": "up" | "flat" | "down", "measured_at", "note"}
-- `plan`: [{"rank", "title", "hypothesis", "expected_effect", "evidence", "effort", "risk", "state": "candidate" | "proposed" | "building" | "testing" | "done" | "dropped"}]
-- `selected`: {"title", "hypothesis", "acceptance_evidence", "task_id", "experiment_flag_key", "state": "proposed" | "building" | "testing" | "done" | "dropped", "selected_at"}
-- `pr:<number>`: {"url", "title", "state": "draft" | "ready" | "needs_decision" | "merged" | "closed", "checks", "review", "next_action", "updated_at"}
-- `experiment:<flag key>`: {"url", "rule": {"primary_metric", "minimum_effect", "sample_requirement", "decision_date", "maximum_duration", "health_limits", "rollback_plan"}, "status": "no_rule" | "continue" | "ready_for_decision" | "rollback_required" | "inconclusive" | "invalid" | "released" | "rolled_back", "verdict", "updated_at"}
-- `status`: {"as_of", "where_we_are", "working_on", "needs_you": [string], "next"}
-- `loop:<name>`: {"workflow_id", "schedule", "last_run", "last_result"}
-- `config-history:<date>`: {"loop", "before", "after", "reason", "success_measure", "evaluate_on", "verdict"}
-- `control.paused`: boolean. Only a person sets it."""
+LOOP_STATE = """STATE (canvas shared state keys; keep this block verbatim)
+Each key holds a JSON object with these fields. Write the field names exactly; a field with choices lists them with `|`.
+- `goal`: value, baseline, target, period, trend (up | flat | down), measured_at, note
+- `plan`: a list; each item has rank, title, hypothesis, expected_effect, evidence, effort, risk, state (candidate | proposed | building | testing | done | dropped)
+- `selected`: title, hypothesis, acceptance_evidence, task_id, experiment_flag_key, state (proposed | building | testing | done | dropped), selected_at
+- `pr:<number>`: url, title, state (draft | ready | needs_decision | merged | closed), checks, review, next_action, updated_at
+- `experiment:<flag key>`: url, rule (an object with primary_metric, minimum_effect, sample_requirement, decision_date, maximum_duration, health_limits, rollback_plan), status (no_rule | continue | ready_for_decision | rollback_required | inconclusive | invalid | released | rolled_back), verdict, updated_at
+- `status`: as_of, where_we_are, working_on, needs_you (a list of strings), next
+- `loop:<name>`: workflow_id, schedule, last_run, last_result
+- `config-history:<date>`: loop, before, after, reason, success_measure, evaluate_on, verdict
+- `control.paused`: a boolean. Only a person sets it.
+Never put curly braces in a loop prompt: the workflow stores the prompt as a template and reads a brace as a placeholder."""
 
 LOOP_AUTONOMY = """AUTONOMY (read `autonomy` from the page frontmatter; `propose` when missing; keep this block verbatim)
 - `propose`: analyze, rank, and recommend. Register decision rules. Write the plan, the status, and Learnings. Do not open pull requests, do not create experiments, do not touch flags. Put every recommended action in `status.needs_you` so a person can do it or raise the level.
@@ -297,7 +299,7 @@ goals:
     primary: true
     period: <day|week|month>
     percent: <true when the measure is a rate>
-    measure:
+    measure:  # omit this key while the measure is unverified; never write empty strings
       kind: <hogql|insight>
       sql: <HogQL that returns one number for the current period, when kind is hogql>
       trend_sql: <HogQL that returns one row per period with columns period and value, when kind is hogql>
@@ -386,7 +388,7 @@ Check the metric catalog with `metric-list` for an approved metric that matches 
 Search `system.experiments`, `system.feature_flags`, `system.insights`, and `system.dashboards` for objects that touch the goal's events or name. Confirm the columns first. Collect each one as a `watching` entry with its full url.
 
 ### Step 3: create the tracking canvas
-Create one freeform canvas in this channel with `canvas-create`, named "{channel_name} tracker". Publish its first version with `canvas-publish-create` following the `building-canvases` skill. Read shared state with `ph.state` in the canvas and declare the `shared` scope. The canvas shows, top to bottom: the four-line status from `status` as a text block (this is the first thing a person reads); the goal from `goal` against target and baseline; the ranked list from `plan` with each item's state; the pull requests from `pr:*`; the experiments from `experiment:*`; the loop cards from `loop:*`; and a pause switch that writes `control.paused`. Show an empty state for keys that do not exist yet. Set `control.paused` to false with `canvas-state-set`. Note the canvas id; it replaces `{canvas_placeholder}` in every loop prompt below.
+Create one freeform canvas in this channel with `canvas-create`, named "{channel_name} tracker". Build it as a React + Quill canvas following the `building-canvases`, `building-react-quill-canvases`, and `validating-and-publishing-canvases` skills: start from the starter scaffold, keep `index.html` and `dependencies` exactly as `canvas-source-retrieve` returns them (the entry shell references `/src/canvas.tsx`; do not change that path or add a mount), and `export default` one component from `src/canvas.tsx`. Style only with Quill components and design-token utilities. Read shared state with `ph.state` in the canvas and declare the `shared` scope. The canvas shows, top to bottom: the four-line status from `status` as a text block (this is the first thing a person reads); the goal from `goal` against target and baseline; the ranked list from `plan` with each item's state as a Badge; the pull requests from `pr:*`; the experiments from `experiment:*`; one card per `loop:*` key with its name, schedule, and last result (never raw JSON); and a pause switch that writes `control.paused`. Show an empty state for keys that do not exist yet. Publish with `canvas-publish-create`, then poll `canvas-builds-retrieve` until the build is `ready`; a `failed` build means you read its diagnostics, fix the project, and publish again. The canvas is not done until a build is ready. Set `control.paused` to false with `canvas-state-set`. Note the canvas id; it replaces `{canvas_placeholder}` in every loop prompt below.
 
 ### Step 4: create and enable the loops
 Create {loop_count} workflows, one per brief below, with the exact graph in "Loop graph". Fill in the space id, the space name, the repository, the canvas id, and the brief text. Before you create one, call `workflows-list` and reuse a workflow with the same name. For each workflow, in this order:

@@ -53,6 +53,9 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
         assert prompt.count("GUARDRAILS (keep this block verbatim") == len(GOAL_LOOP_BRIEFS)
         assert prompt.count("STATE (canvas shared state keys") == len(GOAL_LOOP_BRIEFS)
         assert prompt.count("AUTONOMY (read `autonomy`") == len(GOAL_LOOP_BRIEFS)
+        # The workflow reads a brace in a prompt as a template placeholder, so no brief may carry one.
+        for brief in GOAL_LOOP_BRIEFS:
+            assert "{" not in brief.prompt.replace("{{", "").replace("}}", ""), brief.name
         assert f"autonomy: {DEFAULT_AUTONOMY}\n" in prompt
         assert "### Step 5: make the first plan" in prompt
 
