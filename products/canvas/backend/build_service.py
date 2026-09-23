@@ -1214,6 +1214,7 @@ def _capture_build_completed(build: CanvasBuild, *, outcome: str) -> None:
                 event="canvas build completed",
                 properties={
                     "canvas_id": str(build.canvas_id),
+                    "canvas_kind": build.canvas.kind,
                     "build_id": str(build.id),
                     "source_version_id": str(build.source_version_id),
                     "outcome": outcome,
