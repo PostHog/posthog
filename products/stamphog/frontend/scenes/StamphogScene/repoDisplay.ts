@@ -7,9 +7,6 @@ export function repoStatusDisplay(repo: StamphogRepoConfigApi): { type: LemonTag
     if (repo.enabled) {
         return { type: 'success', label: 'Reviewing' }
     }
-    if (repo.digest_enabled) {
-        return { type: 'default', label: 'Digest only' }
-    }
     return { type: 'muted', label: 'Paused' }
 }
 

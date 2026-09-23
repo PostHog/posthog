@@ -33,7 +33,7 @@ const page = (results: StamphogRepoConfigApi[]): Record<string, unknown> => ({
     results,
 })
 
-// One row per status the table can show: reviewing, reviewing on a label, digest only, and paused.
+// One row per status the table can show: reviewing, reviewing on a label, and paused with or without the digest.
 const repoConfigs = page([
     repoConfig(1, { repository: 'PostHog/posthog', digest_enabled: true }),
     repoConfig(2, {
