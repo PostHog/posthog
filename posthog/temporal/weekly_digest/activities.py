@@ -1,8 +1,12 @@
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
+from typing import Any, TypeVar
+from uuid import UUID
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import redis
@@ -20,9 +24,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.models.messaging import MessagingRecord
-from posthog.models.organization_notification_lock import notification_locks_for_users
+from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -41,13 +47,13 @@ from posthog.temporal.weekly_digest.queries import (
     query_new_external_data_sources,
     query_new_feature_flags,
     query_org_members,
-    query_org_product_push_campaigns,
-    query_org_teams,
     query_orgs_for_digest,
+    query_product_push_campaigns_for_organizations,
     query_saved_filters,
     query_surveys_launched,
     query_team_ids_for_digest,
     query_teams_for_digest,
+    query_teams_for_organizations,
 )
 from posthog.temporal.weekly_digest.types import (
     CommonInput,
@@ -84,6 +90,11 @@ from products.growth.backend.product_push.selection import project_uses_product,
 
 LOGGER = get_write_only_logger()
 
+# Bounds the size of one Redis request when a batch reads or writes keys for thousands of teams.
+REDIS_COMMAND_CHUNK_SIZE = 5000
+
+T = TypeVar("T")
+
 
 def _redis_url(common: CommonInput) -> str:
     return f"redis://{common.redis_host}:{common.redis_port}?decode_responses=true"
@@ -91,6 +102,54 @@ def _redis_url(common: CommonInput) -> str:
 
 def _digest_redis(common: CommonInput) -> redis.Redis:
     return redis.Redis.from_url(_redis_url(common))
+
+
+def _chunked(items: Sequence[T], size: int) -> Iterable[Sequence[T]]:
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+def _mget_chunked(r: redis.Redis, keys: Sequence[str]) -> list[Any]:
+    values: list[Any] = []
+    for chunk in _chunked(keys, REDIS_COMMAND_CHUNK_SIZE):
+        values.extend(r.mget(list(chunk)))
+    return values
+
+
+def _setex_many(r: redis.Redis, ttl: int, items: Sequence[tuple[str, str]]) -> None:
+    for chunk in _chunked(items, REDIS_COMMAND_CHUNK_SIZE):
+        with r.pipeline(transaction=False) as pipe:
+            for key, value in chunk:
+                pipe.setex(key, ttl, value)
+            pipe.execute()
+
+
+def _delete_many(r: redis.Redis, keys: Sequence[str]) -> None:
+    for chunk in _chunked(keys, REDIS_COMMAND_CHUNK_SIZE):
+        r.delete(*chunk)
+
+
+def _store_team_data(
+    r: redis.Redis,
+    input: GenerateDigestDataBatchInput,
+    key_kind: TeamDataKey,
+    payload_by_team: dict[int, str],
+    eligible_team_ids: set[int],
+) -> None:
+    """Write one key per team with data and drop the key of every other eligible team.
+
+    A retry of the same digest may find that a team's rows disappeared since the first attempt,
+    so a key left over from that attempt would otherwise survive for the whole TTL.
+    """
+    _setex_many(
+        r,
+        input.common.redis_ttl,
+        [(team_data_key(input.digest.key, key_kind, team_id), payload) for team_id, payload in payload_by_team.items()],
+    )
+    _delete_many(
+        r,
+        [team_data_key(input.digest.key, key_kind, team_id) for team_id in eligible_team_ids - payload_by_team.keys()],
+    )
 
 
 def _bind_batch_logger(input: GenerateDigestDataBatchInput) -> FilteringBoundLogger:
@@ -104,21 +163,20 @@ def _bind_batch_logger(input: GenerateDigestDataBatchInput) -> FilteringBoundLog
     return LOGGER.bind()
 
 
-def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
-    resp: list[bytes | None] = r.mget([f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root])
+def _load_playlist_counts_from_django_cache(r: redis.Redis, short_ids: Sequence[str]) -> dict[str, PlaylistCount]:
+    resp: list[bytes | None] = _mget_chunked(r, [f"{PLAYLIST_COUNT_REDIS_PREFIX}{short_id}" for short_id in short_ids])
 
-    playlist_counts: list[PlaylistCount | None] = []
+    playlist_counts: dict[str, PlaylistCount] = {}
 
-    for count in resp:
+    for short_id, count in zip(short_ids, resp):
         if count is None:
-            playlist_counts.append(None)
-        else:
-            try:
-                playlist_counts.append(PlaylistCount.model_validate_json(count))
-            except ValidationError:
-                # Failure to parse means the counting job likely had an error
-                # Treat it the same as a missing count
-                playlist_counts.append(None)
+            continue
+        try:
+            playlist_counts[short_id] = PlaylistCount.model_validate_json(count)
+        except ValidationError:
+            # Failure to parse means the counting job likely had an error
+            # Treat it the same as a missing count
+            continue
 
     return playlist_counts
 
@@ -131,6 +189,32 @@ def _teams_in_range(input: GenerateDigestDataBatchInput, *, with_organization: b
     )
 
 
+def _rows_in_range(input: GenerateDigestDataBatchInput, rows: QuerySet) -> QuerySet:
+    return rows.filter(team_id__gte=input.team_id_range.start, team_id__lt=input.team_id_range.end)
+
+
+def _eligible_team_ids(input: GenerateDigestDataBatchInput) -> set[int]:
+    return set(_teams_in_range(input).values_list("id", flat=True))
+
+
+def _rows_by_team(
+    input: GenerateDigestDataBatchInput, rows: QuerySet, eligible_team_ids: set[int]
+) -> dict[int, list[dict[str, Any]]]:
+    """Group one range-wide query by team, dropping teams the digest does not cover (demo, internal)."""
+    rows_by_team: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in _rows_in_range(input, rows):
+        if row["team_id"] in eligible_team_ids:
+            rows_by_team[row["team_id"]].append(row)
+    return rows_by_team
+
+
+def _limit_per_team(rows: QuerySet, limit: int) -> QuerySet:
+    """Keep the `limit` most recently created rows of each team inside one range-wide query."""
+    return rows.annotate(
+        team_rank=Window(RowNumber(), partition_by=F("team_id"), order_by=F("created_at").desc())
+    ).filter(team_rank__lte=limit)
+
+
 def generate_digest_data_lookup(
     input: GenerateDigestDataBatchInput,
     key_kind: TeamDataKey,
@@ -141,35 +225,33 @@ def generate_digest_data_lookup(
     logger = _bind_batch_logger(input)
     logger.info("Generating digest data batch", key_kind=key_kind)
 
+    rows: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
+    if per_team_limit is not None:
+        rows = _limit_per_team(rows, per_team_limit)
+
     resource_count = 0
-    team_count = 0
+    eligible_team_ids = _eligible_team_ids(input)
+    payload_by_team: dict[int, str] = {}
+    # Teams with nothing new get no key. Aggregation substitutes an empty default for a missing key.
+    for team_id, team_rows in _rows_by_team(input, rows, eligible_team_ids).items():
+        try:
+            digest_data = resource_type.model_validate(team_rows)
+        except ValidationError as e:
+            logger.warning(
+                f"Failed to generate digest data for team {team_id}, skipping...", error=str(e), team_id=team_id
+            )
+            continue
+        payload_by_team[team_id] = digest_data.model_dump_json()
+        resource_count += len(digest_data.root)
 
     with _digest_redis(input.common) as r:
-        db_query: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
-
-        for team in _teams_in_range(input):
-            try:
-                team_query = db_query.filter(team_id=team.id)
-                if per_team_limit is not None:
-                    team_query = team_query[:per_team_limit]
-                digest_data = resource_type(list(team_query))
-
-                key = team_data_key(input.digest.key, key_kind, team.id)
-                r.setex(key, input.common.redis_ttl, digest_data.model_dump_json())
-
-                team_count += 1
-                resource_count += len(digest_data.root)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate digest data for team {team.id}, skipping...", error=str(e), team_id=team.id
-                )
-                continue
+        _store_team_data(r, input, key_kind, payload_by_team, eligible_team_ids)
 
     logger.info(
         "Finished generating digest data batch",
         key_kind=key_kind,
         resource_count=resource_count,
-        team_count=team_count,
+        team_count=len(payload_by_team),
     )
 
 
@@ -268,36 +350,39 @@ def _generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
         logger.error("Unable to generate Replay filter batch, missing URL for Django Redis...")
         return
 
-    with (
-        _digest_redis(input.common) as r,
-        redis.Redis.from_url(input.common.django_redis_url) as django_cache,
-    ):
-        query_filters: QuerySet = query_saved_filters(input.digest.period_start, input.digest.period_end)
+    eligible_team_ids = _eligible_team_ids(input)
+    rows_by_team = _rows_by_team(
+        input, query_saved_filters(input.digest.period_start, input.digest.period_end), eligible_team_ids
+    )
+    with redis.Redis.from_url(input.common.django_redis_url) as django_cache:
+        playlist_counts = _load_playlist_counts_from_django_cache(
+            django_cache, [row["short_id"] for rows in rows_by_team.values() for row in rows]
+        )
 
-        for team in _teams_in_range(input):
-            try:
-                filters = FilterList(list(query_filters.filter(team_id=team.id)))
-                playlist_counts = _load_playlist_counts_from_django_cache(django_cache, filters)
+    payload_by_team: dict[int, str] = {}
+    for team_id, rows in rows_by_team.items():
+        try:
+            filters = FilterList.model_validate(rows)
+        except ValidationError as e:
+            logger.warning(
+                f"Failed to generate Replay filters for team {team_id}, skipping...", error=str(e), team_id=team_id
+            )
+            continue
 
-                for filter, playlist_count in zip(filters.root, playlist_counts):
-                    if playlist_count is not None:
-                        filter.recording_count = len(playlist_count.session_ids)
-                        filter.more_available = playlist_count.has_more
+        for filter in filters.root:
+            playlist_count = playlist_counts.get(filter.short_id)
+            if playlist_count is not None:
+                filter.recording_count = len(playlist_count.session_ids)
+                filter.more_available = playlist_count.has_more
 
-                ordered_filters = filters.order_by_recording_count()
+        ordered_filters = filters.order_by_recording_count()
+        payload_by_team[team_id] = ordered_filters.model_dump_json()
 
-                key = team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team.id)
-                r.setex(key, input.common.redis_ttl, ordered_filters.model_dump_json())
+        team_count += 1
+        filter_count += len(ordered_filters.root)
 
-                team_count += 1
-                filter_count += len(ordered_filters.root)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate Replay filters for team {team.id}, skipping...",
-                    error=str(e),
-                    team_id=team.id,
-                )
-                continue
+    with _digest_redis(input.common) as r:
+        _store_team_data(r, input, TeamDataKey.SAVED_FILTERS, payload_by_team, eligible_team_ids)
 
     logger.info(
         "Finished generating Replay filter batch",
@@ -511,26 +596,38 @@ def _generate_user_notification_lookup(input: GenerateDigestDataBatchInput) -> N
     team_count = 0
     user_count = 0
 
+    # Without ACCESS_CONTROL every team of an organization has the same users, and locks are
+    # organization-scoped, so resolve both once per organization instead of once per team.
+    org_users: dict[UUID, tuple[list[User], dict[int, dict[GovernedSetting, bool]]]] = {}
+
+    def users_and_locks(team: Team) -> tuple[list[User], dict[int, dict[GovernedSetting, bool]]]:
+        cacheable = not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        if cacheable and team.organization_id in org_users:
+            return org_users[team.organization_id]
+        users = list(team.all_users_with_access())
+        locks = notification_locks_for_users([user.id for user in users], organization_id=team.organization_id)
+        if cacheable:
+            org_users[team.organization_id] = (users, locks)
+        return users, locks
+
     with _digest_redis(input.common) as r:
         for team in _teams_in_range(input, with_organization=True):
             try:
-                users = list(team.all_users_with_access())
-                # One lookup for the whole team instead of one per user inside should_send_notification.
-                locks_by_user = notification_locks_for_users(
-                    [user.id for user in users], organization_id=team.organization_id
-                )
-                for user in users:
-                    if should_send_notification(
-                        user,
-                        NotificationSetting.WEEKLY_PROJECT_DIGEST.value,
-                        team.id,
-                        locks=locks_by_user.get(user.id, {}),
-                    ):
-                        key = user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, user.id)
-                        r.sadd(key, team.id)
-                        r.expire(key, input.common.redis_ttl)
+                users, locks_by_user = users_and_locks(team)
+                with r.pipeline(transaction=False) as pipe:
+                    for user in users:
+                        if should_send_notification(
+                            user,
+                            NotificationSetting.WEEKLY_PROJECT_DIGEST.value,
+                            team.id,
+                            locks=locks_by_user.get(user.id, {}),
+                        ):
+                            key = user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, user.id)
+                            pipe.sadd(key, team.id)
+                            pipe.expire(key, input.common.redis_ttl)
 
-                    user_count += 1
+                        user_count += 1
+                    pipe.execute()
                 team_count += 1
             except Exception as e:
                 logger.warning(
@@ -562,23 +659,24 @@ def _generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput) -> 
     user_count = 0
     suggestion_count = 0
     users_with_suggestion: set[int] = set()
-    # Campaigns are org-scoped but this batch walks teams, so cache per org.
-    campaigns_by_org: dict[str, list[dict]] = {}
+
+    teams = list(_teams_in_range(input, with_organization=True))
+    # The query returns the newest campaign first, so the first row seen per org is the one to keep.
+    campaign_by_org: dict[str, dict[str, Any]] = {}
+    for campaign in query_product_push_campaigns_for_organizations(
+        {team.organization_id for team in teams}, input.digest.period_end
+    ):
+        campaign_by_org.setdefault(str(campaign["organization_id"]), campaign)
 
     with _digest_redis(input.common) as r:
-        for team in _teams_in_range(input, with_organization=True):
+        for team in teams:
             try:
                 organization_id = str(team.organization_id)
-                if organization_id not in campaigns_by_org:
-                    campaigns_by_org[organization_id] = list(
-                        query_org_product_push_campaigns(organization_id, input.digest.period_end)
-                    )
-                campaigns = campaigns_by_org[organization_id]
-                if not campaigns:
+                campaign = campaign_by_org.get(organization_id)
+                if campaign is None:
                     team_count += 1
                     continue
 
-                campaign = campaigns[0]
                 product_path = resolve_product_path(campaign["product_key"])
                 # The push is org-wide, but a project that already uses the product
                 # shouldn't be nudged about it - same rule the nav card applies.
@@ -657,6 +755,55 @@ def list_team_id_ranges(input: CommonInput) -> list[TeamIdRange]:
         return _cut_team_id_ranges(list(query_team_ids_for_digest()), input.batch_size)
 
 
+# Positions follow TeamDataKey order and the TeamDigest constructor below.
+TEAM_DATA_DEFAULTS: list[tuple[TeamDataKey, Any]] = [
+    (TeamDataKey.DASHBOARDS, DashboardList(root=[])),
+    (TeamDataKey.EVENT_DEFINITIONS, EventDefinitionList(root=[])),
+    (TeamDataKey.EXPERIMENTS_LAUNCHED, ExperimentList(root=[])),
+    (TeamDataKey.EXPERIMENTS_COMPLETED, ExperimentList(root=[])),
+    (TeamDataKey.EXTERNAL_DATA_SOURCES, ExternalDataSourceList(root=[])),
+    (TeamDataKey.FEATURE_FLAGS, FeatureFlagList(root=[])),
+    (TeamDataKey.SAVED_FILTERS, FilterList(root=[])),
+    (TeamDataKey.EXPIRING_RECORDINGS, RecordingCount(recording_count=0)),
+    (TeamDataKey.SURVEYS_LAUNCHED, SurveyList(root=[])),
+    (TeamDataKey.USAGE_TRENDS, UsageTrends()),
+    (TeamDataKey.ERROR_ISSUES, ErrorIssueList(root=[])),
+]
+
+
+def _load_team_values(r: redis.Redis, digest_key: str, teams: Sequence[Team]) -> dict[int, list[str | None]]:
+    """One Redis read for every team-level key in the batch, in TEAM_DATA_DEFAULTS order per team."""
+    keys = [team_data_key(digest_key, kind, team.id) for team in teams for kind, _ in TEAM_DATA_DEFAULTS]
+    values = _mget_chunked(r, keys)
+
+    kinds_per_team = len(TEAM_DATA_DEFAULTS)
+    return {team.id: values[index * kinds_per_team : (index + 1) * kinds_per_team] for index, team in enumerate(teams)}
+
+
+def _team_digest(team: Team, raw_values: list[str | None]) -> TeamDigest:
+    # Parsing happens per organization, inside its exception boundary, so one malformed value
+    # skips that organization instead of the whole batch. Absent keys fall back to the defaults.
+    digest_data = [
+        default if value is None else default.__class__.model_validate_json(value)
+        for (_, default), value in zip(TEAM_DATA_DEFAULTS, raw_values)
+    ]
+    return TeamDigest(
+        id=team.id,
+        name=team.name,
+        dashboards=digest_data[0],
+        event_definitions=digest_data[1],
+        experiments_launched=digest_data[2],
+        experiments_completed=digest_data[3],
+        external_data_sources=digest_data[4],
+        feature_flags=digest_data[5],
+        filters=digest_data[6],
+        expiring_recordings=digest_data[7],
+        surveys_launched=digest_data[8],
+        usage_trends=digest_data[9],
+        error_issues=digest_data[10],
+    )
+
+
 def _generate_organization_digest_batch(input: GenerateOrganizationDigestInput) -> None:
     bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
     logger = LOGGER.bind()
@@ -665,78 +812,33 @@ def _generate_organization_digest_batch(input: GenerateOrganizationDigestInput) 
     organization_count = 0
     team_count = 0
 
+    batch_start, batch_end = input.batch
+    organizations = list(query_orgs_for_digest()[batch_start:batch_end])
+    teams_by_org: dict[UUID, list[Team]] = defaultdict(list)
+    for team in query_teams_for_organizations([organization.id for organization in organizations]):
+        teams_by_org[team.organization_id].append(team)
+
+    items: list[tuple[str, str]] = []
     with _digest_redis(input.common) as r:
-        batch_start, batch_end = input.batch
-        for organization in query_orgs_for_digest()[batch_start:batch_end]:
+        team_values = _load_team_values(
+            r, input.digest.key, [team for teams in teams_by_org.values() for team in teams]
+        )
+
+        for organization in organizations:
             try:
-                team_digests: list[TeamDigest] = []
-
-                for team in query_org_teams(organization):
-                    results: list[str | None] = r.mget(
-                        [
-                            team_data_key(input.digest.key, TeamDataKey.DASHBOARDS, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.EVENT_DEFINITIONS, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.EXPERIMENTS_LAUNCHED, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.EXPERIMENTS_COMPLETED, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.EXTERNAL_DATA_SOURCES, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.FEATURE_FLAGS, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.SURVEYS_LAUNCHED, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id),
-                            team_data_key(input.digest.key, TeamDataKey.ERROR_ISSUES, team.id),
-                        ]
-                    )
-
-                    defaults = [
-                        DashboardList(root=[]),
-                        EventDefinitionList(root=[]),
-                        ExperimentList(root=[]),
-                        ExperimentList(root=[]),
-                        ExternalDataSourceList(root=[]),
-                        FeatureFlagList(root=[]),
-                        FilterList(root=[]),
-                        RecordingCount(recording_count=0),
-                        SurveyList(root=[]),
-                        UsageTrends(),
-                        ErrorIssueList(root=[]),
-                    ]
-
-                    digest_data = [
-                        default if result is None else default.__class__.model_validate_json(result)
-                        for default, result in zip(defaults, results)
-                    ]
-
-                    team_digests.append(
-                        TeamDigest(
-                            id=team.id,
-                            name=team.name,
-                            dashboards=digest_data[0],
-                            event_definitions=digest_data[1],
-                            experiments_launched=digest_data[2],
-                            experiments_completed=digest_data[3],
-                            external_data_sources=digest_data[4],
-                            feature_flags=digest_data[5],
-                            filters=digest_data[6],
-                            expiring_recordings=digest_data[7],
-                            surveys_launched=digest_data[8],
-                            usage_trends=digest_data[9],
-                            error_issues=digest_data[10],
-                        )
-                    )
-                    team_count += 1
-
+                team_digests = [
+                    _team_digest(team, team_values[team.id]) for team in teams_by_org.get(organization.id, [])
+                ]
                 org_digest = OrganizationDigest(
                     id=organization.id,
                     name=organization.name,
                     created_at=organization.created_at,
                     team_digests=team_digests,
                 )
-
-                key = org_digest_key(input.digest.key, organization.id)
-                r.setex(key, input.common.redis_ttl, org_digest.model_dump_json())
+                items.append((org_digest_key(input.digest.key, organization.id), org_digest.model_dump_json()))
 
                 organization_count += 1
+                team_count += len(team_digests)
             except Exception as e:
                 logger.warning(
                     f"Failed to generate organization-level digest for organization {organization.id}, skipping...",
@@ -744,6 +846,8 @@ def _generate_organization_digest_batch(input: GenerateOrganizationDigestInput) 
                     org_id=organization.id,
                 )
                 continue
+
+        _setex_many(r, input.common.redis_ttl, items)
 
     logger.info(
         "Finished generating organization-level digest batch",
@@ -825,18 +929,21 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         continue
 
-                    for member in query_org_members(organization):
+                    members = list(query_org_members(organization))
+                    with r.pipeline(transaction=False) as pipe:
+                        for member in members:
+                            pipe.smembers(user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, member.user.id))
+                            pipe.get(user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, member.user.id))
+                        member_data = pipe.execute()
+
+                    for index, member in enumerate(members):
                         _raise_if_cancelled()
                         user = member.user
-                        user_notify_teams: set[int] = set(
-                            map(int, r.smembers(user_data_key(input.digest.key, UserDataKey.NOTIFY_TEAMS, user.id)))
-                        )
+                        user_notify_teams: set[int] = set(map(int, member_data[index * 2]))
 
                         # Load user-specific context
                         product_suggestion: DigestProductSuggestion | None = None
-                        raw_suggestion: str | None = r.get(
-                            user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, user.id)
-                        )
+                        raw_suggestion: str | None = member_data[index * 2 + 1]
                         if raw_suggestion:
                             try:
                                 product_suggestion = DigestProductSuggestion.model_validate_json(raw_suggestion)

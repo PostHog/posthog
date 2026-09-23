@@ -29,7 +29,10 @@ Data is stored with keys prefixed by `{digest_key}` (e.g., `weekly-digest-2024-0
 
 ### Team-level data
 
-Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`:
+Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`.
+Each Postgres-backed generator reads a team id range with two queries, one for the eligible teams and one for the data, and writes its keys in one Redis pipeline.
+The ClickHouse-backed generators (usage trends, expiring recordings) still query per team.
+A team with no data of a kind gets no key for it; organization aggregation substitutes an empty default for a missing key.
 
 | `TeamDataKey` enum      | Key Pattern                                    | Contents                           |
 | ----------------------- | ---------------------------------------------- | ---------------------------------- |
