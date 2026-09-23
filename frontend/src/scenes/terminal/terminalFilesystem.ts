@@ -8,6 +8,7 @@ export interface TerminalNode {
     name: string
     parent?: TerminalNode
     children?: Map<string, TerminalNode>
+    loadChildren?: () => Promise<void>
     open?: (signal?: AbortSignal) => Promise<TerminalFile>
     size: number
     writable: boolean

@@ -62,6 +62,12 @@ App tooltips reuse the product descriptions from the scene configuration.
 Opening Apps or Files from the collapsed sidebar temporarily expands the navigation over the page without changing the saved collapsed setting.
 Selecting a destination, clicking outside, or pressing Escape closes the temporary navigation.
 
+The app-level terminal lives in `src/scenes/terminal` and opens with Ctrl+backtick when enabled.
+It starts without fetching the project tree.
+Browsing `/posthog/files` loads and caches each folder's immediate children; `/posthog/api` loads objects by type.
+Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
+`ph refresh` reloads the directories already visited and the connected tool catalog.
+
 ### `posthog`
 
 The Django backend application. Key subdirectories:

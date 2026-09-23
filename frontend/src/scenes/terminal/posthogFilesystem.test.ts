@@ -71,6 +71,107 @@ describe('PostHog filesystem projection', () => {
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
     })
 
+    it('loads only browsed folders, shares pending requests, and refreshes visited directories', async () => {
+        let entries = [
+            entry('research', 'Research', 'folder'),
+            entry('other', 'Other', 'folder'),
+            entry('nested', 'Research/Nested', 'folder'),
+            entry('note1', 'Research/Notes'),
+            entry('12', 'Other/Dashboard', 'dashboard'),
+        ]
+        jest.mocked(fileSystemList).mockImplementation(async (_, params) => {
+            const { parent, depth, type } = params as { parent?: string; depth?: number; type?: string }
+            const results = entries.filter((item) =>
+                type
+                    ? item.type === type
+                    : item.path.split('/').length === depth && item.path.split('/').slice(0, -1).join('/') === parent
+            )
+            return { count: results.length, results }
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<NinePReader> => {
+            const bytes = await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            const response = new NinePReader(bytes)
+            response.number(4)
+            expect(response.number(1)).toBe(type + 1)
+            response.number(2)
+            return response
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string(''))
+        await request(110, new NinePWriter().number(1, 4).number(2, 4).number(1, 2).string('files'))
+        expect(fileSystemList).not.toHaveBeenCalled()
+        await request(40, new NinePWriter().number(2, 4).number(0, 8).number(4096, 4))
+        expect(fileSystemList).toHaveBeenCalledTimes(1)
+        expect(fileSystemList).toHaveBeenLastCalledWith(
+            '42',
+            { parent: '', depth: 1, limit: 500, offset: 0 },
+            expect.anything()
+        )
+        expect(notebooksList).not.toHaveBeenCalled()
+        const files = fs.root.children!.get('files')!
+        const research = files.children!.get('Research')!
+        expect(research.children!.size).toBe(0)
+        await Promise.all([research.loadChildren!(), research.loadChildren!()])
+        expect(fileSystemList).toHaveBeenCalledTimes(2)
+        expect(fileSystemList).toHaveBeenLastCalledWith(
+            '42',
+            { parent: 'Research', depth: 2, limit: 500, offset: 0 },
+            expect.anything()
+        )
+        expect([...research.children!.keys()]).toEqual(['Nested', 'Notes.md'])
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        const note = research.children!.get('Notes.md')!
+        await request(
+            110,
+            new NinePWriter().number(2, 4).number(3, 4).number(2, 2).string('Research').string('Notes.md')
+        )
+        expect(fileSystemList).toHaveBeenCalledTimes(2)
+        entries.push(entry('note2', 'Research/New'))
+        await fs.load()
+        expect(fileSystemList).toHaveBeenCalledTimes(4)
+        expect(research.children!.get('Notes.md')).toBe(note)
+        expect(research.children!.has('New.md')).toBe(true)
+        expect(files.children!.get('Other')!.children!.size).toBe(0)
+        expect(research.children!.get('Nested')!.children!.size).toBe(0)
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        entries = entries.map((item) => ({ ...item, path: item.path.replace(/^Research/, 'Published') }))
+        await fs.load()
+        expect(files.children!.has('Research')).toBe(false)
+        expect(files.children!.has('Published')).toBe(true)
+        await fs.loadReference('/posthog/files/Published/Notes.md', '/')
+        expect(fs.resolveReference('/posthog/files/Published/Notes.md', '/')).toBe('note1')
+        const publishedNote = files.children!.get('Published')!.children!.get('Notes.md')!
+        entries = entries.filter((item) => !item.path.startsWith('Published'))
+        await fs.load()
+        expect(files.children!.has('Published')).toBe(false)
+        await expect(publishedNote.open!()).rejects.toMatchObject({ errno: 116 })
+    })
+
+    it('loads API paths by type and retries failed directory pages without caching partial results', async () => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const directory = fs.root.children!.get('api')!.children!.get('dashboard')!
+        jest.mocked(fileSystemList)
+            .mockResolvedValueOnce({ count: 2, next: '/next', results: [entry('12', 'First', 'dashboard')] })
+            .mockRejectedValueOnce(new Error('Try again'))
+        await expect(directory.loadChildren!()).rejects.toThrow('Try again')
+        expect(directory.children!.size).toBe(0)
+        jest.mocked(fileSystemList)
+            .mockResolvedValueOnce({ count: 2, next: '/next', results: [entry('12', 'First', 'dashboard')] })
+            .mockResolvedValueOnce({ count: 2, next: null, results: [entry('13', 'Second', 'dashboard')] })
+        await fs.loadReference('/posthog/api/dashboard/13.json', '/')
+        expect(fs.resolveReference('/posthog/api/dashboard/13.json', '/', 'dashboard')).toBe('13')
+        expect([...directory.children!.keys()]).toEqual(['12.json', '13.json'])
+        expect(jest.mocked(fileSystemList).mock.calls.map(([, params]) => params)).toEqual([
+            { type: 'dashboard', limit: 500, offset: 0 },
+            { type: 'dashboard', limit: 500, offset: 1 },
+            { type: 'dashboard', limit: 500, offset: 0 },
+            { type: 'dashboard', limit: 500, offset: 1 },
+        ])
+        expect(notebooksList).not.toHaveBeenCalled()
+        expect(apiMutator).not.toHaveBeenCalled()
+    })
+
     it('projects markdown without changing the stored path and saves with the version it read', async () => {
         const session = new AbortController()
         const read = new AbortController()
@@ -474,7 +575,8 @@ describe('PostHog filesystem projection', () => {
         for (const node of fs.root.children!.get('files')!.children!.values()) {
             expect(node.writable).toBe(false)
         }
-        for (const directory of fs.root.children!.get('api')!.children!.values()) {
+        for (const type of ['unknown', 'dashboard']) {
+            const directory = fs.root.children!.get('api')!.children!.get(type)!
             expect([...directory.children!.values()][0].writable).toBe(false)
         }
     })
