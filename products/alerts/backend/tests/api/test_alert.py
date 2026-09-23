@@ -7,6 +7,8 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -2255,6 +2257,32 @@ class TestAlertListFilters(APIBaseTest):
             created_by=user or self.user,
             detector_config=detector_config,
         )
+
+    def test_list_serializes_insight_without_extra_queries_per_alert(self) -> None:
+        self._create_alert("first alert")
+        with CaptureQueriesContext(connection) as one_alert:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["insight"]["query"] == self.insight["query"]
+        assert results[0]["insight"]["short_id"] == self.insight["short_id"]
+
+        self._create_alert("second alert")
+        self._create_alert("third alert")
+        with CaptureQueriesContext(connection) as three_alerts:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 3
+
+        # The narrowed column list must not make the row lazy-load. A touched deferred column,
+        # or a touched alert.team, costs one extra query per alert.
+        for table in ("posthog_dashboarditem", "posthog_team"):
+            marker = f'FROM "{table}"'
+            assert sum(marker in query["sql"] for query in three_alerts.captured_queries) == sum(
+                marker in query["sql"] for query in one_alert.captured_queries
+            )
 
     def test_list_filter_by_insight_tag_and_detector_type(self) -> None:
         tagged_insight = Insight.objects.get(id=self.insight["id"])
