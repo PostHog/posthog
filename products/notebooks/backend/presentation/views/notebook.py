@@ -1,7 +1,6 @@
 import math
 import hashlib
 from collections import Counter
-from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -29,8 +28,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.direct_connection import get_direct_connection_source
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -45,7 +43,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.models.utils import UUIDT, uuid7
+from posthog.models.utils import UUIDT
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -77,7 +75,25 @@ from products.notebooks.backend.facade.contracts import (
     TeamRunCapacityFull,
 )
 from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended_by_id
-from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
+from products.notebooks.backend.facade.notebook_run import (
+    NotebookRunAlreadyRunning,
+    NotebookRunInput,
+    NotebookRunNothingToRun,
+    fail_notebook_run,
+    read_notebook_run,
+    start_notebook_run,
+    start_notebook_run_workflow,
+    stop_notebook_run,
+)
+from products.notebooks.backend.facade.sql_v2 import (
+    NodeRunDispatchFailed,
+    NodeRunInvalid,
+    NodeRunNotPermitted,
+    NodeRunRequest,
+    build_ref_specs,
+    dispatch_cell_run,
+    kernel_sandbox_is_live,
+)
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -135,20 +151,17 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
-from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
-from products.notebooks.backend.sql_v2_references import (
-    SQLV2Ref,
-    SQLV2ReferenceError,
-    SQLV2RunPlan,
-    resolve_python_node_inputs,
-    resolve_sql_node_run,
-)
+from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
     NotebookComputeOptionsResponseSerializer,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
+    NotebookRunInterruptResponseSerializer,
+    NotebookRunStartRequestSerializer,
+    NotebookRunStartResponseSerializer,
+    NotebookRunStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -162,36 +175,13 @@ from products.notebooks.backend.sql_v2_state import (
     build_notebook_cell_state,
     validate_cell_count,
 )
-from products.notebooks.backend.sql_v2_variables import (
-    NotebookVariableError,
-    build_notebook_variables,
-    python_variable_bindings,
-    reject_variables_in_raw_query,
-)
-from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
-from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
+from products.notebooks.backend.sql_v2_variables import build_notebook_variables
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
 from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
-
-# Raised when a cell reads a sibling whose last result lives somewhere this run can't reach.
-_CROSS_ENGINE_REF_ERROR = (
-    "'{name}' last ran on a different connection, so this cell can't read it. "
-    "Point both cells at the same connection and re-run, or inline its query here."
-)
-# Python cells read upstream results through the data plane, which only reaches PostHog.
-_CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
-    "'{name}' ran on a warehouse connection, and Python cells can only read PostHog results. "
-    "Re-run '{name}' on PostHog to use it here."
-)
-# Covers both kinds of local frame: one a Python cell bound, and one a SQL cell left behind when
-# reading a Python dataframe rerouted it to the sandbox. Neither is reachable from a warehouse.
-_LOCAL_FRAME_REF_ERROR = (
-    "You can't query the local dataframe '{name}' because this cell points to a data source other than PostHog."
-)
 
 
 def depluralize(string: str | None) -> str | None:
@@ -1618,7 +1608,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         # A RUNNING row can outlive its sandbox, and restarting on a stale one would turn a
         # config-only call into new paid compute. Confirm the sandbox before acting on the row.
-        kernel_is_live = live_runtime is not None and self._sandbox_is_running(notebook, config_user, live_runtime)
+        kernel_is_live = live_runtime is not None and kernel_sandbox_is_live(
+            team_id=self.team_id,
+            notebook_short_id=notebook.short_id,
+            user_id=config_user.id if isinstance(config_user, User) else None,
+            runtime_id=live_runtime.id,
+        )
         # Compare the desired shape against what the running sandbox was provisioned with, not just
         # this request's change, so a retry after a failed restart still triggers one. Fall back to
         # the pre-write config when no runtime has recorded a shape.
@@ -1681,20 +1676,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if runtime and runtime.provisioned_cpu_cores is not None and runtime.provisioned_memory_gb is not None:
             return ComputeShape(cpu_cores=runtime.provisioned_cpu_cores, memory_gb=runtime.provisioned_memory_gb)
         return fallback
-
-    def _sandbox_is_running(self, notebook: Notebook, user: Any, runtime: KernelRuntime) -> bool:
-        """Whether the runtime row still has a sandbox behind it, the check kernel_status makes."""
-        if not runtime.sandbox_id or runtime.backend not in (
-            KernelRuntime.Backend.MODAL,
-            KernelRuntime.Backend.DOCKER,
-        ):
-            return False
-        try:
-            service = get_kernel_runtime(notebook, user).service
-            sandbox = service._get_sandbox_class(runtime.backend).get_by_id(runtime.sandbox_id)
-            return sandbox.get_status() == SandboxStatus.RUNNING
-        except Exception:
-            return False
 
     @staticmethod
     def _preset_key_for(cpu_cores: float | None, memory_gb: float | None) -> str | None:
@@ -1851,152 +1832,36 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         self._require_query_access()
 
         node_type = serializer.validated_data["node_type"]
-        code = serializer.validated_data["code"]
-        output_name = serializer.validated_data["output_name"]
         # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
         connection_id = serializer.validated_data["connection_id"] if node_type != "python" else None
-        send_raw_query = bool(serializer.validated_data["send_raw_query"]) and connection_id is not None
-        if connection_id is not None and (
-            # Resolve up front so a stale or unreachable connection fails the dispatch with the
-            # shared message, rather than surfacing later as an opaque failed run.
-            get_direct_connection_source(
-                self.team,
-                str(connection_id),
-                user=user if isinstance(user, User) else None,
-                require_pure_direct=send_raw_query,
-            )
-            is None
-        ):
-            return Response({"detail": INVALID_CONNECTION_ID_ERROR}, status=400)
-
-        # Resolve each referenced hogql node to its last-run query (not its live editor text),
-        # so a join recomputes against the definitions that produced the results on screen.
-        # Inlining happens once here, so the run stores a self-contained query and paging
-        # re-queries it without re-resolving refs. Local refs (Python-made frames) carry no
-        # query — they live in the kernel namespace.
-        ref_specs: dict[str, dict] = serializer.validated_data.get("refs") or {}
-        hogql_node_ids = {spec["node_id"] for spec in ref_specs.values() if spec["kind"] == "hogql"}
-        # One DISTINCT ON query fetches the latest DONE run (id + code) for every referenced node.
-        latest_runs = (
-            NotebookNodeRun.objects.for_team(self.team_id)
-            .filter(notebook=notebook, node_id__in=hogql_node_ids, status=NotebookNodeRun.Status.DONE)
-            .order_by("node_id", "-created_at")
-            .distinct("node_id")
-            .values_list("node_id", "id", "code", "node_type", "connection_id", "send_raw_query")
+        run_request = NodeRunRequest(
+            node_id=serializer.validated_data["node_id"],
+            node_type=node_type,
+            code=serializer.validated_data["code"],
+            output_name=serializer.validated_data["output_name"],
+            refs=build_ref_specs(serializer.validated_data.get("refs") or {}),
+            # The notebook's variables as of this run. A SQL node has them bound into its
+            # code; a python node carries them to the kernel, which binds them as globals.
+            variables=build_notebook_variables(serializer.validated_data.get("variables") or []),
+            connection_id=connection_id,
+            send_raw_query=bool(serializer.validated_data["send_raw_query"]) and connection_id is not None,
+            reuse_results=serializer.validated_data["reuse_results"],
+            allow_sandbox=full_compute_enabled,
         )
-        # A ref is only inlinable when the upstream node's LATEST run executed the same way this
-        # one will. A SQL node's runs can alternate between hogql and duckdb (Journey 5
-        # rerouting) and between engines, and its stored code only means anything on the engine
-        # that produced it — a duckdb run's code names kernel frames, and a connection run's is
-        # that warehouse's SQL. Inlining either elsewhere would ship the wrong query.
-        latest_by_node: dict[str, tuple[str, str]] = {}
-        other_engine_nodes: set[str] = set()
-        # A SQL node rerouted to DuckDB binds its result into the kernel namespace under its
-        # dataframe name, exactly like a Python node — there is no ClickHouse query to inline,
-        # but the frame is there to read. So it becomes a local ref rather than an absent one.
-        kernel_frame_nodes: set[str] = set()
-        for other_node_id, run_id, run_code, run_type, run_connection_id, run_send_raw in latest_runs:
-            if run_type == NotebookNodeRun.NodeType.DUCKDB:
-                kernel_frame_nodes.add(other_node_id)
-                continue
-            if run_type != NotebookNodeRun.NodeType.HOGQL:
-                continue
-            if run_connection_id == connection_id and bool(run_send_raw) == send_raw_query:
-                latest_by_node[other_node_id] = (str(run_id), run_code)
-            else:
-                other_engine_nodes.add(other_node_id)
-        cross_engine_error = _CROSS_ENGINE_REF_ERROR_FOR_PYTHON if node_type == "python" else _CROSS_ENGINE_REF_ERROR
-        refs: dict[str, SQLV2Ref] = {}
-        for name, spec in ref_specs.items():
-            if spec["kind"] == "local" or spec["node_id"] in kernel_frame_nodes:
-                # A kernel frame lives in the sandbox, which only reaches PostHog's own data — a
-                # connection run can't be rerouted there, so mark it unusable instead.
-                refs[name] = (
-                    SQLV2Ref(kind="hogql", node_id=None, unavailable_reason=_LOCAL_FRAME_REF_ERROR.format(name=name))
-                    if connection_id is not None
-                    else SQLV2Ref(kind="local")
-                )
-                continue
-            latest = latest_by_node.get(spec["node_id"])
-            refs[name] = SQLV2Ref(
-                kind="hogql",
-                node_id=spec["node_id"],
-                run_id=latest[0] if latest else None,
-                last_run_code=latest[1] if latest else None,
-                unavailable_reason=(
-                    cross_engine_error.format(name=name) if spec["node_id"] in other_engine_nodes else None
-                ),
-            )
-        # The notebook's variables as of this run. A SQL node has them bound into its code
-        # below; a python node carries them to the kernel, which binds them as globals.
-        variables = build_notebook_variables(serializer.validated_data.get("variables") or [])
         try:
-            if node_type == "python":
-                # A python node stores its code as-is; referenced frames become kernel inputs,
-                # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
-                plan = SQLV2RunPlan(node_type="python", code=code, inputs=resolve_python_node_inputs(code, refs))
-            elif send_raw_query:
-                # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
-                # there is nothing to inline: it reaches the engine exactly as written. Variables
-                # are refused here rather than escaped by hand — see reject_variables_in_raw_query.
-                reject_variables_in_raw_query(code, variables)
-                plan = SQLV2RunPlan(node_type="hogql", code=code, inputs=[])
-            else:
-                # A SQL node pushes to ClickHouse — unless it references a local frame, which
-                # reroutes it to the sandbox's DuckDB (Journey 5).
-                plan = resolve_sql_node_run(code, refs, variables)
-        # ExposedHogQLError: with refs present the user's own code is parsed at dispatch, so a
-        # plain typo raises here — it's a bad query (400 with the parse message), not a 500.
-        except (SQLV2ReferenceError, NotebookVariableError, ExposedHogQLError) as e:
-            return Response({"detail": str(e)}, status=400)
-
-        if not full_compute_enabled and plan.node_type != "hogql":
+            dispatch = dispatch_cell_run(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user_id=user.id if isinstance(user, User) else None,
+                request=run_request,
+            )
+        except NodeRunNotPermitted:
+            # The plan resolved to the sandbox for a caller without full compute. 404 like
+            # the gates above: they are not told the lane exists.
             raise Http404()
-
-        reusable_runs = (
-            NotebookNodeRun.objects.for_team(self.team_id)
-            .filter(
-                notebook=notebook,
-                user=user,
-                node_id=serializer.validated_data["node_id"],
-                code=plan.code,
-                node_type="hogql",
-                connection_id__isnull=True,
-                status__in=[NotebookNodeRun.Status.RUNNING, NotebookNodeRun.Status.DONE],
-                created_at__gte=now() - timedelta(hours=1),
-            )
-            .order_by("-created_at")
-            if serializer.validated_data["reuse_results"]
-            and user is not None
-            and plan.node_type == "hogql"
-            and connection_id is None
-            else None
-        )
-
-        def reused_response() -> Response | None:
-            existing_run = reusable_runs.first() if reusable_runs is not None else None
-            if existing_run is None:
-                return None
-            return Response(
-                NotebookSQLV2RunResponseSerializer(
-                    {"run_id": str(existing_run.id), "starts_sandbox": False, "sandbox_hourly_price": None}
-                ).data
-            )
-
-        if cached_response := reused_response():
-            return cached_response
-
-        # Taken before the row exists, so a refused dispatch writes nothing: an agent retrying
-        # into a full ceiling must not leave a trail of rows behind it. The id is minted here
-        # because the slot is keyed on it and has to be released by the run that took it.
-        # Not `run_id`: the ref-inlining loop above binds that name to each *upstream* run, and
-        # reusing it here would leave two different runs behind one variable.
-        new_run_id = uuid7()
-        try:
-            acquire_run_slots(self.team_id, notebook.short_id, str(new_run_id))
+        except NodeRunInvalid as e:
+            return Response({"detail": str(e)}, status=400)
         except NotebookRunBusy as e:
-            if cached_response := reused_response():
-                return cached_response
             # 409, not 429: a conflict with the notebook's state rather than a rate. The MCP
             # client retries every 429 with backoff and then replaces the body with its own
             # rate-limit message, so a 429 here would cost an agent seconds of pointless waiting
@@ -2004,94 +1869,205 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": str(e)}, status=409)
         except TeamRunCapacityFull as e:
             return Response({"detail": str(e)}, status=429)
+        except NodeRunDispatchFailed as e:
+            return Response({"detail": str(e)}, status=503)
 
-        if cached_response := reused_response():
-            release_run_slots(self.team_id, notebook.short_id, str(new_run_id))
-            return cached_response
+        return Response(
+            NotebookSQLV2RunResponseSerializer(
+                {
+                    "run_id": str(dispatch.run_id),
+                    "starts_sandbox": dispatch.starts_sandbox,
+                    "sandbox_hourly_price": dispatch.sandbox_hourly_price,
+                }
+            ).data
+        )
+
+    def _require_notebook_runs_enabled(self, user: User | None) -> None:
+        # Server-side gate is permissive in local dev (the frontend still gates the UI);
+        # prod is flag-gated, the same as every other SQL v2 endpoint.
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+
+    @extend_schema(
+        request=NotebookRunStartRequestSerializer,
+        responses={200: NotebookRunStartResponseSerializer},
+        description=(
+            "Run every SQL and Python cell of a markdown notebook, in document order, stopping at the "
+            "first cell that does not finish. Returns as soon as the run starts; poll the run status "
+            "endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(methods=["POST"], url_path="runs", detail=True, required_scopes=["notebook:write", "query:read"])
+    def notebook_runs(self, request: Request, **kwargs):
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+
+        serializer = NotebookRunStartRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
 
         try:
-            run = NotebookNodeRun.objects.create(
-                id=new_run_id,
-                team_id=self.team_id,
-                notebook=notebook,
-                # The same user the run's kernel is resolved for, so the callback can scope the
-                # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
-                user=user if isinstance(user, User) else None,
-                node_id=serializer.validated_data["node_id"],
-                code=plan.code,
-                node_type=plan.node_type,
-                connection_id=connection_id,
-                send_raw_query=send_raw_query,
-                status=NotebookNodeRun.Status.RUNNING,
-            )
-        except Exception:
-            # No row means no release site will ever learn this run id, so hand the slots back
-            # here or the notebook stays blocked with nothing running in it.
-            release_run_slots(self.team_id, notebook.short_id, str(new_run_id))
-            raise
-
-        try:
-            if plan.node_type == "hogql":
-                # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
-                # async query manager, and the run-result poll advances the row.
-                enqueue_direct_run(self.team, user if isinstance(user, User) else None, run)
-            else:
-                start_sql_v2_run_workflow(
-                    SQLV2RunInput(
-                        run_id=str(run.id),
-                        notebook_short_id=notebook.short_id,
-                        team_id=self.team_id,
-                        user_id=user.id if isinstance(user, User) else None,
-                        code=plan.code,
-                        node_type=plan.node_type,
-                        output_name=output_name,
-                        inputs=plan.inputs,
-                        # A python node reads these as globals; a duckdb node binds them as
-                        # `$name` query parameters, so it carries only the ones its SQL uses.
-                        variables=(
-                            python_variable_bindings(variables) if plan.node_type == "python" else plan.variables
-                        ),
+            # One transaction, because a refused run must not leave the variables changed.
+            # They are saved first so the plan and the snapshot bind the values the caller
+            # asked for, and a 400 or 409 after that would otherwise have already rewritten
+            # the notebook — including for the run already in flight.
+            with transaction.atomic():
+                if "variables" in serializer.validated_data:
+                    # Saved through the notebook's own serializer, so a run and a plain PATCH
+                    # apply the same limits and the same duplicate-name rule.
+                    variables_update = self.get_serializer(
+                        notebook, data={"variables": serializer.validated_data["variables"]}, partial=True
                     )
-                )
-        except Exception:
-            logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
-            # Status-guarded: a dispatch that partially started before raising could still
-            # deliver a callback, which must keep the row and stay the only reporter.
-            finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
-            return Response({"detail": "Failed to start run."}, status=503)
+                    variables_update.is_valid(raise_exception=True)
+                    notebook = variables_update.save()
 
-        # Whether this run has to build a sandbox, decided here rather than inferred by a client
-        # from a kernel status poll that can be ten seconds old. That cache could stay silent
-        # through a sandbox that timed out between polls, which is the one case worth disclosing.
-        uses_sandbox = plan.node_type != "hogql"
-        live_runtime = (
-            KernelRuntime.objects.filter(
-                team_id=self.team_id,
-                notebook_short_id=notebook.short_id,
-                user=user if isinstance(user, User) else None,
-                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+                start = start_notebook_run(
+                    team_id=self.team_id,
+                    notebook_short_id=notebook.short_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                    # A session cookie is the editor; anything else is a programmatic client.
+                    trigger=classify_request_source(request)[0],
+                )
+        except NotebookRunNothingToRun as e:
+            return Response({"detail": str(e)}, status=400)
+        except NotebookRunAlreadyRunning as e:
+            # 409, not 429: a conflict with the notebook's state rather than a rate — the same
+            # reasoning as a single cell meeting a busy notebook.
+            return Response({"detail": str(e)}, status=409)
+
+        try:
+            start_notebook_run_workflow(
+                NotebookRunInput(
+                    notebook_run_id=str(start.run_id),
+                    team_id=self.team_id,
+                    node_ids=start.node_ids,
+                )
             )
-            .order_by("-last_used_at")
-            .first()
-            if uses_sandbox
-            else None
+        except Exception:
+            logger.exception("notebook_run_start_failed", notebook_short_id=notebook.short_id)
+            # Nothing will ever drive this record, so close it here rather than leave the
+            # notebook blocked by a run that never began.
+            fail_notebook_run(team_id=self.team_id, run_id=start.run_id, error="Failed to start the run.")
+            return Response({"detail": "Failed to start the run."}, status=503)
+
+        return Response(
+            NotebookRunStartResponseSerializer(
+                {
+                    "run_id": str(start.run_id),
+                    "cell_count": start.cell_count,
+                    "starts_sandbox": start.starts_sandbox,
+                    "sandbox_hourly_price": start.sandbox_hourly_price,
+                }
+            ).data
         )
-        starts_sandbox = uses_sandbox and not (
-            live_runtime is not None and self._sandbox_is_running(notebook, user, live_runtime)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the whole-notebook run, as returned by the run endpoint.",
+            )
+        ],
+        responses={200: NotebookRunStatusResponseSerializer},
+        description=(
+            "Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. "
+            "Carries no result rows — fetch a cell's result from the cell run result endpoint. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(
+        methods=["GET"],
+        url_path="runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def notebook_run_detail(self, request: Request, run_id: str | None = None, **kwargs):
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+        if run_id is None:
+            raise Http404()
+
+        notebook = self._get_notebook_for_kernel()
+        # Cell errors are query output, so gate the read on query access like the cell result
+        # endpoint does.
+        self._require_query_access()
+        try:
+            status = read_notebook_run(team_id=self.team_id, notebook_short_id=notebook.short_id, run_id=run_id)
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if status is None:
+            raise Http404()
+
+        self._redact_inaccessible_cell_errors(status["cells"], user)
+        return Response(NotebookRunStatusResponseSerializer(status).data)
+
+    def _redact_inaccessible_cell_errors(self, cells: list[dict[str, Any]], user: User | None) -> None:
+        """Blank the error of any cell that ran on a data source this caller cannot reach.
+
+        The cell-result endpoint gates the whole read on `_require_run_connection_access`,
+        because notebook plus query access does not imply source access. This endpoint serves
+        many cells at once and must stay readable, so it drops just the errors — which can
+        carry the engine's own message — rather than refusing the run. Sources are resolved
+        once each, not once per cell.
+        """
+        access_by_source: dict[tuple[str, bool], bool] = {}
+        for cell in cells:
+            connection_id = cell.get("connection_id")
+            if not connection_id or not cell.get("error"):
+                continue
+            key = (connection_id, bool(cell.get("send_raw_query")))
+            if key not in access_by_source:
+                access_by_source[key] = (
+                    get_direct_connection_source(self.team, connection_id, user=user, require_pure_direct=key[1])
+                    is not None
+                )
+            if not access_by_source[key]:
+                cell["error"] = None
+
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the whole-notebook run, as returned by the run endpoint.",
+            )
+        ],
+        responses={200: NotebookRunInterruptResponseSerializer},
+        description=(
+            "Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already "
+            "finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        url_path="runs/(?P<run_id>[^/.]+)/interrupt",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def notebook_run_interrupt(self, request: Request, run_id: str | None = None, **kwargs):
+        # A control call, not a data read: it stops a run, so it needs notebook write access
+        # but neither query scope nor the RBAC query gate.
+        user = self._current_user()
+        self._require_notebook_runs_enabled(user)
+        if run_id is None:
+            raise Http404()
+
+        notebook = self._get_notebook_for_kernel()
+        try:
+            stopped = stop_notebook_run(team_id=self.team_id, notebook_short_id=notebook.short_id, run_id=run_id)
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if stopped is None:
+            raise Http404()
+
+        return Response(
+            NotebookRunInterruptResponseSerializer({"interrupted": stopped.interrupted, "status": stopped.status}).data
         )
-        sandbox_config = build_notebook_sandbox_config(notebook) if starts_sandbox else None
-        run_payload = {
-            "run_id": str(run.id),
-            "starts_sandbox": starts_sandbox,
-            # Only a modal sandbox is charged, so a docker kernel carries no price to disclose.
-            "sandbox_hourly_price": (
-                get_compute_rates().hourly_price(cpu_cores=sandbox_config.cpu_cores, memory_gb=sandbox_config.memory_gb)
-                if sandbox_config is not None
-                and get_kernel_runtime(notebook, user).service._get_backend() == KernelRuntime.Backend.MODAL
-                else None
-            ),
-        }
-        return Response(NotebookSQLV2RunResponseSerializer(run_payload).data)
 
     @extend_schema(
         parameters=[

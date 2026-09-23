@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -16,6 +16,34 @@ describe('Shortcut', () => {
     // RTL auto-cleanup is not enabled in this repo, so `screen` leaks between tests without this.
     afterEach(() => {
         cleanup()
+    })
+
+    test.each([
+        { capture: true, key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
+        { capture: true, key: 'j', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
+        { capture: false, key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },
+        { capture: true, key: 'k', ctrlKey: false, metaKey: true, shiftKey: false, triggered: true },
+        { capture: true, key: '`', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },
+        { capture: true, key: '~', ctrlKey: true, metaKey: false, shiftKey: true, triggered: true },
+    ])('respects control-key capture: %j', ({ capture, key, ctrlKey, metaKey, shiftKey, triggered }) => {
+        const onClick = jest.fn()
+        render(
+            <div data-shortcuts-ignore={capture ? 'ctrl' : undefined} data-shortcuts-allow-keys="` ~">
+                <textarea aria-label="Terminal" />
+                <Shortcut
+                    name="TestControlCapture"
+                    keybind={[['command', ...(shiftKey ? ['shift'] : []), key]]}
+                    intent="Test shortcut"
+                    interaction="click"
+                >
+                    <LemonButton onClick={onClick}>Test shortcut</LemonButton>
+                </Shortcut>
+            </div>
+        )
+
+        fireEvent.keyDown(screen.getByLabelText('Terminal'), { key, ctrlKey, metaKey, shiftKey })
+
+        expect(onClick).toHaveBeenCalledTimes(triggered ? 1 : 0)
     })
 
     // AccessControlAction injects disabledReason through Shortcut, which must forward it to the child.

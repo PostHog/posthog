@@ -4135,7 +4135,11 @@ jobs:
                               fi
                               printf '%s\n' \
                                   "Retry without Depot access: a new commit starts a fresh run." \
-                                  "  git commit --allow-empty -m 'chore: retry backend ci' && git push"
+                                  "  git commit --allow-empty -m 'chore: retry backend ci' && git push" \
+                                  "" \
+                                  "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there." \
+                                  "  gh pr edit $PR_NUMBER --repo $REPO --add-label ci-backend-github" \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push"
                               exit 1
                               ;;
                       esac

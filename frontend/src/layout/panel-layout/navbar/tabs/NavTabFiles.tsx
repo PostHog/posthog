@@ -21,7 +21,7 @@ export function NavTabFiles(): JSX.Element {
                     panelName="files"
                     root="project://"
                     logicKey="navbar-files"
-                    searchPlaceholder="Search files"
+                    searchPlaceholder="Filter files"
                     showRecents
                     layout="inline"
                     beforeTree={

@@ -1,6 +1,10 @@
 import type { Adapter } from "./adapter";
 import { EFFORT_LEVEL_LABELS, type EffortLevel } from "./domain-types";
 import { normalizeModelId, reasoningEffortsForModel } from "./model-catalog";
+import {
+  CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
+  type CapabilityNotch,
+} from "./model-catalog.generated";
 
 export type SupportedReasoningEffort = EffortLevel;
 
@@ -34,37 +38,12 @@ export function isSupportedReasoningEffort(
   );
 }
 
-/** One stop on the Faster/Smarter capability scale: a model plus effort pairing. */
-export interface CapabilityNotch {
-  model: string;
-  effort: SupportedReasoningEffort;
-}
-
-// Mirrors the desktop ladder in @posthog/agent (unreachable from mobile); the
-// two must stay in sync.
-const CLAUDE_CAPABILITY_LADDER: readonly CapabilityNotch[] = [
-  { model: "claude-sonnet-5", effort: "medium" },
-  { model: "claude-sonnet-5", effort: "high" },
-  { model: "claude-opus-5-5", effort: "medium" },
-  { model: "claude-opus-5-5", effort: "xhigh" },
-  { model: "claude-fable-5-1", effort: "max" },
-];
-
-const CODEX_CAPABILITY_LADDER: readonly CapabilityNotch[] = [
-  { model: "gpt-6-luna", effort: "low" },
-  { model: "gpt-6-sol", effort: "low" },
-  { model: "gpt-6-sol", effort: "medium" },
-  { model: "gpt-6-sol", effort: "high" },
-  { model: "gpt-6-sol", effort: "xhigh" },
-  { model: "gpt-6-astra", effort: "max" },
-];
+export type { CapabilityNotch };
 
 export function getCapabilityLadder(
   adapter: Adapter,
 ): readonly CapabilityNotch[] {
-  return adapter === "codex"
-    ? CODEX_CAPABILITY_LADDER
-    : CLAUDE_CAPABILITY_LADDER;
+  return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[adapter];
 }
 
 const MODELS_WITH_1M_CONTEXT = new Set([

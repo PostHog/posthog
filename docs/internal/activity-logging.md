@@ -123,6 +123,10 @@ Four registries in `activity_log.py` tune it per scope:
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
 
+`changes_between` also reads named reverse relations.
+Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
+Reading their fail-closed managers can require team context that background writes do not have.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
