@@ -33,7 +33,7 @@ describe('yaml filter parsing tests', () => {
 
 describe('matching tests', () => {
   test('runs frontend consumer tests when replay-shared source changes', () => {
-    const workflowYaml = readFileSync(path.join(__dirname, '../../../workflows/ci-frontend.yml'), 'utf8')
+    const workflowYaml = readFileSync(path.join(__dirname, '../../../../.github/workflows/ci-frontend.yml'), 'utf8')
     const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
     const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
     const files = modified(['common/replay-shared/src/mobile/transformer/transformers.ts'])
