@@ -43,6 +43,7 @@ import {
     defaultRecordingDurationFilter,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
+import { sessionRecordingRetentionDays } from 'scenes/session-recordings/utils/sessionRecordingRetention'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentMetric, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -51,7 +52,6 @@ import {
     FilterLogicalOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
-    SessionRecordingRetentionPeriod,
     SessionRecordingSidebarTab,
     SessionRecordingType,
     TeamPublicType,
@@ -272,19 +272,6 @@ const SESSION_CONTEXT_PREFETCH_LIMIT = 20
 
 // A launch this recent has too little traffic behind it for an empty list to mean anything.
 const TOO_EARLY_DAYS = 3
-
-// 'legacy' is a project whose retention predates the setting, so it holds the pre-setting 30 days.
-const RETENTION_PERIOD_DAYS: Record<SessionRecordingRetentionPeriod, number> = {
-    legacy: 30,
-    '30d': 30,
-    '90d': 90,
-    '1y': 365,
-    '5y': 365 * 5,
-}
-
-function retentionDays(retentionPeriod: SessionRecordingRetentionPeriod | null | undefined): number {
-    return retentionPeriod ? RETENTION_PERIOD_DAYS[retentionPeriod] : RETENTION_PERIOD_DAYS['30d']
-}
 
 function daysSince(date: string | null | undefined): number | null {
     return date ? dayjs().diff(dayjs(date), 'day') : null
@@ -1531,7 +1518,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (bucketSessionIds?.length === 0 && sessionBucketError !== null) {
                     return ExperimentReplayListEmptyReason.MetricFilterFailed
                 }
-                const retention = retentionDays(currentTeam.session_recording_retention_period)
+                const retention = sessionRecordingRetentionDays(currentTeam.session_recording_retention_period)
                 const daysSinceStart = dayjs().diff(dayjs(experiment.start_date), 'day')
                 // Read against the window the list covers rather than the run: a metric filter
                 // stops at the last in-session exposure, so on an experiment whose exposures
@@ -1586,7 +1573,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 endDate: experiment.end_date ?? null,
-                retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
+                retentionWindowDays: sessionRecordingRetentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
                 scannedWindowEnd,
                 narrowingAction: narrowingAction(filtersCustomized, effectiveVariantKey, effectiveExposureScope),
