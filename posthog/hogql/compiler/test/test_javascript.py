@@ -13,6 +13,11 @@ class TestSanitizeIdentifier(BaseTest):
     def test_keywords(self):
         self.assertEqual(_sanitize_identifier("await"), "__x_await")
         self.assertEqual(_sanitize_identifier("class"), "__x_class")
+        # The compiler emits these for the ordering comparisons, so a program must not declare them.
+        self.assertEqual(_sanitize_identifier("__lt"), "__x___lt")
+        self.assertEqual(_sanitize_identifier("__lte"), "__x___lte")
+        self.assertEqual(_sanitize_identifier("__gt"), "__x___gt")
+        self.assertEqual(_sanitize_identifier("__gte"), "__x___gte")
 
     def test_internal_conflicts(self):
         self.assertEqual(_sanitize_identifier("__x_internal"), "__x___x_internal")
