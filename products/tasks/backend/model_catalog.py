@@ -50,6 +50,16 @@ ULTRACODE = "ultracode"
 # this, so a new tier reaches both projections by being added here and nowhere else.
 REASONING_EFFORTS: tuple[str, ...] = (LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRACODE)
 
+# What a picker calls each tier. Sentence case, like every other label in the product.
+REASONING_EFFORT_LABELS: dict[str, str] = {
+    LOW: "Low",
+    MEDIUM: "Medium",
+    HIGH: "High",
+    XHIGH: "Extra high",
+    MAX: "Max",
+    ULTRACODE: "Ultracode",
+}
+
 _STANDARD = (LOW, MEDIUM, HIGH)
 _THROUGH_MAX = (*_STANDARD, XHIGH, MAX)
 _EXTENDED = (*_THROUGH_MAX, ULTRACODE)
@@ -135,6 +145,7 @@ _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
 _OPUS_COST = ModelCost(5, 25)
+_OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
 _SONNET_COST = ModelCost(2, 10)
 _SONNET_4_COST = ModelCost(3, 15)
@@ -142,6 +153,8 @@ _GPT_PRO_COST = ModelCost(5, 30)
 _GPT_MID_COST = ModelCost(2.5, 15)
 _GPT_LIGHT_COST = ModelCost(1, 6)
 _GPT_FRONTIER_COST = ModelCost(10, 50)
+_GPT_6_SOL_COST = ModelCost(2, 10)
+_GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
@@ -163,6 +176,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED, cost=_OPUS_COST),
     CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED, cost=_OPUS_COST),
     CatalogModel("claude-opus-5", CLAUDE, _EXTENDED, cost=_OPUS_COST),
+    CatalogModel("claude-opus-5-5", CLAUDE, _EXTENDED, cost=_OPUS_5_5_COST),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST),
@@ -175,6 +189,8 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
+    CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
+    CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships
@@ -183,6 +199,8 @@ MODELS: tuple[CatalogModel, ...] = (
 # to answer for those too. The longest matching prefix wins, so declaration order is free.
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
+    (CODEX, "gpt-6-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
 )
@@ -200,6 +218,39 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     CLAUDE: "claude-sonnet-5",
     CODEX: "gpt-5",
+}
+
+
+@dataclass(frozen=True)
+class CapabilityNotch:
+    """One stop on a picker's Faster → Smarter slider: a model and the depth it runs at.
+
+    The rungs are a curated ordering over two dimensions, chosen so each is worth its extra
+    cost over the one below, rather than anything derivable from the rest of the catalog.
+    """
+
+    model: str
+    effort: str
+
+
+# Cheapest first. A consumer filters these against what the gateway serves before rendering,
+# so a rung naming a retired model drops out instead of becoming a stop that fails on send.
+CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
+    CLAUDE: (
+        CapabilityNotch("claude-sonnet-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-opus-5-5", MEDIUM),
+        CapabilityNotch("claude-opus-5-5", XHIGH),
+        CapabilityNotch("claude-fable-5-1", MAX),
+    ),
+    CODEX: (
+        CapabilityNotch("gpt-6-luna", LOW),
+        CapabilityNotch("gpt-6-sol", LOW),
+        CapabilityNotch("gpt-6-sol", MEDIUM),
+        CapabilityNotch("gpt-6-sol", HIGH),
+        CapabilityNotch("gpt-6-sol", XHIGH),
+        CapabilityNotch("gpt-6-astra", MAX),
+    ),
 }
 
 
@@ -405,6 +456,7 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
 
 __all__ = [
     "ANTHROPIC",
+    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
     "CLAUDE",
     "CODEX",
     "COST_BASELINE_MODEL",
@@ -414,8 +466,10 @@ __all__ = [
     "OPENAI",
     "PROVIDER_BY_RUNTIME_ADAPTER",
     "REASONING_EFFORTS",
+    "REASONING_EFFORT_LABELS",
     "access_flag_for_model",
     "RUNTIME_ADAPTERS",
+    "CapabilityNotch",
     "CatalogModel",
     "ModelCost",
     "cost_for_model",

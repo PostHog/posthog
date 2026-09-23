@@ -63,9 +63,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
-    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
-    Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
-    NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
+    Models: () => import('../../products/data_modeling/frontend/ModelsScene'),
+    NodeDetail: () => import('../../products/data_modeling/frontend/nodeDetail/NodeDetailScene'),
+    DataOps: () => import('../../products/data_warehouse/frontend/scenes/DataOpsScene/DataWarehouseScene'),
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
@@ -177,4 +177,5 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
+    Broadcast: () => import('../../products/workflows/frontend/Broadcasts/BroadcastScene'),
 }

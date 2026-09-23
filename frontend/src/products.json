@@ -277,6 +277,13 @@
             "iconType": "workflows",
             "type": "workflows",
             "intents": ["workflows"]
+        },
+        {
+            "path": "Broadcasts",
+            "category": "Tools",
+            "iconType": "broadcasts",
+            "type": "broadcasts",
+            "intents": ["workflows"]
         }
     ],
     "games": [
@@ -322,6 +329,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Sources",
             "category": "Pipeline",
@@ -329,7 +337,6 @@
             "type": "hog_function/source",
             "intents": []
         },
-        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Warehouse destinations",
             "category": "Pipeline",

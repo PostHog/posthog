@@ -3,7 +3,7 @@ name: Weekly slow test report
 # Posts the week's slowest passing tests to #flakey-tests every Monday, tagging the
 # people who last edited each test. PULL model, sibling of weekly-flaky-report.yml:
 # the script reads the passing test spans CI already ships to PostHog (see
-# .github/scripts/report_test_timings.py), resolves owners through tools/owners and
+# .github/scripts/report_test_timings.py), resolves owners through packages/owners-yaml and
 # recent editors through the GitHub commits API, and relays one table to Slack via
 # the DevEx bot.
 #
@@ -48,7 +48,7 @@ jobs:
                       .github/scripts/weekly-slow-tests-report.mjs
                       .github/scripts/weekly-report-common.mjs
                       .nvmrc
-                      tools/owners
+                      packages/owners-yaml
                       owners.yaml
                       **/owners.yaml
                       **/product.yaml

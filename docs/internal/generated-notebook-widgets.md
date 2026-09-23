@@ -2,6 +2,16 @@
 
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
+Generated widgets are in beta. Generation uses PostHog AI credits based on model token costs plus a 20% markup, including security review and retries.
+The insert menu, notebook widget toolbar, generation dialog, and reusable widget page show a **BETA** label.
+Before generating, improving, or regenerating a widget, the form says "Generation uses PostHog AI credits".
+The ungenerated widget preview includes a model selector directly above **Generate widget**, synchronized with the model in the edit panel.
+The notebook edit panel and reusable widget page show the selected version's estimated generation charge as a small USD amount beside the version controls.
+The info tooltip explains that the estimate includes all model requests in that successful generation job.
+Costs come from recorded gateway usage and include the same markup as PostHog AI credit billing; final credits can differ because billing rounds aggregated usage.
+Older versions and generations without available usage records do not show a cost.
+The estimate does not include separate failed or canceled generation jobs, or notebook compute.
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
@@ -23,6 +33,9 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Production artifact delivery requires `CANVAS_ARTIFACT_ORIGIN`, a dedicated bare HTTPS origin with no path, query, fragment, or credentials, set before rollout. A production deploy with it unset boots clean, but every widget builds and then reports its preview unavailable, because no artifact URL is minted. Artifact URLs use Django's rotating `SECRET_KEY` values for signing by default. Deployments can set `CANVAS_ARTIFACT_SIGNING_KEYS` for independent rotation.
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
+
+Whole-notebook runs stop when their notebook is deleted, including while a cell is running.
+If cell dispatch fails after its retry budget, the run records the failure and stops any child execution already submitted.
 
 ## Reusable widgets
 
@@ -150,6 +163,11 @@ The generated-code trust flow works as follows:
 7. Canvas records a SHA-256 over the complete frozen artifact manifest. The hash covers artifact contents only, with no build or version id, so a build with different contents has a different hash and requires a new execution decision when gated. A build with identical contents keeps the same hash and reuses the earlier decision.
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
+
+Ordinary `<Embed>` blocks accept absolute HTTP or HTTPS URLs.
+Public sharing removes invalid embed sources before serving notebook markdown.
+Embed frames run without same-origin access, including when an external URL redirects to the application origin.
+Embedded pages that require cookies or browser storage may need to be opened directly.
 
 After consent, the bridge exposes only the version’s declared dataframes through permission-checked endpoints. The Canvas CSP keeps `connect-src 'none'`, but iframe self-navigation can still transmit data. A clean automated review cannot prove arbitrary JavaScript safe, so dataframe access requires consent even when no findings were reported.
 

@@ -6,13 +6,28 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 
 import { isPolicyStateAllowedByCeiling } from './gateway/gatewayPolicyUtils'
+import {
+    mcpServerInstallationsDestroy,
+    mcpServerInstallationsInstallCustomCreate,
+    mcpServerInstallationsInstallTemplateCreate,
+    mcpServerInstallationsList,
+    mcpServerInstallationsPartialUpdate,
+    mcpServerInstallationsShareCreate,
+    mcpServerInstallationsToolsPartialUpdate,
+    mcpServerInstallationsToolsRefreshCreate,
+    mcpServerInstallationsToolsRetrieve,
+    mcpServerInstallationsUnshareCreate,
+    mcpServersList,
+} from './generated/api'
 import type {
+    InstallCustomApi,
     MCPServerInstallationApi,
     MCPServerInstallationToolApi,
     MCPServerTemplateApi,
+    PatchedMCPServerInstallationUpdateApi,
 } from './generated/api.schemas'
 
 export type ToolApprovalState = 'approved' | 'needs_approval' | 'do_not_use'
@@ -25,7 +40,7 @@ export interface CustomServerFormValues {
     name: string
     url: string
     description: string
-    auth_type: string
+    auth_type: InstallCustomApi['auth_type']
     api_key: string
     client_id: string
     client_secret: string
@@ -45,6 +60,21 @@ const CUSTOM_SERVER_FORM_DEFAULTS: CustomServerFormValues = {
     client_secret: '',
     scope: 'personal',
     template_id: '',
+}
+
+// The route accepts a team id too (see ApiConfig.teamProjectDetail), and MCPServerInstallationViewSet
+// filters on the exact team id, so this must resolve the active environment, not its parent project.
+const projectId = (): string => String(ApiConfig.getCurrentTeamId())
+
+function setToolApproval(
+    installationId: string,
+    toolName: string,
+    approvalState: ToolApprovalState
+): Promise<MCPServerInstallationToolApi> {
+    // The generated URL builder interpolates the tool name raw, so encode it here.
+    return mcpServerInstallationsToolsPartialUpdate(projectId(), installationId, encodeURIComponent(toolName), {
+        approval_state: approvalState,
+    })
 }
 
 function loadedInstallationIdsForServer(
@@ -331,9 +361,9 @@ export interface mcpStoreLogicActions {
             id: string
         }
     }
-    updateInstallation: ({ id, data }: { data: Record<string, any>; id: string }) => {
+    updateInstallation: ({ id, data }: { data: PatchedMCPServerInstallationUpdateApi; id: string }) => {
         id: string
-        data: Record<string, any>
+        data: PatchedMCPServerInstallationUpdateApi
     }
     updateInstallationFailure: (
         error: string,
@@ -346,13 +376,13 @@ export interface mcpStoreLogicActions {
         installations: MCPServerInstallationApi[],
         payload?: {
             id: string
-            data: Record<string, any>
+            data: PatchedMCPServerInstallationUpdateApi
         }
     ) => {
         installations: MCPServerInstallationApi[]
         payload?: {
             id: string
-            data: Record<string, any>
+            data: PatchedMCPServerInstallationUpdateApi
         }
     }
 }
@@ -529,12 +559,12 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             }) => {
                 try {
                     const result = template_id
-                        ? await api.mcpServerInstallations.installTemplate({
+                        ? await mcpServerInstallationsInstallTemplateCreate(projectId(), {
                               template_id,
                               api_key: api_key || undefined,
                               scope,
                           })
-                        : await api.mcpServerInstallations.installCustom({
+                        : await mcpServerInstallationsInstallCustomCreate(projectId(), {
                               name,
                               url,
                               auth_type,
@@ -546,7 +576,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                               client_secret: client_secret || undefined,
                               scope,
                           })
-                    if (result?.redirect_url) {
+                    if ('redirect_url' in result) {
                         window.location.href = result.redirect_url
                         return
                     }
@@ -569,8 +599,8 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             [] as MCPServerTemplateApi[],
             {
                 loadServers: async () => {
-                    const response = await api.mcpServers.list()
-                    return response.results as MCPServerTemplateApi[]
+                    const response = await mcpServersList(projectId())
+                    return response.results
                 },
             },
         ],
@@ -578,18 +608,24 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             [] as MCPServerInstallationApi[],
             {
                 loadInstallations: async () => {
-                    const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallationApi[]
+                    const response = await mcpServerInstallationsList(projectId())
+                    return response.results
                 },
-                updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
-                    const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallationApi
+                updateInstallation: async ({
+                    id,
+                    data,
+                }: {
+                    id: string
+                    data: PatchedMCPServerInstallationUpdateApi
+                }) => {
+                    const updated = await mcpServerInstallationsPartialUpdate(projectId(), id, data)
                     lemonToast.success('Server updated')
                     return values.installations.map((i: MCPServerInstallationApi) =>
                         i.id === updated.id ? updated : i
                     )
                 },
                 uninstallServer: async (installationId: string) => {
-                    await api.mcpServerInstallations.delete(installationId)
+                    await mcpServerInstallationsDestroy(projectId(), installationId)
                     lemonToast.success('Server uninstalled')
                     return values.installations.filter((i: MCPServerInstallationApi) => i.id !== installationId)
                 },
@@ -598,25 +634,25 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 // must drop out of the requester's list entirely.
                 shareInstallation: async ({ id }: { id: string }) => {
                     try {
-                        await api.mcpServerInstallations.share(id)
+                        await mcpServerInstallationsShareCreate(projectId(), id)
                         lemonToast.success('Server shared with the project')
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to share server')
                         throw e
                     }
-                    const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallationApi[]
+                    const response = await mcpServerInstallationsList(projectId())
+                    return response.results
                 },
                 unshareInstallation: async ({ id }: { id: string }) => {
                     try {
-                        await api.mcpServerInstallations.unshare(id)
+                        await mcpServerInstallationsUnshareCreate(projectId(), id)
                         lemonToast.success('Server is now personal')
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to unshare server')
                         throw e
                     }
-                    const response = await api.mcpServerInstallations.list()
-                    return response.results as MCPServerInstallationApi[]
+                    const response = await mcpServerInstallationsList(projectId())
+                    return response.results
                 },
             },
         ],
@@ -624,19 +660,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {} as Record<string, MCPServerInstallationToolApi[]>,
             {
                 loadInstallationTools: async ({ installationId }) => {
-                    const response = await api.mcpServerInstallations.listTools(installationId)
+                    const response = await mcpServerInstallationsToolsRetrieve(projectId(), installationId)
                     return {
                         ...values.installationTools,
-                        [installationId]: response.results as MCPServerInstallationToolApi[],
+                        [installationId]: response.results,
                     }
                 },
                 refreshInstallationTools: async ({ installationId }) => {
                     try {
-                        const response = await api.mcpServerInstallations.refreshTools(installationId)
+                        const response = await mcpServerInstallationsToolsRefreshCreate(projectId(), installationId)
                         lemonToast.success('Tools refreshed')
                         return {
                             ...values.installationTools,
-                            [installationId]: response.results as MCPServerInstallationToolApi[],
+                            [installationId]: response.results,
                         }
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to refresh tools')
@@ -724,7 +760,9 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     listeners(({ actions, values }) => ({
         toggleServerEnabled: async ({ id, enabled }) => {
             try {
-                await api.mcpServerInstallations.update(id, { is_enabled: enabled })
+                await mcpServerInstallationsPartialUpdate(projectId(), id, {
+                    is_enabled: enabled,
+                })
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to update server')
                 actions.setInstallations(
@@ -736,8 +774,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         },
         installTemplate: async ({ templateId }) => {
             try {
-                const result = await api.mcpServerInstallations.installTemplate({ template_id: templateId })
-                if (result?.redirect_url) {
+                const result = await mcpServerInstallationsInstallTemplateCreate(projectId(), {
+                    template_id: templateId,
+                })
+                if ('redirect_url' in result) {
                     window.location.href = result.redirect_url
                     return
                 }
@@ -750,7 +790,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         setToolApprovalState: async ({ installationId, toolName, approvalState }) => {
             // Optimistic update already applied in the reducer. Reload from server on failure.
             try {
-                await api.mcpServerInstallations.updateToolApproval(installationId, toolName, approvalState)
+                await setToolApproval(installationId, toolName, approvalState)
                 const installation = values.installations.find((candidate) => candidate.id === installationId)
                 if (installation?.scope === 'shared') {
                     const loadedInstallationIds = loadedInstallationIdsForServer(
@@ -775,11 +815,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     teamScope || (!tool.locked && isPolicyStateAllowedByCeiling(approvalState, tool.team_state ?? null))
             )
             try {
-                await Promise.all(
-                    tools.map((tool) =>
-                        api.mcpServerInstallations.updateToolApproval(installationId, tool.tool_name, approvalState)
-                    )
-                )
+                await Promise.all(tools.map((tool) => setToolApproval(installationId, tool.tool_name, approvalState)))
                 lemonToast.success(`Updated ${tools.length} tools`)
                 const loadedInstallationIds = teamScope
                     ? loadedInstallationIdsForServer(values.installations, values.installationTools, installationId)

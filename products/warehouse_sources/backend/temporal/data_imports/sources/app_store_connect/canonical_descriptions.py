@@ -18,7 +18,10 @@ _ANALYTICS_SHARED_COLUMNS: dict[str, str] = {
     "processing_date": (
         "Date Apple processed the report instance the row came from. Rows in an instance can carry earlier data dates."
     ),
-    "_line": "Position of the row within the report instance's files, unique per app and processing date.",
+    "_line": (
+        "Position of the row within the report instance's files, unique per app and processing date. "
+        "Negative for rows backfilled from the one-time historical snapshot."
+    ),
     "date": "Date the events in the row occurred. The first day of the period for weekly or monthly data.",
     "app_name": "Name of the app as set up in App Store Connect.",
     "app_apple_identifier": "Apple ID of the app.",

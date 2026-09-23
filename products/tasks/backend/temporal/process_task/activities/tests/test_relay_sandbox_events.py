@@ -863,13 +863,14 @@ class TestRelaySandboxEventsErrorHandling:
         assert redis_stream.claim_first_agent_activity.await_count == 2
 
     @pytest.mark.parametrize(
-        ("event", "turn_failed", "turn_completed"),
+        ("event", "turn_failed", "turn_completed", "turn_succeeded"),
         [
-            ({"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}, True, False),
+            ({"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}, True, False, False),
             (
                 {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}},
                 False,
                 True,
+                False,
             ),
             (
                 {
@@ -877,6 +878,7 @@ class TestRelaySandboxEventsErrorHandling:
                     "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
                 },
                 False,
+                True,
                 True,
             ),
             (
@@ -886,11 +888,17 @@ class TestRelaySandboxEventsErrorHandling:
                 },
                 False,
                 False,
+                False,
             ),
         ],
     )
     async def test_relay_handles_turn_completion(
-        self, monkeypatch: pytest.MonkeyPatch, event: dict[str, object], turn_failed: bool, turn_completed: bool
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        event: dict[str, object],
+        turn_failed: bool,
+        turn_completed: bool,
+        turn_succeeded: bool,
     ) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -960,7 +968,10 @@ class TestRelaySandboxEventsErrorHandling:
             handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
         else:
             await asyncio.wait_for(dispatch_done.wait(), timeout=5)
-            handle.signal.assert_awaited_once_with("agent_state_changed", arg=False)
+            assert handle.signal.await_args_list == [
+                call("agent_state_changed", arg=False),
+                call("agent_turn_completed", arg=turn_succeeded),
+            ]
         if turn_completed:
             notify.assert_called_once_with(task_run)
         else:

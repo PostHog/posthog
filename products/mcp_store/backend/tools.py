@@ -18,6 +18,7 @@ from posthog.security.pinned_requests import SSRFBlockedError
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
@@ -58,6 +59,10 @@ class ToolCallError(Exception):
 
 
 def _ensure_valid_token_for_fetch(installation: MCPServerInstallation) -> None:
+    if installation.template and not oauth_credentials_source_is_allowed(
+        installation.template.oauth_credentials_source, installation.team_id
+    ):
+        raise ToolsFetchError("OAuth app is not available for this project. Contact your project admin.")
     if installation.auth_type != "oauth":
         return
     sensitive = installation.sensitive_configuration or {}
