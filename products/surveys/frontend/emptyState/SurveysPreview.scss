@@ -94,6 +94,12 @@
         box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
     }
 
+    &__popover-head {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 0.375rem;
+    }
+
     &__question {
         display: flex;
         flex-direction: column;
