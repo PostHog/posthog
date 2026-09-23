@@ -934,9 +934,6 @@ class _Renderer:
         options: dict[str, Any] = {"key": key, "name": name}
         if definition.get("description"):
             options["description"] = definition["description"]
-        status = definition.get("status")
-        if status in {"draft", "active", "archived"}:
-            options["status"] = status
         conversion = _dict(definition.get("conversion"))
         has_conversion_goal = _is_set(conversion.get("filters")) or _is_set(conversion.get("events"))
         exit_condition = definition.get("exit_condition") or _DEFAULT_EXIT_CONDITION
