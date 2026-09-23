@@ -1152,9 +1152,11 @@ jobs:
             - host-release
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 10
-        # Same gate as publish-npm. Homebrew has no notion of a prerelease, so a
-        # prerelease must not move the formula that `brew install` resolves.
-        if: ${{ needs.plan-release.result == 'success' && (!fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases) }}
+        # Stable releases only, deliberately stricter than publish-npm. A tap has
+        # one formula and no channels, so a prerelease formula is what every
+        # `brew install` resolves. npm can at least carry a prerelease on a
+        # separate dist-tag. Do not "fix" this to match publish-npm.
+        if: ${{ needs.plan-release.result == 'success' && !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease }}
         steps:
             # cargo-dist generates the formula complete with per-platform URLs and
             # checksums, so unlike the phrocs formula there is no template to fill.
@@ -1193,10 +1195,10 @@ jobs:
 
     notify-released:
         name: Notify Slack - Release Published
-        needs: [notify-approval-needed, release, host-release, publish-npm]
+        needs: [notify-approval-needed, release, host-release, publish-npm, publish-homebrew]
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
+        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
             - name: Notify Slack - Release Published
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
@@ -1220,12 +1222,13 @@ jobs:
             - build-global-artifacts
             - host-release
             - publish-npm
+            - publish-homebrew
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
             || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
-            || needs.publish-npm.result == 'failure')
+            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure')
         steps:
             - name: Collect failed jobs
               id: failure-metadata
