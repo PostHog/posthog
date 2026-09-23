@@ -121,6 +121,8 @@ print(splitByString(" ", "hello world and more", 1));
 print(splitByString(" ", "hello world and more", 2));
 print(splitByString(" ", "hello world and more", 10));
 print(like("banana", "N"));
+print(like("baax", "b%x"));
+print(like("b%x", "b%x"));
 print(like("banana", "n"));
 print(like("banana", "naan"));
 print(ilike("banana", "N"));
