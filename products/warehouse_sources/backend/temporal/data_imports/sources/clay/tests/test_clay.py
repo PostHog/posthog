@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay import (
+    REQUEST_TIMEOUT_SECONDS,
     ClayResumeConfig,
     clay_source,
     flatten_record,
@@ -115,6 +116,7 @@ class TestClaySourceBehavior:
         sent_request = mock_session.send.call_args_list[0].args[0]
         assert sent_request.method == "POST"
         assert sent_request.prepare().headers["clay-api-key"] == "clay_test_key"
+        assert all(call.kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS for call in mock_session.send.call_args_list)
 
     def test_resume_sends_saved_cursor_on_first_request(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

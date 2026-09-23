@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 CLAY_BASE_URL = "https://api.clay.com/public/v0"
 PAGE_SIZE = 100  # API maximum
-REQUEST_TIMEOUT_SECONDS = 30
+REQUEST_TIMEOUT_SECONDS = 60
 
 # Clay table IDs look like `t_0te9i4tZEHwc9hihBXu`, and appear after `/tables/` in table URLs.
 _TABLE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])t_[A-Za-z0-9]+")
@@ -65,6 +65,7 @@ def clay_source(
     config: RESTAPIConfig = {
         "client": {
             "base_url": CLAY_BASE_URL,
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
             "auth": {
                 "type": "api_key",
                 "name": "clay-api-key",
