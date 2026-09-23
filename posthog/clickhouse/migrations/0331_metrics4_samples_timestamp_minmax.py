@@ -20,16 +20,4 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
-    run_sql_with_exceptions(
-        f"ALTER TABLE {DB}.metrics4_samples MATERIALIZE INDEX idx_timestamp_min_minmax",
-        node_roles=[NodeRole.LOGS],
-        sharded=False,
-        is_alter_on_replicated_table=True,
-    ),
-    run_sql_with_exceptions(
-        f"ALTER TABLE {DB}.metrics4_samples MATERIALIZE INDEX idx_timestamp_max_minmax",
-        node_roles=[NodeRole.LOGS],
-        sharded=False,
-        is_alter_on_replicated_table=True,
-    ),
 ]
