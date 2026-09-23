@@ -2151,6 +2151,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        # PostHog retired the scout this config runs: its canonical skill declared a sunset that
+        # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
+        # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that
+        # no longer exists, and the roster has a state to render instead of a row that looks
+        # healthy and never runs.
+        RETIRED = "retired", "Retired"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
