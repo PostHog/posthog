@@ -51,26 +51,41 @@ Enable production only in a separate rollout after dev verification.
 The deployment identity is `temporal-worker-alerts-platform-shared-orchestration`.
 It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
 Worker deployment configuration lives outside this repository. Deploying this code must be coordinated with starting the orchestration worker.
-The three deployments in `PostHog/charts` still pass the old `alerts-product-*` queue names.
-A worker polls the queue its chart gives it, so the queue rename needs a charts change, sequenced with the code deploy by the steps below.
-Schedule reconciliation now routes directly to orchestration; merging the code alone does not start a worker process.
-If the dev schedule does not exist yet, start all three workers before the first reconciliation: new schedules start unpaused.
+The three deployments in `PostHog/charts` must pass the matching `alerts-platform-*` queue names.
+The worker command rejects an unregistered queue with `ValueError` at startup.
+An old image with a new queue, or a new image with an old queue, cannot start.
+Treat each worker's image and queue configuration as one deployment change; merging two PRs close together does not make their deployments atomic.
+Schedule reconciliation routes directly to orchestration; merging the code alone does not start a worker process.
 
-1. Pause the existing dev schedule before deployment so migration-time reconciliation cannot send ticks to a worker that is not ready.
-2. Let the work already started finish before you touch the workers. A pause stops new ticks, not running workflows, and after the rename no worker serves the old workflow types.
-   Keep the workers on the `alerts-product-*` queues until their queued and running work drains. Production is off and dev runs are bounded by the 50-second tick and 75-second evaluation timeouts, so this is a short wait rather than a procedure.
-3. Point the three chart deployments at the `alerts-platform-*` queues and restart the workers. Until the code deploys they poll queues nothing writes to, which is the intended gap.
-4. Deploy the code and start the orchestration worker with the command above.
-   Verify it polls `alerts-platform-shared-orchestration-task-queue`, and that evaluation and delivery workers remain available.
-5. Run `python manage.py schedule_temporal_workflows` and verify the action starts `alerts-platform-orchestrate` on the orchestration queue.
-   Existing pause state is preserved. Resume only after all three workers are ready, then verify the complete workflow chain.
-6. Delete `alerts-product-check-due-schedule` by hand. Reconciliation creates the new ID and never deletes the old one, which would keep starting a workflow type no worker knows.
+1. Hold automatic promotions and syncs for all three worker deployments before either the code or chart queue changes deploys.
+   Record the current image, queue configuration, and schedule action for rollback.
+2. Pause `alerts-product-check-due-schedule` if it exists, and stop manual starts and delivery-preview requests during the cutover.
+   Before migration-time reconciliation runs with the new code, create `alerts-platform-check-due-schedule` in Temporal with its state explicitly paused.
+   Use the action and policy from [Dev schedule](#dev-schedule). If the new schedule already exists, pause it instead.
+   Pause state is preserved only for the same schedule ID; pausing the old ID does not pause a newly created schedule.
+3. Keep the old images polling all three `alerts-product-*` queues until queued and running orchestration, source-dispatch, evaluation, and delivery work drains.
+   Verify this in Temporal rather than waiting a fixed interval. Delivery can outlive its parent, and manual runs can have different timeouts.
+4. Build the image containing the renamed worker registrations. Render each worker deployment with that image and its matching `alerts-platform-*` queue before allowing its promotion or sync.
+   Do not restart a worker with only half of this change. Keep both schedules paused while the three deployments roll out.
+   Verify all three workers start successfully and poll their configured queues, including `alerts-platform-shared-orchestration-task-queue`.
+5. Run `python manage.py schedule_temporal_workflows` with the new code and verify the new schedule remains paused.
+   Its action must start `alerts-platform-orchestrate` on the orchestration queue.
+   Resume the new schedule only after all three workers are ready. Verify the Postgres probe result and delivery completion separately.
+6. After the complete workflow chain succeeds, delete the paused `alerts-product-check-due-schedule` by hand and release the deployment holds.
+   Reconciliation never deletes the old ID. Allow manual starts and delivery-preview requests again only with callers running the matching code.
 
-To stop future starts, pause the schedule. Keep all three workers running until orchestration, evaluation, and delivery work drains.
-For rollback, drain first, then reverse the same order: point the three chart deployments back at the `alerts-product-*` queues, roll back the code, and restore the previous schedule action (the evaluation workflow started directly on the evaluation queue, named `alerts-product-check-due` before the renames below) before resuming it.
-Rolling the code back without the chart change leaves the workers polling queues the old code does not write to.
-Do not reconcile with the new code after restoring the old action: reconciliation would route back to orchestration.
-Pausing or changing the schedule does not move or stop queued or running workflows.
+For rollback:
+
+1. Pause the new schedule and stop manual starts and delivery-preview requests. Keep the current workers running until all queued and running work drains.
+2. Hold worker promotions and syncs. Restore each previous image together with its `alerts-product-*` queue configuration, then verify all three workers are ready.
+3. Restore the recorded schedule configuration using the previous code. Immediately before this rename, its action starts `alerts-product-orchestrate` on `alerts-product-shared-orchestration-task-queue`.
+   Do not restore the older `alerts-product-check-due` action unless the selected rollback image actually registers it.
+   If the old schedule was deleted, reconcile it only after the old workers are ready, because creation starts it unpaused.
+4. Resume the old schedule if it is paused, verify the probe and delivery complete, then delete the paused new schedule and release the deployment holds.
+   Restore manual starts and delivery-preview requests with callers running the previous code.
+
+Do not reconcile with the new code after rollback: it would recreate the new schedule unpaused.
+Pausing or changing a schedule does not move or stop queued or running workflows.
 
 ### Manual local runs
 
