@@ -368,12 +368,13 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExport was last updated.",
     )
-    last_updated_by = models.ForeignKey(
+    last_modified_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         db_constraint=False,
+        db_index=False,
         related_name="+",
         help_text="The user who last saved this batch export's configuration.",
     )
@@ -741,12 +742,13 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this was last updated.",
     )
-    last_updated_by = models.ForeignKey(
+    last_modified_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         db_constraint=False,
+        db_index=False,
         related_name="+",
         help_text="The user who last saved this batch export's configuration.",
     )

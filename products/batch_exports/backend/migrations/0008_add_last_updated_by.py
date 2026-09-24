@@ -14,10 +14,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="batchexport",
-            name="last_updated_by",
+            name="last_modified_by",
             field=models.ForeignKey(
                 blank=True,
                 db_constraint=False,
+                db_index=False,
                 help_text="The user who last saved this batch export's configuration.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
@@ -27,10 +28,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="batchexportondemand",
-            name="last_updated_by",
+            name="last_modified_by",
             field=models.ForeignKey(
                 blank=True,
                 db_constraint=False,
+                db_index=False,
                 help_text="The user who last saved this batch export's configuration.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
