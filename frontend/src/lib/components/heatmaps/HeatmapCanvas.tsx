@@ -1,4 +1,4 @@
-import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
+import { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useActions, useValues } from 'kea'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -10,6 +10,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { HeatmapEventsPanel } from './HeatmapEventsPanel'
 import { HeatmapLoadingInfo } from './HeatmapLoadingInfo'
+import { HEATMAP_CONFIG, createHeatmapRenderer } from './heatmapRenderer'
 import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { MousePosition, useMousePosition } from './useMousePosition'
 import { useScrollSync } from './useScrollSync'
@@ -19,11 +20,6 @@ const CLICK_RADIUS_PX = 15
 
 const TOOLTIP_OFFSET_PX = 12
 const TOOLTIP_FLIP_THRESHOLD_PX = 160
-
-const HEATMAP_CONFIG = {
-    minOpacity: 0,
-    maxOpacity: 0.8,
-}
 
 const INFO_BOX_CLASSES = 'border rounded bg-surface-primary shadow-md font-semibold'
 
@@ -180,9 +176,7 @@ export function HeatmapCanvas({
             return
         }
 
-        heatmapsJsRef.current = heatmapsJs.create({
-            ...HEATMAP_CONFIG,
-            container,
+        heatmapsJsRef.current = createHeatmapRenderer(container, {
             gradient: heatmapJSColorGradientRef.current,
         })
 

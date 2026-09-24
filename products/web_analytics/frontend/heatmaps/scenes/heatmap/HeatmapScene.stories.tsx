@@ -330,3 +330,43 @@ export const PageSettingsDialogNarrow: Story = {
         </Narrow>
     ),
 }
+
+export const HistoricalVariants: Story = {
+    parameters: {
+        pageUrl: `${urls.heatmap('hm_historical')}?historical_analysis=01900000-0000-7000-8000-000000000001`,
+        featureFlags: [FEATURE_FLAGS.HEATMAPS_HISTORICAL_VARIANTS],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/saved/hm_historical/': () => ({
+                    ...makeIframeSaved(),
+                    id: '01900000-0000-7000-8000-000000000002',
+                    short_id: 'hm_historical',
+                    name: 'Recorded page variants',
+                    user_access_level: 'editor',
+                }),
+                '/api/projects/:team_id/heatmap_analyses/:id/': {
+                    analysis: {
+                        id: '01900000-0000-7000-8000-000000000001',
+                        heatmap_id: '01900000-0000-7000-8000-000000000002',
+                        url: 'https://example.com/offers',
+                        date_from: '2026-01-01T00:00:00Z',
+                        date_to: '2026-01-08T00:00:00Z',
+                        viewport_width: 1440,
+                        status: 'completed',
+                        sampled_recordings: 0,
+                        excluded_recordings: 0,
+                        filters: { cohort_ids: [], events: [], filter_test_accounts: false },
+                        error: '',
+                        created_at: '2026-01-09T00:00:00Z',
+                    },
+                    variants: [],
+                    analyzed_visits: 0,
+                    unavailable_recordings: 0,
+                    excluded_clicks: 0,
+                },
+            },
+        }),
+    ],
+}

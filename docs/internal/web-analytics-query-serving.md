@@ -8,6 +8,9 @@ Every strategy tags its ClickHouse queries with a `query_type` that lands in `sy
 
 ## The serving tiers
 
+Historical heatmaps use a separate replay analysis path, described below.
+They do not use these web analytics query caches.
+
 Cheapest first.
 A request walks down this ladder and stops at the first tier whose conditions it satisfies.
 
@@ -18,6 +21,60 @@ A request walks down this ladder and stops at the first tier whose conditions it
 | 2. Preaggregated tables (**deprecated**) | Daily preagg tables, modifier-gated; no new enrollments — retained only for the largest existing customers until lazy precompute fully replaces it | ~100ms–1s       |
 | 3. Live fast paths                       | Session-id-set (filtered) and no-join (unfiltered) shapes that avoid the full events↔sessions join                                                 | ~1–20s          |
 | 4. Full join                             | The original events↔sessions join; always works, slowest                                                                                           | ~5–60s          |
+
+## Historical heatmaps
+
+The `heatmaps-historical-variants` flag enables the historical view for projects with Session replay enabled.
+The historical view shows a gallery ordered by when each variant was first observed.
+Hover a variant or focus it with the keyboard to preview its click heatmap over the thumbnail.
+Hover a heatmap hotspot in either view to see the sum of recorded clicks within 24 page pixels of the pointer, adjusted for screenshot scale.
+Select a thumbnail to inspect its full-page heatmap; Previous and Next move between variants without leaving the viewer.
+Dates and screen width stay visible, while the Filters button expands cohort, event, and internal-traffic controls and shows the number of active filters.
+Results are saved automatically and shared with Copy link; screenshot selection and View recording are inside the variant viewer.
+About this data contains reconstruction limits and detailed coverage counts.
+Sampled results and missing recordings remain visible in the gallery, and changed filters require Update results before they affect it.
+An editor starts an analysis from a saved heatmap with an exact URL, an absolute date range of at most 90 days, a screen width, and optional existing cohort, event, and internal-traffic filters.
+Dates use an inclusive start and exclusive end; date-only selections include the entire final day in the project timezone.
+An analysis has a stable ID in the page URL that teammates can open with heatmap and replay access.
+Changing filters does not change a saved result: the UI marks the filters as changed and starts a new analysis only when requested.
+
+`POST /api/projects/{project_id}/heatmap_analyses/` enqueues `analyze_heatmap` on the existing exports queue.
+The worker uses the existing recording listing query, rendering service (`BROWSERLESS_CDP_URL` and `BROWSERLESS_TOKEN`), and authenticated replay exporter.
+It looks for recordings in 20 time buckets, deduplicates session IDs, and checks recorded page URL, tab, timestamp, and viewport during reconstruction.
+Clicks come from rrweb interaction events, with replay scroll offsets applied to document coordinates.
+The combined heatmap continues to use all captured heatmap traffic; historical variants represent only the analyzed replay sample.
+Visits can encounter more than one variant, so variant visit counts are not mutually exclusive.
+
+The renderer samples page states and groups compatible geometry and recorded content.
+Changed promotional images, headings, or page text separate variants even when the layout has the same dimensions.
+Each variant chooses a representative from a bounded medoid sample and offers alternative recorded moments.
+The worker persists membership and the selected representative so source expiry does not silently regroup the remaining data.
+Screenshots stitch reconstructed viewport tiles at the recorded width, including below-fold content that exists in the recorded DOM.
+The UI identifies a replacement when the saved representative becomes unavailable.
+
+This is reconstruction, not a historical asset archive.
+External images and styles may be missing or may now resolve to changed content.
+Masking remains as captured in replay.
+Fixed and sticky elements, nested scrolling targets, canvas/video/iframe interactions, unavailable replay windows, oversized pages, and clicks that cannot be aligned are excluded.
+Lazy content never recorded cannot be recovered.
+There are no SDK changes, public shares, or PNG exports of historical analyses in this version.
+
+Work is bounded by one active analysis per project, 200 candidate recordings, 200 retained page states, 50 variants, and an eight-minute selection budget.
+Each recording inspects at most 100 moments and retains at most 20 page states; rendering also limits page height, DOM size, recording size, and output bytes.
+The task has a ten-minute soft deadline and a 630-second hard deadline.
+Sampling, exclusions, and budget exhaustion produce partial results with coverage counts.
+`heatmap_analysis_seconds` and `heatmap_analysis_recordings_total` track processing duration and recording outcomes.
+
+Replay-derived JSON and PNGs are system `ExportedAsset` rows linked to a recording and capped at its expiry.
+Existing recording deletion expires those artifacts; the export cleanup task removes stored content.
+Read endpoints recheck project, heatmap, recording, deletion, availability, and expiry access before serving results or images, with `Cache-Control: no-store`.
+The normal export API and public export tokens cannot expose these artifacts.
+An expired or inaccessible recording contributes neither a background nor clicks.
+Historical endpoints require a signed-in session; API keys and public replay shares cannot create or retrieve analyses.
+
+Roll out behind the feature flag after applying the web analytics migration and deploying the frontend exporter and exports worker together.
+Keep the flag off when the renderer is not configured.
+Start with short date ranges and verify background fidelity and the fraction of attributable clicks before widening access.
 
 ## Request flow
 
