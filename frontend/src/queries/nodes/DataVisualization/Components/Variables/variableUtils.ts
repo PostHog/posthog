@@ -95,6 +95,12 @@ export const formatRelativeDateValue = (value: string): string => {
     return `${parsedValue.amount} ${unit}${parsedValue.amount === 1 ? '' : 's'} ago`
 }
 
+// HogQL lexes a placeholder only in code, so `{variables.x}` written inside a string literal or a
+// comment is text, not a reference. Drop those spans first, or the panel grows a control nobody uses.
+// An unterminated span matches nothing and is left alone, which is the right answer while a query is
+// still being typed.
+const NON_CODE = /'(?:[^'\\]|\\.|'')*'|--[^\n]*|\/\*[\s\S]*?\*\//g
+
 // Keep this the same grammar HogQL accepts inside a placeholder — bare, backquoted or
 // double-quoted — or a variable the query resolves goes undiscovered and its control disappears.
 // The `g` flag makes this matchAll-only: `test` or `exec` would inherit lastIndex between calls.
@@ -107,7 +113,7 @@ export const formatVariableReference = (codeName: string): string =>
 export const getVariablesFromQuery = (query: string): string[] => {
     const codeNames = new Set<string>()
 
-    for (const [, bare, backquoted, doubleQuoted] of query.matchAll(VARIABLE_REFERENCE)) {
+    for (const [, bare, backquoted, doubleQuoted] of query.replace(NON_CODE, '').matchAll(VARIABLE_REFERENCE)) {
         if (bare !== undefined) {
             codeNames.add(bare)
         } else if (backquoted !== undefined) {

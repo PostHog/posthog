@@ -45,6 +45,14 @@ describe('getVariablesFromQuery', () => {
         ['repeated references once', 'SELECT {variables.date}, {variables.date}', ['date']],
         ['whitespace around the chain', 'SELECT { variables . product }', ['product']],
         ['a filters placeholder', 'SELECT {filters.dateRange}', []],
+        ['nothing inside a string literal', "SELECT '{variables.product}'", []],
+        ['nothing inside a line comment', 'SELECT 1 -- {variables.product}', []],
+        ['nothing inside a block comment', 'SELECT /* {variables.product} */ 1', []],
+        [
+            'a real reference past a comment holding an apostrophe',
+            "SELECT 1 -- don't\n, {variables.product}",
+            ['product'],
+        ],
     ])('reads %s', (_name, query, expected) => {
         expect(getVariablesFromQuery(query)).toEqual(expected)
     })
