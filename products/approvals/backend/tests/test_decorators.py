@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.api.utils import ServiceRequest
 
 from products.approvals.backend.decorators import _create_change_request
@@ -161,12 +163,15 @@ class TestApprovalGateFailsClosed(APIBaseTest):
         assert flag.active is False
 
 
-class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
-    """`intent` holds the endpoint serializer's validated_data, which carries native Python
-    objects for typed fields. A `datetime` in there used to abort the INSERT inside psycopg and
-    surface as an opaque "Failed to create approval request", blocking every gated save."""
+class TestChangeRequestPayloadsAreJsonSafe(APIBaseTest):
+    """`intent` and `intent_display` hold the endpoint serializer's validated_data, which carries
+    native Python objects for typed fields. A `datetime` in there used to abort the INSERT inside
+    psycopg and surface as an opaque "Failed to create approval request", blocking every gated
+    save."""
 
-    def _create_change_request(self, intent: dict[str, Any]) -> ChangeRequest:
+    def _create_change_request(
+        self, intent: dict[str, Any], display_data: dict[str, Any] | None = None
+    ) -> ChangeRequest:
         action_class = MagicMock()
         action_class.key = "feature_flag.update"
         action_class.version = 1
@@ -178,20 +183,43 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
             organization=self.organization,
             resource_id="1",
             intent_data=intent,
-            display_data={},
+            display_data=display_data or {},
             policy_snapshot={},
             user=self.user,
             expires_at=timezone.now() + timedelta(days=14),
         )
 
-    def test_datetime_in_intent_is_stored_as_an_iso_string(self):
+    @parameterized.expand(
+        [
+            ("intent", "full_request_data"),
+            ("intent_display", "after"),
+        ]
+    )
+    def test_datetime_in_a_json_payload_is_stored_as_an_iso_string(self, field: str, payload_key: str):
         called_at = timezone.now()
+        payload = {"key": "test-flag", "last_called_at": called_at}
 
+        # `get_display_data` copies `full_request_data` into `intent_display["after"]`, so both
+        # fields carry the same native datetime the serializer put in `validated_data`.
         change_request = self._create_change_request(
-            {"full_request_data": {"key": "test-flag", "last_called_at": called_at}}
+            {"full_request_data": payload},
+            display_data={"description": "Update feature flag", "after": payload},
         )
 
         change_request.refresh_from_db()
-        stored = change_request.intent["full_request_data"]["last_called_at"]
+        stored = getattr(change_request, field)[payload_key]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
         assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
+
+    def test_returned_instance_matches_what_was_stored(self):
+        change_request = self._create_change_request(
+            {"full_request_data": {"key": "test-flag", "last_called_at": timezone.now()}}
+        )
+
+        returned = change_request.intent["full_request_data"]["last_called_at"]
+
+        change_request.refresh_from_db()
+        assert returned == change_request.intent["full_request_data"]["last_called_at"], (
+            "the 409 body serializes the returned instance, so it must not carry a "
+            "representation that differs from every later read of the row"
+        )
