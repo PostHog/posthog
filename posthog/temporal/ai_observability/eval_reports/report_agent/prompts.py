@@ -87,8 +87,9 @@ def build_eval_report_system_prompt(
     evaluation_target: str = "generation",
     report_prompt_guidance: str = "",
     true_is_failure: bool = False,
+    output_config: dict | None = None,
 ) -> str:
-    definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
+    definition = get_outcome_definition(output_type, true_is_failure=true_is_failure, output_config=output_config)
     description_section = f"Description: {evaluation_description}\n" if evaluation_description else ""
     prompt_section = f"Evaluation prompt/criteria:\n```\n{evaluation_prompt}\n```\n" if evaluation_prompt else ""
     guidance_section = ""
@@ -134,9 +135,20 @@ def build_eval_report_system_prompt(
             "- Ground every claim about frustration in the user's own words. Quote or closely paraphrase the actual "
             "last user message from real negative generations you cited.\n"
         )
-    elif output_type == "boolean":
+    elif output_type in ("boolean", "numeric"):
         evaluated_unit = get_target_descriptor(evaluation_target).unit_label
-        if true_is_failure:
+        if output_type == "numeric":
+            rule = definition.numeric_config.passing_rule if definition.numeric_config else None
+            if rule is None:
+                raise ValueError("Numeric reports require a passing rule")
+            operator = ">=" if rule.operator == "gte" else "<="
+            result_semantics = (
+                f"The evaluation returns a numeric score. Scores {operator} {rule.threshold} pass; other scores fail. "
+                "Both periods use this same passing rule. N/A results do not count toward the pass rate. "
+                "Interpret the raw score using the evaluation criteria; it is not a normalized percentage. "
+                f"Score configuration: {output_config}"
+            )
+        elif true_is_failure:
             result_semantics = (
                 f"This evaluation looks for a problem. A true result means the {evaluated_unit} matched the "
                 "condition it looks for, so it is reported as a fail, and a false result is reported as a pass. "
