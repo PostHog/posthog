@@ -234,6 +234,17 @@ def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
     }
 
 
+def _without_bytecode_contracts(node: Any) -> Any:
+    # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
+    # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
+    # nobody changed it, so the revision comparison must not count the stamp as content.
+    if isinstance(node, dict):
+        return {key: _without_bytecode_contracts(value) for key, value in node.items() if key != "bytecode_contract"}
+    if isinstance(node, list):
+        return [_without_bytecode_contracts(item) for item in node]
+    return node
+
+
 def _wait_condition_already_stored(action: dict, context: dict) -> bool:
     """
     True when this wait's condition matches the one already persisted for the same action.
@@ -4592,8 +4603,8 @@ class HogFlowViewSet(
         # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
         # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
         template_cache: TemplateCache = {}
-        old_content = strip_content_secrets(raw_old, template_cache)
-        new_content = strip_content_secrets(raw_new, template_cache)
+        old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
+        new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
         if new_content == old_content:
             return False
         instance.version = (before.version or 0) + 1
