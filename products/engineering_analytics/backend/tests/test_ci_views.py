@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 import pandas as pd
+from parameterized import parameterized
 
 from posthog.hogql.query import execute_hogql_query
 
@@ -377,12 +379,10 @@ class TestExpectedWarehouseViews(BaseTest):
         names = {view.name for view in get_expected_warehouse_views(self.team)}
         assert names == {job_costs.VIEW_NAME, ci_job_history.VIEW_NAME, ci_failures.VIEW_NAME}
 
-    def test_pull_request_snapshot_adds_the_materialized_friction_view(self) -> None:
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_friction_view_needs_the_pull_request_snapshot_and_the_flag(self, _name: str, flag_on: bool) -> None:
         self._qualifying_source(with_pull_requests=True)
-        materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}
-        assert materialized == {
-            job_costs.VIEW_NAME: False,
-            ci_job_history.VIEW_NAME: False,
-            ci_failures.VIEW_NAME: False,
-            pr_friction.VIEW_NAME: True,
-        }
+        with patch("posthoganalytics.feature_enabled", return_value=flag_on):
+            materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}
+        per_job = {job_costs.VIEW_NAME: False, ci_job_history.VIEW_NAME: False, ci_failures.VIEW_NAME: False}
+        assert materialized == ({**per_job, pr_friction.VIEW_NAME: True} if flag_on else per_job)

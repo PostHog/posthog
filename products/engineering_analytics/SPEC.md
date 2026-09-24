@@ -133,6 +133,7 @@ The per-PR friction view is the exception, below: it also needs the `pull_reques
 - The red and running time is the PR timeline replay (§6) written as set-based HogQL, so one query covers every pull request in the window. `tests/test_pr_friction.py` replays seeded pull requests through both and asserts they agree, the way the cost view is held to the Python cost model.
 - It counts friction and does not score it. Curves and weights are applied when the view is read, so a weight change needs no rematerialization.
 - Materialized on the managed-view schedule, because the replay is too heavy to run on every read. Each run replaces the table, so it only holds the pull requests inside the window.
+- A materialized view spends the team's warehouse compute, so it exists only for organizations the `engineering-analytics-friction` flag targets. The flag is evaluated per organization, because the view sync runs with no user.
 
 ## 6. Locked decisions
 
