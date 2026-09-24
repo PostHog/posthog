@@ -6868,6 +6868,14 @@ snapshots:
         hash: v1.k794b7964.58421fb9485687230fc55051bb13eeefff6fec4dbc8cc0eeb9a9a9f3f39a30cd.RKEFDA_TPq6C7rBaWvs1_loggCz5bgkCHWNiGQWxX0c
     products-tracing-operationstable--with-impact-columns--light:
         hash: v1.k794b7964.eac04f11bc22c27252d415d04b4a1aa49fd3b8efcfc52ffee28a7e6b6e318417.A4sjcvRfFZFLstF9ShgxDiEyFTQSKg_n9y-x7DdIZpc
+    products-tracing-spancolumnconfigurator--default--dark:
+        hash: v1.k794b7964.ddb8c208195e94e8450741f84591cacdf160b9e0a4f763a9aae69989f5717328.L_CV7gZ-Yck4tTQgdgfBmzPNv_f6lcbbTQpgNT1RVfE
+    products-tracing-spancolumnconfigurator--default--light:
+        hash: v1.k794b7964.8183e665cb53bd3e71430326613bbd2cf587e162f0ad79db63ec95db8c4321c8.nZV9xPiUoxp81vFV1GmsNVBc2k-csd-A9D3Q9x-suyI
+    products-tracing-spancolumnconfigurator--open--dark:
+        hash: v1.k794b7964.8593002639416ff82ec25ffd9dbd484d6f92572ecf716dc11c4e62ddc9c6e786.A8DAKTBg4n3HzPrUJreAwiLSCnXuwYULGNxH1p9-02o
+    products-tracing-spancolumnconfigurator--open--light:
+        hash: v1.k794b7964.f470fce788f7243085e34023bfd25fb5663d0ff5ccdb4c23cf5d6f13657d9396.M5rsCUQKDv0qrlwQlMerb_pcH6fZTAQ-vULq5UIwORc
     products-tracing-spanerrorsbadge--one-error--dark:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.1kPC96NYK5FnS-qAPmFe5Vilt5aDnR_LOwvKi4SCHhw
     products-tracing-spanerrorsbadge--one-error--light:
@@ -6888,6 +6896,10 @@ snapshots:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.FoUJvZ3pT1VvRHqfLTd8ng_hDXpYvjWqiodIwsZhnGw
     products-tracing-spanerrorsbadge--trace-tier-with-more-in-session--light:
         hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.I52iOSlgYhkIDdh5N-Zm-Kb0yYD09_Fdkwzq1RvocwQ
+    products-tracing-virtualizedspanlist--custom-columns--dark:
+        hash: v1.k794b7964.706ec8b392aa8b7e63123ae73233f0aa49314df1f4c32894f6f48c7883c35cf3.4royX3fTwY_wCZ7DXohmhbu1njNM4B7nRI6YgxJaKiw
+    products-tracing-virtualizedspanlist--custom-columns--light:
+        hash: v1.k794b7964.ffc6e715cd33a584638b103b68ccb07b17259a87163bd9b820a145fc3ddf4f98.M1A9A8lb1VsycA0Aytgr0GEpJJL5j2fz093ClO0THKI
     products-tracing-virtualizedspanlist--default--dark:
         hash: v1.k794b7964.d6cf5ccbc379f67404b237b878878ce7e60512d45869c05c24dfab7784335406.zEh7cw_wZ10BGEuJkOUdjqS8SiWt7386-Cuz4Qc0Les
     products-tracing-virtualizedspanlist--default--light:
@@ -6897,9 +6909,9 @@ snapshots:
     products-tracing-virtualizedspanlist--empty--light:
         hash: v1.k794b7964.72ff685c9162da170263d416510a2cc5229c999691288c0b8038143000a40f15.ebvPm2A_7cN8QvjEaroudYEO1lp9qFUooW98MMcDBwY
     products-tracing-virtualizedspanlist--with-error-badges--dark:
-        hash: v1.k794b7964.42abb3fdc9a580251a24fb411200fd29c62129989c435d24c92b88daf82b3886.bdomWMdvS-XzhaZRXAUC6CdeuNq2sAFSW9pmpYVSD7M
+        hash: v1.k794b7964.c399531ee10ef73a5ca2b732484e1eae553f40b5b95c98fc0ab0b6a5d9711188.juWZKdvphiQP-rSsWPBDvU-9cRByiTb3dLrcfV1Qh3Y
     products-tracing-virtualizedspanlist--with-error-badges--light:
-        hash: v1.k794b7964.15d4fc501256abd83be7a13b59db0073a1d175aeec62177d327a92024d0186d9.XHqEWOoFuCaN7-Uc2dZ5PlU9VHycCpsiv3pS6Silirw
+        hash: v1.k794b7964.7064ad6b5165631307d602ba3adcfd3fd5eb02107c8d3835c88c00df43bcad7f.3hK9J7DUCY3pFw2181ZBZbZsWlFkjm4Ydl5VNnzR5fA
     products-web-analytics-content-autopilot-proposal-card--blocking-validation--dark:
         hash: v1.k794b7964.8209374f939a22b6b211c2a21698ca15c4d6e18eda905eafc2c826539fa6a6f3.iZuZv-_mdz_BoFNzarvgUmumBKyNRvbdYMCWKcRQ5Bs
     products-web-analytics-content-autopilot-proposal-card--blocking-validation--light:

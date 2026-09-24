@@ -10,6 +10,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
 import { TracingImpactStrip } from './components/TracingImpactStrip'
+import { SpanColumnConfigurator } from './components/VirtualizedSpanList/SpanColumnConfigurator'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 
@@ -18,7 +19,7 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
  *
  *  - left: the facet rail toggle, the row-mode selector (Traces ⇄ Spans ⇄ Operations — what
  *    each result row represents), and the matching-count indicator.
- *  - right: Compare, hidden on the Operations view where it doesn't apply.
+ *  - right: column configuration (span list only) and Compare, both hidden on Operations.
  */
 export function TracingDisplayBar(): JSX.Element {
     const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled } = useValues(tracingSceneLogic())
@@ -102,6 +103,9 @@ export function TracingDisplayBar(): JSX.Element {
             </div>
             {inTracesView && (
                 <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* A comparison replaces the span list with its own fixed table, so there are
+                        no columns to configure while it is on. */}
+                    {!compareActive && <SpanColumnConfigurator />}
                     <CompareMenuButton />
                 </div>
             )}
