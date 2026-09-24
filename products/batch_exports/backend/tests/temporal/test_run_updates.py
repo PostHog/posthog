@@ -501,8 +501,8 @@ async def test_finish_batch_export_run_produces_paused_internal_event(activity_e
 
     with (
         unittest.mock.patch(
-            "products.batch_exports.backend.temporal.batch_exports.check_if_over_failure_threshold",
-            return_value=True,
+            "products.batch_exports.backend.temporal.batch_exports.count_failures_in_check_window",
+            return_value=3,
         ),
         unittest.mock.patch(
             "products.batch_exports.backend.temporal.batch_exports.pause_batch_export_over_failure_threshold",
@@ -522,6 +522,70 @@ async def test_finish_batch_export_run_produces_paused_internal_event(activity_e
         "$batch_export_run_failed",
         "$batch_export_paused",
     ]
+
+
+@pytest.mark.parametrize(
+    "failure_count,expected_was_paused,expected_failures_until_pause",
+    [(1, False, 2), (3, True, 0)],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_notifies_with_real_pause_outcome(
+    activity_environment,
+    team,
+    batch_export,
+    failure_count,
+    expected_was_paused,
+    expected_failures_until_pause,
+):
+    """Test 'finish_batch_export_run' tells the failure email whether the export was really paused."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    run_id = await activity_environment.run(
+        start_batch_export_run,
+        StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        ),
+    )
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status=BatchExportRun.Status.FAILED,
+        team_id=team.id,
+        latest_error="Oh No!",
+    )
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.count_failures_in_check_window",
+            return_value=failure_count,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.pause_batch_export_over_failure_threshold",
+            return_value=True,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.cancel_running_backfills",
+            return_value=0,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports._dispatch_batch_export_failure_realtime"
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.send_batch_export_run_failure"
+        ) as mocked_send_email,
+        unittest.mock.patch("products.batch_exports.backend.temporal.batch_exports.try_produce"),
+    ):
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    assert mocked_send_email.call_count == 1
+    assert mocked_send_email.call_args.kwargs["was_paused"] is expected_was_paused
+    assert mocked_send_email.call_args.kwargs["failures_until_pause"] == expected_failures_until_pause
 
 
 @pytest.mark.parametrize("status", [BatchExportRun.Status.CANCELLED, BatchExportRun.Status.FAILED_RETRYABLE])

@@ -74,14 +74,22 @@ AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch]
 KafkaPayload = dict[str, typing.Any]
 
 
-def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
+def _notify_run_failure(
+    batch_export_run_id: str | UUIDT,
+    was_paused: bool,
+    failures_until_pause: int,
+) -> None:
     """Fan out failure notifications across every channel for a failed run.
 
     Both channels swallow their own exceptions, so this helper itself never raises.
     """
     email_sent = False
     try:
-        send_batch_export_run_failure(batch_export_run_id)
+        send_batch_export_run_failure(
+            batch_export_run_id,
+            was_paused=was_paused,
+            failures_until_pause=failures_until_pause,
+        )
         email_sent = True
     except Exception:
         LOGGER.exception(
@@ -704,8 +712,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        await database_sync_to_async(_notify_run_failure)(inputs.id)
-
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",
             batch_export_run.data_interval_start or "START",
@@ -713,16 +719,23 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             batch_export_run.latest_error,
         )
 
-        is_over_failure_threshold = await check_if_over_failure_threshold(
+        failure_count = await count_failures_in_check_window(
             inputs.batch_export_id,
             check_window=inputs.failure_check_window,
             failure_threshold=inputs.failure_threshold,
         )
 
         was_paused = False
-        if is_over_failure_threshold:
+        if failure_count >= inputs.failure_threshold:
             was_paused = await try_pause_batch_export(inputs.batch_export_id)
             await try_cancel_running_backfills(inputs.batch_export_id)
+
+        # Notify after the pause attempt, so the notification reports the real outcome.
+        await database_sync_to_async(_notify_run_failure)(
+            inputs.id,
+            was_paused=was_paused,
+            failures_until_pause=max(inputs.failure_threshold - failure_count, 0),
+        )
 
         payloads = make_internal_events_payload(
             batch_export_run.status,
@@ -947,8 +960,8 @@ async def try_produce(payloads: list[KafkaPayload], topic: str) -> None:
         LOGGER.exception("Producer failed", topic=topic)
 
 
-async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
-    """Check if a given batch export is over failure threshold.
+async def count_failures_in_check_window(batch_export_id: str, check_window: int, failure_threshold: int) -> int:
+    """Count the failed runs of a batch export in its check window.
 
     A 'check_window' was added to account for batch exports that have a history of failures but have some
     occassional successes in the middle. This is relevant particularly for low-volume exports:
@@ -964,7 +977,7 @@ async def check_if_over_failure_threshold(batch_export_id: str, check_window: in
         failure_threshold: The number of runs that must have failed for a batch export to be paused.
 
     Returns:
-        A bool indicating if the batch export is paused.
+        The number of failed runs in the check window.
 
     Raises:
         ValueError: If 'check_window' is smaller than 'failure_threshold' as that check would be redundant and,
@@ -973,11 +986,7 @@ async def check_if_over_failure_threshold(batch_export_id: str, check_window: in
     if check_window < failure_threshold:
         raise ValueError("'failure_threshold' cannot be higher than 'check_window'")
 
-    count = await acount_failed_batch_export_runs(uuid.UUID(batch_export_id), last_n=check_window)
-
-    if count < failure_threshold:
-        return False
-    return True
+    return await acount_failed_batch_export_runs(uuid.UUID(batch_export_id), last_n=check_window)
 
 
 async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> bool:

@@ -1087,6 +1087,8 @@ def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, d
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
     failure_rate: float = 1.0,
+    was_paused: bool = False,
+    failures_until_pause: int | None = None,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -1116,8 +1118,15 @@ def send_batch_export_run_failure(
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
+    if was_paused:
+        # A pause is the one outcome worth a second email on a day that already sent one.
+        campaign_key += "_paused"
 
-    subject = f"PostHog: {batch_export.name} batch export run failure"
+    subject = (
+        f"PostHog: {batch_export.name} batch export paused after repeated failures"
+        if was_paused
+        else f"PostHog: {batch_export.name} batch export run failure"
+    )
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
@@ -1127,6 +1136,8 @@ def send_batch_export_run_failure(
             "team": team,
             "id": batch_export.id,
             "name": batch_export.name,
+            "was_paused": was_paused,
+            "failures_until_pause": failures_until_pause,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
