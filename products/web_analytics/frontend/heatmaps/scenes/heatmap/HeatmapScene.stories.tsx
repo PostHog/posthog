@@ -1,6 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -139,14 +137,15 @@ export const IframeExampleWithEventFilter: Story = {
     },
     decorators: IframeExample.decorators,
     play: async () => {
-        const toggle = await waitFor(() => {
-            const button = document.querySelector<HTMLElement>('[data-attr="heatmap-filters-toggle"]')
-            if (!button) {
-                throw new Error('Filters toggle not rendered')
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const toggle = document.querySelector<HTMLElement>('[data-attr="heatmap-filters-toggle"]')
+            if (toggle) {
+                toggle.click()
+                return
             }
-            return button
-        })
-        await userEvent.click(toggle)
+            await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        throw new Error('Filters toggle not rendered')
     },
 }
 
