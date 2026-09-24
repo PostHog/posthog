@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
+from products.signals.backend.report_links import PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -77,6 +78,7 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
 }
 
@@ -922,16 +924,17 @@ You run this tooling end to end on a schedule, so your experience is how PostHog
 - **At most one submission per run, near close-out, mentioned in your summary.** This is a side report to the PostHog team, never a way to end your turn or skip work: finish the run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
-_LINKING_HEAD = """# Linking what you reference
+_LINKING_HEAD = f"""# Linking what you reference
 
-A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
+A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity, pull request, and issue you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
 
 - **Take the link off the tool result when it has one.** A result carrying a `*url` field (`_posthogUrl` and friends) already holds the canonical link, so surface it verbatim rather than rewriting or stripping it.
 - **Otherwise call `generate-app-url`** and use the `url` it returns verbatim. Never assemble a path around an id you retyped: a wrong slug reads as a working link and drops the reader on a 404.
 - **Never assemble an `/insights/new#q=…` link yourself.** Wrapping a query you ran into an insight URL only renders for the query kinds the insight editor accepts as a source; a trace, log, or session query wrapped that way opens a blank new insight with no error, so the reader sees an empty chart and has no way to tell the link is broken. Link the entity's own page instead.
 - **When neither source reaches the entity itself, keep the bare id.** Some entities have no detail page in the URL catalog (an insight alert, for one: `alert-get` returns its url, the catalog has only the `/alerts` list). Don't substitute a link to the list page the entity sits on, which reads as a link to the thing and drops the reader somewhere they still have to search.
 - **Full URLs only** (origin plus path), because a bare path is not clickable in the inbox or in Slack. Take the origin from the link the tool returned rather than from memory, since this project may not sit on the host you assume, and never include `/-/`.
-- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query."""
+- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query.
+{PULL_REQUEST_LINK_RULE}"""
 
 # Both caveats are report-channel-only concerns. Charts render on the report channel alone, so the
 # collision the first warns about (writing a real URL where a `chart:` target belongs, or the
