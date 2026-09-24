@@ -126,7 +126,11 @@ def _as_mapping(value: object) -> Mapping[str, object] | None:
 def _as_probability(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    probability = float(value)
+    try:
+        probability = float(value)
+    except OverflowError:
+        # JSON integers have no size limit, and one past the float range cannot be a probability.
+        return None
     if not math.isfinite(probability) or not 0 <= probability <= 1:
         return None
     return probability
@@ -210,7 +214,7 @@ def system_one(
     if body is None or raw_answers is None:
         raise TypeSafeRequestFailed("TypeSafe returned no answers")
     answered_model = body.get("model")
-    if not isinstance(answered_model, str):
+    if not isinstance(answered_model, str) or not answered_model:
         raise TypeSafeRequestFailed("TypeSafe returned no model")
 
     usage = _as_mapping(body.get("usage")) or {}

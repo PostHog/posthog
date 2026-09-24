@@ -111,6 +111,7 @@ class TestTypeSafeEgress(SimpleTestCase):
                 None,
             ),
             ("noul_out_of_range", 200, _with_answer("urgent", {"type": "noul", "noul": 1.5}), None),
+            ("noul_past_the_float_range", 200, _with_answer("urgent", {"type": "noul", "noul": 10**400}), None),
             (
                 "choice_outside_the_options",
                 200,
