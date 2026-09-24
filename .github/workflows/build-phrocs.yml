@@ -37,6 +37,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
 
+        # A manual run can start from any branch, so the ref check keeps a release on master.
         if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
 
         steps:
