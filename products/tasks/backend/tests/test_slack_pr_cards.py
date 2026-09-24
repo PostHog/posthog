@@ -32,7 +32,7 @@ class TestPostPrClosedSlackUpdate(TestCase):
             origin_product=Task.OriginProduct.SLACK,
             state={SLACK_NOTIFIED_PR_URL_STATE_KEY: PR_URL},
         )
-        self.run = TaskRun.objects.create(
+        self.task_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
@@ -46,7 +46,7 @@ class TestPostPrClosedSlackUpdate(TestCase):
             "channel": "C001",
             "thread_ts": "1234.5678",
             "task": self.task,
-            "task_run": self.run,
+            "task_run": self.task_run,
             "mentioning_slack_user_id": "U_MENTIONER",
         }
         footer_patcher = patch(
@@ -71,7 +71,7 @@ class TestPostPrClosedSlackUpdate(TestCase):
         posts = []
         for _ in range(2):
             mock_post.reset_mock()
-            post_pr_closed_slack_update(str(self.run.id), closed_pr_url)
+            post_pr_closed_slack_update(str(self.task_run.id), closed_pr_url)
             posts.append(mock_post.call_count)
 
         assert posts == expected_posts
@@ -80,7 +80,7 @@ class TestPostPrClosedSlackUpdate(TestCase):
     def test_tags_the_run_actor_and_passes_the_outcome(self, mock_post):
         SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
 
-        post_pr_closed_slack_update(str(self.run.id), PR_URL, merged=True)
+        post_pr_closed_slack_update(str(self.task_run.id), PR_URL, merged=True)
 
         mock_post.assert_called_once_with(
             PR_URL, "http://localhost:8000/project/1/tasks/1", reply_target_slack_user_id="U_ACTOR", merged=True

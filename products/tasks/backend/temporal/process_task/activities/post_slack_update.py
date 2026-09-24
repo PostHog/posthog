@@ -80,7 +80,7 @@ _RECOVERY_PROMPTS = {
 SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
 
 
-@dataclass
+@dataclass(frozen=False)
 class PostSlackUpdateInput:
     run_id: str
     slack_thread_context: dict[str, Any]

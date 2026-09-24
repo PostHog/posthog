@@ -115,7 +115,7 @@ def _format_task_error(error: str) -> str:
     return error
 
 
-@dataclass
+@dataclass(frozen=False)
 class SlackThreadContext:
     """Context for posting messages to a Slack thread."""
 
