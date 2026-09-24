@@ -60,7 +60,7 @@ jobs:
                   check_url() {
                       local app_id=$1
                       local name=$2
-                      printf 'https://api.github.com/repos/%s/commits/%s/check-runs?app_id=%s&check_name=%s' \
+                      printf 'https://api.github.com/repos/%s/commits/%s/check-runs?app_id=%s&filter=all&per_page=100&check_name=%s' \
                           "$REPO" "$HEAD_SHA" "$app_id" "$(jq -rn --arg n "$name" '$n | @uri')"
                   }
 
@@ -104,9 +104,11 @@ jobs:
                   details_url=''
                   for _ in $(seq 1 210); do
                       if read_check "$migration_url" /tmp/migration-checks.json; then
+                          # Matches latest_run in the relay step of .github/workflows/ci-backend.yml, which
+                          # explains the empty pull_requests match and the cancelled-run rule.
                           readarray -t check < <(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
-                              [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
-                              | max_by(.id)
+                              [.check_runs[] | select((.started_at // "") >= $since and ((.pull_requests | length) == 0 or any(.pull_requests[]; .number == $pr)))]
+                              | (map(select(.conclusion != "cancelled")) | max_by(.id)) // max_by(.id)
                               | if . == null then "absent", "" else (if .status == "completed" then .conclusion else .status end), (.details_url // "") end
                           ' /tmp/migration-checks.json)
                           migration_state=${check[0]:-absent}
