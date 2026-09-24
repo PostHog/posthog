@@ -38,6 +38,31 @@ pytest products/signals/eval/eval_grouping_e2e.py -xvs --limit 10 --no-capture
 pytest products/signals/eval/eval_grouping_e2e.py -xvs --online
 ```
 
+### Jev-compatible one-shot evals
+
+The Jev eval covers actionability, signal safety, and report safety with 270 labeled cases. It sends direct `state` and `questions` request bodies and records correctness, latency, token usage, request size, and optional estimated cost.
+
+Run against an endpoint:
+
+```bash
+JEV_API_URL=https://example.com/v1/systemone \
+JEV_API_KEY=... \
+pytest products/signals/eval/eval_jev.py --no-capture
+```
+
+Use `JEV_USERNAME` and `JEV_PASSWORD` instead of `JEV_API_KEY` for HTTP Basic authentication. Set `JEV_CONCURRENCY` to control parallel requests. The default is one request at a time.
+
+Export the labeled requests as JSONL without calling an endpoint:
+
+```bash
+JEV_EXPORT_PATH=/tmp/signals-jev-evals.jsonl \
+pytest products/signals/eval/eval_jev.py --no-capture
+```
+
+Each JSONL row contains `case_id`, `task`, the request body, and the expected answer. The request body can be posted directly to a Jev-compatible endpoint.
+
+The default probability threshold is `0.5`. Override it per task with `JEV_ACTIONABILITY_THRESHOLD`, `JEV_SIGNAL_SAFETY_THRESHOLD`, or `JEV_REPORT_SAFETY_THRESHOLD`. Set `JEV_INPUT_USD_PER_MILLION` and `JEV_OUTPUT_USD_PER_MILLION` to include estimated cost.
+
 ### Required environment variables
 
 Set in `.env` at the repo root (loaded automatically):
