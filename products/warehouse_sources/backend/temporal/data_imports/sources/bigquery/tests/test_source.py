@@ -2429,9 +2429,7 @@ _COMPLETE_KEY_FILE = {
         # The credential the user did not pick must not satisfy the one they did.
         ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
         ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
-        # The form also sends the unpicked option's empty key file, which must not block the save.
         ({"selection": "service_account", "google_cloud_service_account_integration_id": 7, "key_file": {}}, True),
-        # A JSON file that is not a service account key, or one that lost fields.
         ({"selection": "key_file", "key_file": {"type": "authorized_user"}}, False),
         ({"selection": "key_file", "key_file": {"project_id": "my-project"}}, False),
     ],
@@ -2443,7 +2441,6 @@ def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_
     is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", "auth_type": auth_type})
 
     assert is_valid is expected_valid
-    # The key file's fields are read out of the uploaded JSON, so naming one tells the user nothing.
     assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)
@@ -2457,11 +2454,10 @@ def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_
         ({"auth_type": "service_account"}, False),
         ({"auth_type": "key_file"}, False),
         ({"auth_type": "key_file", "key_file": {"project_id": "my-project"}}, False),
+        ({"auth_type": "key_file", "key_file": {**_COMPLETE_KEY_FILE, "private_key": ""}}, False),
     ],
 )
 def test_bigquery_validate_config_reads_a_bare_selection_from_the_flat_payload(job_inputs, expected_valid):
-    """`auth_type` also arrives as the bare string naming the option, with the credential fields at
-    the top level. The credential check has to find them there too, or a source with none saves."""
     is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", **job_inputs})
 
     assert is_valid is expected_valid

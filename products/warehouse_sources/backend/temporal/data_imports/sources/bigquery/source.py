@@ -55,9 +55,8 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 # Every field of the key file is read out of the JSON the user uploads, never typed into the form,
 # so the generic "Required field ..." error for one names something they have no way to fill in.
-_KEY_FILE_FIELD_ERRORS = frozenset(
-    source_config.missing_field_error(field.name) for field in dataclasses.fields(BigQueryAuthTypeConfigKeyFileConfig)
-)
+_KEY_FILE_FIELD_NAMES = tuple(field.name for field in dataclasses.fields(BigQueryAuthTypeConfigKeyFileConfig))
+_KEY_FILE_FIELD_ERRORS = frozenset(source_config.missing_field_error(name) for name in _KEY_FILE_FIELD_NAMES)
 _MISSING_KEY_FILE_ERROR = "Upload a Google Cloud service account JSON key file."
 _INCOMPLETE_KEY_FILE_ERROR = (
     "That file is not a complete Google Cloud service account key. Upload the JSON key file "
@@ -408,8 +407,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
 
         # An empty `key_file` object reaches us both when the upload produced nothing and when the
         # form sends the option the user did not pick, so on its own it says nothing worth showing.
-        key_file_fields_missing = any(error in _KEY_FILE_FIELD_ERRORS for error in errors)
-        if key_file_fields_missing:
+        if any(error in _KEY_FILE_FIELD_ERRORS for error in errors):
             errors = [error for error in errors if error not in _KEY_FILE_FIELD_ERRORS]
             is_valid = not errors
 
@@ -433,7 +431,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             if not isinstance(key_file, dict) or not any(key_file.values()):
                 errors.append(_MISSING_KEY_FILE_ERROR)
                 is_valid = False
-            elif key_file_fields_missing:
+            elif not all(key_file.get(name) for name in _KEY_FILE_FIELD_NAMES):
                 errors.append(_INCOMPLETE_KEY_FILE_ERROR)
                 is_valid = False
         elif credentials.get("google_cloud_service_account_integration_id") in (None, ""):
