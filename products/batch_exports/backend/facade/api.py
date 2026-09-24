@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from temporalio.client import Client
 
 __all__ = [
+    "FAILED_BACKFILL_STATUSES",
     "MultipleBatchExportsError",
     "backfill_batch_export",
     "count_batch_exports_for_teams",
@@ -71,6 +72,17 @@ FAILED_RUN_STATUSES = (
     BatchExportRun.Status.FAILED_RETRYABLE,
     BatchExportRun.Status.TIMEDOUT,
     BatchExportRun.Status.TERMINATED,
+)
+
+# The statuses of a backfill that can stop before it exports anything.
+FAILED_BACKFILL_STATUSES = frozenset(
+    {
+        BatchExportBackfill.Status.CANCELLED,
+        BatchExportBackfill.Status.FAILED,
+        BatchExportBackfill.Status.FAILED_RETRYABLE,
+        BatchExportBackfill.Status.TERMINATED,
+        BatchExportBackfill.Status.TIMEDOUT,
+    }
 )
 
 # An on-demand export has no name of its own, so a failure list labels it generically.

@@ -1,20 +1,20 @@
 import logging
 import datetime as dt
+from collections.abc import Sequence
 
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import BatchExportDetail
+from products.batch_exports.backend.facade.contracts import BatchExportBackfillSummary, BatchExportDetail
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 EXPORT_NAME = "PostHog HTTP Migration"
 HTTP_DESTINATION_TYPE = "HTTP"
-# A backfill in one of these statuses can stop before it exports anything.
-FAILED_BACKFILL_STATUSES = {"Cancelled", "Failed", "FailedRetryable", "Terminated", "TimedOut"}
+DATA_START_UNBOUNDED = "the start of the team's data"
 VALID_INTERVALS = set(batch_exports_api.list_supported_intervals())
 REGION_URLS = {
     "us": "https://app.posthog.com/batch",
@@ -143,6 +143,25 @@ class Command(BaseCommand):
         )
 
 
+def get_migrated_data_start(backfills: Sequence[BatchExportBackfillSummary]) -> dt.datetime | str | None:
+    """Return where the migrated data begins, from the backfills that did not fail.
+
+    A later backfill can cover a narrower range than the one the command started, so the
+    earliest start wins. A backfill with no start exports all data, so the range is then
+    unbounded. None means that every backfill failed.
+    """
+    starts = [
+        backfill.adjusted_start_at or backfill.start_at
+        for backfill in backfills
+        if backfill.status not in batch_exports_api.FAILED_BACKFILL_STATUSES
+    ]
+    if not starts:
+        return None
+    if any(start is None for start in starts):
+        return DATA_START_UNBOUNDED
+    return min(start for start in starts if start is not None)
+
+
 def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
     existing_backfills = batch_exports_api.list_backfills_for_export(existing_export.id, existing_export.team_id)
     if not existing_backfills:
@@ -178,17 +197,7 @@ def display_existing(*, existing_export: BatchExportDetail, verbose: bool):
         )
 
         if most_recent_completed_run:
-            # A later backfill can cover a narrower range than the one the command started, so
-            # the migrated data begins at the earliest start of any backfill that did not fail.
-            data_start_at = min(
-                (
-                    start
-                    for backfill in existing_backfills
-                    if backfill.status not in FAILED_BACKFILL_STATUSES
-                    and (start := backfill.adjusted_start_at or backfill.start_at) is not None
-                ),
-                default=None,
-            )
+            data_start_at = get_migrated_data_start(existing_backfills)
             data_end_at = most_recent_completed_run.data_interval_end
             display(
                 "Found an existing migration, range of data migrated:",
