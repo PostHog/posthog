@@ -67,25 +67,37 @@ function hasMultipleParts(query: TrendsQuery): boolean {
     }
     const trendsFilter = query.trendsFilter
     if (hasTrendsFormula(trendsFilter)) {
-        return (trendsFilter?.formulas?.length ?? trendsFilter?.formulaNodes?.length ?? 1) > 1
+        // The query runner reads formulaNodes first, then the legacy formulas list, then the single formula.
+        return (trendsFilter?.formulaNodes?.length || trendsFilter?.formulas?.length || 1) > 1
     }
     return (query.series?.length ?? 0) > 1
 }
 
-export function loadedBucketCount(insightData: Record<string, any> | null | undefined): number | undefined {
+// A two-bucket range is what the slope graph draws, but only lead with it when its preview can be derived
+// (the same rule as the slope recipe), so the gallery never opens on a blank suggested tile.
+export function isTwoBucketSlopeCandidate(
+    query: TrendsQuery | null,
+    insightData: Record<string, any> | null | undefined
+): boolean {
+    if (!query) {
+        return false
+    }
     const first = insightData?.result?.[0] ?? insightData?.results?.[0]
-    return Array.isArray(first?.days) && first.days.length > 0 ? first.days.length : undefined
+    const twoBuckets = Array.isArray(first?.days) && first.days.length === 2
+    const smoothed = (query.trendsFilter?.smoothingIntervals ?? 1) > 1
+    const truncatedBreakdown = hasBreakdownFilter(query.breakdownFilter) && insightData?.hasMore !== false
+    return twoBuckets && !smoothed && !truncatedBreakdown
 }
 
 function rankRecommendations(
     query: TrendsQuery | null,
     currentDisplay: ChartDisplayType,
-    bucketCount: number | undefined
+    suggestSlope: boolean
 ): ChartDisplayType[] {
     const boosted: ChartDisplayType[] = []
     const hasBreakdown = !!query && hasBreakdownFilter(query.breakdownFilter)
     const demoted = hasBreakdown ? BREAKDOWN_DEMOTED_DISPLAYS : []
-    if (bucketCount === 2) {
+    if (suggestSlope) {
         boosted.push(ChartDisplayType.SlopeGraph)
     }
     if (query) {
@@ -112,14 +124,14 @@ function rankRecommendations(
 export function getChartAlternatives(
     options: ChartDisplayOptionGroup[] | null | undefined,
     query: TrendsQuery | null,
-    bucketCount?: number
+    suggestSlope = false
 ): ChartDisplayOption[] {
     const optionsByDisplay = new Map(
         (options ?? []).flatMap((group) => group.options).map((option) => [option.display, option])
     )
     const currentDisplay = query?.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
     const hasBreakdown = hasBreakdownFilter(query?.breakdownFilter)
-    return rankRecommendations(query, currentDisplay, bucketCount)
+    return rankRecommendations(query, currentDisplay, suggestSlope)
         .filter((recommended) => !hasBreakdown || !NON_BREAKDOWN_DISPLAY_TYPES.includes(recommended))
         .map((recommended) => optionsByDisplay.get(recommended))
         .filter(

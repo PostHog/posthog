@@ -77,16 +77,16 @@ function toTotalValue(result: TrendResult): TrendResult {
     }
 }
 
-// Mirrors the slope query runner's incomplete_end, which dashes the last segment.
-function toSlope(result: TrendResult, source: TrendsQuery): TrendResult {
+// Mirrors the slope query runner's incomplete_end, which dashes the last segment: the last bucket is still
+// accumulating when its end, in the project timezone the response reports, is still ahead of now.
+function toSlope(result: TrendResult, source: TrendsQuery, response: AnyResponseType): TrendResult {
     const ends = <T>(values: T[] | undefined): T[] =>
         values && values.length > 2 ? [values[0], values[values.length - 1]] : (values ?? [])
     const days = ends(result.days)
     const lastDay = days[days.length - 1]
-    const currentBucketStart = dayjs()
-        .tz('utc', true)
-        .startOf(source.interval ?? 'day')
-    const incomplete_end = !!lastDay && dayjs(lastDay).tz('utc', true) >= currentBucketStart
+    const timezone = (response as { timezone?: string }).timezone ?? 'UTC'
+    const incomplete_end =
+        !!lastDay && dayjs.tz(lastDay, timezone).add(1, source.interval ?? 'day') > dayjs().tz(timezone)
     return { ...result, data: ends(result.data), days, labels: ends(result.labels), incomplete_end }
 }
 
@@ -141,7 +141,7 @@ type RowsNeeded = 'buckets' | 'totals' | 'heatmap' | 'boxPlot'
 interface PreviewRecipe {
     needs: RowsNeeded
     when?: (source: TrendsQuery, rows: PreviewRows) => boolean
-    transform?: (result: TrendResult, source: TrendsQuery) => TrendResult
+    transform?: (result: TrendResult, source: TrendsQuery, response: AnyResponseType) => TrendResult
     sampleRows?: (loaded: TrendResult[]) => unknown[]
 }
 
@@ -221,7 +221,7 @@ export function deriveChartPreview(
         const response = recipe.transform
             ? withResults(
                   rows.response,
-                  rows.results.map((result) => recipe.transform!(result, source))
+                  rows.results.map((result) => recipe.transform!(result, source, rows.response))
               )
             : rows.response
 

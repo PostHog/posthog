@@ -31,7 +31,7 @@ import type {
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import { applyChartDisplay, getChartDisplayOptions, hasTrendsFormula } from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
-import { getChartAlternatives, loadedBucketCount } from './chartRecommendations'
+import { getChartAlternatives, isTwoBucketSlopeCandidate } from './chartRecommendations'
 
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
 
@@ -147,7 +147,7 @@ export interface chartAlternativesLogicMeta {
         alternatives: (
             options: ChartDisplayOptionGroup[],
             trendsSource: TrendsQuery | null,
-            insightData: any
+            insightData: Record<string, any>
         ) => ChartDisplayOption[]
         currentOption: (
             options: ChartDisplayOptionGroup[],
@@ -275,7 +275,8 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 options: ChartDisplayOptionGroup[],
                 trendsSource: TrendsQuery | null,
                 insightData: Record<string, any> | null
-            ): ChartDisplayOption[] => getChartAlternatives(options, trendsSource, loadedBucketCount(insightData)),
+            ): ChartDisplayOption[] =>
+                getChartAlternatives(options, trendsSource, isTwoBucketSlopeCandidate(trendsSource, insightData)),
         ],
         currentOption: [
             (s) => [s.options, s.currentDisplay],

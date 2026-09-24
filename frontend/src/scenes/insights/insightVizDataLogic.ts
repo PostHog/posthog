@@ -2252,8 +2252,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     (formulas && formulas.length === 1) ||
                     (formulaNodes && formulaNodes.length === 1)
                 return (
-                    (isTrends && hasSingleFormula) ||
-                    ((series || []).length <= 1 && !hasBreakdownFilter(breakdownFilter))
+                    !hasBreakdownFilter(breakdownFilter) &&
+                    ((isTrends && hasSingleFormula) || (series || []).length <= 1)
                 )
             },
         ],

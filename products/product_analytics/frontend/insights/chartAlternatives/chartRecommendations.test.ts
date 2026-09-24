@@ -3,7 +3,7 @@ import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 import { getChartDisplayOptions } from './chartDisplayOptions'
-import { getChartAlternatives } from './chartRecommendations'
+import { getChartAlternatives, isTwoBucketSlopeCandidate } from './chartRecommendations'
 
 function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {
     return {
@@ -117,14 +117,59 @@ describe('getChartAlternatives', () => {
             ],
         },
         {
-            name: 'puts the slope graph first when the range spans two buckets',
+            name: 'puts the slope graph first when asked to suggest it',
             query: makeTrendsQuery(),
-            bucketCount: 2,
+            suggestSlope: true,
             expected: [ChartDisplayType.SlopeGraph, ChartDisplayType.Metric, ChartDisplayType.ActionsUnstackedBar],
         },
-    ])('$name', ({ query, expected, bucketCount }) => {
-        expect(getChartAlternatives(compatibleOptions, query, bucketCount).map((option) => option.display)).toEqual(
+        {
+            name: 'does not suggest proportion charts for a pie chart of one rendered formula',
+            query: makeTrendsQuery({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
+                    { kind: NodeKind.EventsNode, event: '$autocapture', math: BaseMathType.TotalCount },
+                ],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                    formulas: ['A', 'B'],
+                    formulaNodes: [{ formula: 'A / B' }],
+                },
+            }),
+            expected: [
+                ChartDisplayType.Metric,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsLineGraph,
+            ],
+        },
+    ])('$name', ({ query, expected, suggestSlope }) => {
+        expect(getChartAlternatives(compatibleOptions, query, suggestSlope).map((option) => option.display)).toEqual(
             expected
         )
+    })
+
+    const twoBuckets = { result: [{ days: ['2026-01-01', '2026-01-02'], data: [1, 2] }] }
+    it.each([
+        ['two buckets', makeTrendsQuery(), twoBuckets, true],
+        ['three buckets', makeTrendsQuery(), { result: [{ days: ['2026-01-01', '2026-01-02', '2026-01-03'] }] }, false],
+        [
+            'two smoothed buckets',
+            makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsLineGraph, smoothingIntervals: 2 } }),
+            twoBuckets,
+            false,
+        ],
+        [
+            'two buckets of a truncated breakdown',
+            makeTrendsQuery({ breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] } }),
+            { ...twoBuckets, hasMore: true },
+            false,
+        ],
+        [
+            'two buckets of a complete breakdown',
+            makeTrendsQuery({ breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] } }),
+            { ...twoBuckets, hasMore: false },
+            true,
+        ],
+    ])('suggests a slope for %s only when its preview can be derived', (_, query, insightData, expected) => {
+        expect(isTwoBucketSlopeCandidate(query, insightData)).toBe(expected)
     })
 })

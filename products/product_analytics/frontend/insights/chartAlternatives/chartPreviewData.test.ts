@@ -51,15 +51,16 @@ describe('deriveChartPreview', () => {
     })
 
     it.each([
-        ['is the current period', '2026-01-04T12:00:00Z', true],
-        ['has ended', '2026-01-10T12:00:00Z', false],
-    ])('flags the slope end as incomplete when the last bucket %s', (_, now, incomplete) => {
+        ['is the current period', '2026-01-04T12:00:00Z', 'UTC', true],
+        ['has ended', '2026-01-10T12:00:00Z', 'UTC', false],
+        ['has ended in the project timezone', '2026-01-04T12:00:00Z', 'Pacific/Auckland', false],
+    ])('flags the slope end as incomplete when the last bucket %s', (_, now, timezone, incomplete) => {
         jest.useFakeTimers().setSystemTime(new Date(now))
         try {
             const preview = deriveChartPreview(
                 ChartDisplayType.SlopeGraph,
                 query(ChartDisplayType.ActionsLineGraph, { interval: 'day' }),
-                response([series({})])
+                { ...response([series({})]), timezone } as AnyResponseType
             )
             expect(results(preview)[0]).toMatchObject({
                 days: ['2026-01-01', '2026-01-04'],
