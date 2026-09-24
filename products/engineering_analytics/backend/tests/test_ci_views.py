@@ -13,6 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.warehouse_views import get_expected_warehouse_views
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
@@ -379,10 +380,24 @@ class TestExpectedWarehouseViews(BaseTest):
         names = {view.name for view in get_expected_warehouse_views(self.team)}
         assert names == {job_costs.VIEW_NAME, ci_job_history.VIEW_NAME, ci_failures.VIEW_NAME}
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
-    def test_friction_view_needs_the_pull_request_snapshot_and_the_flag(self, _name: str, flag_on: bool) -> None:
+    @parameterized.expand(
+        [
+            ("flag_on", True, False, True),
+            ("flag_off", False, True, False),
+            # No answer from the flag service keeps what the team has, so an outage never drops the table.
+            ("no_answer_keeps_the_view", None, True, True),
+            ("no_answer_adds_no_view", None, False, False),
+        ]
+    )
+    def test_friction_view_needs_the_pull_request_snapshot_and_the_flag(
+        self, _name: str, flag: bool | None, view_exists: bool, expected: bool
+    ) -> None:
         self._qualifying_source(with_pull_requests=True)
-        with patch("posthoganalytics.feature_enabled", return_value=flag_on):
+        if view_exists:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=pr_friction.VIEW_NAME, query={"kind": "HogQLQuery", "query": "SELECT 1"}
+            )
+        with patch("posthoganalytics.feature_enabled", return_value=flag):
             materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}
         per_job = {job_costs.VIEW_NAME: False, ci_job_history.VIEW_NAME: False, ci_failures.VIEW_NAME: False}
-        assert materialized == ({**per_job, pr_friction.VIEW_NAME: True} if flag_on else per_job)
+        assert materialized == ({**per_job, pr_friction.VIEW_NAME: True} if expected else per_job)

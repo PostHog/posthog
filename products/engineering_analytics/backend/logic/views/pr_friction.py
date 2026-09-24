@@ -24,6 +24,7 @@ Materialized on the managed-view schedule. Each run replaces the table, so it on
 pull requests inside the window.
 """
 
+import re
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -73,16 +74,19 @@ FIELDS: dict[str, FieldOrTable] = {
     "own_red_count": IntegerDatabaseField(name="own_red_count"),
     "futile_rerun_count": IntegerDatabaseField(name="futile_rerun_count"),
     "ci_wait_seconds": FloatArrayDatabaseField(name="ci_wait_seconds"),
-    # NULL when the reviews table is not synced or nobody approved.
+    # NULL when the reviews table is not synced, nobody approved, or the ready time is not observed.
     "first_approval_wait_seconds": FloatDatabaseField(name="first_approval_wait_seconds", nullable=True),
     "pushes_after_approval": IntegerDatabaseField(name="pushes_after_approval", nullable=True),
     # NULL when the pull request never entered the merge queue.
     "queue_seconds": FloatDatabaseField(name="queue_seconds", nullable=True),
     "kickout_count": IntegerDatabaseField(name="kickout_count", nullable=True),
+    # A read filters on its own authorized source: the view unions every source, and a member can be denied some.
+    "source_id": StringDatabaseField(name="source_id"),
 }
 
 # The same regex as ``queries/master_failures.strip_shard_suffix``, so shards of one job group together.
 _STRIP_SHARD = "replaceRegexpOne({name}, '\\\\s*\\\\((\\\\d+)/(\\\\d+)\\\\)(\\\\))?$', '\\\\3')"
+_SOURCE_ID = re.compile(r"[0-9a-fA-F-]{1,64}")
 _FAR = "toDateTime64('2100-01-01 00:00:00', 6, 'UTC')"
 _EPOCH = "toDateTime64('1970-01-01 00:00:00', 6, 'UTC')"
 
@@ -102,12 +106,15 @@ def _strip_shard(expr: str) -> str:
 
 def build_query(
     *,
+    source_id: str,
     pull_requests_table: str,
     workflow_runs_table: str,
     workflow_jobs_table: str,
     issue_events_table: str | None,
     reviews_table: str | None,
 ) -> str:
+    if not _SOURCE_ID.fullmatch(source_id):
+        raise ValueError(f"not a source id: {source_id!r}")
     window_days = _days(FRICTION_WINDOW)
     run_days = window_days + _days(CI_LOOKBACK)
     gate_days = window_days + _days(GATE_RUN_LOOKBACK)
@@ -137,9 +144,17 @@ def build_query(
             GROUP BY e.pr_number
         ) AS rd ON rd.number = p.number"""
         ready_expr = "if(rd.ready_at > toDateTime('2000-01-01 00:00:00') AND rd.ready_at <= p.merged_at, rd.ready_at, p.created_at)"
+        # Without a ready event, the created time stands in only when the event scan covers the whole life
+        # of the PR. An older PR may have left draft before the scan floor, and an approval given while it
+        # was a draft would then read as the first approval.
+        ready_observed_expr = (
+            f"(rd.ready_at > toDateTime('2000-01-01 00:00:00') AND rd.ready_at <= p.merged_at) "
+            f"OR p.created_at >= now() - INTERVAL {run_days} DAY"
+        )
     else:
         ready_join = ""
         ready_expr = "p.created_at"
+        ready_observed_expr = "false"
 
     if reviews_table:
         approvals_join = f"""
@@ -167,6 +182,7 @@ bounds AS (
         p.repo_owner AS repo_owner,
         p.repo_name AS repo_name, p.merged_at AS ended_at,
         {ready_expr} AS ready_at,
+        {ready_observed_expr} AS ready_observed,
         greatest({ready_expr}, {run_from}) AS started_at,
         {approvals_expr} AS approved_at
     FROM pr AS p{ready_join}{approvals_join}
@@ -385,13 +401,15 @@ SELECT
     if(first_approval_at IS NULL, NULL, toFloat(greatest(dateDiff('second', b.ready_at, first_approval_at), 0))) AS first_approval_wait_seconds,
     if(first_approval_at IS NULL, NULL, arrayCount(t -> t > first_approval_at AND t <= b.ended_at, ifNull(c.pushes_at, []))) AS pushes_after_approval,
     if(ifNull(c.queued, 0), c.queue_seconds, NULL) AS queue_seconds,
-    if(ifNull(c.queued, 0), c.kickouts, NULL) AS kickout_count
+    if(ifNull(c.queued, 0), c.kickouts, NULL) AS kickout_count,
+    '{source_id}' AS source_id
 FROM (
     SELECT *,
         -- The first approval after ready; an approval given while still a draft counts as approved at ready.
-        if(arrayExists(t -> t >= ready_at AND t <= ended_at, ifNull(approved_at, [])),
-            arrayMin(arrayFilter(t -> t >= ready_at AND t <= ended_at, ifNull(approved_at, []))),
-            if(arrayExists(t -> t < ready_at, ifNull(approved_at, [])), ready_at, NULL)) AS first_approval_at
+        if(NOT ready_observed, NULL,
+            if(arrayExists(t -> t >= ready_at AND t <= ended_at, ifNull(approved_at, [])),
+                arrayMin(arrayFilter(t -> t >= ready_at AND t <= ended_at, ifNull(approved_at, []))),
+                if(arrayExists(t -> t < ready_at, ifNull(approved_at, [])), ready_at, NULL))) AS first_approval_at
     FROM bounds
 ) AS b
 LEFT JOIN counted AS c ON c.number = b.number
@@ -405,7 +423,7 @@ def build_team_view(team: "Team") -> str | None:
         return None
     # Each SELECT carries its own WITH, so each sits in its own subquery to keep the CTE names apart.
     return "\nUNION ALL\n".join(
-        f"SELECT * FROM ({build_query(pull_requests_table=source.pull_requests, workflow_runs_table=source.workflow_runs, workflow_jobs_table=source.workflow_jobs, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
+        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.workflow_runs, workflow_jobs_table=source.workflow_jobs, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
         for source in sources
         if source.pull_requests
     )

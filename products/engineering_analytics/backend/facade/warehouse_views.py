@@ -10,6 +10,7 @@ import posthoganalytics
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.contracts import FRICTION_VIEW_FEATURE_FLAG, ExpectedWarehouseView
 from products.engineering_analytics.backend.logic.views import ci_failures, ci_job_history, job_costs, pr_friction
 
@@ -42,13 +43,20 @@ def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
 def _friction_view_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
     project_id = str(team.id)
-    return bool(
-        posthoganalytics.feature_enabled(
-            FRICTION_VIEW_FEATURE_FLAG,
-            str(team.uuid),
-            groups={"organization": org_id, "project": project_id},
-            group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+    enabled = posthoganalytics.feature_enabled(
+        FRICTION_VIEW_FEATURE_FLAG,
+        str(team.uuid),
+        groups={"organization": org_id, "project": project_id},
+        group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
     )
+    if enabled is None:
+        # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
+        # does not expect, so keep the view the team has rather than drop a materialized table on an outage.
+        return (
+            DataWarehouseSavedQuery.objects.filter(team_id=team.id, name=pr_friction.VIEW_NAME)
+            .exclude(deleted=True)
+            .exists()
+        )
+    return enabled

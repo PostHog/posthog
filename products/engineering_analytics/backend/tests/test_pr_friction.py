@@ -94,6 +94,7 @@ class TestPRFrictionView(_WarehouseMixin):
                 _merged(36, 120),
                 _merged(37, 360),
                 _merged(38, 60, login="dependabot[bot]"),
+                _pr_row(39, "alice", "closed", 0, _ago(70), merged_at=_at(60), default_branch="master"),
             ],
         )
         self._create_table(
@@ -150,7 +151,16 @@ class TestPRFrictionView(_WarehouseMixin):
                     "state": "APPROVED",
                     "commit_id": "",
                     "submitted_at": _at(240),
-                }
+                },
+                # 39: opened before the event scan floor, so a missing ready event says nothing about drafts.
+                {
+                    "id": 2,
+                    "pr_number": 39,
+                    "user": '{"login": "reviewer"}',
+                    "state": "APPROVED",
+                    "commit_id": "",
+                    "submitted_at": _at(30),
+                },
             ],
         )
 
@@ -200,7 +210,7 @@ class TestPRFrictionView(_WarehouseMixin):
             if number in timeline_figures
         }
 
-        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37}
+        assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39}
         assert view_figures == timeline_figures
 
     def test_view_counts_what_the_author_went_through(self) -> None:
@@ -244,5 +254,7 @@ class TestPRFrictionView(_WarehouseMixin):
             36: {**base, "push_count": 0},
             37: {**base, "push_count": 2, "first_approval_wait_seconds": 3 * 3600.0, "pushes_after_approval": 1},
             38: {**base, "is_bot": True},
+            39: {**base, "push_count": 0},
         }
+        assert {row["source_id"] for row in rows.values()} == {str(self._github_source.id)}
         assert rows[35]["ci_wait_seconds"] == [timedelta(hours=1).total_seconds()]
