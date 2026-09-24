@@ -34,6 +34,7 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { template as typesafeTemplate } from './templates/_transformations/typesafe/typesafe.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
@@ -658,6 +659,61 @@ describe('CDP API', () => {
             expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
             expect(res.body.result).toMatchInlineSnapshot(`null`)
         })
+
+        it.each([
+            ['uses the documented mock default', undefined, 0, undefined],
+            ['executes TypeSafe when explicitly requested', false, 1, 'art'],
+        ])(
+            '%s',
+            async (
+                _name: string,
+                mock_async_functions: boolean | undefined,
+                expectedCalls: number,
+                expectedCategory: string | undefined
+            ) => {
+                if (expectedCalls > 0) {
+                    mockFetch.mockResolvedValueOnce({
+                        status: 200,
+                        headers: {},
+                        json: () =>
+                            Promise.resolve({
+                                answers: { category: { type: 'choice', choice: 'art', confidence: 0.95 } },
+                            }),
+                        text: () => Promise.resolve(''),
+                        dump: () => Promise.resolve(),
+                    })
+                }
+
+                const configuration = createHogFunction({
+                    type: 'transformation',
+                    name: typesafeTemplate.name,
+                    template_id: typesafeTemplate.id,
+                    team_id: team.id,
+                    hog: typesafeTemplate.code,
+                    inputs_schema: typesafeTemplate.inputs_schema,
+                    inputs: {
+                        api_key: { value: 'fake-demo-key' },
+                        property: { value: 'content_category' },
+                        instructions: { value: 'Classify the article.' },
+                        categories: { value: { art: 'Visual arts' } },
+                        excluded_properties: { value: [] },
+                        minimum_confidence: { value: 0.7 },
+                    },
+                })
+
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                    .send({
+                        globals,
+                        ...(mock_async_functions === undefined ? {} : { mock_async_functions }),
+                        configuration,
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(mockFetch).toHaveBeenCalledTimes(expectedCalls)
+                expect(res.body.result.properties.content_category).toEqual(expectedCategory)
+            }
+        )
     })
 
     describe('log transformations', () => {
