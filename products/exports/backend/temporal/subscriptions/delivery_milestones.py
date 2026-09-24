@@ -41,16 +41,19 @@ def record_first_delivery_completed(delivery_id: uuid.UUID) -> None:
     if creator is None or not creator.distinct_id:
         return
 
-    earlier_delivery_exists = (
+    # A completed delivery whose recipients all failed is not a milestone, so it must not
+    # block a later delivery that did reach someone.
+    another_delivery_reached_a_recipient = (
         SubscriptionDelivery.objects.filter(
             subscription_id=subscription.id,
             team_id=delivery.team_id,
             status=SubscriptionDelivery.Status.COMPLETED,
+            recipient_results__contains=[{"status": "success"}],
         )
         .exclude(pk=delivery.pk)
         .exists()
     )
-    if earlier_delivery_exists:
+    if another_delivery_reached_a_recipient:
         return
 
     completed_at = delivery.finished_at or delivery.last_updated_at
@@ -59,7 +62,7 @@ def record_first_delivery_completed(delivery_id: uuid.UUID) -> None:
         "team_id": delivery.team_id,
         "delivery_id": str(delivery.id),
         "target_type": delivery.target_type,
-        "resource_type": "dashboard" if subscription.dashboard_id else "insight",
+        "resource_type": subscription.resource_type,
         # $set_once keeps the first delivery as the recorded one when a retry replays this activity.
         "$set_once": {FIRST_DELIVERY_COMPLETED_PERSON_PROPERTY: completed_at.isoformat()},
     }

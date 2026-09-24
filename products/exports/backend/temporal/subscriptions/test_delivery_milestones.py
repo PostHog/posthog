@@ -41,8 +41,24 @@ def _create_delivery(subscription: Subscription, *, status: str, recipient_resul
     )
 
 
-def test_stamps_the_creator_when_the_first_delivery_reaches_a_recipient(team, user, fake_ph_client) -> None:
+@pytest.mark.parametrize(
+    "preceding_results",
+    [
+        pytest.param(None, id="no_preceding_delivery"),
+        pytest.param(FAILED_RESULTS, id="after_a_completed_delivery_that_reached_nobody"),
+    ],
+)
+def test_stamps_the_creator_when_the_first_delivery_reaches_a_recipient(
+    team, user, fake_ph_client, preceding_results
+) -> None:
     subscription = _create_subscription(team, user)
+    if preceding_results is not None:
+        _create_delivery(
+            subscription,
+            status=SubscriptionDelivery.Status.COMPLETED,
+            recipient_results=preceding_results,
+            finished_at=datetime(2022, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+        )
     finished_at = datetime(2022, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC"))
     delivery = _create_delivery(
         subscription,
