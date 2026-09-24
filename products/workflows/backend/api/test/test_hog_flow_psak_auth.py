@@ -104,6 +104,28 @@ class TestHogFlowProjectSecretApiKeyAuth(APIBaseTest):
         detail = self._psak_audit_detail(str(flow.id), "created")
         assert detail["trigger"]["payload"] == {"label": "ci push key"}
 
+    @parameterized.expand(
+        [
+            ("workflows_cli", "posthog-workflows/0.1.0"),
+            ("posthog_cli", "posthog-cli"),
+        ]
+    )
+    def test_psak_push_creates_a_code_managed_workflow_without_a_user(self, _name, user_agent):
+        workflow = {**_workflow(), "managed_by": "code", "source_path": "workflows/pushed.ts", "source_ref": "abc123"}
+
+        response = self.service.post(
+            self._url(), workflow, format="json", headers={**self._bearer(self.token), "user-agent": user_agent}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flow = HogFlow.objects.get(id=response.json()["id"])
+        assert flow.managed_by == HogFlow.ManagedBy.CODE
+        assert flow.created_via == HogFlow.CreatedVia.API
+        assert flow.created_by_id is None
+        revision = HogFlowRevision.objects.for_team(self.team.id).get(hog_flow=flow, version=1)
+        assert revision.created_by_id is None
+        assert revision.content["source_ref"] == "abc123"
+
     def test_psak_update_bumps_the_version_and_writes_the_revision_without_a_user(self):
         flow_id = self._create_with_session()
 

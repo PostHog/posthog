@@ -250,8 +250,9 @@ class CodeManagedWorkflowError(exceptions.PermissionDenied):
 
 
 # Which attribution each transport earns a new workflow. Copied in shape from the warehouse table
-# map rather than imported, because that one answers for another product's enum. The CLI lands on
-# `api`: it pushes over REST with a personal API key, so `api` is what it actually is. Anything
+# map rather than imported, because that one answers for another product's enum. A CLI push lands on
+# `api`: it pushes over REST with a personal or project secret API key, so `api` is what it actually
+# is, and `managed_by` with the source fields already records that a push wrote it. Anything
 # without a surface of its own is a plain API caller.
 _EVENT_SOURCE_TO_CREATED_VIA: Final[dict[EventSource, str]] = {
     EventSource.WEB: HogFlow.CreatedVia.WEB,
@@ -3032,10 +3033,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "How this workflow first appeared: `web` for the editor, `api` for a direct API call, `mcp` for "
-            "an agent, `wizard` for the setup agent, `self_driving` for PostHog's own surfaces. Resolved "
-            "from the request on create, never from the payload, and never changed afterwards. Null on "
-            "workflows created before this field existed."
+            "How this workflow first appeared: `web` for the editor, `api` for a direct API call or a CLI "
+            "push, `mcp` for an agent, `wizard` for the setup agent, `self_driving` for PostHog's own "
+            "surfaces. Resolved from the request on create, never from the payload, and never changed "
+            "afterwards. Null on workflows created before this field existed."
         ),
     )
     source_repository = serializers.CharField(
