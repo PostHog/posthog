@@ -50,8 +50,9 @@ export function ExperimentMetaBar(): JSX.Element | null {
     const { created_by } = experiment
 
     // The title keeps 8px of inner padding and the tabs pull up 16px, so the band sits midway only when pulled up 8px.
+    // The tabs' pull-up also swallows the scene gap below the bar, so mb-6 leaves 24px, not 40px.
     return (
-        <div className="flex flex-col gap-2 -mt-2" data-attr="experiment-meta-bar">
+        <div className="flex flex-col gap-2 -mt-2 mb-6" data-attr="experiment-meta-bar">
             {/* The gutter is 12px gap + 1px divider + 12px gap; the 4px clip margin keeps focus rings visible. */}
             <div className="overflow-x-clip [overflow-clip-margin:4px]">
                 <div className="flex flex-wrap items-center gap-y-2 -ml-[25px] text-sm">
