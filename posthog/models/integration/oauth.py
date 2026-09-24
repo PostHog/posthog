@@ -610,7 +610,10 @@ class OauthIntegration:
 
             return OauthConfig(
                 authorize_url="https://linear.app/oauth/authorize",
-                additional_authorize_params={"actor": "application"},
+                # Linear skips its approval screen once the app is authorized, and that screen holds
+                # the only workspace switcher, so without `prompt=consent` a person with more than
+                # one workspace can never connect anything but the first one.
+                additional_authorize_params={"actor": "application", "prompt": "consent"},
                 token_url="https://api.linear.app/oauth/token",
                 token_info_url="https://api.linear.app/graphql",
                 token_info_graphql_query="{ viewer { organization { id name urlKey } } }",

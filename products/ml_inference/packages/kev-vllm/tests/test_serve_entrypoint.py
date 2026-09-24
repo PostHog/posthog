@@ -13,7 +13,11 @@ STUBS = {
         'echo verify >> "$CALLS"; [ -n "${SLOW_VERIFY:-}" ] && sleep 2; [ -f "$CALLS.fetched" ] || [ -n "${VALID:-}" ]'
     ),
     "s5cmd": 'echo fetch >> "$CALLS"; touch "$CALLS.fetched"',
-    "vllm": 'echo "vllm ${VLLM_CACHE_ROOT:-unset}" >> "$CALLS"; [ "${VLLM_EXITS:-}" = 1 ] && exit 0; exec sleep 30',
+    "vllm": (
+        'echo "$*" > "$CALLS.vllm-args"; echo "vllm ${VLLM_CACHE_ROOT:-unset}" >> "$CALLS"\n'
+        '[ "${VLLM_EXITS:-}" = 1 ] && exit 0; exec sleep 30'
+    ),
+    "python3": '[ -n "${GPU:-}" ] && echo "$GPU"',
     "caddy": (
         'if [ "${CADDY_EXITS:-}" = 1 ]; then until grep -q "^vllm " "$CALLS" 2>/dev/null; do sleep 0.01; done; exit 0; fi\nexec sleep 30'
     ),
@@ -47,6 +51,7 @@ def environment(tmp_path: Path, **overrides: str) -> dict[str, str]:
         "CALLS": str(tmp_path / "calls"),
         "DECISION_BEARER": "test-bearer",
         "CACHE_DIR": str(tmp_path / "cache"),
+        "GPU": "NVIDIA L4",
         **overrides,
     }
 
@@ -71,6 +76,30 @@ def test_a_child_that_exits_cleanly_on_its_own_fails_the_container(
     result = subprocess.run([bash, SERVE], env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 1
     assert calls(tmp_path) == [c.format(cache=env["CACHE_DIR"]) for c in expected_calls]
+
+
+@pytest.mark.parametrize(
+    "overrides,expected_limit",
+    [
+        ({"GPU": "NVIDIA L4"}, "24000"),
+        ({"GPU": "Tesla T4"}, "5000"),
+        ({"GPU": "NVIDIA H100 80GB HBM3", "MAX_NUM_QUEUED_TOKENS": "276000"}, "276000"),
+        ({"GPU": "NVIDIA H100 80GB HBM3"}, None),
+        ({"GPU": ""}, None),
+    ],
+)
+def test_the_queue_limit_follows_the_gpu_or_refuses_to_guess(
+    bash: str, tmp_path: Path, overrides: dict[str, str], expected_limit: str | None
+) -> None:
+    env = environment(tmp_path, VALID="1", VLLM_EXITS="1", **overrides)
+    result = subprocess.run([bash, SERVE], env=env, capture_output=True, text=True, timeout=30)
+    if expected_limit is None:
+        assert result.returncode == 1
+        assert "no measured queue limit" in result.stderr
+        assert not (tmp_path / "calls.vllm-args").exists()
+        return
+    args = (tmp_path / "calls.vllm-args").read_text().split()
+    assert args[args.index("--max-num-queued-tokens") + 1] == expected_limit
 
 
 def test_a_stop_signal_exits_cleanly(bash: str, tmp_path: Path) -> None:

@@ -44,6 +44,7 @@ import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
 type DashboardWidgetItemProps = {
+    onConfigPublished?: () => void
     tile: DashboardTile
     placement: DashboardPlacement
     dashboardId?: number | null
@@ -145,6 +146,7 @@ function DashboardWidgetItemContent({
     onRefreshWidgetData,
     onApplyWidgetIssueMetadataChange,
     onUpdateWidgetTile,
+    onConfigPublished,
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
@@ -195,11 +197,13 @@ function DashboardWidgetItemContent({
                   await onUpdateWidgetTile({ config })
               }
             : undefined,
+        onConfigPublished: canUpdateWidgetTileConfig ? onConfigPublished : undefined,
     }
 
     const TileFilters = definition?.TileFilters
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
+    const MenuItems = definition?.MenuItems
 
     const hasDashboardSectionActions =
         !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
@@ -238,6 +242,11 @@ function DashboardWidgetItemContent({
                 refreshControl={refreshControl}
                 moreButtonOverlay={
                     <>
+                        {!showSharedPlaceholder && hasProductAccess && MenuItems && (
+                            <Suspense fallback={null}>
+                                <MenuItems {...componentProps} />
+                            </Suspense>
+                        )}
                         {titleHref && (
                             <LemonButton to={titleHref} fullWidth>
                                 View
@@ -320,6 +329,7 @@ function DashboardWidgetItemContent({
                 />
             ) : (
                 <WidgetCardBody
+                    padding={definition?.bodyPadding}
                     locked={!hasProductAccess}
                     error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
                     onRefresh={isUnknownWidgetType ? undefined : onRefresh}
@@ -380,6 +390,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRefreshWidgetData,
             onApplyWidgetIssueMetadataChange,
             onUpdateWidgetTile,
+            onConfigPublished,
             toggleShowDescription,
             showResizeHandles,
             canEnterEditModeFromEdge,
@@ -451,6 +462,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onRefreshWidgetData={onRefreshWidgetData}
                     onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
                     onUpdateWidgetTile={onUpdateWidgetTile}
+                    onConfigPublished={onConfigPublished}
                     canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
                     isDashboardEditMode={isDashboardEditMode}
