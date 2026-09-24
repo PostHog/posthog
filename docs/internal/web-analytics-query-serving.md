@@ -179,3 +179,13 @@ A `*_lazy_query` taking seconds is a bucket-read problem (rare).
 A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
+
+## Marketing metric chart
+
+The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
+The query-owning caller switches between total and breakdown data and supplies error content, including the failed query ID and retry action.
+Series keys preserve the raw breakdown identity so selections can match table rows even when display labels differ.
+An empty string is a selectable breakdown key; `null` clears selection.
+The chart keeps existing data visible while refreshing and replaces it with the supplied error if the refresh fails.
+Storybook covers loading, refreshing, empty results, errors, and a 520 px scene.
+The component does not activate the five-section dashboard or change its queries.
