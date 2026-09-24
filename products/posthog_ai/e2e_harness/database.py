@@ -23,7 +23,7 @@ def isolated_database(root: Path) -> Iterator[None]:
 
     configuration = settings.DATABASES["default"]
     original_name = configuration["NAME"]
-    name = f"ai_e2e_{uuid4().hex}"
+    name = f"test_ai_e2e_{uuid4().hex}"
     admin: dict[str, str] = {
         "dbname": "postgres",
         "user": str(configuration["USER"]),

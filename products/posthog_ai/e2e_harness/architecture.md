@@ -3,6 +3,15 @@
 This suite exercises chat submission, workflow startup, and approval delivery with Claude and Codex.
 It uses the real application and sandbox agent with synthetic model responses. Chart coverage belongs in a later increment.
 `run-surface.spec.ts` remains a separate, fast suite that mocks the tasks API and stream.
+The `flows-*.spec.ts` cases use held command responses and controlled SSE frames to check composer and approval interactions.
+They run in regular Playwright; `--surface` runs them against the launcher's isolated server without starting agents.
+The controller rejects any real agent creation during a surface case. These cases establish UI behavior, not Temporal delivery.
+
+`startup.ai.spec.ts` adds cold creation and completed-conversation resume for both runtimes.
+The browser suppresses speculative warming: the controller owns the exact warm target, or starts cold without one.
+Task creation, initial submission, and follow-up delivery remain real.
+Resume completes the original workflow through its normal signal, then warms a successor behind the registration barrier.
+The attempt owns and cleans up every workflow and run in that conversation.
 
 ## Boundaries
 
@@ -36,6 +45,9 @@ Authentication, run creation, persistence, Temporal, agent execution, MCP tool e
 The launcher reuses the eval harness's Django server, Temporal worker, service startup, local skills, and sandbox lifecycle helpers.
 It does not start the eval engine or require Braintrust credentials.
 
+Python orchestration stays in `products/posthog_ai/e2e_harness/`.
+Browser cases and replay fixtures stay in `frontend/e2e/`; artifacts stay under the harness.
+
 Only model responses and peripheral external services are simulated. Model discovery, Anthropic token counting, and Django
 title generation have explicit handlers. Claude SDK session titles also use an independent, correlated handler.
 Billing reads and membership updates use local endpoints. Analytics capture is disabled.
@@ -52,6 +64,7 @@ value and consumers. The profile enables tasks, sequenced ingest, proxy streamin
 dispatch flags, and PostHog connections. The MCP profile also enables markdown notebooks. Other task switches have explicit
 false entries. CI never fetches live flag definitions or evaluates real users' targeting rules.
 The launcher also supplies the browser profile through `PERSISTED_FEATURE_FLAGS`, so it remains active when capture is disabled.
+Controlled surface runs omit proxy streaming because their task streams use the mocked Django endpoint.
 
 Backend single-flag and bulk evaluations share the same values. An undeclared Tasks or PostHog AI flag records a test
 failure even if the application catches an evaluation error. Unrelated flags remain false. Add an explicit manifest entry
@@ -161,6 +174,7 @@ Run from the repository root:
 ```bash
 .codex/with-flox hogli test:e2e:ai --grep 'claude.*workflow waits' --retries 0
 .codex/with-flox hogli test:e2e:ai --attach --repeat-each 10 --retries 0
+.codex/with-flox hogli test:e2e:ai --surface --grep 'Startup and approvals' --retries 0
 ```
 
 Every launch creates and drops its own application database, including attach mode. This is necessary because the real
@@ -213,6 +227,7 @@ launch and are never baked into the image.
 ## CI integration
 
 The existing `ci-e2e-playwright.yml` contains the isolated AI job. One browser worker runs one sandbox at a time.
+Failed environment preparation prints the full activation logs, preserving dependency errors that the terminal summary truncates.
 The AI job reuses the backend's schema cache only when its migration, dependency, Postgres image, and routing fingerprint
 matches. The existing schema restore helper seeds migration defaults; migrations still run afterwards. A miss or failed
 restore falls back to the full migration history.
@@ -231,9 +246,12 @@ The AI job reports its own check and does not feed the required Playwright gate.
 with one AI browser worker and one active sandbox, and defaults to one CI retry. It does not create a provider matrix or
 duplicate stack setup. The normal AI job timeout is 30 minutes, including provisioning and artifact steps.
 
+The product's `backend:test` command also collects the replay unit tests under `e2e_harness/`.
+Those checks validate fixture matching and fault controls without booting a browser or sandbox agent.
+
 For runner validation, dispatch the workflow on the tested branch with `ai_repeat_each=10`. This selects a 90-minute job
 and forces zero AI retries; an explicit nonzero retry override is rejected. `ai_repeat_each=1` selects the normal job.
-This runs all six runtime/case combinations ten times. Retain the workflow URL, commit, image provenance, runtime, and peak
+This runs every real-service runtime/case combination ten times. Retain the workflow URL, commit, image provenance, runtime, and peak
 memory with the review evidence. A local repetition run does not substitute for this runner validation.
 
 ### Runner validation: 2026-09-07
@@ -305,6 +323,23 @@ Transport errors, unrelated 503 responses, and JSON-RPC errors inside HTTP 200 d
 retries. An ambiguous transport failure could follow successful execution; replaying it could execute a tool twice.
 
 ## Coverage and remaining flows
+
+The startup and approvals layer adds these five regression flows:
+
+1. Cold creation and an idle follow-up keep the same task/run, model, and permission mode. Attached event context reaches the first submission once.
+2. A completed conversation resumes on its intended warm successor after a real Temporal registration rejection, retaining each message once.
+3. Exhausted startup retries return the draft for an explicit retry with the same payload.
+4. Permission, question, and plan submissions immediately reveal an editable composer while delivery remains pending.
+5. Failed approval delivery restores multi-select answers or feedback. Retrying sends the same response and preserves a separate composer draft.
+
+`startup.ai.spec.ts` runs the first two through real services with Claude and Codex.
+`flows-startup-approvals.spec.ts` checks the remaining visible interactions with controlled task API and stream responses.
+The controlled suite runs with regular Playwright, or with `.codex/with-flox hogli test:e2e:ai --surface` for an isolated local server.
+The task composer attaches entity context; it does not expose file uploads.
+These new cases require their own ten-repeat CI validation before being described as stable.
+
+The warm-resume case checks that the successor processes the new user message without an unsolicited continuation of the old conversation.
+Replay rejects any undeclared model turn even when the eventual follow-up and history assertions pass.
 
 The browser suite runs three cases for each of Claude and Codex:
 

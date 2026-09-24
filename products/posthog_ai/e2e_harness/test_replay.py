@@ -6,8 +6,8 @@ from unittest import TestCase
 
 from pydantic import JsonValue
 
-from .faults import Fault
-from .replay import Replay, ResponseStep
+from products.posthog_ai.e2e_harness.faults import Fault
+from products.posthog_ai.e2e_harness.replay import Replay, ResponseStep
 
 
 class TestReplay(TestCase):

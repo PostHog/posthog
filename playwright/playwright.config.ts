@@ -89,11 +89,14 @@ export default defineConfig({
             ? [
                   {
                       name: 'ai',
-                      testMatch: 'products/*/frontend/e2e/**/*.ai.spec.ts',
+                      testMatch:
+                          process.env.AI_E2E_SURFACE === '1'
+                              ? 'products/posthog_ai/frontend/e2e/flows-*.spec.ts'
+                              : 'products/*/frontend/e2e/**/*.ai.spec.ts',
                       testIgnore: [],
                       fullyParallel: false,
-                      timeout: 180 * 1000,
-                      expect: { timeout: 60 * 1000 },
+                      timeout: process.env.AI_E2E_SURFACE === '1' ? 45_000 : 180_000,
+                      expect: { timeout: process.env.AI_E2E_SURFACE === '1' ? 10_000 : 60_000 },
                       outputDir: `${process.env.AI_E2E_OUTPUT}/browser`,
                       use: {
                           ...devices['Desktop Chrome'],
