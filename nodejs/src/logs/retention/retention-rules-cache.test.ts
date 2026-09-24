@@ -1,9 +1,13 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { RetentionRulesCache, logsRetentionRulesDroppedCounter } from './retention-rules-cache'
+import {
+    RetentionRulesCache,
+    logsRetentionRulesDroppedCounter,
+    tracesRetentionRulesDroppedCounter,
+} from './retention-rules-cache'
 
-async function droppedCount(teamId: string): Promise<number> {
-    const metric = await logsRetentionRulesDroppedCounter.get()
+async function droppedCount(counter: typeof logsRetentionRulesDroppedCounter, teamId: string): Promise<number> {
+    const metric = await counter.get()
     return metric.values.find((v) => v.labels.team_id === teamId)?.value ?? 0
 }
 
@@ -30,14 +34,37 @@ describe('RetentionRulesCache', () => {
         expect(compiled.rules).toEqual([{ id: 'r1', filterGroup: null, retentionDays: 30 }])
     })
 
-    it('surfaces rules discarded at compile via the dropped counter', async () => {
+    it.each([
+        ['logs', logsRetentionRulesDroppedCounter, tracesRetentionRulesDroppedCounter],
+        ['spans', tracesRetentionRulesDroppedCounter, logsRetentionRulesDroppedCounter],
+    ] as const)('counts %s rules discarded at compile on that source metric only', async (source, counter, other) => {
         // 45 is not a valid retention tier, so compile discards the row: the rule is enabled and
         // fetched but never stamped — the counter is the only signal of that silent drop.
         query.mockResolvedValueOnce(rows(45))
-        const before = await droppedCount('7')
-        const compiled = await cache.getCompiledRuleSet(7)
+        const before = await droppedCount(counter, '7')
+        const otherBefore = await droppedCount(other, '7')
+        const compiled = await cache.getCompiledRuleSet(7, source)
         expect(compiled.rules).toEqual([])
-        expect((await droppedCount('7')) - before).toBe(1)
+        expect((await droppedCount(counter, '7')) - before).toBe(1)
+        expect(await droppedCount(other, '7')).toBe(otherBefore)
+    })
+
+    it("reads each source's own table and caches each source apart", async () => {
+        query.mockResolvedValueOnce(rows(30))
+        await cache.getCompiledRuleSet(1, 'spans')
+        expect(query.mock.calls[0][1]).toContain('FROM tracing_tracesretentionrule')
+
+        // Same team, other source: the cached span rules must not be served for logs.
+        query.mockResolvedValueOnce(rows(90))
+        const logRules = await cache.getCompiledRuleSet(1, 'logs')
+        expect(query.mock.calls[1][1]).toContain('FROM logs_logsretentionrule')
+        expect(logRules.rules).toEqual([{ id: 'r1', filterGroup: null, retentionDays: 90 }])
+    })
+
+    it('defaults to the log source', async () => {
+        query.mockResolvedValueOnce(rows(30))
+        await cache.getCompiledRuleSet(1)
+        expect(query.mock.calls[0][1]).toContain('FROM logs_logsretentionrule')
     })
 
     it('fails open to no rules when the fetch throws and nothing is cached', async () => {
