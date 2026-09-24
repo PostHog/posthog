@@ -51,8 +51,9 @@
         {
             "id": "wait_a_day",
             "name": "Wait a day",
-            "description": "",
+            "description": "Gives a new signup a day before the first email.",
             "on_error": null,
+            "output_variable": null,
             "filters": null,
             "type": "delay",
             "config": {
