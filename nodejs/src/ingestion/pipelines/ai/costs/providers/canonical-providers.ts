@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-22 20:02:00 UTC
+// Generated at: 2026-09-24 10:05:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -59,7 +59,6 @@ export type CanonicalProvider =
     | 'darkbloom-int4'
     | 'decart-fast'
     | 'decart-fp4'
-    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -67,6 +66,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepinfra-ultra'
+    | 'deepinfra-us'
     | 'deepseek'
     | 'dekallm'
     | 'dekallm-bf16'
@@ -105,9 +105,10 @@ export type CanonicalProvider =
     | 'io-net-fp8'
     | 'ionstream'
     | 'ionstream-fp8'
+    | 'krea-fp8'
     | 'liquid-fp8'
     | 'makora'
-    | 'makora-fp4'
+    | 'makora-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -161,6 +162,7 @@ export type CanonicalProvider =
     | 'phala-fp8'
     | 'poolside-fp4'
     | 'poolside-fp8'
+    | 'primeintellect'
     | 'reka-bf16'
     | 'reka-fp4'
     | 'reka-fp8'
@@ -179,6 +181,7 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
+    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'

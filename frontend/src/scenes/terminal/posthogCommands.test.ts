@@ -117,6 +117,8 @@ describe('PostHog terminal commands', () => {
     it.each([
         ['notebook-delete', 'shortnote'],
         ['notebook-update', 'shortnote', '--deleted'],
+        ['notebook-update', 'shortnote', '--title', 'Updated'],
+        ['notebook-create', '--title', 'New notebook'],
         ['example/echo', '--text', 'hello'],
     ])('blocks %s until the user approves its exact arguments', async (...argv) => {
         let answer!: (approved: boolean) => void
@@ -130,10 +132,12 @@ describe('PostHog terminal commands', () => {
         const outcome = operation.catch((error: Error) => error)
         await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
         answer(false)
         await expect(outcome).resolves.toEqual(expect.objectContaining({ message: 'Canceled. No changes made.' }))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
     })
 
@@ -149,6 +153,7 @@ describe('PostHog terminal commands', () => {
                     ref: 'shortnote',
                     type: 'notebook',
                     path: 'Research/Notes',
+                    meta: { content_type: 'text/markdown' },
                     user_access_level: 'editor',
                 } as FileSystemApi,
             ],
@@ -214,7 +219,7 @@ describe('PostHog terminal commands', () => {
             structured_content: { echoed: true },
         })
         const signal = new AbortController().signal
-        filesystem = new PosthogFilesystem('42', signal, confirm)
+        filesystem = new PosthogFilesystem('42', signal, confirm, true)
         await filesystem.load()
         commands = new PosthogCommands('42', signal, filesystem, navigate)
     })

@@ -17,8 +17,9 @@
             "name": "pi",
             "version": "0.87.1",
             "file": "archives/pi-0.87.1.tar.gz",
-            "sha256": "ad9261590d1617edfb52a2fd8b71351079a37cc18515fd4b6b85f6d8d2511b6d",
-            "size": 20423074,
+            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/1668348dce762ca6e86b48b431501c2efadce026",
+            "sha256": "79721a95bbeaec1131d0b1c99392eb28785114619b1357a955647e5ff6591a4a",
+            "size": 20423132,
             "archiveSize": 76257280,
             "dependencies": ["node"],
             "commands": {
@@ -27,14 +28,14 @@
         },
         "doom": {
             "name": "Doom (Freedoom)",
-            "version": "0.13.0-1",
-            "file": "archives/doom-0.13.0-1-linux-i386.tar.gz",
-            "sha256": "470aefa7b775d738b21377b9e764c37c006f730fa665f30acf65258fd42492b0",
-            "size": 10479126,
-            "archiveSize": 29480960,
+            "version": "0.13.0-2",
+            "file": "archives/doom-0.13.0-2-linux-i386.tar.gz",
+            "sha256": "4943c6d37922eac98473d9d20554d02dd8cc01948fb81edc150ba30d2f0ae6c6",
+            "size": 10501917,
+            "archiveSize": 29552640,
             "dependencies": [],
             "commands": {
-                "doom": "/opt/posthog-packages/doom-0.13.0-1/bin/doom"
+                "doom": "/opt/posthog-packages/doom-0.13.0-2/bin/doom"
             }
         },
         "sl": {
@@ -86,7 +87,7 @@
             }
         }
     },
-    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/31fc564def31b2e90d863218ffd040c9dff0e0ed",
+    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/745b60735f92fd480ff3aaf712b28c99ddd3221d",
     "kernel": {
         "file": "images/linux-fb-bzimage.bin",
         "sha256": "33ca60bd4832f0cf202845fa7ac1a60776c0215e8a20d21a3f07d3722f99e415"

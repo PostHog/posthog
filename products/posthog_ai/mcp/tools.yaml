@@ -134,3 +134,6 @@ tools:
     mcp-tools-create:
         operation: mcp_tools_create
         enabled: false
+    terminal-ai-create:
+        operation: terminal_ai_create
+        enabled: false
