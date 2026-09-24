@@ -786,6 +786,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmail: async (_, breakpoint) => {
             // Keeps the saved draft in step with the editor, so an AI edit starts from what the user
             // sees rather than from the last Continue.
+            // The editor is live while the draft is still being created, so wait for it before the
+            // draft check. Otherwise edits made during the create never reach the saved draft.
+            await cache.draftCreation?.catch(() => null)
             if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
                 return
             }
