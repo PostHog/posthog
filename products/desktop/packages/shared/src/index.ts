@@ -197,6 +197,7 @@ export {
   buildDiscussReportPrompt,
   buildLocalCodeSnapshotPrompt,
   CODE_CONTEXT_DISCLOSURE,
+  NO_CHECKOUT_DISCLOSURE,
 } from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
@@ -232,6 +233,7 @@ export {
   formatMention,
   splitMentionSegments,
 } from "./mentions";
+export { supports1MContext, supportsFastMode } from "./model-catalog";
 export {
   customModelMeta,
   DEFAULT_OPTION_META_KEY,
@@ -301,13 +303,12 @@ export {
 } from "./pr-urls";
 export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
+  type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
   getCapabilityLadder,
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
   type SupportedReasoningEffort,
-  supports1MContext,
-  supportsFastMode,
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {

@@ -1354,7 +1354,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, asyncActions, values, props }) => ({
         // The endpoint answers with the cancelled row, so the list is patched in place rather than
         // refetched: the section keeps its scroll position and the other rows never flicker.
         cancelReportCheck: async ({ checkId }) => {
@@ -1452,7 +1452,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         updateReviewers: async ({ content }) => {
             try {
                 await api.signalReports.setReviewers(props.reportId, content)
-                await actions.loadReportArtefacts()
+                await asyncActions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {

@@ -9,6 +9,10 @@ from parameterized import parameterized
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
 from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.logic.services.agent_server_launcher import (
+    AGENT_SERVER_LAUNCH_CAPABILITIES,
+    AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+)
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
@@ -26,6 +30,11 @@ def _log_result() -> ExecutionResult:
 
 def _ok_result() -> ExecutionResult:
     return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+
+def _preflight_result(capabilities: tuple[str, ...] = AGENT_SERVER_LAUNCH_CAPABILITIES) -> ExecutionResult:
+    markers = "\n".join(f"{AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}{capability}" for capability in capabilities)
+    return ExecutionResult(stdout=markers, stderr="", exit_code=0)
 
 
 @pytest.mark.parametrize(
@@ -89,21 +98,47 @@ def test_docker_sandbox_does_not_combine_agent_server_start_and_health(sandbox: 
 
 def test_read_agent_server_boot_metrics_includes_process_milestones(sandbox: DockerSandbox):
     response = ExecutionResult(
-        stdout='{"sessionInitMs":90,"boot":{"totalMs":140,"httpReadyMs":12,"launcherToProcessMs":8,"phasesMs":{"context_fetch":40,"secret":1}}}',
+        stdout=(
+            '{"sessionInitMs":90,"bootMs":900,"boot":{"contractVersion":1,"totalMs":140,"httpReadyMs":12,'
+            '"launcherToProcessMs":8,"phasesMs":{"context_fetch":40,"acp_initialize":5,"repository_ready":60,'
+            '"session_dependencies":7,"session_create":25,"secret":1}}}'
+        ),
         stderr="",
         exit_code=0,
     )
     with patch.object(sandbox, "execute", return_value=response):
         assert sandbox.read_agent_server_boot_metrics() == (
             90,
-            {"context_fetch": 40, "server_total": 140, "http_ready": 12, "launcher_to_process": 8},
+            {
+                "context_fetch": 40,
+                "acp_initialize": 5,
+                "repository_ready": 60,
+                "session_dependencies": 7,
+                "session_create": 25,
+                "server_total": 140,
+                "http_ready": 12,
+                "launcher_to_process": 8,
+                "process_total": 900,
+            },
         )
 
 
-def test_read_agent_server_boot_metrics_uses_pi_boot_total(sandbox: DockerSandbox):
-    response = ExecutionResult(stdout='{"sessionInitMs":90,"bootMs":140}', stderr="", exit_code=0)
+@pytest.mark.parametrize(
+    ("stdout", "expected_phases"),
+    [
+        ('{"sessionInitMs":90,"bootMs":140}', {"process_total": 140}),
+        (
+            '{"sessionInitMs":90,"bootMs":140,"boot":{"totalMs":140,"launcherToProcessMs":8}}',
+            {"process_total": 140, "launcher_to_process": 8},
+        ),
+    ],
+)
+def test_read_agent_server_boot_metrics_without_phase_contract_keeps_server_total_unset(
+    sandbox: DockerSandbox, stdout: str, expected_phases: dict[str, int]
+):
+    response = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
     with patch.object(sandbox, "execute", return_value=response):
-        assert sandbox.read_agent_server_boot_metrics() == (90, {"server_total": 140})
+        assert sandbox.read_agent_server_boot_metrics() == (90, expected_phases)
 
 
 def test_build_agent_server_command_gates_connected_project_operations(sandbox: DockerSandbox):
@@ -116,12 +151,17 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
-def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
+@parameterized.expand([("supported", AGENT_SERVER_LAUNCH_CAPABILITIES), ("unsupported", ())])
+def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities: tuple[str, ...]):
+    config = SandboxConfig(name="test-sandbox")
+    sandbox = DockerSandbox(container_id="c" * 64, config=config, host_port=8000)
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
 
     def execute(command: str, **kwargs) -> ExecutionResult:
         # Only the launch fails; the bundled-skills clear and the launch prep that precede it succeed.
-        if ENV_DISABLE_BUNDLED_SKILLS in command or command.startswith("chmod "):
+        if ENV_DISABLE_BUNDLED_SKILLS in command:
+            return _preflight_result(capabilities)
+        if command.startswith("chmod "):
             return _ok_result()
         return failed
 
@@ -129,7 +169,6 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
         patch.object(sandbox, "is_running", return_value=True),
         patch.object(sandbox, "write_file", return_value=_ok_result()),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server") as build_command,
-        patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=True),
         patch.object(sandbox, "execute", side_effect=execute),
         patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
         pytest.raises(SandboxExecutionError),
@@ -138,7 +177,8 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
 
     # A genuine non-zero launch is a real fault — it still gets captured.
     capture_exception.assert_called_once()
-    assert build_command.call_args.kwargs["posthog_exec_permission_regex"] == POSTHOG_EXEC_PERMISSION_REGEX
+    expected_regex = POSTHOG_EXEC_PERMISSION_REGEX if capabilities else None
+    assert build_command.call_args.kwargs["posthog_exec_permission_regex"] == expected_regex
 
 
 @parameterized.expand([("empty", b""), ("with_content", b"GITHUB_TOKEN=ghs_x\x00")])

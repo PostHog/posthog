@@ -477,6 +477,9 @@ def test_failed_run_still_dismisses_the_stale_approval_first(team, stamphog_chai
     assert prior.approval_dismissed_at is not None
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert [w["review_id"] for w in dismissals] == [777]
+    minimized = [w for w in recorder.github_writes if w["kind"] == "minimize_review"]
+    assert [w["node_id"] for w in minimized] == ["PRR_777"]
+    assert "classifier: OUTDATED" in minimized[0]["query"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -731,7 +734,7 @@ def test_a_go_gateway_url_without_a_key_fails_closed(team, user, stamphog_chain:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_scoped_token_is_scrubbed_from_persisted_reviewer_output(team, stamphog_chain: StamphogChain) -> None:
-    # The per-run phe_ is not in the worker env, so _llm_env_secrets cannot catch it; the explicit
+    # The per-run phe_ is not in the worker env, so llm_env_secrets cannot catch it; the explicit
     # gateway_token scrub must keep it out of ReviewRun.output.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 117, "sha117a")
@@ -1148,7 +1151,11 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
     run = ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pull_request, head_sha="sha-x", status=ReviewRunStatus.REVIEWING
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-x",
+        status=ReviewRunStatus.REVIEWING,
+        output={"review_trigger": "manual"},
     )
 
     # ph_scoped_capture is a context manager yielding the capture callable, so the patch
@@ -1167,6 +1174,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     props = capture_fn.call_args.kwargs["properties"]
     assert props["stamphog_repo"] == REPO
     assert props["stamphog_error"] == expected_stored
+    assert props["stamphog_review_trigger"] == "manual"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1831,6 +1839,33 @@ def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_o
 
     run = DigestRun.objects.for_team(team.id).get(audience_key="team-devex")
     assert (run.slack_channel_id, run.resolution_source) == ("C-STANDUP", ChannelResolutionSource.OWNERS_CONTACT)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_repository_with_no_commits_does_not_block_the_teams_other_digests(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A repository with no commits has no default branch, so its head lookup answers with a null.
+    # Treating that as an unreadable routing file took the whole team's run down, which meant one
+    # freshly connected repo silenced every other repo's morning digest.
+    _repo_config(team.id, repository="acme/charts")
+    _repo_config(team.id, repository="acme/widgets")
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.empty_repositories.add("acme/charts")
+    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = _STANDUP_REGISTRY
+    _merged_pr_with_audience(
+        team.id,
+        StamphogRepoConfig.objects.for_team(team.id).get(repository="acme/widgets"),
+        number=101,
+        audience_key="team-devex",
+    )
+    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
+
+    send_daily_digests()
+
+    assert DigestRun.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
 
 
 @pytest.mark.parametrize(

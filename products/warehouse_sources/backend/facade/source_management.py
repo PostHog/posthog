@@ -23,6 +23,7 @@ _LAZY = {
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
     "purge_buffer_prefix": "cdc.buffer",
+    "CDC_SEQ_COLUMN": "cdc.batcher",
     "ClickHouseConnectionError": "sources.clickhouse.clickhouse",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",
@@ -86,6 +87,7 @@ _LAZY = {
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
     "connect_trino": "sources.trino.trino",
+    "is_posthog_managed_trino_host": "sources.trino.trino",
     "trino_error_to_message": "sources.trino.trino",
 }
 

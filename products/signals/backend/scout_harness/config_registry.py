@@ -30,12 +30,13 @@ from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
     canonical_config_tags_for,
+    canonical_deprecation_for,
     canonical_display_name_for,
     canonical_skill_names,
     is_operational_scout,
 )
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.team_limits import resolve_max_enabled_scouts
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -221,10 +222,15 @@ def register_missing_configs(
     so flipping the flag later doesn't disturb teams already seeded, and a user enabling a scout
     won't be reverted on the next tick.
 
-    The per-team `MAX_ENABLED_SCOUTS_PER_TEAM` cap is an independent second gate: even an
-    allowlisted scout registers disabled once the team is at the cap. Both checks are best-effort
+    The per-team enabled-scout cap is an independent second gate: even an allowlisted scout
+    registers disabled once the team is at the cap. It resolves from the same `seed_config_layers`
+    (`max_enabled_scouts`), so registration and the API enforce one number. Both checks are best-effort
     (count + create, no lock) — a race can briefly overshoot by one, which the coordinator's
     per-tick caps still bound.
+
+    A canonical scout PostHog is retiring (`scout-deprecation` frontmatter) gets no new config
+    here, so the retirement stops intake before it stops runs. An existing config is untouched and
+    keeps its schedule until `sync_canonical_skills` retires it at the sunset.
 
     A canonical scout declaring `scout-role: operational` (`lazy_seed.is_operational_scout`) is
     outside all of that: it watches the self-driving system rather than a product surface, so it
@@ -233,6 +239,7 @@ def register_missing_configs(
     holdback still applies — a withheld scout is dropped above, whatever its role.
     """
     enabled_skills, enabled_interval = _resolve_seed_posture(seed_config_layers)
+    max_enabled_scouts = resolve_max_enabled_scouts(seed_config_layers)
     rows = list(
         LLMSkill.objects.filter(
             team_id=team_id,
@@ -263,12 +270,19 @@ def register_missing_configs(
     # sharing an operational name must not inherit the posture that skips the harness's gates.
     operational_names = {name for name in canonical_names if is_operational_scout(name)}
 
+    # A scout PostHog has announced the retirement of is no longer offered: no new project picks
+    # one up, and a project that never had it does not acquire a row it would only have to retire.
+    # Read off the canonical set like the role is, so a team's own scout sharing the name is
+    # unaffected. Dispatch is untouched — a project already running the scout keeps running it
+    # until the sunset, which is the whole point of announcing one.
+    deprecated_names = {name for name in canonical_names if canonical_deprecation_for(name) is not None}
+
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
-    missing = sorted(skill_names - existing)
+    missing = sorted(skill_names - existing - deprecated_names)
     enabled = enabled_scout_count(team_id) if missing else 0
     for name in missing:
-        at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
+        at_cap = enabled >= max_enabled_scouts
         operational = name in operational_names
         # A canonical scout is gated by the allowlist (when one is set); a custom scout never is,
         # and neither is an operational one. The explicit `is not None` keeps the membership check
@@ -317,12 +331,14 @@ def register_missing_configs(
                 "signals_scout: enabled-scout cap reached, auto-registered config disabled",
                 team_id=team_id,
                 skill_name=name,
-                cap=MAX_ENABLED_SCOUTS_PER_TEAM,
+                cap=max_enabled_scouts,
             )
 
     reconcile_canonical_display_names(team_id, canonical_names & skill_names)
 
-    reconcile_operational_configs(team_id, operational_names & skill_names, withheld_skill_names)
+    reconcile_operational_configs(
+        team_id, operational_names & skill_names, withheld_skill_names, max_enabled_scouts=max_enabled_scouts
+    )
 
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
     # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick,
@@ -363,6 +379,8 @@ def reconcile_operational_configs(
     team_id: int,
     skill_names: set[str],
     withheld_skill_names: frozenset[str] | set[str] | None = None,
+    *,
+    max_enabled_scouts: int | None = None,
 ) -> None:
     """Put already-seeded operational scouts back on the posture their role asks for.
 
@@ -410,15 +428,20 @@ def reconcile_operational_configs(
                     team_id=team_id,
                     skill_name=config.skill_name,
                 )
-            _resume_operational_config(config)
+            _resume_operational_config(config, max_enabled_scouts=max_enabled_scouts)
 
 
-def _resume_operational_config(config: SignalScoutConfig) -> None:
-    """Undo the harness's own silencing of one operational scout, and nothing else."""
+def _resume_operational_config(config: SignalScoutConfig, *, max_enabled_scouts: int | None = None) -> None:
+    """Undo the harness's own silencing of one operational scout, and nothing else.
+
+    `max_enabled_scouts` is the caller's already-resolved cap. This runs inside the reconcile
+    transaction, which holds row locks, so the resolved value is passed in rather than read from
+    the flag here — a network read must not happen while those locks are held."""
     if config.pause_reason in SignalScoutConfig.INACTIVITY_PAUSE_REASONS:
         resumed = config.transition_status_by_system(
             SignalScoutConfig.Status.ACTIVE,
             pause_reason=SignalScoutConfig.PauseReason(config.pause_reason),
+            max_enabled_scouts=max_enabled_scouts,
         )
     elif config.status == SignalScoutConfig.Status.PAUSED_BY_USER and config.status_changed_at is None:
         # `save` stores an `enabled=False` create as `paused_by_user`, so a row the seed disabled
