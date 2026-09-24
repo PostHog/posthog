@@ -77,6 +77,19 @@ class TestUnwakeableWaitRejection(APIBaseTest):
 
     @parameterized.expand(
         [
+            # A lambda argument shadowing a group name is a local, not a group property read.
+            ("lambda_local", "arrayExists(group_0 -> group_0 == 'pro', ['pro']) and person.properties.plan == 'pro'"),
+            # A bare group reference is not a property read either.
+            ("bare_group_name", "person.properties.group_0 == 'pro'"),
+        ]
+    )
+    def test_accepts_a_wait_whose_group_name_is_not_a_group_property(self, _name: str, hogql: str):
+        status, body = self._post(wait_on(hogql))
+
+        assert status == 201, body
+
+    @parameterized.expand(
+        [
             ("person_property", "person.properties.plan == 'enterprise'"),
             ("event_name", "event == 'subscription created'"),
             ("property_with_a_date_value", "toDateTime(person.properties.expires_at) > toDateTime('2026-01-01')"),
