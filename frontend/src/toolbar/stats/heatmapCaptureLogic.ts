@@ -20,7 +20,7 @@ import { captureElementScreenshot } from '~/toolbar/utils/screenshot'
 interface HeatmapCaptureResult {
     id: string
     short_id: string
-    // Widths the toolbar sent that the server refused to store, e.g. a reflow too tall to process.
+    // Widths the toolbar sent that the server refused to store.
     skippedWidths: number[]
 }
 
@@ -156,10 +156,12 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                 return
             }
             const { skippedWidths } = captureResult
+            // The response says which widths were stored, not why the rest were refused, so the
+            // message stays neutral about the cause.
             const message = skippedWidths.length
                 ? `Heatmap saved, without ${skippedWidths.join('px, ')}px. ${
-                      skippedWidths.length === 1 ? 'That width was' : 'Those widths were'
-                  } too large to store.`
+                      skippedWidths.length === 1 ? 'That screenshot' : 'Those screenshots'
+                  } could not be stored.`
                 : 'Heatmap saved'
             lemonToast.success(message, {
                 button: {

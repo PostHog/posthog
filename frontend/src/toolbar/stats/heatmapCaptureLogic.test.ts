@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -36,9 +38,11 @@ describe('heatmapCaptureLogic', () => {
     afterAll(resumeKeaLoadersErrors)
 
     let logic: ReturnType<typeof heatmapCaptureLogic.build>
+    let successToast: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
+        successToast = jest.spyOn(lemonToast, 'success').mockReturnValue(undefined as never)
         window.innerWidth = 1440
         ;(captureResponsiveScreenshots as jest.Mock).mockReset()
         toolbarConfigLogic
@@ -114,5 +118,7 @@ describe('heatmapCaptureLogic', () => {
             .toDispatchActions(['saveToPostHog', 'saveToPostHogSuccess'])
 
         expect(logic.values.captureResult?.skippedWidths).toEqual([320])
+        expect(successToast).toHaveBeenCalledTimes(1)
+        expect(successToast.mock.calls[0][0]).toContain('320px')
     })
 })
