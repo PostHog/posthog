@@ -963,10 +963,10 @@ jobs:
                       # Word-splitting is intentional: SELECT_SPECS is a space-separated list
                       # of controlled spec paths (from the area map + on-disk globs).
                       # shellcheck disable=SC2086
-                      pnpm --filter=@posthog/playwright exec playwright test $SELECT_SPECS --workers=4 --update-snapshots
+                      pnpm --filter=@posthog/playwright exec playwright test $SELECT_SPECS --workers=6 --update-snapshots
                   else
                       echo "Full run (mode='${SELECT_MODE:-<skipped>}')"
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots
                   fi
                   rc=$?
                   echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
