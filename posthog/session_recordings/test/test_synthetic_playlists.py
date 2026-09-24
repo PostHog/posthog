@@ -192,8 +192,6 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert sorted(session_ids) == ["exported-session-0", "exported-session-1"]
 
     def test_synthetic_playlist_exported_content(self) -> None:
-        cache.clear()
-
         ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.GIF,

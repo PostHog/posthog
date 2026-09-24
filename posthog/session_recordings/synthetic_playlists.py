@@ -157,7 +157,7 @@ class SharedPlaylistSource(SyntheticPlaylistSource):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExportedPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces recordings that have been exported as clips or screenshots.
