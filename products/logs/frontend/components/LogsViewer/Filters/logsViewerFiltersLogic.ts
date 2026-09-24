@@ -69,13 +69,13 @@ export interface LogsViewerFiltersLogicProps {
     sessionId?: string
 }
 
-// An empty entry survives the group check and then reads `.type` in the chip renderer, which is the
-// same crash the shape repair exists to prevent. The original array comes back when it holds none,
-// so a group that needs no repair keeps its identity and the components do not re-render for it.
-function withoutEmptyEntries(values: UniversalFiltersGroupValue[]): UniversalFiltersGroupValue[] {
-    return values.some((value) => value === null || value === undefined)
-        ? values.filter((value) => value !== null && value !== undefined)
-        : values
+// An entry that is not an object survives the group check and then crashes the chip renderer, which
+// reads `.type` off it and tests `'key' in` it — the same crash the shape repair exists to prevent.
+// The original array comes back when every entry is usable, so a group that needs no repair keeps
+// its identity and the components do not re-render for it.
+function withoutInvalidEntries(values: UniversalFiltersGroupValue[]): UniversalFiltersGroupValue[] {
+    const isUsable = (value: UniversalFiltersGroupValue): boolean => typeof value === 'object' && value !== null
+    return values.every(isUsable) ? values : values.filter(isUsable)
 }
 
 // The viewer works in a two-level group: an outer group whose first entry is the inner group that
@@ -87,14 +87,25 @@ export function normalizeFilterGroup(filterGroup: unknown): UniversalFiltersGrou
     if (!isUniversalGroupFilterLike(group) || !Array.isArray(group.values)) {
         return DEFAULT_UNIVERSAL_GROUP_FILTER
     }
-    const values = withoutEmptyEntries(group.values)
+    const values = withoutInvalidEntries(group.values)
     const inner = values[0]
     if (inner !== undefined && isUniversalGroupFilterLike(inner) && Array.isArray(inner.values)) {
-        const innerValues = withoutEmptyEntries(inner.values)
-        if (values === group.values && innerValues === inner.values) {
-            return group
+        const innerValues = withoutInvalidEntries(inner.values)
+        const trailing = withoutInvalidEntries(values.slice(1))
+        if (trailing.length === 0) {
+            if (values === group.values && innerValues === inner.values) {
+                return group
+            }
+            return { ...group, values: [{ ...inner, values: innerValues }] }
         }
-        return { ...group, values: [{ ...inner, values: innerValues }, ...values.slice(1)] }
+        // A group beside trailing filters. The two UIs render only the inner group, so a trailing
+        // filter would scope the query with no chip to see or remove it. Flatten it into the inner
+        // group when the operators agree — `(a AND b) AND c` is `a AND b AND c` — and otherwise reject
+        // the shape rather than keep a filter the user cannot reach.
+        if (group.type === inner.type && trailing.every((entry) => !isUniversalGroupFilterLike(entry))) {
+            return { ...group, values: [{ ...inner, values: [...innerValues, ...trailing] }] }
+        }
+        return DEFAULT_UNIVERSAL_GROUP_FILTER
     }
     // A one-level group: every entry is a filter, so move them all into the inner group.
     return { ...group, values: [{ type: FilterLogicalOperator.And, values }] }

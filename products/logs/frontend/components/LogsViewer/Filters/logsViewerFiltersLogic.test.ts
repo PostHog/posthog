@@ -79,6 +79,16 @@ describe('logsViewerFiltersLogic', () => {
         })
 
         it.each([
+            ['a primitive in the outer group', { type: FilterLogicalOperator.And, values: ['boom'] }],
+            [
+                'a primitive in the inner group',
+                { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [42] }] },
+            ],
+        ])('drops %s', (_name, input) => {
+            expect(normalizeFilterGroup(input)).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
+        })
+
+        it.each([
             [
                 'the outer group',
                 { type: FilterLogicalOperator.And, values: [null, messageFilter] },
@@ -100,6 +110,41 @@ describe('logsViewerFiltersLogic', () => {
             ],
         ])('drops an empty entry from %s', (_name, input, expected) => {
             expect(normalizeFilterGroup(input)).toEqual(expected)
+        })
+
+        it('flattens a filter beside the inner group into it when the operators agree', () => {
+            const other = {
+                key: 'service_name',
+                type: PropertyFilterType.Log,
+                operator: PropertyOperator.Exact,
+                value: ['api'],
+            }
+            expect(
+                normalizeFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [messageFilter] }, other],
+                })
+            ).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [messageFilter, other] }],
+            })
+        })
+
+        // Flattening an OR inner group under the outer AND would change what the filter matches, and
+        // the UI shows only the inner group, so keep neither reading — fall back to the default.
+        it('rejects a filter beside the inner group when the operators differ', () => {
+            const other = {
+                key: 'service_name',
+                type: PropertyFilterType.Log,
+                operator: PropertyOperator.Exact,
+                value: ['api'],
+            }
+            expect(
+                normalizeFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.Or, values: [messageFilter] }, other],
+                })
+            ).toEqual(DEFAULT_UNIVERSAL_GROUP_FILTER)
         })
 
         it('leaves a two-level group as it is', () => {
