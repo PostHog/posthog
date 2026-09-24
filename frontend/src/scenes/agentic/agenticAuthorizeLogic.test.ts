@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -14,6 +17,7 @@ describe('agenticAuthorizeLogic', () => {
     let logic: ReturnType<typeof agenticAuthorizeLogic.build>
     let errorToast: jest.SpyInstance
     let confirmResponse: [number, any?]
+    let projectsStatus: number
 
     const startConfirm = (): void => {
         logic = agenticAuthorizeLogic()
@@ -25,15 +29,20 @@ describe('agenticAuthorizeLogic', () => {
 
     beforeEach(() => {
         errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('id')
+        projectsStatus = 200
         useMocks({
             get: {
+                '/api/users/@me/': MOCK_DEFAULT_USER,
                 '/api/projects': () => [200, { results: [] }],
+                [`/api/organizations/${MOCK_DEFAULT_ORGANIZATION.id}/projects`]: () =>
+                    projectsStatus === 200 ? [200, { results: [] }] : [projectsStatus],
             },
             post: {
                 '/api/agentic/authorize/confirm/': () => confirmResponse,
             },
         })
         initKeaTests()
+        userLogic.mount()
     })
 
     afterEach(() => {
@@ -84,5 +93,32 @@ describe('agenticAuthorizeLogic', () => {
             reason: code,
             retryable: expect.any(Boolean),
         })
+    })
+
+    it('loads the projects again when the person picks a different organization', async () => {
+        logic = agenticAuthorizeLogic()
+        logic.mount()
+        logic.actions.loadAllTeams()
+        await expectLogic(logic).toDispatchActions(['loadAllTeamsSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgenticAuthorizationValue('scoped_organizations', [MOCK_DEFAULT_ORGANIZATION.id])
+        }).toDispatchActions(['loadAllTeams', 'loadAllTeamsSuccess'])
+    })
+
+    it('reports a failed projects load instead of showing an empty picker', async () => {
+        projectsStatus = 500
+        logic = agenticAuthorizeLogic()
+        logic.mount()
+        logic.actions.loadAllTeams()
+
+        await expectLogic(logic).toDispatchActions(['loadAllTeamsFailure']).toMatchValues({
+            allTeamsFailed: true,
+            filteredTeams: undefined,
+        })
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'authorize projects loaded',
+            expect.objectContaining({ screen: 'agentic', success: false })
+        )
     })
 })

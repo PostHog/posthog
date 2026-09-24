@@ -8,15 +8,19 @@ import { TeamSelector } from './TeamSelector'
 import type { OrganizationOption, TeamOption } from './types'
 
 type RequiredTeamAccessSelectorProps = {
-    teams: TeamOption[]
+    teams?: TeamOption[]
     organizations: OrganizationOption[]
     autoSelectFirst?: boolean
+    teamsLoadFailed?: boolean
+    onReloadTeams?: () => void
 }
 
 export const RequiredTeamAccessSelector = ({
     teams,
     organizations,
     autoSelectFirst = false,
+    teamsLoadFailed,
+    onReloadTeams,
 }: RequiredTeamAccessSelectorProps): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
@@ -36,11 +40,13 @@ export const RequiredTeamAccessSelector = ({
 
                     return (
                         <TeamSelector
-                            teams={teams || []}
+                            teams={teams}
                             organizations={organizations}
                             mode="single"
                             value={arrayValue.length > 0 ? [String(arrayValue[0])] : []}
                             onChange={(val: string[]) => onChange(val.length > 0 ? [parseInt(val[0])] : [])}
+                            loadFailed={teamsLoadFailed}
+                            onReload={onReloadTeams}
                         />
                     )
                 }}

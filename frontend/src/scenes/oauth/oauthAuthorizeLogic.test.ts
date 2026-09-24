@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { DEFAULT_OAUTH_SCOPES } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
@@ -18,6 +19,7 @@ describe('oauthAuthorizeLogic', () => {
         useMocks({
             get: {
                 '/api/users/@me/': MOCK_DEFAULT_USER,
+                '/api/organizations/:organization_id/projects': () => [500],
             },
         })
         initKeaTests()
@@ -480,6 +482,15 @@ describe('oauthAuthorizeLogic', () => {
             ['a non-list field value', { state: 'Not a valid string.' }],
         ])('returns null for %s, so the caller falls back', (_name, data) => {
             expect(describeOAuthError(data)).toBeNull()
+        })
+    })
+
+    it('reports a failed projects load instead of leaving the picker empty', async () => {
+        logic.actions.loadAllTeams()
+
+        await expectLogic(logic).toDispatchActions(['loadAllTeamsFailure']).toMatchValues({
+            allTeamsFailed: true,
+            filteredTeams: null,
         })
     })
 })
