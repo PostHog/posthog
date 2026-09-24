@@ -1656,6 +1656,15 @@ class EditReportRequestSerializer(serializers.Serializer):
         max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    mark_addressed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Mark an active report as already addressed after verifying that its fix landed or is in flight. "
+            "Requires append_note with the evidence. Prevents new autonomous work; does not resolve the "
+            "report or close any linked pull requests."
+        ),
+    )
     corroboration_only = serializers.BooleanField(
         required=False,
         help_text="Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.",
@@ -1789,6 +1798,7 @@ class EditReportResponseSerializer(serializers.Serializer):
             "to tell the two apart."
         ),
     )
+    addressed_marked = serializers.BooleanField(help_text="Whether this edit marked the report already addressed.")
     evidence_appended = serializers.IntegerField(
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )

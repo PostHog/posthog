@@ -474,6 +474,7 @@ This run updates reports that already exist; it can't author new ones. Find the 
 
 - **Find it.** {_INBOX_SEARCH_RECIPE} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Reuse the `report:<domain>:<entity>` scratchpad entry from a prior run when you have one. {_DISMISSAL_CONTEXT}
 - **Append, or rewrite.** Prefer appending. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
+- **Mark work already addressed.** If a later check confirms an active report is already handled, use `edit_report(mark_addressed=true, append_note=<verified evidence>)` to record that decision. This blocks new autonomous work but does not resolve the report or close its pull requests. Check each affected path and leave exceptions for human review.
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 {_EDIT_REPOSITORY_BULLET}
 - **Don't retry blindly.** `edit_report` is NOT idempotent. A retried `append_note` adds a second note. A retried `append_evidence` adds duplicate signals and increases the report counters again. If unsure whether an edit landed, re-read the report rather than re-sending."""
@@ -524,8 +525,8 @@ A report that surfaces but routes nowhere is half-finished: the whole point of a
 # report-channel scouts only — see `runner._spawn_and_run`). The section must not exist otherwise:
 # pointing a scout at `gh` in a tokenless sandbox burns its budget on 401s.
 #
-# The in-flight-work clause is composed per capability: `already_addressed` is a field on emit only
-# (`EditReportRequestSerializer` has no such field), so an edit-only scout must not be told to set it.
+# The in-flight-work clause is composed per capability: emit sets `already_addressed` at authoring,
+# while edit can mark a verified existing report addressed without closing it.
 # Split into head + clause + tail rather than a `.format()` template, because the head carries a jq
 # expression whose literal braces a format string would have to double-escape.
 _GITHUB_EVIDENCE_HEAD = """# Code-derived reviewer evidence (`gh`, read-only)
@@ -534,6 +535,7 @@ This sandbox has the GitHub CLI (`gh`) authenticated with a **read-only** token 
 
 - **Query recent authors of the affected path** once you know which files or dirs the issue touches (from the entity, the error, or a comparable report's `repository`): `gh api 'repos/<owner>/<repo>/commits?path=<dir-or-file>&per_page=30' --jq '[.[].author.login] | group_by(.) | map({login: .[0], commits: length}) | sort_by(-.commits)'`. Two or three such calls (the specific file, its directory, the product root) triangulate ownership. This is evidence-gathering, not archaeology, so don't page through history beyond that.
 - **Check repository ownership when you know the affected paths.** Look for `CODEOWNERS` in `.github/`, then the repository root, then `docs/`; use the first file found and the last rule that matches each path. Also check `owners.yaml` when present. Human reviewer corrections take precedence; if the files name different owners, keep the `owners.yaml` owner first and add a CODEOWNERS owner as a second suggested reviewer only when each resolves to a project member. A GitHub team handle is not a reviewer: resolve its members before suggesting one person. Missing files or unclear paths are not evidence of ownership.
+- **Check effective behavior on the default branch** before proposing a code change or keeping a report open. Trace inherited behavior and shared utilities, not only the local function. Check each affected path separately; a shared fix can cover one endpoint but miss another.
 - **Check whether the work is already in flight** before you file something autostart could open a PR for: `gh pr list --repo <owner>/<repo> --state open --search '<keywords>'` (then `gh pr view <n> --repo <owner>/<repo> --json files,title,url` on a plausible hit), `gh api 'repos/<owner>/<repo>/branches?per_page=100'` for a recently pushed branch, and `gh issue list --repo <owner>/<repo> --state open --assignee '*' --search '<keywords>'` for a ticket someone is on. Search by the paths a fix would touch as well as by wording, since concurrent work is easier to recognize by its files. An *open, unassigned* backlog ticket doesn't count: the issue is known, not started. """
 
 _GITHUB_EVIDENCE_TAIL = """
@@ -547,8 +549,7 @@ _GH_IN_FLIGHT_EMIT = (
 )
 
 _GH_IN_FLIGHT_EDIT_ONLY = (
-    "A real hit belongs in the note you append, since `already_addressed` is set when a report is authored "
-    "and this run can't author one."
+    "A real hit calls for the actionability decision in *Editing existing reports*, not just a note."
 )
 
 
@@ -579,8 +580,7 @@ The tree was cloned when this run started. For anything about work in flight (an
 
 
 def _github_evidence_section(*, can_emit: bool) -> str:
-    """`gh` reviewer-evidence guidance, with the in-flight-work verdict matched to what the scout can
-    actually write: only an authoring run has an `already_addressed` field to set."""
+    """`gh` reviewer-evidence guidance with the in-flight-work verdict matched to emit or edit."""
     clause = _GH_IN_FLIGHT_EMIT if can_emit else _GH_IN_FLIGHT_EDIT_ONLY
     return f"{_GITHUB_EVIDENCE_HEAD}{clause}{_GITHUB_EVIDENCE_TAIL}"
 

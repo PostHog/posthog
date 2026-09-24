@@ -1361,6 +1361,7 @@ class TestPromptBuilder(BaseTest):
         assert "scout-members-list" in prompt
         # An edit-only scout searches the inbox to find the report to update, so it needs the same
         # dedup nuance — else the default ordering hides the most recently updated match.
+        assert "edit_report(mark_addressed=true" in prompt
         assert "ordering=-updated_at" in prompt
         # Same for the dismissed-report guidance: the edit-only section is a separate constant,
         # so it can lose the widened search or the untrusted-note boundary independently.

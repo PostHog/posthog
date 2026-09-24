@@ -47,6 +47,7 @@ from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ActionabilityChoice,
     ArtefactContentValidationError,
     ImplementationDecision,
     ImplementationDispatch,
@@ -516,6 +517,37 @@ def update_scout_report(
         extra={"team_id": team_id, "report_id": report_id, "fields": updated_fields},
     )
     return updated_fields
+
+
+def mark_scout_report_addressed(
+    *, team_id: int, report_id: str, explanation: str, attribution: ArtefactAttribution
+) -> bool:
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        if report is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        if report.status not in {
+            SignalReport.Status.READY,
+            SignalReport.Status.PENDING_INPUT,
+            SignalReport.Status.IN_PROGRESS,
+        }:
+            raise InvalidScoutReportError("only an active report can be marked already addressed")
+        latest = SignalReportArtefact.latest_actionability(report.id)
+        if latest.actionability is None:
+            raise InvalidScoutReportError("report has no actionability judgment")
+        if latest.already_addressed is True:
+            return False
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=ActionabilityAssessment(
+                explanation=explanation,
+                actionability=ActionabilityChoice(latest.actionability),
+                already_addressed=True,
+            ),
+            attribution=attribution,
+        )
+        return True
 
 
 @frozen

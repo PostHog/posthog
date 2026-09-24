@@ -32,6 +32,11 @@ Links must name a different live report in the same project and cannot form a cy
 
 ## Recurrence after a fixed verdict
 
+A scout can mark an active report already addressed with `edit_report(mark_addressed=true, append_note=<evidence>)`.
+This appends a new actionability judgment and keeps the existing actionability, report status, claim, and linked pull requests.
+It prevents a new autonomous implementation but does not resolve the report or close a pull request.
+Check each affected endpoint before applying a shared fix verdict; a report with an uncovered exception still needs review.
+
 A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
 The pipeline records the new report's parent with a typed `recurrence_of` report link.
 Generic `related_to` links do not control signal assignment.

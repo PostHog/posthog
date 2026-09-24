@@ -471,6 +471,66 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_edit_report_marks_verified_fix_addressed_without_resolving(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge():
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "mark_addressed": True,
+                    "append_note": "The shared handler now covers this case; a separate endpoint still needs review.",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["addressed_marked"] is True
+        report = SignalReport.objects.get(id=created["report_id"])
+        assert report.status == SignalReport.Status.READY
+        assert report.latest_actionability == "immediately_actionable"
+        assert report.latest_already_addressed is True
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+            ).count()
+            == 2
+        )
+
+    def test_edit_report_marks_in_progress_report_addressed_without_stopping_work(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        SignalReport.objects.filter(id=created["report_id"]).update(status=SignalReport.Status.IN_PROGRESS)
+        with _safe_judge():
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "mark_addressed": True,
+                    "append_note": "The common path is now covered; the open implementation still needs review.",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["addressed_marked"] is True
+        report = SignalReport.objects.get(id=created["report_id"])
+        assert report.status == SignalReport.Status.IN_PROGRESS
+        assert report.latest_already_addressed is True
+
+    def test_edit_report_requires_evidence_to_mark_addressed(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={"report_id": created["report_id"], "mark_addressed": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReport.objects.get(id=created["report_id"]).latest_already_addressed is False
+
     def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
         # A scout that splits one finding into a stack has to be able to record the order, and the
         # cycle guard has to hold on this path too, not only on the REST action.

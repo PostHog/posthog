@@ -110,6 +110,7 @@ from products.signals.backend.scout_report import (
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
+    mark_scout_report_addressed,
     prepare_scout_supersession,
     record_content_revision,
     record_implementation_decision,
@@ -252,6 +253,7 @@ class EditReportResult:
     report_id: str
     updated_fields: list[str]
     note_appended: bool
+    addressed_marked: bool = False
     reviewers_set: bool = False
     # Whether the edit wrote a new repository selection — the correction path for a report that
     # surfaced against the wrong codebase. True for a cleared selection too, since that is a write.
@@ -1756,6 +1758,11 @@ def emit_report_sync(
     return finish(_emit_result(persisted.report_id, judgement))
 
 
+def _validate_mark_addressed(mark_addressed: bool, append_note: str | None, corroboration_only: bool) -> None:
+    if mark_addressed and (not append_note or not append_note.strip() or corroboration_only):
+        raise InvalidScoutReportError("mark_addressed requires a non-empty, non-corroboration append_note")
+
+
 def _do_edit_report(
     *,
     team: Team,
@@ -1764,6 +1771,7 @@ def _do_edit_report(
     title: str | None,
     summary: str | None,
     append_note: str | None,
+    mark_addressed: bool,
     append_evidence: list[ScoutReportSignal] | None,
     reviewers: SuggestedReviewers | None,
     repository: str | None,
@@ -1787,12 +1795,14 @@ def _do_edit_report(
     reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
     provenance stamped so a picked owner can't become the autostart identity."""
     _assert_edit_gates(team, run, report_id)
+    _validate_mark_addressed(mark_addressed, append_note, corroboration_only)
     if corroboration_only and not append_note:
         raise InvalidScoutReportError("corroboration_only requires append_note")
 
     attribution = _attribution_for(_resolve_task_id(run))
     updated_fields: list[str] = []
     note_appended = False
+    addressed_marked = False
     repository_set = False
     links_appended = 0
     evidence_document_ids: list[str] = []
@@ -1893,6 +1903,10 @@ def _do_edit_report(
             )
             note_appended = True
             corroboration_collapsed = appended.collapsed
+        if mark_addressed:
+            addressed_marked = mark_scout_report_addressed(
+                team_id=team.id, report_id=report_id, explanation=append_note or "", attribution=attribution
+            )
         # Additive, unlike the charts and prompts below: appended observations join the report's
         # existing evidence rail rather than replacing it, which is why the field is named for it.
         if append_evidence:
@@ -2129,6 +2143,7 @@ def _do_edit_report(
         report_id=report_id,
         updated_fields=updated_fields,
         note_appended=note_appended,
+        addressed_marked=addressed_marked,
         evidence_appended=evidence_appended,
         reviewers_set=reviewers_set,
         repository_set=repository_set,
@@ -2258,6 +2273,7 @@ async def edit_report(
     title: str | None = None,
     summary: str | None = None,
     append_note: str | None = None,
+    mark_addressed: bool = False,
     append_evidence: list[ReportEvidence] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     repository: str | None = None,
@@ -2290,6 +2306,7 @@ async def edit_report(
         suggested_prompts,
         links,
     )
+    _validate_mark_addressed(mark_addressed, append_note, corroboration_only)
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
@@ -2329,6 +2346,7 @@ async def edit_report(
         title=title,
         summary=summary,
         append_note=append_note,
+        mark_addressed=mark_addressed,
         append_evidence=built_evidence,
         reviewers=built_reviewers,
         repository=normalized_repository,
@@ -2367,6 +2385,7 @@ def edit_report_sync(
     title: str | None = None,
     summary: str | None = None,
     append_note: str | None = None,
+    mark_addressed: bool = False,
     append_evidence: list[ReportEvidence] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     repository: str | None = None,
@@ -2392,6 +2411,7 @@ def edit_report_sync(
         suggested_prompts,
         links,
     )
+    _validate_mark_addressed(mark_addressed, append_note, corroboration_only)
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
@@ -2426,6 +2446,7 @@ def edit_report_sync(
         title=title,
         summary=summary,
         append_note=append_note,
+        mark_addressed=mark_addressed,
         append_evidence=built_evidence,
         reviewers=built_reviewers,
         repository=normalized_repository,
