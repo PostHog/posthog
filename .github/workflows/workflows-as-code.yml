@@ -1,11 +1,5 @@
 name: Workflows as code
 
-# Pushes the repository's own workflows in products/workflows/workflows/ to
-# PostHog on master. Pull requests run the required check in Frontend CI.
-#
-# The paths name only the workflow files and this file. A change to the SDK can
-# change what every file compiles to, so it reaches the project on the next
-# change to a workflow file or on a manual dispatch, never as a side effect.
 on:
     push:
         branches:
@@ -15,8 +9,6 @@ on:
             - .github/workflows/workflows-as-code.yml
     workflow_dispatch:
 
-# Master pushes share one group with cancellation off, so two pushes never
-# race a deploy. The newer run waits, and the newest commit wins.
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: false
@@ -30,32 +22,17 @@ jobs:
         if: github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # A repository admin creates this environment with required reviewers and
-        # stores POSTHOG_WORKFLOWS_API_KEY on it. GitHub creates a missing
-        # environment on the first run with no protection rules and no secrets,
-        # and then the push step skips with a warning.
         environment: workflows-as-code
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
 
-            # The workflow files import @posthog/workflows through the devDependency
-            # in products/workflows/package.json, and pnpm only creates that link
-            # when the product package is selected too.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter "@posthog/workflows..." --filter "@posthog/products-workflows"
 
-            # Project 2 is PostHog's own project on PostHog Cloud US, which is where
-            # these workflows run. The project and host variables exist so a fork can
-            # point the push at its own project. The secret and the email integration
-            # variable have to be set, because integration ids differ per project.
-            #
-            # A PostHog that does not store a workflow key yet makes the CLI stop with
-            # key_not_supported. That is a missing server feature rather than a broken
-            # file, so the step warns and succeeds.
             - name: Push workflows to PostHog
               env:
                   POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}

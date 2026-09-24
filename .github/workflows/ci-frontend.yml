@@ -1092,9 +1092,6 @@ jobs:
               with:
                   persist-credentials: false
 
-            # The workflow files import @posthog/workflows through the devDependency
-            # in products/workflows/package.json, and pnpm only creates that link
-            # when the product package is selected too.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
