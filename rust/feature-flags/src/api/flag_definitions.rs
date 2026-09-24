@@ -472,16 +472,6 @@ async fn get_from_cache(
     }
 }
 
-/// Whether a cache hit should enqueue a rebuild of the team's Redis entry.
-///
-/// Self-heal for an entry that is gone from Redis but still in S3. The handler reads the
-/// ETag from Redis alone, so an S3-served response carries no validator, and the SDK
-/// downloads the whole payload on every poll instead of getting a 304. Nothing else repairs
-/// this: the response is a success, the hourly verifier compares the S3 payload against the
-/// database and calls it a match, and the refresh sweep does not look at the team until its
-/// expiry score comes due, which is up to a full cache TTL away. The rebuild writes the
-/// payload and the ETag together and puts the team back in the expiry sorted set.
-///
 /// Only `CacheSource::S3` qualifies, because only that source proves Redis answered and did
 /// not hold the key. `S3AfterRedisError` reaches S3 because the Redis read failed, timed out,
 /// or would not decode, which says nothing about whether the entry exists. Queueing on that
@@ -529,7 +519,6 @@ fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32, trigger: &'s
     ));
 }
 
-/// The queue write itself, outside the spawn so a test can await it instead of racing it.
 async fn write_rebuild_request(
     redis: Arc<dyn RedisClient + Send + Sync>,
     team_id: i32,
@@ -648,9 +637,6 @@ mod tests {
         assert_eq!(has_billable_flags(&response), expected);
     }
 
-    /// A Redis incident makes every served team look S3-sourced. Queueing those would point
-    /// a rebuild storm at the cluster that is already failing, so only a confirmed Redis miss
-    /// may enqueue.
     #[rstest]
     #[case::confirmed_redis_miss(CacheSource::S3, true, true)]
     #[case::redis_read_failed(CacheSource::S3AfterRedisError, true, false)]
@@ -665,9 +651,6 @@ mod tests {
         assert_eq!(should_rebuild_after_hit(&source, enabled), expected);
     }
 
-    /// The drain takes the lowest scores first, so an overwriting write would push a team
-    /// that has been waiting behind teams that asked later, and would reset the queue-age
-    /// gauge on every poll. Awaited rather than spawned, so the assertion cannot race it.
     #[tokio::test]
     async fn test_rebuild_request_does_not_overwrite_an_earlier_score() {
         let mock = common_redis::MockRedisClient::new();
