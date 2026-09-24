@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import {
     LemonButton,
@@ -39,7 +40,12 @@ import {
     normalizeRelativeDateAmount,
     parseRelativeDateValue,
 } from './variableUtils'
-import { getStaticVariableOptions, getValuesQueryKey, variableValuesLogic } from './variableValuesLogic'
+import {
+    MAX_LIST_VARIABLE_OPTIONS,
+    getStaticVariableOptions,
+    getValuesQueryKey,
+    variableValuesLogic,
+} from './variableValuesLogic'
 
 export { coerceListVariableValue, getListVariableValues } from './variableUtils'
 
@@ -144,20 +150,35 @@ export const ListVariableSelect = ({
     const { loadVariableOptions } = useActions(logic)
     const { requestedValuesQueryKey, variableOptions, variableOptionsError, variableOptionsLoading } = useValues(logic)
     const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
-    const options =
-        variable.values_query == null ? getStaticVariableOptions(variable) : isCurrentQuery ? variableOptions : []
+    const loadedOptions =
+        variable.values_query == null
+            ? getStaticVariableOptions(variable)
+            : isCurrentQuery
+              ? variableOptions.options
+              : []
     const currentError = isCurrentQuery ? variableOptionsError : null
+    const isTruncated = variable.values_query != null && isCurrentQuery && variableOptions.truncated
+    const options = useMemo(
+        () => loadedOptions.map((option) => ({ key: option.value, label: option.label })),
+        [loadedOptions]
+    )
 
     return (
         <LemonInputSelect
             className="w-full"
             mode={variable.is_multi ? 'multiple' : 'single'}
             value={selectedValues}
-            options={options.map((option) => ({ key: option.value, label: option.label }))}
+            options={options}
             onBlur={onBlur}
             onChange={(values) => onChange(variable.is_multi ? values : (values[0] ?? ''))}
             placeholder={variableOptionsLoading ? 'Loading options...' : 'Select a value'}
-            emptyStateComponent={currentError ? "Couldn't load options. Check the query, then try again." : undefined}
+            emptyStateComponent={
+                currentError
+                    ? "Couldn't load options. Check the query, then try again."
+                    : isTruncated
+                      ? `No match in the first ${MAX_LIST_VARIABLE_OPTIONS.toLocaleString()} options. Narrow the options query to reach the rest.`
+                      : undefined
+            }
             status={currentError ? 'danger' : 'default'}
             loading={variableOptionsLoading}
             disabledReason={disabledReason || undefined}
@@ -199,7 +220,8 @@ export const ListVariableFields = ({
     const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
     useOnMountEffect(() => maybeLoadConnectionOptions())
     const isCurrentQuery = requestedValuesQueryKey === getValuesQueryKey(variable)
-    const loadedOptions = isQueryBacked && isCurrentQuery ? variableOptions : []
+    const loadedOptions = isQueryBacked && isCurrentQuery ? variableOptions.options : []
+    const isTruncated = isQueryBacked && isCurrentQuery && variableOptions.truncated
     const availableOptions = isQueryBacked ? loadedOptions : getStaticVariableOptions(variable)
     const currentError = isCurrentQuery ? variableOptionsError : null
     const defaultValues = getListVariableSelectedValues({ ...variable, value: undefined })
@@ -255,7 +277,7 @@ export const ListVariableFields = ({
                     <LemonField.Pure
                         label="Options query"
                         className="gap-1"
-                        info="The first column supplies the option values. An optional second column supplies their display labels. Queries without a LIMIT return up to 100 rows. Options load when the variable is shown, and results are cached for a few minutes."
+                        info={`The first column supplies the option values. An optional second column supplies their display labels. Up to ${MAX_LIST_VARIABLE_OPTIONS.toLocaleString()} rows load, unless the query has a smaller LIMIT of its own. Options load when the variable is shown, and results are cached for a few minutes.`}
                     >
                         <CodeEditorResizeable
                             language="hogQL"
@@ -268,6 +290,11 @@ export const ListVariableFields = ({
                             {currentError ? (
                                 <span className="text-danger text-xs">
                                     Couldn't load options. Check the query, then try again.
+                                </span>
+                            ) : isTruncated ? (
+                                <span className="text-warning text-xs">
+                                    Loaded the first {MAX_LIST_VARIABLE_OPTIONS.toLocaleString()} options. Narrow the
+                                    query to reach the rest.
                                 </span>
                             ) : loadedOptions.length > 0 ? (
                                 <span className="text-success text-xs">
