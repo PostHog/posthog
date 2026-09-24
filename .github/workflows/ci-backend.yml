@@ -1862,10 +1862,10 @@ jobs:
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
 
-                      # Only show SQL for new migrations, not modifications to existing ones. A stacked
-                      # PR that merged a newer master than its base branch also carries master's migrations.
-                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null || git cat-file -e "origin/master:$file" 2>/dev/null; then
-                        echo "Skipping $file (already exists on the base branch or master)"
+                      # A stacked PR can carry master's migration at this path. Keep a
+                      # conflicting version visible even when master has the same path.
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null || git diff --quiet origin/master HEAD -- "$file"; then
+                        echo "Skipping $file (already exists on the base branch or matches master)"
                         continue
                       fi
 
@@ -2243,14 +2243,23 @@ jobs:
                   ch_migrations() {
                       git diff --name-only --diff-filter="$1" "$2"..HEAD -- posthog/clickhouse/migrations/ | awk '!/README|__pycache__/' | sort
                   }
-                  # A stacked PR that merged a newer master than its base branch also carries master's
-                  # migrations, so only a file that differs from master and from the base is this PR's.
+                  # A stacked PR can carry master's migrations through a merge. Keep
+                  # paths that differ in content, including number collisions.
                   for filter in A AM; do
                       ch_migrations "$filter" "$DIFF_BASE" > "$RUNNER_TEMP/ch-base-$filter.txt"
-                      ch_migrations "$filter" origin/master > "$RUNNER_TEMP/ch-master-$filter.txt"
+                      output="$RUNNER_TEMP/ch-migrations-changed.txt"
+                      [ "$filter" = A ] && output="$RUNNER_TEMP/ch-migrations-added.txt"
+                      : > "$output"
+                      while IFS= read -r file; do
+                          if git diff --quiet origin/master HEAD -- "$file"; then
+                              continue
+                          else
+                              status=$?
+                              [ "$status" -eq 1 ] || exit "$status"
+                          fi
+                          printf '%s\n' "$file" >> "$output"
+                      done < "$RUNNER_TEMP/ch-base-$filter.txt"
                   done
-                  comm -12 "$RUNNER_TEMP/ch-base-A.txt" "$RUNNER_TEMP/ch-master-A.txt" > "$RUNNER_TEMP/ch-migrations-added.txt"
-                  comm -12 "$RUNNER_TEMP/ch-base-AM.txt" "$RUNNER_TEMP/ch-master-AM.txt" > "$RUNNER_TEMP/ch-migrations-changed.txt"
                   cat "$RUNNER_TEMP/ch-migrations-changed.txt"
 
             - name: Check CH migrations
