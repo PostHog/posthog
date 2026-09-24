@@ -1,18 +1,68 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
+
+import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
-import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
+import type { HogFlow } from '../../Workflows/hogflows/types'
+import { EMAIL_EDITOR_AGENT_HEADLINES, buildWorkflowAgentContext } from '../../Workflows/workflowAgentContext'
+import {
+    BroadcastEmailValue,
+    DEFAULT_BROADCAST_EMAIL,
+    EMAIL_ACTION_ID,
+    broadcastWizardLogic,
+} from '../broadcastWizardLogic'
+
+// Static text, so it is safe as a trusted instruction. The wizard rewrites the graph on every save,
+// so graph edits would be lost, and launching belongs to the wizard's review step.
+const BROADCAST_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: 'broadcast-content',
+    value:
+        'This workflow is a broadcast: a batch trigger, one email step and an exit. Change only the email step ' +
+        '(its content, subject and preheader). Do not add, remove or reorder steps, and do not enable or ' +
+        'publish it. The user launches it from the broadcast wizard. An email edit only saves once the step has ' +
+        'a sender, so if from.integrationId is empty, ask the user to pick one in the From field first.',
+}
 
 export function BroadcastContentStep(): JSX.Element {
-    const { email, stepValidationErrors } = useValues(broadcastWizardLogic)
+    const { email, stepValidationErrors, broadcastAsWorkflow, broadcastId } = useValues(broadcastWizardLogic)
     const { setEmail } = useActions(broadcastWizardLogic)
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    // Debounced so each keystroke does not re-serialize the email into the agent context.
+    const debouncedWorkflow = useDebouncedValue(broadcastAsWorkflow, 500)
+    const agentContextItems = useMemo(
+        () =>
+            sceneIntegrationEnabled && debouncedWorkflow && broadcastId
+                ? [
+                      ...buildWorkflowAgentContext(
+                          debouncedWorkflow as unknown as HogFlow,
+                          broadcastId,
+                          {},
+                          EMAIL_ACTION_ID
+                      ),
+                      BROADCAST_CONTEXT_ITEM,
+                  ]
+                : null,
+        [sceneIntegrationEnabled, debouncedWorkflow, broadcastId]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'broadcast',
+        contextItems: agentContextItems,
+        headlines: EMAIL_EDITOR_AGENT_HEADLINES,
+        active: !!broadcastId,
+    })
 
     const errors = stepValidationErrors.content
     const fieldErrors: EmailFieldErrors = {
