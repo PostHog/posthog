@@ -31,6 +31,7 @@ from products.stamphog.backend.logic.channel_resolution import (
     build_routing_context,
     resolve_destination,
 )
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
@@ -54,7 +55,12 @@ from products.stamphog.backend.temporal.constants import (
     SandboxPhaseError,
 )
 from products.stamphog.backend.tests import fakes
-from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
+from products.stamphog.backend.tests.conftest import (
+    FAST_REFUSAL_SUMMARY,
+    PRODUCT_DATABASES,
+    StamphogChain,
+    _run_activity,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 REPO = "acme/widgets"
@@ -212,6 +218,92 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
 
     # An APPROVED verdict never hands off to ReviewHog — the reviewhog label is a refusal-only signal.
     assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
+
+
+def _api_file(filename: str) -> dict:
+    return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
+
+
+@pytest.mark.parametrize(
+    "files, summary, engine_breaks, expect_fast_path, expect_in_body",
+    [
+        pytest.param(
+            [_api_file("terraform/main.tf")], FAST_REFUSAL_SUMMARY, False, True, FAST_REFUSAL_SUMMARY, id="deny"
+        ),
+        pytest.param(
+            [_api_file("terraform/main.tf")],
+            None,
+            False,
+            True,
+            "deny-list: matches: infra_cicd",
+            id="deny-summary-failed",
+        ),
+        # A broken pre-check must cost only the shortcut, never the review.
+        pytest.param([_api_file("terraform/main.tf")], None, True, False, None, id="engine-breaks"),
+        # No Migration risk check has reported, so the full review can end WAIT rather than REFUSED.
+        pytest.param(
+            [_api_file("posthog/migrations/0999_add_col.py")], None, False, False, None, id="pending-migration"
+        ),
+        pytest.param(_pr_files(), None, False, False, None, id="clean"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_final_gate_deny_is_refused_without_a_sandbox(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[dict],
+    summary: str | None,
+    engine_breaks: bool,
+    expect_fast_path: bool,
+    expect_in_body: str | None,
+) -> None:
+    # The engine's own pre-check runs in a real child process here: a deny the full review would
+    # also reach skips the bot wait and the sandbox, and anything else still gets the full review.
+    repo_config = _repo_config(team.id)
+    author, head_sha = "devex-dev", "sha-pregate"
+    pr_object = {**_pr_object(101, author, head_sha), "changed_files": len(files)}
+    stamphog_chain.recorder.register_pr(REPO, 101, pr_object, files)
+
+    engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
+    with (
+        patch("products.stamphog.backend.temporal.activities.summarize_refusal", return_value=summary),
+        patch.object(activities, "run_engine_pregate", side_effect=engine_failure, wraps=activities.run_engine_pregate),
+    ):
+        assert stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4())) == 202
+
+    pull_request = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
+    if not expect_fast_path:
+        assert stamphog_chain.sandbox_class.created_configs != []
+        assert "fast_path" not in run.output
+        return
+
+    assert stamphog_chain.sandbox_class.created_configs == []
+    assert run.status == ReviewRunStatus.GATED
+    assert run.output["fast_path"] is True
+    assert "pregate" in run.output["timings_ms"]
+    refusals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
+    assert len(refusals) == 1
+    assert expect_in_body in refusals[0]["body"]["body"]
+
+
+@pytest.mark.parametrize(
+    "pr_head_sha, changed_files, status, expect",
+    [
+        pytest.param("sha-run", 1, "modified", None, id="usable"),
+        pytest.param("sha-newer", 1, "modified", "head_moved", id="head-moved"),
+        pytest.param("sha-run", 3000, "modified", "file_list_incomplete", id="files-past-the-page-cap"),
+        pytest.param("sha-run", None, "modified", "file_list_incomplete", id="no-file-count"),
+        pytest.param("sha-run", 1, "renamed", "renamed_files", id="rename"),
+    ],
+)
+def test_pregate_only_trusts_a_file_list_the_sandbox_would_match(
+    pr_head_sha: str, changed_files: int | None, status: str, expect: str | None
+) -> None:
+    pr = {"head": {"sha": pr_head_sha}, "changed_files": changed_files}
+    files = [{"filename": "terraform/main.tf", "status": status}]
+
+    assert pregate_skip_reason(pr, files, "sha-run") == expect
 
 
 @pytest.mark.parametrize("teardown", ["raises", "hangs"])

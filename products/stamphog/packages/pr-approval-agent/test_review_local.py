@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import reviewer  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
 from github import CommitProvenance  # noqa: E402
@@ -481,10 +482,83 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
         seen["stacked"] = pr.stacked
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(review_pr.Reviewer, "review", fake_review)
+    monkeypatch.setattr(reviewer.Reviewer, "review", fake_review)
 
     result = review_local.run(_stacked_context("feat/parent", "master"))
 
     assert result["final_verdict"] == "APPROVED"
     assert seen["stacked"] is True
     assert seen["explore_root"] == review_pr.REPO_ROOT
+
+
+def _pregate_context(
+    files: list[dict], *, draft: bool = False, user_type: str = "User", check_runs: list[dict] | None = None
+) -> dict:
+    context = _run_context(files, check_runs)
+    context["pr"] = {**context["pr"], "draft": draft, "user": {"login": "alice", "type": user_type}}
+    return context
+
+
+def _lines(filename: str, additions: int) -> dict:
+    return {"filename": filename, "additions": additions, "deletions": 0, "status": "modified", "patch": "@@"}
+
+
+@pytest.mark.parametrize(
+    "context, expect_final, expect_summary",
+    [
+        pytest.param(_pregate_context([_api_file("terraform/main.tf")]), True, True, id="deny-list-and-t2"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), True, True, id="draft-prerequisite"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), True, False, id="bot-author"),
+        pytest.param(
+            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]), True, True, id="past-the-file-contract"
+        ),
+        # Between the global ceiling and the delegation contract, a folder AGENT_APPROVALS.md on the PR
+        # head can lift the size gate, and the pre-check cannot read one.
+        pytest.param(_pregate_context([_lines("src/big.py", 900)]), False, False, id="size-a-folder-could-lift"),
+        # The manifest scripts scan reads git, which the pre-check does not have; running it anyway fails
+        # closed and would refuse every manifest edit.
+        pytest.param(_pregate_context([_api_file("frontend/package.json")]), False, False, id="manifest-scan-skipped"),
+        pytest.param(
+            _pregate_context([_api_file("posthog/migrations/0999_add_col.py")]),
+            False,
+            False,
+            id="pending-migration-check-can-wait",
+        ),
+        pytest.param(_pregate_context([_api_file("src/app.py")]), False, False, id="clean-t1"),
+    ],
+)
+def test_pregate_fast_denies_only_what_the_full_review_refuses(
+    monkeypatch, context: dict, expect_final: bool, expect_summary: bool
+) -> None:
+    # The server posts a final pre-check deny as the verdict and never makes a sandbox, so a final
+    # deny the full review would not also refuse is a wrong refusal nobody gets to overturn.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    outcome = review_local.pregate(context)
+
+    assert outcome["final_deny"] is expect_final
+    assert outcome["needs_summary"] is expect_summary
+    if not expect_final:
+        assert outcome["result"] is None
+        return
+    assert outcome["result"]["final_verdict"] == "REFUSED"
+    assert outcome["result"]["review_body"]
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    assert review_local.run(context)["final_verdict"] == "REFUSED"
+
+
+def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    context = _pregate_context([_api_file("terraform/main.tf")])
+
+    fallback = review_local.pregate(context)["result"]
+    summarized = review_local.pregate({**context, "refusal_reasoning": "Terraform needs a human."})["result"]
+
+    assert "deny-list: matches: infra_cicd" in fallback["reviewer"]["reasoning"]
+    assert summarized["reviewer"]["reasoning"] == "Terraform needs a human."
+    assert summarized["review_body"].startswith("Terraform needs a human.")

@@ -235,6 +235,12 @@ dropping one is a silent behavior change rather than a missing section. `author_
 tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
 is computed in the sandbox from the checkout.
 
+The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy.
+It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
+Its fast refusal may only cover what the sandbox review would also refuse, because nothing re-reviews it.
+`pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
+Anything in doubt, and any error, falls through to the full review.
+
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
 race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on

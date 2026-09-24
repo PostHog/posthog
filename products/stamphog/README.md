@@ -125,6 +125,9 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
 The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
+Before the wait, the worker runs the engine's gates alone on the fetched context (`review_local.py --pregate`).
+When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox.
+Anything less certain, such as a size gate that a folder `AGENT_APPROVALS.md` could lift or a migration whose `Migration risk` check has not reported, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.

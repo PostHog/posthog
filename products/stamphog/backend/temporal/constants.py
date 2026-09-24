@@ -69,6 +69,8 @@ STAMPHOG_OPTIONAL_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_STEERING_PATH,)
 
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
+# Two engine pre-check runs and one short LLM call, each capped at 30 seconds, plus the token mint.
+PRE_GATES_TIMEOUT = timedelta(minutes=3)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
 
 # Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on

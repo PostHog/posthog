@@ -56,7 +56,16 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.engine_pregate import (
+    ENGINE_DIR,
+    PregateOutcome,
+    engine_source_files,
+    owners_package_files,
+    pregate_skip_reason,
+    run_engine_pregate,
+)
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
@@ -91,12 +100,6 @@ from products.tasks.backend.facade.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_backend,
 )
-
-# The review engine on the server's own checkout. The server reads these as data files at runtime
-# and ships them into the sandbox checkout. It never imports them, because the directory is
-# hyphenated and sits outside the import graph. activities.py is at
-# products/stamphog/backend/temporal/activities.py, so the product root is three parents up.
-_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -293,6 +296,26 @@ def _release_reviewer_token(gateway: AIGatewayConfig, token: str) -> None:
         activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
 
 
+def _hosted_analytics_properties(run: ReviewRun) -> dict[str, object]:
+    properties: dict[str, object] = {
+        "stamphog_runtime": "hosted",
+        "stamphog_team_id": run.team_id,
+        "stamphog_review_run_id": str(run.id),
+    }
+    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
+    # completed events and LLM traces apart from reviews of human PRs.
+    if (run.output or {}).get("inbox_review"):
+        properties["stamphog_self_driving_review"] = True
+    return properties
+
+
+def _engine_analytics_environment(properties: dict[str, object]) -> dict[str, str]:
+    """The env the engine reads to emit its events: the capture key and host, plus the extra properties."""
+    env = {key: value for key in ("POSTHOG_API_KEY", "POSTHOG_HOST") if (value := os.environ.get(key))}
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(properties, separators=(",", ":"))
+    return env
+
+
 def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig]:
     """Environment for the in-sandbox reviewer.
 
@@ -328,21 +351,7 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
         "AI_GATEWAY_URL": gateway.url,
         "AI_GATEWAY_API_KEY": token,
     }
-    for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):
-        value = os.environ.get(key)
-        if value:
-            env[key] = value
-    extra_properties: dict[str, object] = {
-        "stamphog_runtime": "hosted",
-        "stamphog_team_id": run.team_id,
-        "stamphog_review_run_id": str(run.id),
-    }
-    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
-    # completed events and LLM traces apart from reviews of human PRs.
-    if (run.output or {}).get("inbox_review"):
-        extra_properties["stamphog_self_driving_review"] = True
-    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
-    return env, gateway
+    return {**env, **_engine_analytics_environment(_hosted_analytics_properties(run))}, gateway
 
 
 def _sandbox_egress_allowlist(gateway_url: str) -> list[str]:
@@ -618,6 +627,131 @@ def _destroy_sandbox_in_background(sandbox: SandboxBase, run_id: str) -> None:
     threading.Thread(target=destroy, name=f"stamphog-destroy-{run_id}", daemon=True).start()
 
 
+def _review_invocation(run: ReviewRun) -> ReviewerInvocation:
+    """The engine context and command for this run, shared by the pre-check and the sandbox review."""
+    output = run.output or {}
+    pr = output.get("pr", {})
+    return build_reviewer_invocation(
+        pr=pr,
+        files=output.get("files", []),
+        reviews=output.get("reviews", []),
+        discussion=output.get("discussion", []),
+        review_threads=output.get("review_threads", []),
+        check_runs=output.get("check_runs", []),
+        pr_reactions=output.get("pr_reactions", []),
+        author_pr_numbers=output.get("author_pr_numbers", []),
+        author_team_slugs=output.get("author_team_slugs", []),
+        base_sha=(pr.get("base") or {}).get("sha") or "",
+        head_sha=run.head_sha,
+        repo=run.pull_request.repo_config.repository,
+        engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
+        context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
+        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
+        self_driving_review=bool(output.get("inbox_review")),
+        # Read as a description rather than a permission: the reviewer is told why it was asked,
+        # and decides for itself what that means for this diff.
+        review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
+    )
+
+
+def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None:
+    """A short LLM note for the refusal, or None, in which case the engine's gate messages stand in.
+
+    Same gateway, token scope and model as the sandbox reviewer. Every failure is soft: the verdict
+    is already REFUSED, so the note must never delay or fail it.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None or _is_legacy_stamphog_route(gateway.url) or outcome.result is None:
+        return None
+    try:
+        token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
+    except Exception:
+        activity.logger.warning(f"Run {run.id}: no gateway token for the refusal summary; using the gate messages")
+        return None
+    output = run.output or {}
+    try:
+        return summarize_refusal(
+            gateway_root=_gateway_root(gateway),
+            token=token,
+            model=outcome.summary_model,
+            gates=outcome.result.get("gates") or [],
+            pr=output.get("pr") or {},
+            files=output.get("files") or [],
+            attribution={**_hosted_analytics_properties(run), "stamphog_fast_path": True},
+        )
+    finally:
+        _release_reviewer_token(gateway, token)
+
+
+def _refuse_on_pre_gates(run: ReviewRun) -> dict:
+    output = run.output or {}
+    skip_reason = pregate_skip_reason(output.get("pr") or {}, output.get("files") or [], run.head_sha)
+    if skip_reason is not None:
+        activity.logger.info(f"Run {run.id}: pre-gates skipped ({skip_reason})")
+        return {"refused": False, "skipped": skip_reason}
+
+    context = json.loads(_review_invocation(run).context_json)
+    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
+    policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
+    timer = _StepTimer()
+    # No analytics env on this first run: it only decides, and the posted run below emits the event.
+    with timer.step("pregate"):
+        outcome = run_engine_pregate(context, policy_files, environment={})
+    if not outcome.final_deny:
+        return {"refused": False}
+
+    summary = None
+    if outcome.needs_summary:
+        with timer.step("summary"):
+            summary = _fast_refusal_summary(run, outcome)
+    if summary:
+        context["refusal_reasoning"] = summary
+    properties = {
+        **_hosted_analytics_properties(run),
+        "stamphog_fast_path": True,
+        "stamphog_fast_path_summary": "llm" if summary else "gate_messages",
+    }
+    with timer.step("render"):
+        final = run_engine_pregate(context, policy_files, environment=_engine_analytics_environment(properties))
+    if not final.final_deny or final.result is None:
+        raise RuntimeError("the engine pre-check changed its answer between two runs on the same context")
+
+    # The same last-line JSON contract the sandbox prints, so post_verdict parses it unchanged. The
+    # summary is LLM text over PR content, so it gets the same scrub as the sandbox's stdout.
+    run.output = {
+        **(run.output or {}),
+        "reviewer_raw": scrub_credentials(json.dumps(final.result)),
+        "reviewer_exit_code": 0,
+        "timings_ms": timer.timings_ms,
+        "fast_path": True,
+    }
+    run.save(update_fields=["output", "updated_at"])
+    activity.logger.info(f"Pre-gate refusal for run {run.id}; step timings: {timer.timings_ms}")
+    return {"refused": True}
+
+
+@activity.defn
+@asyncify
+def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
+    """Refuse a PR on its deterministic gates alone, before the bot wait and the sandbox.
+
+    Runs the engine's gate-only pre-check on the stored context (see logic/engine_pregate.py). Only a
+    deny the full review would also reach counts, and then the refusal is persisted in the sandbox's
+    output shape, so post_verdict and everything after it work unchanged. Everything else, including
+    any failure here, returns ``refused: False`` and the run takes the full review path, which runs
+    every gate again. This step can therefore only make a refusal faster, never cause one.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"refused": False, "skipped": "superseded"}
+    try:
+        return _refuse_on_pre_gates(run)
+    except Exception:
+        activity.logger.exception(f"Run {run.id}: pre-gates failed; falling through to the full review")
+        return {"refused": False, "skipped": "error"}
+
+
 @activity.defn
 @asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
@@ -638,14 +772,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     output = run.output or {}
     pr = output.get("pr", {})
     files = output.get("files", [])
-    reviews = output.get("reviews", [])
-    discussion = output.get("discussion", [])
-    review_threads = output.get("review_threads", [])
-    check_runs = output.get("check_runs", [])
-    pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
-    author_pr_numbers = output.get("author_pr_numbers", [])
-    author_team_slugs = output.get("author_team_slugs", [])
 
     # The trusted source for each policy file is the repo's default branch layered over the
     # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
@@ -677,28 +804,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
 
-    invocation = build_reviewer_invocation(
-        pr=pr,
-        files=files,
-        reviews=reviews,
-        discussion=discussion,
-        review_threads=review_threads,
-        check_runs=check_runs,
-        pr_reactions=pr_reactions,
-        author_pr_numbers=author_pr_numbers,
-        author_team_slugs=author_team_slugs,
-        base_sha=base_sha,
-        head_sha=run.head_sha,
-        repo=repo,
-        engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
-        context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
-        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
-        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
-        self_driving_review=bool(output.get("inbox_review")),
-        # Read as a description rather than a permission: the reviewer is told why it was asked,
-        # and decides for itself what that means for this diff.
-        review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
-    )
+    invocation = _review_invocation(run)
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     environment, gateway = _reviewer_environment(run)
@@ -1613,9 +1719,9 @@ def _ship_engine(sandbox: SandboxBase) -> None:
     walk lands on the checkout, so it reads the injected trusted policy. The PR head's own
     copy (if any) is overwritten — we always run our version, not the PR's.
     """
-    files = _engine_source_files()
+    files = engine_source_files()
     if "review_local.py" not in files:
-        raise RuntimeError(f"engine source dir {_SERVER_ENGINE_DIR} is missing review_local.py")
+        raise RuntimeError(f"engine source dir {ENGINE_DIR} is missing review_local.py")
     # Wipe the directory first: the PR head's checkout may carry attacker-controlled files beside
     # our engine (e.g. tools/pr-approval-agent/yaml.py), which Python would import ahead of uv's
     # installed dependency — arbitrary code execution with the sandbox's LLM creds. Overwriting only
@@ -1636,27 +1742,11 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    # Repo root rather than a sibling of the engine. owners_yaml is a distribution the production
-    # venv installs, so it lives under packages/ while the engine lives in the product.
-    package_dir = Path(__file__).resolve().parents[4] / "packages" / "owners-yaml" / "owners_yaml"
-    if not package_dir.is_dir():
-        raise RuntimeError(f"owners package source dir not found: {package_dir}")
     target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/owners_yaml"
     quoted = shlex.quote(STAMPHOG_SANDBOX_OWNERS_DIR)
     sandbox.execute(f"rm -rf {quoted} && mkdir -p {shlex.quote(target)}", timeout_seconds=30)
-    for path in sorted(package_dir.glob("*.py")):
-        sandbox.write_file(f"{target}/{path.name}", path.read_text().encode())
-
-
-def _engine_source_files() -> dict[str, str]:
-    """Read the engine's Python modules from the server checkout (excluding tests/README)."""
-    if not _SERVER_ENGINE_DIR.is_dir():
-        raise RuntimeError(f"engine source dir not found: {_SERVER_ENGINE_DIR}")
-    return {
-        path.name: path.read_text()
-        for path in sorted(_SERVER_ENGINE_DIR.glob("*.py"))
-        if not path.name.startswith("test_")
-    }
+    for name, content in owners_package_files().items():
+        sandbox.write_file(f"{target}/{name}", content.encode())
 
 
 def _write_context(sandbox: SandboxBase, invocation: ReviewerInvocation) -> None:

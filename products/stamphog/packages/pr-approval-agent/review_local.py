@@ -35,6 +35,10 @@ The engine reads the trusted policy (`.stamphog/policy.yml`,
 overwrites those paths in the checkout with the default-branch versions before
 this script runs, so a PR head cannot substitute its own gate. The reviewer key
 comes from the environment (ANTHROPIC_API_KEY).
+
+`--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
+in a temporary tree that holds only the trusted policy files and this engine, before it waits for
+other bots or makes a sandbox.
 """
 
 import os
@@ -55,7 +59,8 @@ from familiarity import (
     _read_diff,
     _select_considered_files,
 )
-from gates import POLICY, assign_tier
+from gates import POLICY, assign_tier, substantive_size
+from gateway import REVIEWER_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
     PRData,
@@ -106,7 +111,7 @@ def _convert_api_file(f: dict) -> dict:
     }
 
 
-def _build_pr_data(context: dict) -> PRData:
+def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     """Build the engine's PRData from the injected context.
 
     File stats are recomputed locally with the exact function that review_pr.py
@@ -126,6 +131,9 @@ def _build_pr_data(context: dict) -> PRData:
     empty list, which is a clean no-op and never a crash. A local review_pr.py
     run does not pass the key.
     Reactions on those inline comments are not carried, so they default empty.
+
+    ``checkout=False`` is the server's gate-only pre-check, which has no git tree, so the file list
+    comes from the context alone.
     """
     pr = context.get("pr") or {}
     user = pr.get("user") or {}
@@ -137,7 +145,7 @@ def _build_pr_data(context: dict) -> PRData:
     default_branch = (base.get("repo") or {}).get("default_branch") or "master"
     base_ref = base.get("ref") or default_branch
 
-    files = _git_diff_files(base_sha, head_sha, REPO_ROOT)
+    files = _git_diff_files(base_sha, head_sha, REPO_ROOT) if checkout else []
     if not files:
         files = [_convert_api_file(f) for f in context.get("files") or []]
 
@@ -391,6 +399,97 @@ def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
     return tier_without_migrations != "T2-never"
 
 
+# Gates the pre-check evaluates from the same inputs the sandbox uses, so a failure here is a
+# failure there. The size gate is not in this set: see _size_denial_is_final.
+_CHECKOUT_FREE_GATES = frozenset({"prerequisites", "deny-list", "tier"})
+
+
+def _size_denial_is_final(pipeline: Pipeline) -> bool:
+    """True when no folder override on the PR head can lift the size gate.
+
+    The pre-check has no checkout, so it reads no AGENT_APPROVALS.md and budgets every file against
+    the global ceilings. A folder file can raise a ceiling up to the policy's delegation contract, and
+    the whole-PR roof is the most generous ceiling in play. A PR past the higher of the global ceiling
+    and the contract ceiling therefore fails the size gate in the sandbox, whatever folder files it
+    carries. A PR between the two can pass there, so it is not final here.
+    """
+    lines, files = substantive_size(pipeline.pr.files)
+    line_contract = POLICY.overrides.get("size_gate.max_lines")
+    file_contract = POLICY.overrides.get("size_gate.max_files")
+    line_ceiling = max(POLICY.size_gate.max_lines, line_contract.ceiling if line_contract else 0)
+    file_ceiling = max(POLICY.size_gate.max_files, file_contract.ceiling if file_contract else 0)
+    return lines > line_ceiling or files > file_ceiling
+
+
+def _denial_is_final(pipeline: Pipeline) -> bool:
+    """True when the full sandbox review of this PR must also end REFUSED.
+
+    A migrations-only deny with a pending `Migration risk` check ends as WAIT in the sandbox (see
+    _blocked_only_by_pending_migration_check). That outcome depends on the size gate, which the
+    pre-check cannot always settle, so only a failing prerequisite, which both runs see identically,
+    keeps that case final.
+    """
+    failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
+    if (
+        pipeline.classification.get("deny_categories") == ["migrations"]
+        and migration_check_pending(pipeline.pr.check_runs, pipeline.pr.file_paths)
+        and "prerequisites" not in failed
+    ):
+        return False
+    return bool(failed & _CHECKOUT_FREE_GATES) or ("size" in failed and _size_denial_is_final(pipeline))
+
+
+def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
+    """The refusal text when no LLM summary is available: the failing gates' own messages."""
+    failed = "\n".join(f"- {gate.gate}: {gate.message}" for gate in pipeline.gate_results if not gate.passed)
+    return (
+        f"stamphog's deterministic gates refused this PR, so no agent review ran. A human review is needed.\n\n{failed}"
+    )
+
+
+def pregate(context: dict) -> dict:
+    """Gate-only run for the hosted server, before it waits for other bots or makes a sandbox.
+
+    It drives the same Pipeline steps as run(), on the same context, with no checkout and no LLM.
+    ``final_deny`` is True only when the sandbox review would also end REFUSED. The server then posts
+    ``result`` as the verdict and skips the sandbox. Any other outcome falls through to the full
+    review, which runs every gate again.
+
+    A gate refusal takes its reasoning from ``refusal_reasoning`` in the context, which the server
+    fills with a short LLM summary, or else from the gate messages. ``needs_summary`` tells the server
+    whether a summary is worth asking for: the bot-author refusal carries its own text.
+    """
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+    outcome = {"final_deny": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
+
+    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+        pipeline._refuse_bot_author()
+        return {**outcome, "final_deny": True, "result": pipeline.to_dict()}
+
+    pipeline._classify()
+    _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+    if not _denial_is_final(pipeline):
+        return outcome
+
+    pipeline.final_verdict = "REFUSED"
+    pipeline.reviewer_output = {
+        "verdict": "REFUSE",
+        "reasoning": str(context.get("refusal_reasoning") or "").strip() or _gate_refusal_reasoning(pipeline),
+        "risk": "unknown",
+        "issues": [],
+    }
+    pipeline._capture_review_completed("DENIED", "GATES-ONLY")
+    return {**outcome, "final_deny": True, "needs_summary": True, "result": pipeline.to_dict()}
+
+
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
@@ -499,12 +598,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Offline PR review (sandbox entrypoint)")
     parser.add_argument("--context", required=True, help="Path to the review context JSON")
     parser.add_argument("--repo-dir", default=None, help="Checkout directory (defaults to cwd)")
+    parser.add_argument("--pregate", action="store_true", help="Gates only, no checkout and no LLM (server pre-check)")
     args = parser.parse_args()
 
     if args.repo_dir:
         os.chdir(args.repo_dir)
 
     context = json.loads(Path(args.context).read_text())
+    if args.pregate:
+        # No escalate fallback here: a crash exits non-zero, and the server falls through to the full
+        # review, which is the safe answer for a check that can only shorten the path to a refusal.
+        pregate_result = pregate(context)
+        flush_analytics()
+        print(json.dumps(pregate_result), flush=True)
+        return
+
     try:
         result = run(context)
     except Exception as exc:  # never let a crash become a silent non-verdict

@@ -32,6 +32,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
@@ -70,8 +71,10 @@ from github import (
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
-from reviewer import Reviewer
 from version import STAMPHOG_VERSION
+
+if TYPE_CHECKING:
+    from reviewer import Reviewer
 
 try:
     import posthoganalytics
@@ -193,6 +196,7 @@ class Pipeline:
         self_driving: bool = False,
         review_trigger: str = "",
         head_checkout: bool = False,
+        checkout: bool = True,
     ) -> None:
         self.pr_number = pr_number
         self.repo = repo
@@ -210,6 +214,10 @@ class Pipeline:
         # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
         # needs a separate head worktree there — see _pr_head_worktree.
         self.head_checkout = head_checkout
+        # False only for the hosted server's gate-only pre-check, which runs on the PR context with no
+        # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
+        # can only miss a deny, never add one, and the sandbox review runs the scan again.
+        self.checkout = checkout
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -401,7 +409,9 @@ class Pipeline:
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
         risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT) if dep_manifests else []
+            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT)
+            if dep_manifests and self.checkout
+            else []
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
@@ -807,7 +817,7 @@ class Pipeline:
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(_warn(f"Worktree cleanup failed (ignored): {exc}"))
 
-    def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
+    def _run_reviewer_with_retries(self, reviewer: "Reviewer", gate_context: dict, diff_path: Path) -> bool:
         """Call the reviewer with backoff; set self.reviewer_output.
 
         Returns True when the reviewer never produced a verdict (an ERROR
@@ -884,6 +894,9 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
+        # Deferred so the gate-only pre-check can import this module where claude_agent_sdk is absent.
+        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         try:
             with self._pr_head_worktree() as explore_root:
                 reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
