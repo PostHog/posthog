@@ -3,6 +3,7 @@ import {
   LinkIcon,
   PushPinIcon,
   PushPinSlashIcon,
+  ShareNetworkIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
@@ -34,6 +35,8 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { publicLinkHasUnpublishedChanges } from "@posthog/ui/features/sharing/publicLink";
+import { ShareModal } from "@posthog/ui/features/sharing/ShareModal";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex } from "@radix-ui/themes";
@@ -231,6 +234,7 @@ const DashboardCard = memo(function DashboardCard({
         name={summary.name}
         channelId={channelId}
         pinned={canPin ? summary.pinnedAt != null : undefined}
+        linkNeedsPublish={publicLinkHasUnpublishedChanges(summary)}
       />
     </Box>
   );
@@ -249,13 +253,17 @@ function DashboardCardMenu({
   name,
   channelId,
   pinned,
+  linkNeedsPublish,
 }: {
   id: string;
   name: string;
   channelId: string;
   pinned?: boolean;
+  /** A newer version is published than the one the public link shows. */
+  linkNeedsPublish: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const { invalidateDashboards, setPinned } = useDashboardMutations();
 
   const onTogglePin = () => {
@@ -274,8 +282,18 @@ function DashboardCardMenu({
     });
   };
 
+  const openShare = () => {
+    track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+      action_type: "share_opened",
+      surface: "dashboards_grid",
+      channel_id: channelId,
+      dashboard_id: id,
+    });
+    setShareOpen(true);
+  };
+
   return (
-    <Box
+    <div
       className={cn(
         "absolute top-2 right-2 transition-opacity",
         open ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -287,13 +305,34 @@ function DashboardCardMenu({
             <Button
               variant="outline"
               size="sm"
-              aria-label={`Options for ${name}`}
+              className="relative"
+              aria-label={
+                linkNeedsPublish
+                  ? `Options for ${name}, changes ready to publish to the public link`
+                  : `Options for ${name}`
+              }
             >
               <DotsThreeIcon size={16} weight="bold" />
+              {linkNeedsPublish && (
+                <span
+                  aria-hidden
+                  className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-red-9 ring-2 ring-background"
+                />
+              )}
             </Button>
           }
         />
         <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+          <DropdownMenuItem onClick={openShare} data-attr="canvas-share-open">
+            <ShareNetworkIcon size={14} />
+            Share…
+            {linkNeedsPublish && (
+              <span
+                aria-hidden
+                className="ml-2 size-1.5 rounded-full bg-red-9"
+              />
+            )}
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() =>
               void copyCanvasLink(channelId, id, "dashboards_grid")
@@ -318,6 +357,13 @@ function DashboardCardMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </Box>
+      {shareOpen && (
+        <ShareModal
+          target={{ kind: "canvas", channelId, dashboardId: id, name }}
+          surface="dashboards_grid"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+    </div>
   );
 }

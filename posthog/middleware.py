@@ -1653,6 +1653,12 @@ class CSPMiddleware:
                 "form-action 'self' https://accounts.google.com",
             ]
 
+            canvas_frame_src = getattr(request, "canvas_frame_src", None)
+            if canvas_frame_src:
+                csp_parts = [
+                    f"frame-src {canvas_frame_src}" if part.startswith("frame-src ") else part for part in csp_parts
+                ]
+
             # Both values are read inside one narrowed block, so nothing below re-checks `user`.
             user = getattr(request, "user", None)
             if user is not None and user.is_authenticated:
@@ -1730,7 +1736,12 @@ class CSPMiddleware:
                 response.headers["Content-Security-Policy-Report-Only"] = (
                     f"{reported}, {shadow}" if reported else shadow
                 )
-            if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
+            if canvas_frame_src:
+                # Shared pages are intentionally frameable, so their complete app policy remains
+                # report-only. This enforced directive only prevents the nested canvas from
+                # navigating away from its artifact origin.
+                response.headers["Content-Security-Policy"] = f"frame-src {canvas_frame_src}"
+            elif header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.
                 response.headers["Content-Security-Policy"] = frame_ancestors
