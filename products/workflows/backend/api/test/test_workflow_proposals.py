@@ -268,28 +268,21 @@ class TestWorkflowProposals(APIBaseTest):
             ],
         }
         sync_template_to_db(secret_template)
-        create = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows",
+        flow_id = self._create_active_flow()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {
-                "name": "Secret flow",
-                "actions": [
-                    _trigger_action(),
+                "operations": [
                     {
+                        "op": "update_action",
                         "id": "action_1",
-                        "name": "action_1",
-                        "type": "function",
-                        "config": {
-                            "template_id": "template-webhook-secret",
-                            "inputs": {"url": {"value": "https://example.com"}},
-                        },
-                    },
-                ],
+                        "patch": {"config": {"template_id": "template-webhook-secret"}},
+                    }
+                ]
             },
-            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
-        assert create.status_code == 201, create.json()
-        flow_id = create.json()["id"]
-        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        self._publish(flow_id)
 
         proposal = self._propose(
             flow_id,
