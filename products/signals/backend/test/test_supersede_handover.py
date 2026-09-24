@@ -313,6 +313,38 @@ class TestSupersedeHandover(BaseTest):
         )
         assert not automated_targets(self.team.id, str(self.report.id))
 
+    def test_wall_clock_timeout_after_verified_pr_allows_replacement(self) -> None:
+        self.implementation_run.status = "failed"
+        self.implementation_run.state = {
+            **self.implementation_run.state,
+            "timed_out_wall_clock": True,
+            "verified_pr_urls": [OLD_PR],
+        }
+        self.implementation_run.save(update_fields=["status", "state"])
+
+        assert {target.pr_url for target in automated_targets(self.team.id, str(self.report.id))} == {OLD_PR}
+        assert _resolve_supersede(self.report, self.decision()).allowed
+
+    @parameterized.expand(
+        [
+            ("other_failure", "failed", False, [OLD_PR]),
+            ("unverified", "failed", True, []),
+            ("cancelled", "cancelled", True, [OLD_PR]),
+        ]
+    )
+    def test_failed_run_without_verified_wall_clock_timeout_is_ineligible(
+        self, _name: str, status: str, timed_out: bool, verified_urls: list[str]
+    ) -> None:
+        self.implementation_run.status = status
+        self.implementation_run.state = {
+            **self.implementation_run.state,
+            "timed_out_wall_clock": timed_out,
+            "verified_pr_urls": verified_urls,
+        }
+        self.implementation_run.save(update_fields=["status", "state"])
+
+        assert not automated_targets(self.team.id, str(self.report.id))
+
     def test_fork_and_changed_head_do_not_authorize_replacement(self) -> None:
         decision = self.decision()
         self.prs[1]["head_sha"] = "human-edit"
