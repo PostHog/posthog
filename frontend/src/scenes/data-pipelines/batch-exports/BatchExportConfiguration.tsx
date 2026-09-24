@@ -30,7 +30,9 @@ import {
     IntegrationType,
 } from '~/types'
 
-import { HOGQL_MODEL, batchExportConfigFormLogic } from './batchExportConfigFormLogic'
+import { ModelEnumApi } from 'products/batch_exports/frontend/generated/api.schemas'
+
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
@@ -38,6 +40,9 @@ import {
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
+
+// Hoisted: a fresh object here busts the editor's options memo on every keystroke.
+const HOGQL_EDITOR_OPTIONS = { wordWrap: 'on' } as const
 
 export function BatchExportConfiguration(): JSX.Element {
     const {
@@ -60,12 +65,11 @@ export function BatchExportConfiguration(): JSX.Element {
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const hogqlBatchExports = featureFlags[FEATURE_FLAGS.HOGQL_BATCH_EXPORTS]
-    const isHogqlModel = selectedModel === HOGQL_MODEL
-    // The backend refuses to move an export to or from the HogQL model, so only a new export can pick it.
+    const isHogqlModel = selectedModel === ModelEnumApi.Hogql
     const modelOptions = [
         ...tables.map((table) => ({ value: table.name, label: table.id })),
         ...(isHogqlModel || (hogqlBatchExports && isNew && service !== 'HTTP')
-            ? [{ value: HOGQL_MODEL, label: 'HogQL query' }]
+            ? [{ value: ModelEnumApi.Hogql, label: 'HogQL query' }]
             : []),
     ]
 
@@ -246,6 +250,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     onSelect={(newValue) => {
                                         setSelectedModel(newValue)
                                     }}
+                                    // The API refuses to move an export to or from the HogQL model.
                                     disabledReason={
                                         isHogqlModel && !isNew
                                             ? 'A HogQL export cannot change its model. Create a new export instead.'
@@ -256,14 +261,9 @@ export function BatchExportConfiguration(): JSX.Element {
                             </LemonField>
                         </div>
 
-                        {isHogqlModel ? (
+                        {isHogqlModel && (
                             <>
-                                <LemonField
-                                    name="hogql_query"
-                                    label="Query"
-                                    info="Each run exports the rows this query returns. Any table you can query in PostHog works, including posthog.ai_events, which holds the LLM prompts and outputs that the events table does not."
-                                    className="flex flex-col flex-1"
-                                >
+                                <LemonField name="hogql_query" label="Query" className="flex flex-col flex-1">
                                     {({ value, onChange }) => (
                                         <CodeEditorResizeable
                                             language="hogQL"
@@ -271,16 +271,21 @@ export function BatchExportConfiguration(): JSX.Element {
                                             onChange={(newValue) => onChange(newValue ?? '')}
                                             minHeight="8rem"
                                             maxHeight="40vh"
+                                            options={HOGQL_EDITOR_OPTIONS}
                                         />
                                     )}
                                 </LemonField>
                                 <p className="mb-0 text-xs text-secondary">
-                                    Use the <code>{'{data_interval_start}'}</code> and{' '}
-                                    <code>{'{data_interval_end}'}</code> placeholders to limit each run to its own
-                                    interval. Without them, every run exports the full result of the query.
+                                    Each run exports the rows this query returns. Use the{' '}
+                                    <code>{'{data_interval_start}'}</code> and <code>{'{data_interval_end}'}</code>{' '}
+                                    placeholders to limit a run to its own interval. Without them, every run exports the
+                                    full result. Any table you can query in PostHog works, including{' '}
+                                    <code>posthog.ai_events</code>, which holds the LLM prompts and outputs that the
+                                    events table does not.
                                 </p>
                             </>
-                        ) : (
+                        )}
+                        {!isHogqlModel && (
                             <div className="flex gap-2">
                                 <LemonCollapse
                                     className="flex flex-1"
