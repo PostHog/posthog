@@ -228,7 +228,7 @@ tools:
             Snapshots in a repo that keep getting tolerated, counted across baselines, most manual tolerations first. A
             toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run
             to run, and the fix belongs in the story (a pinned date, a disabled animation, a wait for a loader). Called
-            with no parameters it applies the weekly debt digest's rule and keeps quarantined snapshots, marked with
+            with only the repo `id` it applies the weekly debt digest's rule and keeps quarantined snapshots, marked with
             `is_quarantined`. Tune it with `min_tolerations`, `min_automatic_tolerations`, `window_days`,
             `include_quarantined`, `run_type` and `limit`; the response echoes the rule it applied. The list is short
             and returns quickly, so use it instead of the flakiness overview to find flaky stories worth fixing, then
