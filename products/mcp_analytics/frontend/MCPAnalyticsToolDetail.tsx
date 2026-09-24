@@ -109,6 +109,9 @@ interface ResultColumn {
     header: string
     align?: 'left' | 'right'
     expand?: boolean
+    // Applied to both the header and cell, e.g. `@max-lg:hidden` to drop a lower-priority column
+    // once the card narrows past a container breakpoint instead of letting the table overflow it.
+    className?: string
     render: (row: unknown[]) => React.ReactNode
 }
 
@@ -138,7 +141,7 @@ function ResultTable({
     onRowClick?: (rowIndex: number) => void
 }): JSX.Element {
     return (
-        <Card size="sm" className="gap-0">
+        <Card size="sm" className="@container gap-0">
             {title != null && (
                 <CardHeader
                     className={`border-b border-border pb-3${
@@ -154,7 +157,7 @@ function ResultTable({
                 <TableHeader>
                     <TableRow>
                         {columns.map((col, i) => (
-                            <TableHead key={i} align={col.align} expand={col.expand}>
+                            <TableHead key={i} align={col.align} expand={col.expand} className={col.className}>
                                 {col.header}
                             </TableHead>
                         ))}
@@ -197,7 +200,7 @@ function ResultTable({
                                 }
                             >
                                 {columns.map((col, ci) => (
-                                    <TableCell key={ci} align={col.align} expand={col.expand}>
+                                    <TableCell key={ci} align={col.align} expand={col.expand} className={col.className}>
                                         {col.render(row)}
                                     </TableCell>
                                 ))}
@@ -716,12 +719,14 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Errors',
                                 align: 'right',
+                                className: '@max-lg:hidden',
                                 render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Sessions',
                                 align: 'right',
+                                className: '@max-lg:hidden',
                                 render: (r) => formatNumber(Number(r[4] ?? 0)),
                             },
                             {
@@ -745,6 +750,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Errors',
                                 align: 'right',
+                                className: '@max-lg:hidden',
                                 render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
@@ -752,7 +758,11 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 header: 'Harnesses',
                                 render: (r) => <HarnessLogos labels={(r[4] as string[]) ?? []} />,
                             },
-                            { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
+                            {
+                                header: 'Last seen',
+                                className: '@max-lg:hidden',
+                                render: (r) => <TZLabel time={String(r[5])} />,
+                            },
                         ]}
                     />
                 </div>
