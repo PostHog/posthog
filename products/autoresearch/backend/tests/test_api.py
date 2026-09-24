@@ -219,6 +219,16 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline.refresh_from_db()
         assert pipeline.status == start
 
+    @parameterized.expand([("idle", None, 204), ("training", "running", 400), ("pending", "pending", 400)])
+    def test_delete_pipeline_is_refused_while_training(self, _name: str, run_status: str | None, expected: int):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        if run_status:
+            AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=50)
+        resp = self.client.delete(f"{self.base_url}/{pipeline.id}/")
+        assert resp.status_code == expected
+        still_there = AutoresearchPipeline.objects.for_team(self.team.pk).filter(pk=pipeline.pk).exists()
+        assert still_there == (expected != 204)
+
     def test_archive_pipeline(self):
         pipeline = self._make_pipeline()
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/archive/")

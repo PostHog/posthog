@@ -268,11 +268,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="The pipeline and its rows were deleted."),
+            400: OpenApiResponse(description="A training run is in progress for this pipeline."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        }
+    )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             api.delete_pipeline(self.team_id, self.kwargs["pk"])
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
         return Response(status=204)
 
     @extend_schema(

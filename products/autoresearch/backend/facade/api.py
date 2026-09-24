@@ -348,11 +348,32 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
         setattr(row, key, value)
     # Only the request's fields, so a stale read cannot write back a status a lifecycle action changed.
     row.save(update_fields=[*fields, "updated_at"])
+    row.refresh_from_db()
     return _pipeline_with_champion(row)
 
 
 def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
-    _pipeline_row(team_id, pipeline_id, live_only=True).delete()
+    """Delete a pipeline and its rows. Refused while a training run is live.
+
+    The TaskRun is linked only by id, so a cascade would leave its paid sandbox running with
+    nothing to report to.
+    """
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
+    with transaction.atomic():
+        try:
+            row = (
+                AutoresearchPipeline.objects.for_team(team_id)
+                .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+                .select_for_update()
+                .get(pk=pipeline_uuid)
+            )
+        except AutoresearchPipeline.DoesNotExist:
+            raise PipelineNotFound("Pipeline not found.")
+        if _has_live_training_run(team_id, row):
+            raise AutoresearchConflict("A training run is in progress. Wait for it to finish before deleting.")
+        row.delete()
 
 
 # Pause and resume only toggle a live pipeline. A pipeline that has no champion yet (draft,
