@@ -171,13 +171,7 @@ export function ObservationLabelControl({
         setFeedbackOpen(!compact)
     }
 
-    // Saves a typed note at once, since leaving the page cancels the pending autosave.
-    const closeNote = (): void => {
-        if (label && (label.feedback ?? '').trim() !== feedbackDraft.trim()) {
-            rate(label.is_correct, feedbackDraft)
-        }
-        setFeedbackOpen(false)
-    }
+    const closeNote = (): void => setFeedbackOpen(false)
 
     const buttons = (
         <div className="flex items-center gap-1">

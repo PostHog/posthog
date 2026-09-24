@@ -56,6 +56,19 @@ describe('observationLabelLogic feedback autosave', () => {
         expect(onChange).toHaveBeenCalledWith({ is_correct: isCorrect, feedback: 'scanner missed the refund step' })
     })
 
+    it('saves a note typed just before the page unmounts, which cancels the pending autosave', async () => {
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('wrong: the user finished checkout')
+        await jest.advanceTimersByTimeAsync(300)
+        logic.unmount()
+
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
+        expect(visionObservationsLabelCreate).toHaveBeenCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'wrong: the user finished checkout',
+        })
+    })
+
     it('settles as synced when the API trims the feedback it stores', async () => {
         // The API trims before storing, so the echoed label never matches a draft with trailing whitespace.
         ;(visionObservationsLabelCreate as jest.Mock).mockImplementation((_team, _id, body) =>
