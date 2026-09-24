@@ -55,7 +55,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
-from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
+from products.ai_observability.backend.backfill_candidates import BackfillScope, count_backfill_candidates
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
@@ -169,6 +169,12 @@ class EvaluationBackfillRequestSerializer(serializers.Serializer):
 
 class EvaluationBackfillEstimateSerializer(serializers.Serializer):
     total_units = serializers.IntegerField(help_text="Units that would be evaluated.")
+    already_evaluated_units = serializers.IntegerField(
+        help_text=(
+            "Units in the range this evaluation has already judged. They are excluded from "
+            "total_units unless rerun_existing is set."
+        )
+    )
     unit = serializers.ChoiceField(
         choices=EvaluationTarget.choices,
         help_text="What one unit is: a generation, a trace, or a session.",
@@ -219,6 +225,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "total_count",
             "dispatched_count",
             "skipped_count",
+            "remaining_count",
             "created_by",
             "created_at",
             "finished_at",
@@ -233,6 +240,12 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "total_count": {"help_text": "Units matched at creation; the ceiling on dispatched_count."},
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
+            "remaining_count": {
+                "help_text": (
+                    "Units still holding no result when the run finished, counted at that moment. "
+                    "Zero means the window is covered, whoever graded it."
+                )
+            },
             "created_at": {"help_text": "When the backfill was created."},
             "finished_at": {"help_text": "When the backfill reached a terminal status; null while it runs."},
         }
@@ -428,7 +441,7 @@ class EvaluationBackfillViewSet(
         window_start: datetime,
         window_end: datetime,
         rerun_existing: bool,
-    ) -> int:
+    ) -> BackfillScope:
         try:
             return count_backfill_candidates(
                 team=self.team,
@@ -455,10 +468,11 @@ class EvaluationBackfillViewSet(
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
-        total = self._count(evaluation, conditions, window.start, window.end, data["rerun_existing"])
+        scope = self._count(evaluation, conditions, window.start, window.end, data["rerun_existing"])
         response = EvaluationBackfillEstimateSerializer(
             {
-                "total_units": total,
+                "total_units": scope.to_evaluate,
+                "already_evaluated_units": scope.already_judged,
                 "unit": evaluation.target,
                 "window_start": window.start,
                 "window_end": window.end,
@@ -543,9 +557,13 @@ class EvaluationBackfillViewSet(
 
         conditions = self._conditions(evaluation, data)
         rerun_existing = data["rerun_existing"]
-        total = self._count(evaluation, conditions, window.start, window.end, rerun_existing)
-        if total == 0:
-            raise ValidationError(f"No {evaluation.target}s in this range match these conditions. Try a wider range.")
+        scope = self._count(evaluation, conditions, window.start, window.end, rerun_existing)
+        if scope.to_evaluate == 0:
+            raise ValidationError(
+                f"Every {evaluation.target} in this range already has a result."
+                if scope.already_judged
+                else f"No {evaluation.target}s in this range match these conditions. Try a wider range."
+            )
 
         try:
             backfill = EvaluationBackfill.objects.for_team(self.team_id).create(
@@ -556,7 +574,7 @@ class EvaluationBackfillViewSet(
                 target=evaluation.target,
                 conditions=conditions,
                 rerun_existing=rerun_existing,
-                total_count=total,
+                total_count=scope.to_evaluate,
                 created_by=cast(User, request.user),
             )
         except IntegrityError:
