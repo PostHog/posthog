@@ -1,6 +1,30 @@
-import { normalizeCustomerIdValue } from './GoogleAdsIntegrationHelpers'
+import '@testing-library/jest-dom'
 
-describe('GoogleAdsIntegrationHelpers', () => {
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { Provider } from 'kea'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { IntegrationType } from '~/types'
+
+import { GoogleAdsCustomerIdPicker, normalizeCustomerIdValue } from './GoogleAdsIntegrationHelpers'
+
+const INTEGRATION = { id: 1, kind: 'google-ads' } as IntegrationType
+
+const renderPicker = async (): Promise<void> => {
+    render(
+        <Provider>
+            <GoogleAdsCustomerIdPicker integration={INTEGRATION} />
+        </Provider>
+    )
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
+}
+
+describe('GoogleAdsCustomerIdPicker', () => {
+    afterEach(() => {
+        cleanup()
+    })
+
     // The destination reads the stored value as `<customer id>/<login customer id>`, so a typed value
     // without the second half sends an empty login-customer-id header and every upload fails.
     test.each([
@@ -11,5 +35,23 @@ describe('GoogleAdsIntegrationHelpers', () => {
         ['a value with no digits', 'my account', null],
     ])('normalizes %s', (_name, value, expected) => {
         expect(normalizeCustomerIdValue(value)).toEqual(expected)
+    })
+
+    it('shows why the account list is short, and how to continue', async () => {
+        // The walk used to fail silently, so the picker showed a short list with no message.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/google_accessible_accounts': () => [
+                    400,
+                    { detail: 'Google Ads did not return all of the accounts you can use. Please try again.' },
+                ],
+            },
+        })
+        initKeaTests()
+
+        await renderPicker()
+
+        expect(screen.getByText(/did not return all of the accounts/)).toBeInTheDocument()
+        expect(screen.getByText(/type the 10-digit customer ID/)).toBeInTheDocument()
     })
 })
