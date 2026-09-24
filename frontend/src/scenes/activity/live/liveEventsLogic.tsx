@@ -308,7 +308,14 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                                     signal: controller.signal,
                                 }
                             )
-                                .then(() => actions.updateEventsConnection())
+                                .then(() => {
+                                    // Filters can change while the refresh is pending, which
+                                    // disposes this stream and opens a newer one. Reconnecting then
+                                    // would throw that newer stream away.
+                                    if (!controller.signal.aborted) {
+                                        actions.updateEventsConnection()
+                                    }
+                                })
                                 .catch(() => {
                                     // Out of attempts, or the stream was disposed. The toast below
                                     // already said the feed is not live.
