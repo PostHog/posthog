@@ -284,7 +284,15 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
-    it('names the route that failed on the error, with the identifiers in it redacted', async () => {
+    it.each([
+        [
+            'a query kind the schema declares',
+            '/api/environments/2/query/ErrorTrackingBreakdownsQuery',
+            'ErrorTrackingBreakdownsQuery',
+        ],
+        ['no kind for a path that ends in an identifier', '/api/projects/2/notebooks/scratchpad', null],
+        ['no kind for a running query id', '/api/environments/2/query/0198c7ef-1f3d-7c2a-9f11-2b7c0d4e5a6b', null],
+    ])('tags a failed request with %s', async (_, path, queryKind) => {
         fakeFetch.mockResolvedValueOnce({
             ok: false,
             status: 500,
@@ -293,9 +301,7 @@ describe('API helper', () => {
             json: () => Promise.resolve({ detail: 'A server error occurred.' }),
         })
 
-        await expect(api.create('/api/environments/2/query/ErrorTrackingBreakdownsQuery')).rejects.toMatchObject({
-            endpoint: { method: 'POST', pathname: '/api/environments/:id/query/ErrorTrackingBreakdownsQuery/' },
-        } satisfies Partial<ApiError>)
+        await expect(api.create(path)).rejects.toMatchObject({ queryKind } satisfies Partial<ApiError>)
     })
 
     describe('OAuth mode auth headers', () => {

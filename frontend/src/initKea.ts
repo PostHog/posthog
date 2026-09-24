@@ -241,8 +241,7 @@ export function initKea({
                         kea_action: actionKey,
                         kea_reducer: reducerKey,
                         api_status: error?.status ?? null,
-                        api_method: error?.endpoint?.method ?? null,
-                        api_endpoint: error?.endpoint?.pathname ?? null,
+                        api_query_kind: error?.queryKind ?? null,
                     })
                 }
             },

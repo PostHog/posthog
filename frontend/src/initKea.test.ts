@@ -46,9 +46,9 @@ describe('initKea', () => {
         jest.restoreAllMocks()
     })
 
-    it('reports a server error with the action and the endpoint that failed', async () => {
+    it('reports a server error with the action and the query that failed', async () => {
         const error = new ApiError('A server error occurred.', 500)
-        error.endpoint = { method: 'POST', pathname: '/api/environments/:id/query/ErrorTrackingBreakdownsQuery' }
+        error.queryKind = 'ErrorTrackingBreakdownsQuery'
 
         await failLoaderWith(error)
 
@@ -56,19 +56,18 @@ describe('initKea', () => {
             kea_action: 'loadThing',
             kea_reducer: 'thing',
             api_status: 500,
-            api_method: 'POST',
-            api_endpoint: '/api/environments/:id/query/ErrorTrackingBreakdownsQuery',
+            api_query_kind: 'ErrorTrackingBreakdownsQuery',
         })
     })
 
-    it('reports a failure that carries no endpoint', async () => {
+    it('reports a failure that carries no query kind', async () => {
         const error = new TypeError('x is not a function')
 
         await failLoaderWith(error)
 
         expect(posthog.captureException).toHaveBeenCalledWith(
             error,
-            expect.objectContaining({ kea_action: 'loadThing', api_status: null, api_endpoint: null })
+            expect.objectContaining({ kea_action: 'loadThing', api_status: null, api_query_kind: null })
         )
     })
 })
