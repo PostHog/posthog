@@ -2250,22 +2250,11 @@ Diffed against: <https://raw.githubusercontent.com/dagster-io/dagster/master/pyt
 
 Note: Diffed against the Dagster+ cloud GraphQL schema snapshot vendored in dagster-dg-cli (type CloudQuery), which is a superset of the OSS webserver schema at js_modules/ui-core/src/graphql/schema.graphql. The `assets` table stays thin by design — ASSETS_QUERY is the asset-key enumeration the `asset_nodes`, `asset_materializations` and `asset_observations` fan-outs walk, and the metadata and event history land in those tables instead.
 
-Note: `deployments / fullDeployments / branchDeployments` land as one `deployments` table. All three
-resolvers return `DagsterCloudDeployment`, and `deployments` is the subset the caller can reach, so the
-table unions `fullDeployments` with `branchDeployments` and each row carries `isBranchDeployment`.
-`branchDeployments` takes a required limit and exposes no cursor, so the sync asks for 500 and logs a
-warning when a response comes back at that cap.
+Note: `deployments / fullDeployments / branchDeployments` land as one `deployments` table. All three resolvers return `DagsterCloudDeployment`, and `deployments` is the subset the caller can reach, so the table unions `fullDeployments` with `branchDeployments` and each row carries `isBranchDeployment`. `branchDeployments` takes a required limit and exposes no cursor, so the sync asks for 500 and logs a warning when a response comes back at that cap.
 
-Note: the Insights tables are one row per metric, entity and time bucket, at DAILY granularity.
-`reportingMetricsBy*` takes one required `metricName` per request, so each sync reads the deployment's
-metric catalog (`metricTypesForJob` / `ForAsset` / `ForDeployment`) and walks it. `reportingMetricsByAssetGroup`
-and `reportingMetricsByAssetSelection` were left out: they report the same metrics rolled up over a
-grouping that the asset table already carries as a column.
+Note: the Insights tables are one row per metric, entity and time bucket, at DAILY granularity. `reportingMetricsBy*` takes one required `metricName` per request, so each sync reads the deployment's metric catalog (`metricTypesForJob` / `ForAsset` / `ForDeployment`) and walks it. `reportingMetricsByAssetGroup` and `reportingMetricsByAssetSelection` were left out: they report the same metrics rolled up over a grouping that the asset table already carries as a column.
 
-Note: `run_logs` has no timestamp filter of its own, so an incremental sync narrows the parent run walk
-with `RunsFilter.updatedAfter` instead and re-reads only the runs that moved. A run event carries no
-identifier, so the key is the run id plus the event's position in the run's append-only stream, which
-also means the walk restarts a run rather than resuming mid-stream.
+Note: `run_logs` has no timestamp filter of its own, so an incremental sync narrows the parent run walk with `RunsFilter.updatedAfter` instead and re-reads only the runs that moved. A run event carries no identifier, so the key is the run id plus the event's position in the run's append-only stream, which also means the walk restarts a run rather than resuming mid-stream.
 
 Note: `autoMaterializeTicks` was not implemented separately. It returns the ticks of the legacy global auto-materialize daemon; current Dagster runs automation as an asset daemon whose ticks are an ordinary instigation state, so `instigation_ticks` already covers them.
 
