@@ -932,6 +932,178 @@ class TestPendingBatchToExportSignal:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestResumeCheckpointDurability:
+    def _is_durable(
+        self,
+        sync_conn: psycopg.Connection[Any],
+        *,
+        batch_index: int = 0,
+        team_id: int = 1,
+        schema_id: str = "schema-1",
+        job_id: str = "job-1",
+        run_uuid: str = "run-1",
+        job_age_days: int = 1,
+    ) -> bool:
+        row = sync_conn.execute("SELECT now() - make_interval(days => %s)", (job_age_days,)).fetchone()
+        assert row is not None
+        return BatchQueue.is_resume_checkpoint_durable(
+            sync_conn,
+            team_id=team_id,
+            schema_id=schema_id,
+            job_id=job_id,
+            job_created_at=row[0],
+            run_uuid=run_uuid,
+            batch_index=batch_index,
+        )
+
+    @pytest.mark.parametrize("job_state", [None, "waiting", "executing", "waiting_retry", "failed", "succeeded"])
+    @pytest.mark.asyncio
+    async def test_requires_successful_prefix(
+        self, conn: psycopg.AsyncConnection[Any], sync_conn: psycopg.Connection[Any], job_state: str | None
+    ) -> None:
+        first = await _insert_batch(conn, batch_index=0)
+        if job_state is not None:
+            await BatchQueue.update_status(conn, batch_id=first, job_state=job_state, attempt=1)
+        boundary = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=boundary, job_state="succeeded", attempt=1)
+
+        assert self._is_durable(sync_conn, batch_index=1) is (job_state == "succeeded")
+
+    @pytest.mark.parametrize(
+        "batch_indexes, boundary_index, expected",
+        [
+            ([], 0, False),
+            ([0], 1, False),
+            ([0, 2], 2, False),
+            ([0, 0, 2], 2, False),
+            ([0, 1, 1], 1, False),
+            ([0, 1, 2], 2, True),
+            ([0], -1, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_requires_complete_prefix_and_unique_boundary(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        sync_conn: psycopg.Connection[Any],
+        batch_indexes: list[int],
+        boundary_index: int,
+        expected: bool,
+    ) -> None:
+        for batch_index in batch_indexes:
+            bid = await _insert_batch(conn, batch_index=batch_index)
+            await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        assert self._is_durable(sync_conn, batch_index=boundary_index) is expected
+
+    @pytest.mark.parametrize("latest_state", ["failed", "succeeded"])
+    @pytest.mark.asyncio
+    async def test_uses_latest_status(
+        self, conn: psycopg.AsyncConnection[Any], sync_conn: psycopg.Connection[Any], latest_state: str
+    ) -> None:
+        bid = await _insert_batch(conn)
+        previous_state = "succeeded" if latest_state == "failed" else "failed"
+        await BatchQueue.update_status(conn, batch_id=bid, job_state=previous_state, attempt=1)
+        await conn.execute(
+            f"UPDATE {STATUS_TABLE} SET created_at = now() - interval '1 minute' WHERE batch_id = %s", (bid,)
+        )
+        await BatchQueue.update_status(conn, batch_id=bid, job_state=latest_state, attempt=2)
+
+        assert self._is_durable(sync_conn) is (latest_state == "succeeded")
+
+    @pytest.mark.asyncio
+    async def test_missing_status_fails_closed(
+        self, conn: psycopg.AsyncConnection[Any], sync_conn: psycopg.Connection[Any]
+    ) -> None:
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+        await conn.execute(f"DELETE FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
+
+        assert self._is_durable(sync_conn) is False
+
+    @pytest.mark.parametrize("earlier_state", [None, "failed", "succeeded"])
+    @pytest.mark.asyncio
+    async def test_checks_earlier_attempts_through_database_boundary(
+        self, conn: psycopg.AsyncConnection[Any], sync_conn: psycopg.Connection[Any], earlier_state: str | None
+    ) -> None:
+        earlier = await _insert_batch(conn, run_uuid="earlier-run", metadata={"timestamp_ns": 999})
+        if earlier_state is not None:
+            await BatchQueue.update_status(conn, batch_id=earlier, job_state=earlier_state, attempt=1)
+        boundary = await _insert_batch(conn, metadata={"timestamp_ns": 1})
+        await BatchQueue.update_status(conn, batch_id=boundary, job_state="succeeded", attempt=1)
+        await _insert_batch(conn, batch_index=1, metadata={"timestamp_ns": 0})
+        await _insert_batch(conn, run_uuid="later-run", metadata={"timestamp_ns": 0})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - "
+            "CASE WHEN id = %(earlier)s THEN interval '2 hours' ELSE interval '1 hour' END "
+            "WHERE id IN (%(earlier)s, %(boundary)s)",
+            {"earlier": earlier, "boundary": boundary},
+        )
+
+        assert self._is_durable(sync_conn) is (earlier_state == "succeeded")
+
+    @pytest.mark.parametrize(
+        "team_id, schema_id, job_id, run_uuid",
+        [
+            (2, "schema-1", "job-1", "run-1"),
+            (1, "schema-2", "job-1", "run-1"),
+            (1, "schema-1", "job-2", "run-1"),
+            (1, "schema-1", "job-1", "run-2"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_requires_matching_boundary_scope(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        sync_conn: psycopg.Connection[Any],
+        team_id: int,
+        schema_id: str,
+        job_id: str,
+        run_uuid: str,
+    ) -> None:
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        assert (
+            self._is_durable(sync_conn, team_id=team_id, schema_id=schema_id, job_id=job_id, run_uuid=run_uuid) is False
+        )
+
+    @pytest.mark.asyncio
+    async def test_other_tenants_schemas_and_jobs_do_not_block_checkpoint(
+        self, conn: psycopg.AsyncConnection[Any], sync_conn: psycopg.Connection[Any]
+    ) -> None:
+        scopes: list[dict[str, int | str]] = [{"team_id": 2}, {"schema_id": "schema-2"}, {"job_id": "job-2"}]
+        for scope in scopes:
+            failed = await _insert_batch(conn, **scope)
+            await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        boundary = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=boundary, job_state="succeeded", attempt=1)
+
+        assert self._is_durable(sync_conn) is True
+
+    @pytest.mark.parametrize(
+        "job_age_days, batch_age_days, expected", [(6, 0, True), (7, 0, False), (-1, 0, False), (1, 7, False)]
+    )
+    @pytest.mark.asyncio
+    async def test_rejects_expired_job_or_boundary(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        sync_conn: psycopg.Connection[Any],
+        job_age_days: int,
+        batch_age_days: int,
+        expected: bool,
+    ) -> None:
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - make_interval(days => %s) WHERE id = %s",
+            (batch_age_days, bid),
+        )
+
+        assert self._is_durable(sync_conn, job_age_days=job_age_days) is expected
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGetRunActivitySummary:
     WF_RUN_ID = "wf-run-1"
 

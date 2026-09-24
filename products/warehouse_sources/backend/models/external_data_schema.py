@@ -46,6 +46,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
+# A stored cursor after process_incremental_value: the serialized form above, widened by the
+# datetime or date a DateTime, Timestamp or Date field parses to.
+type ProcessedIncrementalValue = datetime | date | str | int | float
 
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
@@ -175,6 +178,26 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
 STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
 
+def _schedule_schema_resume_state_clear(*, schema_id: str, team_id: int) -> None:
+    def clear() -> None:
+        # The checkpoint store is only needed after Django finishes loading the models.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (  # noqa: PLC0415
+            ResumableSourceManager,
+        )
+
+        ResumableSourceManager.clear_schema_state(team_id=team_id, schema_id=schema_id)
+
+    transaction.on_commit(clear)
+
+
+def _resume_config_changed(previous: dict[str, Any] | None, current: dict[str, Any] | None) -> bool:
+    previous = previous or {}
+    current = current or {}
+    return any(previous.get(key) != current.get(key) for key in ("incremental_field", "incremental_field_type")) or (
+        current.get("reset_pipeline") is True and previous.get("reset_pipeline") is not True
+    )
+
+
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
         """Chokepoint for bulk writes that stop a schema from syncing.
@@ -204,12 +227,23 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
             if deleting:
                 predicate |= ~models.Q(deleted=True)
             transitioning = list(self.filter(predicate).values_list("id", "team_id"))
+        resume_resetting = dict(transitioning)
+        if "sync_type" in kwargs or "sync_type_config" in kwargs:
+            for schema_id, team_id, sync_type, config in self.values_list(
+                "id", "team_id", "sync_type", "sync_type_config"
+            ):
+                if ("sync_type" in kwargs and kwargs["sync_type"] != sync_type) or (
+                    "sync_type_config" in kwargs and _resume_config_changed(config, kwargs["sync_type_config"])
+                ):
+                    resume_resetting[schema_id] = team_id
         updated = super().update(**kwargs)
         if transitioning:
             running = _schema_ids_with_running_jobs([schema_id for schema_id, _ in transitioning])
             for schema_id, team_id in transitioning:
                 if schema_id in running:
                     _schedule_sync_teardown(schema_id=str(schema_id), team_id=team_id, deleted=deleting)
+        for schema_id, team_id in resume_resetting.items():
+            _schedule_schema_resume_state_clear(schema_id=str(schema_id), team_id=team_id)
         return updated
 
 
@@ -330,6 +364,24 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.auto_disabled_at = marker
         return True
 
+    def _resume_configuration_changed(self, update_fields: Iterable[str] | None) -> bool:
+        if self._state.adding:
+            return False
+        check_sync_type = update_fields is None or "sync_type" in update_fields
+        check_config = update_fields is None or "sync_type_config" in update_fields
+        if not check_sync_type and not check_config:
+            return False
+        previous = (
+            ExternalDataSchema.objects.filter(pk=self.pk, team_id=self.team_id)
+            .values("sync_type", "sync_type_config")
+            .first()
+        )
+        if previous is None:
+            return False
+        return (check_sync_type and previous["sync_type"] != self.sync_type) or (
+            check_config and _resume_config_changed(previous["sync_type_config"], self.sync_type_config)
+        )
+
     def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
         # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
@@ -344,6 +396,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # `.update()` twin lives on ExternalDataSchemaQuerySet. Detected before the write,
         # dispatched only after it succeeds.
         teardown_kind = self._sync_teardown_kind(kwargs.get("update_fields"))
+        clear_resume_state = teardown_kind is not None or (
+            not skip_activity_log and self._resume_configuration_changed(kwargs.get("update_fields"))
+        )
 
         if self._apply_auto_disabled_marker(teardown_kind, kwargs.get("update_fields")):
             scoped_fields = kwargs.get("update_fields")
@@ -368,6 +423,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         if teardown_kind is not None and _schema_ids_with_running_jobs([self.pk]):
             _schedule_sync_teardown(schema_id=str(self.pk), team_id=self.team_id, deleted=teardown_kind == "deleted")
+        if clear_resume_state:
+            _schedule_schema_resume_state_clear(schema_id=str(self.pk), team_id=self.team_id)
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -978,6 +1035,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         )
 
+    def staged_incremental_last_value_for_run(self, workflow_run_id: str) -> ProcessedIncrementalValue | None:
+        """Return the highest `last_value` any attempt of `workflow_run_id` has staged, or None.
+
+        Each attempt stages under `{workflow_run_id}-a{attempt}`. A newer attempt displaces the live
+        slot, and an older attempt's cursor may sit in the parked list, so both are read.
+        """
+        entries = [
+            self.sync_type_config.get("incremental_staged"),
+            *self.sync_type_config.get("incremental_staged_pending", []),
+        ]
+        values: list[ProcessedIncrementalValue] = []
+        for entry in entries:
+            if not entry or "last_value" not in entry:
+                continue
+            run_uuid = str(entry.get("run_uuid", ""))
+            if run_uuid != workflow_run_id and not run_uuid.startswith(f"{workflow_run_id}-a"):
+                continue
+            value = process_incremental_value(entry["last_value"], self.incremental_field_type)
+            if value is not None:
+                values.append(value)
+        try:
+            return max(values) if values else None
+        except TypeError:
+            return None
+
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         """Move the staged cursor of `run_uuid` onto the live watermark keys.
 
@@ -1075,6 +1157,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.initial_sync_complete = False
 
         self.save(skip_activity_log=True)
+        if clear_initial_sync_complete and not self._state.adding:
+            _schedule_schema_resume_state_clear(schema_id=str(self.pk), team_id=self.team_id)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -1175,7 +1259,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.status = None
             self.save()
 
-            self.update_sync_type_config_for_reset_pipeline()
+        self.update_sync_type_config_for_reset_pipeline()
 
 
 # JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
@@ -1452,6 +1536,8 @@ def update_sync_type_config_keys(
     with transaction.atomic():
         schema = ExternalDataSchema.objects.select_for_update().get(id=schema_id, team_id=team_id)
         config = schema.sync_type_config or {}
+        previous_config = dict(config)
+        previous_sync_type = schema.sync_type
         if updates:
             config.update(updates)
         if removes:
@@ -1466,6 +1552,8 @@ def update_sync_type_config_keys(
                 setattr(schema, field, value)
                 update_fields.append(field)
         schema.save(update_fields=update_fields, skip_activity_log=True)
+        if schema.sync_type != previous_sync_type or _resume_config_changed(previous_config, config):
+            _schedule_schema_resume_state_clear(schema_id=str(schema.pk), team_id=team_id)
         return config
 
 

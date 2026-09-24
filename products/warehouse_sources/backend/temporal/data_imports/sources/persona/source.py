@@ -137,7 +137,7 @@ Sandbox and production environments use separate API keys — use the one for th
         return False, f"Could not validate Persona credentials (HTTP {status})"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PersonaResumeConfig]:
-        return ResumableSourceManager[PersonaResumeConfig](inputs, PersonaResumeConfig)
+        return ResumableSourceManager[PersonaResumeConfig](inputs, PersonaResumeConfig, resume_across_jobs=True)
 
     def source_for_pipeline(
         self,

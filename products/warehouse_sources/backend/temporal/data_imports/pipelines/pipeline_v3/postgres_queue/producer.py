@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime
 from typing import Any, Optional
 
 import psycopg
@@ -110,6 +111,22 @@ class PostgresProducer:
     @is_first_ever_sync.setter
     def is_first_ever_sync(self, value: bool) -> None:
         self._is_first_ever_sync = value
+
+    def set_is_resume(self, is_resume: bool) -> None:
+        self._is_resume = is_resume
+
+    def is_resume_checkpoint_durable(
+        self, *, job_id: str, job_created_at: datetime, run_uuid: str, batch_index: int
+    ) -> bool:
+        return BatchQueue.is_resume_checkpoint_durable(
+            self._conn,
+            team_id=self._team_id,
+            schema_id=self._schema_id,
+            job_id=job_id,
+            job_created_at=job_created_at,
+            run_uuid=run_uuid,
+            batch_index=batch_index,
+        )
 
     def send_batch_notification(
         self,
