@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
@@ -388,7 +388,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 return
             }
 
-            for (const err of errors) {
+            for (const err of errors.filter(shouldReportApiFailure)) {
                 // Transient REST failure (including a deploy-window 404) — surface it via
                 // lastError + Sentry. The next poll retries.
                 posthog.captureException(err, {

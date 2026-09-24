@@ -193,6 +193,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (isBrowserNetworkFailure(error)) {
         return false
     }
+    if (error instanceof NetworkError && UNACTIONABLE_NETWORK_ERROR_MESSAGES.has(error.message)) {
+        return false
+    }
     if (error instanceof ResponseBodyReadError) {
         return false
     }
