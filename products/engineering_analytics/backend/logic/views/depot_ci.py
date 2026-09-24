@@ -64,6 +64,21 @@ def _is_id(column: str) -> str:
     return f"match(ifNull({column}, ''), '^[{_ID_ALPHABET}]{{1,{_MAX_ID_LENGTH}}}$')"
 
 
+def depot_id_to_int(depot_id: str) -> int | None:
+    """The integer ``_id_to_int`` renders for ``depot_id``, or None when it is not a Depot CI id."""
+    if not 0 < len(depot_id) <= _MAX_ID_LENGTH or any(char not in _ID_ALPHABET for char in depot_id):
+        return None
+    value = 0
+    for char in depot_id:
+        value = value * len(_ID_ALPHABET) + _ID_ALPHABET.index(char)
+    return value
+
+
+def depot_github_run_id(run_id: str, workflow_id: str, run_workflow_count: int) -> int | None:
+    """The integer ``_attempts`` gives a Depot workflow's runs row, or None when it has none."""
+    return depot_id_to_int(run_id if run_workflow_count == 1 else workflow_id)
+
+
 def _id_to_int(column: str) -> str:
     # ClickHouse cannot sum an array of Nullable values, so the Nullable column is unwrapped first.
     value = f"ifNull({column}, '')"

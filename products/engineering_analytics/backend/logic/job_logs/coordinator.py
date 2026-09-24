@@ -1,7 +1,10 @@
 """Find failed CI jobs and jobs recovered by pytest retries, then fetch their diagnostic logs.
 
 Per-job workflow id (``gh-logs-{team}-{job}``, reuse ``ALLOW_DUPLICATE_FAILED_ONLY``) means each
-job's log is fetched and emitted at most once, re-running only after a failed attempt.
+job's log is fetched and emitted at most once, re-running only after a failed attempt. Failed Depot
+CI job attempts come from each Depot source's ``job_attempts`` table and run as
+``depot-logs-{team}-{attempt}``. Only failed Depot attempts are fetched: the retry-recovered path
+reads GitHub runner names.
 
 Discovery queries the raw ``{prefix}github_workflow_jobs`` table (the curated read layer doesn't
 expose jobs yet). The coordinator is registered on the schedule but no-ops until
@@ -33,8 +36,15 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.engineering_analytics.backend.logic.job_logs.activity import FetchGithubJobLogWorkflow, FetchJobLogInputs
+from products.engineering_analytics.backend.logic.job_logs.activity import (
+    FetchDepotJobLogInputs,
+    FetchDepotJobLogWorkflow,
+    FetchGithubJobLogWorkflow,
+    FetchJobLogInputs,
+)
 from products.engineering_analytics.backend.logic.queries._test_spans import rerun_recovered_job_attempts
+from products.engineering_analytics.backend.logic.sources import depot_source_job_attempts_table
+from products.engineering_analytics.backend.logic.views.depot_ci import depot_github_run_id, depot_id_to_int
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -203,10 +213,82 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     return found
 
 
+def _query_failed_depot_attempts(team: Team, table: str, cutoff_iso: str) -> list[dict[str, Any]]:
+    # attempt_finished_at is an ISO-8601 string like completed_at above, so the lexical comparison
+    # against the cutoff is chronological. The table name comes from the source's synced schema.
+    sql = f"""
+        SELECT run_id, run_workflow_count, workflow_id, attempt_id, attempt, repo, head_sha, workflow_name,
+               job_display_name, job_key
+        FROM {table}
+        WHERE attempt_status = 'failed' AND attempt_finished_at > {{cutoff}}
+        ORDER BY attempt_finished_at DESC
+        LIMIT {MAX_DISCOVERED_JOBS}
+    """
+    with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
+        response = execute_hogql_query(
+            query=parse_select(sql, placeholders={"cutoff": ast.Constant(value=cutoff_iso)}),
+            team=team,
+            query_type="DepotJobLogsDiscovery",
+            bypass_warehouse_access_control=True,
+        )
+    return [dict(zip(response.columns or [], row)) for row in response.results]
+
+
+def _depot_attempt_inputs(source: ExternalDataSource, row: dict[str, Any]) -> FetchDepotJobLogInputs | None:
+    # The same run id the runs view gives this workflow, so the logs join it. A push run's id carries
+    # a prefix outside the Depot id alphabet, so it has no integer run id for its logs to join on.
+    run_id = depot_github_run_id(row["run_id"] or "", row["workflow_id"] or "", row["run_workflow_count"] or 0)
+    job_id = depot_id_to_int(row["attempt_id"] or "")
+    if run_id is None or job_id is None:
+        return None
+    return FetchDepotJobLogInputs(
+        team_id=source.team_id,
+        source_id=str(source.id),
+        attempt_id=row["attempt_id"],
+        run_id=run_id,
+        job_id=job_id,
+        repo=row["repo"] or "",
+        workflow_name=row["workflow_name"] or "",
+        job_name=row["job_display_name"] or row["job_key"] or "",
+        run_attempt=row["attempt"] or 0,
+        head_sha=row["head_sha"] or "",
+    )
+
+
+def _discover_failed_depot_attempts(cutoff_iso: str) -> list[FetchDepotJobLogInputs]:
+    if not settings.OTLP_LOGS_INGEST_ENDPOINT:
+        return []
+    found: list[FetchDepotJobLogInputs] = []
+    sources = (
+        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.DEPOT)
+        .exclude(deleted=True)
+        .select_related("team")
+    )
+    for source in sources.iterator():
+        table = depot_source_job_attempts_table(source.team, source)
+        if table is None:
+            continue
+        try:
+            rows = _query_failed_depot_attempts(source.team, table, cutoff_iso)
+            found.extend(inputs for row in rows if (inputs := _depot_attempt_inputs(source, row)) is not None)
+        except Exception:
+            logger.warning("depot_job_logs_discovery_skipped_source", source_id=str(source.id), exc_info=True)
+            continue
+        if len(found) >= MAX_DISCOVERED_JOBS:
+            logger.warning("depot_job_logs_discovery_capped", cap=MAX_DISCOVERED_JOBS)
+            break
+    return found[:MAX_DISCOVERED_JOBS]
+
+
 @activity.defn
 async def discover_failed_jobs_activity(cutoff_iso: str) -> list[dict[str, Any]]:
     """Failed or retry-recovered CI jobs with a connected GitHub source, as FetchJobLogInputs dicts."""
     return await database_sync_to_async(_discover_jobs_with_diagnostics, thread_sensitive=False)(cutoff_iso)
+
+
+@activity.defn
+async def discover_failed_depot_attempts_activity(cutoff_iso: str) -> list[FetchDepotJobLogInputs]:
+    return await database_sync_to_async(_discover_failed_depot_attempts, thread_sensitive=False)(cutoff_iso)
 
 
 @workflow.defn(name="github-job-logs-coordinator")
@@ -240,4 +322,25 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 # Already started by a prior tick — reuse policy coalesces it.
                 continue
-        return {"jobs_discovered": len(jobs), "workflows_started": started}
+        depot_attempts: list[FetchDepotJobLogInputs] = []
+        if workflow.patched("depot-job-logs-2026-09"):
+            depot_attempts = await workflow.execute_activity(
+                discover_failed_depot_attempts_activity,
+                cutoff_iso,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        for attempt in depot_attempts:
+            try:
+                await workflow.start_child_workflow(
+                    FetchDepotJobLogWorkflow.run,
+                    attempt,
+                    id=f"depot-logs-{attempt.team_id}-{attempt.attempt_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=15),
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+                started += 1
+            except WorkflowAlreadyStartedError:
+                continue
+        return {"jobs_discovered": len(jobs) + len(depot_attempts), "workflows_started": started}

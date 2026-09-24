@@ -535,11 +535,16 @@ def resolve_depot_job_attempts_tables(
     tables: dict[str, depot_ci.DepotJobAttempts] = {}
     for source in _accessible_sources(team, ExternalDataSourceType.DEPOT, user_access_control):
         repository = _source_repository(source).casefold()
-        table = _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA) if repository else None
+        table = depot_source_job_attempts_table(team, source) if repository else None
         attempts = depot_ci.DepotJobAttempts.for_repository(table, repository) if table else None
         if attempts:
             tables.setdefault(repository, attempts)
     return tables
+
+
+def depot_source_job_attempts_table(team: Team, source: ExternalDataSource) -> str | None:
+    """The synced ``job_attempts`` table of one Depot source, or None."""
+    return _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
 
 def _synced_table_name(team: Team, source: ExternalDataSource, schema_name: str) -> str | None:
