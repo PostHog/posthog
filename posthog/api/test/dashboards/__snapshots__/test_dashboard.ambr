@@ -4033,7 +4033,8 @@
          AND NOT ("posthog_dashboard"."deleted")
          AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
   ORDER BY "posthog_dashboard"."pinned" DESC,
-           "posthog_dashboard"."name" ASC
+           "posthog_dashboard"."name" ASC,
+           "posthog_dashboard"."id" ASC
   LIMIT 300
   '''
 # ---
@@ -16348,7 +16349,8 @@
          AND NOT ("posthog_dashboard"."deleted")
          AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
   ORDER BY "posthog_dashboard"."pinned" DESC,
-           "posthog_dashboard"."name" ASC
+           "posthog_dashboard"."name" ASC,
+           "posthog_dashboard"."id" ASC
   LIMIT 100
   '''
 # ---
