@@ -52,6 +52,13 @@ When event ingest is enabled, the agent server does not also retain events for a
 An attached SSE client still receives live events.
 Runs without event ingest buffer events until an SSE client attaches.
 The Claude adapter forwards partial tool inputs without retaining each intermediate snapshot in session history.
+Budget-steer notifications remain in the event stream.
+The standalone agent-proxy asks the authenticated Django callback to queue each steer for analytics and retries a failed dispatch.
+Direct Django ingest queues the same work without a callback, so analytics delivery does not delay later stream events.
+A Celery task captures the event and retries upload failures up to five times with backoff.
+Both paths preserve the event timestamp and derive the analytics event ID from the run and event sequence.
+If an older payload has no timestamp, Django stores its first received time for retries and replays.
+Successful captures are recorded for the event ingest token's lifetime so completed work is skipped on replay.
 
 ## Run summaries
 

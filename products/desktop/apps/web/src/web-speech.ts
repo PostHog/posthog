@@ -5,7 +5,10 @@ import type {
 import type { ISpeech } from "@posthog/platform/speech";
 import { authKeys } from "@posthog/ui/features/auth/useCurrentUser";
 import type { ISpeechNotifySettings } from "@posthog/ui/features/notifications/identifiers";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import type { ImperativeQueryClient } from "@posthog/ui/shell/queryClient";
 import {
   isSpeechSupported,
@@ -29,7 +32,9 @@ export const webSpeechNotifySettings: ISpeechNotifySettings = {
   get: () => {
     const s = useSettingsStore.getState();
     return {
-      enabled: s.spokenNotifications,
+      enabled:
+        s.spokenNotifications &&
+        !notificationsPaused(s.notificationsPausedUntil),
       needsInput: s.spokenNotifyNeedsInput,
       completion: s.spokenNotifyCompletion,
       progress: s.spokenNotifyProgress,
