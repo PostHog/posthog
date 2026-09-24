@@ -135,7 +135,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the config log entry.",
             "text": "Plain-text description of the change.",
             "html": "HTML description of the change.",
-            "diff": "The secrets added and removed by the change, by secret name.",
+            "diff": "The secrets the change touched, by name. `added` and `removed` say whether a value was set or cleared. Secret values are not synced.",
             "rollback": "Whether the entry is a rollback of an earlier change.",
             "user": "The user who made the change (email, name, profile image).",
             "project": "Identifier of the project the config belongs to.",

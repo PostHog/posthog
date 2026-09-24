@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -326,6 +327,36 @@ class TestGetRowsConfigFanOut:
             DopplerResumeConfig(next_page=1, project="proj-a", config="prd"),
             DopplerResumeConfig(next_page=1, project="proj-b", config="dev"),
         ]
+
+    def test_drops_secret_values_from_the_diff(self, monkeypatch: Any) -> None:
+        # Doppler puts the plaintext before and after value of every changed secret in `diff`.
+        # Yielding the field as returned would write live credentials into the warehouse.
+        log = {
+            "id": "log-1",
+            "created_at": "2024-01-05T00:00:00.000Z",
+            "diff": [
+                {"name": "STRIPE", "added": "sk_test_notarealkey"},
+                {"name": "OLD_TOKEN", "removed": "tok_notarealtoken"},
+                {"name": "ROTATED", "added": "new_value", "removed": "old_value"},
+            ],
+        }
+        pages = {
+            self._PROJECTS_URL: {"projects": [{"slug": "proj-a"}]},
+            f"{_BASE}/configs?project=proj-a&page=1&per_page=20": {"configs": [{"name": "dev"}]},
+            self._logs_url("proj-a", "dev"): {"logs": [log]},
+        }
+        _patch_fetch(monkeypatch, pages)
+
+        rows = _collect(_FakeResumableManager(), endpoint="config_logs")
+
+        assert [row["diff"] for row in rows] == [
+            [
+                {"name": "STRIPE", "added": True, "removed": False},
+                {"name": "OLD_TOKEN", "added": False, "removed": True},
+                {"name": "ROTATED", "added": True, "removed": True},
+            ]
+        ]
+        assert "sk_test_notarealkey" not in json.dumps(rows)
 
     def test_resumes_from_the_bookmarked_config(self, monkeypatch: Any) -> None:
         pages = {

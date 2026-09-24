@@ -20,7 +20,7 @@ def _created_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class DopplerEndpointConfig:
     name: str
     path: str  # Path under /v3, e.g. "/projects"
@@ -40,6 +40,10 @@ class DopplerEndpointConfig:
     # Stamp the fanned-out project slug onto each row. Only for endpoints whose rows omit it —
     # most of Doppler's project-scoped responses already echo `project` back.
     inject_project: bool = False
+    # The endpoint's responses contain plaintext secret values. Those are redacted out of the
+    # rows before they are yielded, and the responses are kept out of HTTP sample capture,
+    # whose name-based scrubbers cannot recognise a secret under a field named `added`.
+    carries_secret_values: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field to partition by. Only worthwhile for the (large, append-only)
     # log endpoints; the remaining endpoints are small dimension tables.
@@ -149,6 +153,7 @@ DOPPLER_ENDPOINTS: dict[str, DopplerEndpointConfig] = {
         # so keep the parents in the key rather than rely on that holding workplace-wide.
         primary_keys=["project", "config", "id"],
         fan_out_over_configs=True,
+        carries_secret_values=True,
         partition_key="created_at",
         # One request-set per config, and the endpoint offers no time filter to narrow a re-sync,
         # so this stays off by default and is opted into deliberately.

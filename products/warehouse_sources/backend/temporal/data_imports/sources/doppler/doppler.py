@@ -24,7 +24,7 @@ class DopplerRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DopplerResumeConfig:
     # Next 1-indexed page to fetch.
     next_page: int = 1
@@ -88,6 +88,33 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         response.raise_for_status()
 
     return response.json()
+
+
+def _redact_secret_values(item: dict[str, Any]) -> dict[str, Any]:
+    """Strip the secret values out of a config log's `diff`, keeping the secret names.
+
+    Doppler reports each changed secret as `{"name", "added", "removed"}`, where `added` and
+    `removed` are the plaintext values. The names are what a change history is read for, so they
+    stay; the values would put live credentials in the warehouse. An undocumented shape is
+    dropped rather than passed through, since anything in this field may be a secret.
+    """
+    diff = item.get("diff")
+    if diff is None:
+        return item
+    if not isinstance(diff, list):
+        return {**item, "diff": None}
+    return {
+        **item,
+        "diff": [
+            {
+                "name": change.get("name"),
+                "added": change.get("added") is not None,
+                "removed": change.get("removed") is not None,
+            }
+            for change in diff
+            if isinstance(change, dict)
+        ],
+    }
 
 
 @dataclasses.dataclass(frozen=True)
@@ -198,6 +225,8 @@ def _get_fan_out_rows(
             items = data.get(endpoint_config.data_key) or []
             if endpoint_config.inject_project:
                 items = [{**item, "project": parent.project} for item in items]
+            if endpoint_config.carries_secret_values:
+                items = [_redact_secret_values(item) for item in items]
             if items:
                 yield items
 
@@ -230,7 +259,7 @@ def get_rows(
     headers = _headers(api_token)
     # One session reused across every page (and, for fan-out, every project) so urllib3 keeps the
     # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    session = make_tracked_session(capture=not config.carries_secret_values)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
