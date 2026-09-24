@@ -961,6 +961,8 @@ class TestRenderEditModal:
         effort_block = _find_block(view, MODAL_BLOCK_REASONING_EFFORT)
         assert runtime_block and model_block and effort_block
         assert runtime_block["element"]["initial_option"]["value"] == "claude"
+        # Opus 4.7 is retired, so the picker lists it only because this preference is on it.
+        # Leaving it out would show the modal with no model selected and save a different one.
         assert model_block["element"]["initial_option"]["value"] == "claude-opus-4-7"
         assert effort_block["element"]["initial_option"]["value"] == "high"
         # Slack rejects the whole view when an initial option is not one of the offered
