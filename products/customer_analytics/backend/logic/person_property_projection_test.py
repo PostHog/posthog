@@ -76,6 +76,21 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
             "user_id": ["region", "seats", "user_id"],
         }
 
+    def test_projects_root_column_for_a_json_path_key(self):
+        # A dotted map key reads a nested column; the pipeline must stage the root column, not the path.
+        self._person_source("A", "distinct_id", {"custom_attributes.plan": "plan_tier", "seats": "seat_count"})
+
+        assert self._projected() == {"distinct_id": ["custom_attributes", "distinct_id", "seats"]}
+
+    def test_sync_sources_carry_match_mode(self):
+        source = self._person_source("A", "email", {"plan": "plan_tier"})
+        source.match_mode = "email"
+        source.save()
+
+        configs = person_property_sync_sources(self.team.id, self.binding)
+
+        assert configs is not None and configs[0].match_mode == "email"
+
     def test_skips_source_without_key_column(self):
         # A source with no key column has no person identifier to attach properties to.
         self._person_source("keyless", "", {"plan": "plan_tier"})
