@@ -56,6 +56,10 @@ class TestPageVariants(SimpleTestCase):
         second.states[0].variant_id = variant.id
         remaining = group_page_states({"b": second})
         assert remaining[0].id == variant.id
+        newcomer = recording()
+        newcomer.states[0].signature = [*second.states[0].signature, "A:other"]
+        joined = group_page_states({"0": newcomer, "b": second})
+        assert [(item.id, len(item.members)) for item in joined] == [(variant.id, 2)]
 
     def test_clicks_without_matching_target_geometry_are_excluded(self) -> None:
         source = recording()
