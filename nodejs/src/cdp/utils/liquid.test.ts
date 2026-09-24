@@ -25,6 +25,7 @@ describe('LiquidRenderer', () => {
                 id: 'test-id',
                 properties: {
                     email: 'test_person@example.com',
+                    'first name': 'Ada',
                 },
                 name: 'test_person',
                 url: 'https://test.com',
@@ -112,7 +113,6 @@ describe('LiquidRenderer', () => {
         it.each(['&#x27;', '&#39;', '&quot;', '&#34;', '&#x22;'])(
             'resolves a bracketed merge tag quoted with %s',
             (entity) => {
-                globals.person.properties['first name'] = 'Ada'
                 const template = `{{ person.properties[${entity}first name${entity}] }}`
                 expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe('Ada')
             }
