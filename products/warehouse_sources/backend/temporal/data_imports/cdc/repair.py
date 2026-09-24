@@ -134,9 +134,19 @@ def _repair_locked(source: ExternalDataSource) -> int:
         purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
     default_schema = (source.job_inputs or {}).get("schema")
-    resource_fields = adapter.recreate_slot(
-        source, tables=[cdc_qualified_table_name(schema, default_schema) for schema in cdc_schemas]
-    )
+    try:
+        resource_fields = adapter.recreate_slot(
+            source, tables=[cdc_qualified_table_name(schema, default_schema) for schema in cdc_schemas]
+        )
+    except Exception as e:
+        # A missing grant on the source database is the customer's to fix, so it must reach them as
+        # advice instead of a raw engine error captured into error tracking. The schemas are already
+        # back in snapshot mode and the broken markers still stand, so a repair re-run after the fix
+        # lands picks up from here.
+        customer_message = adapter.customer_fixable_error_message(e)
+        if customer_message is None:
+            raise
+        raise CDCRepairError(customer_message) from e
 
     source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
