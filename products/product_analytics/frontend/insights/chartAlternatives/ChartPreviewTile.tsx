@@ -61,13 +61,16 @@ export function ChartPreviewTile({
                     className={clsx(
                         'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',
                         // BoldNumber's full-page padding overflows the tile and shows a scrollbar.
-                        option.display === ChartDisplayType.BoldNumber && '[&_.BoldNumber]:p-4',
-                        option.display === ChartDisplayType.CalendarHeatmap &&
+                        response && option.display === ChartDisplayType.BoldNumber && '[&_.BoldNumber]:p-4',
+                        response &&
+                            option.display === ChartDisplayType.CalendarHeatmap &&
                             '[zoom:0.3] [&_.CalendarHeatMapContainer+div]:hidden',
                         // MetricCard hardcodes its headline at text-4xl, which truncates at tile width.
-                        option.display === ChartDisplayType.Metric &&
+                        response &&
+                            option.display === ChartDisplayType.Metric &&
                             '[&_.text-4xl]:text-lg [&_.text-4xl]:leading-tight',
-                        option.display === ChartDisplayType.ActionsTable &&
+                        response &&
+                            option.display === ChartDisplayType.ActionsTable &&
                             '[zoom:0.6] [&_.ScrollableShadows::before]:shadow-none! [&_.ScrollableShadows::after]:shadow-none! [&_.LemonTable__cell--sticky::before]:shadow-none! [&_.LemonTable__header--sticky::before]:shadow-none!'
                     )}
                 >
