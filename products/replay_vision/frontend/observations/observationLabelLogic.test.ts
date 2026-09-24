@@ -146,4 +146,22 @@ describe('observationLabelLogic feedback autosave', () => {
         expect(logic.values.label).toEqual({ is_correct: true, feedback: 'teammate feedback' })
         expect(logic.values.feedbackDraft).toEqual('teammate feedback')
     })
+
+    it("keeps a teammate's adopted rating when an edited note saves on unmount", async () => {
+        mountLogic(false)
+        logic.actions.rate(true, 'old feedback')
+        await jest.advanceTimersByTimeAsync(0)
+        observationLabelLogic({
+            observationId: 'obs-1',
+            initialLabel: { is_correct: false, feedback: 'teammate feedback' },
+            onChange,
+        })
+        logic.actions.setFeedbackDraft('teammate feedback, plus mine')
+        logic.unmount()
+
+        expect(visionObservationsLabelCreate).toHaveBeenLastCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'teammate feedback, plus mine',
+        })
+    })
 })
