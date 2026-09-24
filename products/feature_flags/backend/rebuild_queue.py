@@ -24,6 +24,7 @@ DB round (like the verifier) rather than per team.
 """
 
 import time
+from typing import cast
 
 from django.conf import settings
 
@@ -120,7 +121,7 @@ def _discard_unless_rebuilding(redis: redis_lib.Redis, cooldown_key: str, member
     try:
         with redis.pipeline() as pipe:
             pipe.watch(cooldown_key)
-            if pipe.get(cooldown_key) == b"inflight":
+            if cast(bytes | None, pipe.get(cooldown_key)) == b"inflight":
                 return
             pipe.multi()
             pipe.zrem(REBUILD_REQUESTS_ZSET, member)
