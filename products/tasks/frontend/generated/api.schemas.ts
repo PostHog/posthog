@@ -2788,9 +2788,9 @@ export interface RelayedMcpServerApi {
  * * `posthog-gateway` - posthog-gateway
  * * `own-subscription` - own-subscription
  */
-export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+export type ModelAccessEnumApi = (typeof ModelAccessEnumApi)[keyof typeof ModelAccessEnumApi]
 
-export const ClaudeModelAccessEnumApi = {
+export const ModelAccessEnumApi = {
     PosthogGateway: 'posthog-gateway',
     OwnSubscription: 'own-subscription',
 } as const
@@ -2896,7 +2896,12 @@ export interface ClaudeTaskRunCreateSchemaApi {
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
     /**
      * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
      * @nullable
@@ -3034,7 +3039,12 @@ export interface CodexTaskRunCreateSchemaApi {
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
     /**
      * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
      * @nullable
@@ -3497,7 +3507,12 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
      *
      * * `local` - local
@@ -4373,6 +4388,29 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+export interface TaskRunSubscriptionTokenRequestApi {
+    /**
+     * SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.
+     * @nullable
+     * @pattern ^[0-9a-f]{64}$
+     */
+    rejected_access_token_sha256?: string | null
+}
+
+export interface TaskRunSubscriptionTokenResponseApi {
+    /** ChatGPT access token for the Codex app-server. It can stay valid for several days. */
+    access_token: string
+    /** ChatGPT account the access token belongs to */
+    account_id: string
+    /**
+     * ChatGPT plan of the account, when known
+     * @nullable
+     */
+    plan_type: string | null
+    /** When the access token expires. Request a new one before this time. */
+    expires_at: string
 }
 
 export interface TaskSessionResponseApi {
