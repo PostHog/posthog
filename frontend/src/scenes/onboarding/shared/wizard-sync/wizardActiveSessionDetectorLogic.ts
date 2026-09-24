@@ -55,10 +55,6 @@ const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 // failing closed costs every new team its onboarding.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
-// A tab whose requests never reach the server (a broken connection that the browser still reports
-// as online, or a content blocker) otherwise polls at full cadence for as long as it stays open.
-// After this many polls in a row fail that way, we poll only once per backoff window. A visibility
-// resume or an `online` event ends the window early.
 const MAX_CONSECUTIVE_NETWORK_FAILURES = 5
 const NETWORK_FAILURE_BACKOFF_MS = 10 * 60 * 1000
 
@@ -333,9 +329,6 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (values.permanentlyDisabled) {
                 return
             }
-            // The request cannot succeed while the browser is offline, and a network backoff holds
-            // the poll after repeated connectivity failures. The `online` listener polls again as
-            // soon as the connection comes back.
             if (navigator.onLine === false || Date.now() < (cache.networkBackoffUntil ?? 0)) {
                 return
             }
@@ -409,9 +402,6 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             }
 
             for (const err of errors) {
-                // A request that never reached the server is a client connectivity problem, and
-                // `handleFetch` already records it as `client_request_failure`. Capturing it here
-                // too files one exception per poll for each tab with a broken connection.
                 if (err instanceof NetworkError) {
                     continue
                 }
@@ -538,7 +528,6 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 sinceLastResume < VISIBILITY_RESUME_THROTTLE_MS
                     ? VISIBILITY_RESUME_THROTTLE_MS - sinceLastResume
                     : Math.random() * INITIAL_POLL_JITTER_MS
-            // A tab the user comes back to gets a fresh attempt, even inside a network backoff.
             cache.networkBackoffUntil = undefined
             const initialId = window.setTimeout(() => actions.check(), initialDelay)
             const intervalId = window.setInterval(() => actions.check(), REPOLL_INTERVAL_MS)
