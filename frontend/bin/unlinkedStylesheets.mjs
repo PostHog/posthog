@@ -1,12 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const linkedStylesheets = new Map()
-const buildOutputs = new Map()
+const buildState = new Map()
+let cleanupDone = false
 
 export function resetModuleState() {
-    linkedStylesheets.clear()
-    buildOutputs.clear()
+    buildState.clear()
+    cleanupDone = false
 }
 
 export function removeUnlinkedStylesheets(absWorkingDir, outputs, entryPoint) {
@@ -19,18 +19,22 @@ export function removeUnlinkedStylesheets(absWorkingDir, outputs, entryPoint) {
     }
 
     const buildKey = `${absWorkingDir}:${entryPoint}`
-    linkedStylesheets.set(buildKey, path.resolve(absWorkingDir, linked))
-    buildOutputs.set(buildKey, outputs)
-    if (linkedStylesheets.size < 2) {
+    const linkedPath = path.resolve(absWorkingDir, linked)
+    buildState.set(buildKey, { outputs, linkedPath })
+
+    if (buildState.size < 2 || cleanupDone) {
         return 0
     }
 
-    const protectedFiles = new Set(linkedStylesheets.values())
+    const protectedFiles = new Set(buildState.values().map((state) => state.linkedPath))
     let removedBytes = 0
-    for (const build of buildOutputs.values()) {
+    for (const { outputs: build } of buildState.values()) {
         for (const [file, output] of Object.entries(build)) {
+            if (!file.endsWith('.css')) {
+                continue
+            }
             const absolute = path.resolve(absWorkingDir, file)
-            if (!file.endsWith('.css') || protectedFiles.has(absolute)) {
+            if (protectedFiles.has(absolute)) {
                 continue
             }
             fs.rmSync(absolute, { force: true })
@@ -38,5 +42,6 @@ export function removeUnlinkedStylesheets(absWorkingDir, outputs, entryPoint) {
             removedBytes += output.bytes
         }
     }
+    cleanupDone = true
     return removedBytes
 }
