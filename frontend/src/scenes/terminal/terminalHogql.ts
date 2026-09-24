@@ -39,7 +39,7 @@ Examples:
   hogql --csv "select event, count() from events group by event" > /tmp/events.csv
   hogql --values '{"value":42}' "select {value}"
   hogql --connection-id CONNECTION_ID "select * from orders limit 10"
-  hogql --field 'explain=true' --json "select 1"
+  hogql --modifiers '{"debug":true}' --json "select 1"
   hogql --connection-id CONNECTION_ID --raw
 `
 
