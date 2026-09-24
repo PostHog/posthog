@@ -236,12 +236,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 </Link>
             ),
             sorter: hasReasoningColumn ? true : undefined,
+            // The text column takes the spare width on wide screens, so short columns like Person stay compact.
+            width: hasReasoningColumn ? undefined : '100%',
         },
         ...(hasReasoningColumn
             ? [
                   {
                       title: 'Reasoning',
                       key: 'reasoning',
+                      width: '100%',
                       render: (_: unknown, obs: ReplayObservationApi) => {
                           const failure = unsuccessfulScanReason(obs.status, obs.error_reason)
                           if (failure) {
