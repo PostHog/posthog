@@ -3,7 +3,7 @@ Opt-in serving of the frontend build with stable chunk names.
 
 The build writes a second copy of the app's JS in which chunks import each other through identity
 specifiers, plus `stable-chunks-manifest.json` with the import map that resolves them (see
-common/esbuilder/stableChunkNames.mjs). A chunk's URL then changes only when its own code changes,
+frontend/bin/stableChunkNames.mjs). A chunk's URL then changes only when its own code changes,
 so a deploy no longer makes returning users download every chunk that imports a changed one.
 
 Serving it is opt-in per browser while it is tested: `?stable_chunks=1` sets a cookie and

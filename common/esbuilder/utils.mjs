@@ -167,7 +167,7 @@ export function copyIndexHtml(
     }
 
     // With stable chunk names built, the backend picks the boot variant per request. See
-    // stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
+    // frontend/bin/stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
     const scripts = stable
         ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true, eagerCss: stable.eagerCss ?? [] })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
         : bootScript(chunks, entrypoints)
