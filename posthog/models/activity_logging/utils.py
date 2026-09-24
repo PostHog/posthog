@@ -12,6 +12,8 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
+    from posthog.models.oauth import OAuthAccessToken
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -261,6 +263,31 @@ class ActivityLoggingStorage:
 
 
 activity_storage = ActivityLoggingStorage()
+
+
+def record_activity_actor(user: "User | None", credential: ActivityCredential) -> None:
+    """Attribute the request's activity rows to the credential an authentication class verified,
+    and to its user.
+
+    ActivityLoggingMiddleware runs before DRF authentication, so it can already hold a user, an
+    impersonation flag and a session credential from a cookie on the same request. Replace all
+    three, so that a row never pairs this credential with the session's user or flag. Pass
+    `user=None` for a credential that has no user. Only write when the middleware owns cleanup:
+    outside a request cycle (e.g. authenticate() called directly) the thread-local would leak.
+    """
+    if not activity_storage.is_request_scoped():
+        return
+    activity_storage.set_user(user)
+    activity_storage.set_was_impersonated(credential.impersonated_by_id is not None)
+    activity_storage.set_credential(credential)
+
+
+def oauth_activity_credential(access_token: "OAuthAccessToken") -> ActivityCredential:
+    return ActivityCredential(
+        type="oauth",
+        id=str(access_token.application_id),
+        impersonated_by_id=access_token.impersonated_by_id,
+    )
 
 
 class ActivityLogVisibilityManager:
