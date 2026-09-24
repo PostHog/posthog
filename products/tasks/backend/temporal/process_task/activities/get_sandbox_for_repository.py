@@ -19,7 +19,7 @@ from products.tasks.backend.exceptions import (
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
-from products.tasks.backend.logic.services.git_auth import is_git_auth_failure
+from products.tasks.backend.logic.services.git_auth import classify_git_failure
 from products.tasks.backend.logic.services.sandbox import (
     Sandbox,
     SandboxConfig,
@@ -387,8 +387,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 sandbox.destroy()
                 # Named so the run reports the missing credential rather than an opaque clone
                 # failure the user cannot act on.
-                if is_git_auth_failure(clone_result.stderr, clone_result.stdout, clone_result.error):
-                    record_git_auth_failure("clone")
+                clone_failure = classify_git_failure(clone_result.stderr, clone_result.stdout, clone_result.error)
+                if clone_failure is not None:
+                    record_git_auth_failure("clone", clone_failure)
                     raise GitHubAuthenticationError(
                         f"Git clone of {repository} could not authenticate to GitHub",
                         {"repository": repository, "stderr": clone_result.stderr[:500]},
@@ -430,8 +431,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if result.exit_code != 0:
                 sandbox.destroy()
                 logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
-                if is_git_auth_failure(result.stderr, result.stdout, result.error):
-                    record_git_auth_failure("fetch")
+                fetch_failure = classify_git_failure(result.stderr, result.stdout, result.error)
+                if fetch_failure is not None:
+                    record_git_auth_failure("fetch", fetch_failure)
                     raise GitHubAuthenticationError(
                         f"Git fetch of branch {ctx.branch} could not authenticate to GitHub",
                         {"repository": repository, "branch": ctx.branch, "stderr": result.stderr[:500]},

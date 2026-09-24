@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
+from products.tasks.backend.logic.services.git_auth import GitFailureKind
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -120,20 +122,21 @@ WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
 WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
     "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
-# Where a git operation ran out of credential. `phase` is the operation that failed
-# (`clone`, `fetch`), so a run blocked before it could read the repository is countable.
-# There is no baseline for this: the failure used to reach the user as a stalled prompt or
-# an opaque ssh error, neither of which was recorded anywhere. Drive it to zero.
+# Git operations blocked before they could read the repository. `phase` is the operation
+# (`clone`, `fetch`); `reason` separates a credential that never arrived from one that
+# arrived without access, because only the first means the credential plumbing failed.
+# There is no baseline for either: the failure used to reach the user as a stalled prompt
+# or an opaque ssh error, neither of which was recorded anywhere. Drive it to zero.
 GIT_AUTH_FAILURE_TOTAL = Counter(
     "posthog_tasks_git_auth_failure_total",
-    "Git operations in a task sandbox that failed for lack of a usable GitHub credential",
-    labelnames=["phase"],
+    "Git operations in a task sandbox that could not authenticate to GitHub",
+    labelnames=["phase", "reason"],
 )
 GitAuthFailurePhase = Literal["clone", "fetch"]
 
 
-def record_git_auth_failure(phase: GitAuthFailurePhase) -> None:
-    GIT_AUTH_FAILURE_TOTAL.labels(phase=phase).inc()
+def record_git_auth_failure(phase: GitAuthFailurePhase, reason: GitFailureKind) -> None:
+    GIT_AUTH_FAILURE_TOTAL.labels(phase=phase, reason=reason).inc()
 
 
 SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL = Counter(

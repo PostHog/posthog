@@ -41,7 +41,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
 from products.tasks.backend.logic.services.connection_token import SANDBOX_JWT_STATE_KID_KEY, get_sandbox_jwt_public_key
-from products.tasks.backend.logic.services.git_auth import is_git_auth_failure
+from products.tasks.backend.logic.services.git_auth import classify_git_failure
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -1149,8 +1149,9 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 # A clone that had no usable credential fails the same way on every retry, so
                 # raise the fatal, named error rather than letting Temporal burn its budget on a
                 # transient one and then report the exhausted retry instead of the cause.
-                if is_git_auth_failure(clone_result.stderr, clone_result.stdout, clone_result.error):
-                    record_git_auth_failure("clone")
+                failure_kind = classify_git_failure(clone_result.stderr, clone_result.stdout, clone_result.error)
+                if failure_kind is not None:
+                    record_git_auth_failure("clone", failure_kind)
                     raise GitHubAuthenticationError(
                         f"Git clone of {input.repository} could not authenticate to GitHub",
                         context,

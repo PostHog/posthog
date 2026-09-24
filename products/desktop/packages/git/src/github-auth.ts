@@ -76,20 +76,23 @@ export function withGithubAuth(
  * reports `could not read Username` rather than waiting on a prompt that no
  * agent run can answer, so the caller gets a message it can classify.
  *
- * Only the HTTPS side is set here. The ssh equivalent (`BatchMode`) is an env
- * var simple-git refuses, and setting it would also override whatever
+ * The ssh equivalent (`BatchMode`) is not set here: it would override whatever
  * `core.sshCommand` the user configured, so the sandbox image sets that one
- * instead — there, no user config exists to override.
+ * instead, where no user config exists to override.
  */
 export function withNonInteractiveGit(
   env: Record<string, string>,
 ): Record<string, string> {
-  return { ...env, GIT_TERMINAL_PROMPT: "0" };
+  // Git resolves an askpass program separately from terminal prompting, so an
+  // inherited GIT_ASKPASS or a configured core.askPass can still open a prompt
+  // while GIT_TERMINAL_PROMPT is 0. An empty value disables it.
+  return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" };
 }
 
-// What git prints when it has no usable credential. The HTTPS forms come from
-// `GIT_TERMINAL_PROMPT=0` refusing to prompt; the ssh forms from a key that no
-// agent can offer.
+// What git prints when it cannot reach the repository with the credential it has.
+// The HTTPS forms come from `GIT_TERMINAL_PROMPT=0` refusing to prompt; the ssh form
+// from a key no agent can offer. A host-key mismatch is absent: the server's identity
+// failed verification, which says nothing about the credential.
 const GIT_AUTH_FAILURE_PATTERNS: readonly RegExp[] = [
   /could not read (Username|Password)/i,
   /terminal prompts disabled/i,
@@ -98,7 +101,6 @@ const GIT_AUTH_FAILURE_PATTERNS: readonly RegExp[] = [
   /remote: (Repository not found|Invalid username)/i,
   /The requested URL returned error: 40[13]/,
   /Permission denied \(publickey/i,
-  /Host key verification failed/i,
   /Please make sure you have the correct access rights/i,
 ];
 

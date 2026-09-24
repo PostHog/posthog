@@ -30,10 +30,19 @@ export function createGitClient(
     // inherited GIT_EDITOR/PAGER env by default. These are trusted values on the
     // user's own machine, not the untrusted protocol.allow injection the CVEs
     // addressed, so opt in explicitly.
+    //
+    // The last two cover what `getCleanEnv` sets: the github.com-scoped auth
+    // header it passes through `GIT_CONFIG_*`, and the empty `GIT_ASKPASS` that
+    // keeps an inherited askpass program from prompting. Both values are ours,
+    // never caller input. Without the config opt-in every git call fails with
+    // "not permitted without enabling allowUnsafeConfigEnvCount" as soon as a
+    // token is present.
     unsafe: {
       allowUnsafeFsMonitor: true,
       allowUnsafeEditor: true,
       allowUnsafePager: true,
+      allowUnsafeConfigEnvCount: true,
+      allowUnsafeAskPass: true,
     },
     ...rest,
   });

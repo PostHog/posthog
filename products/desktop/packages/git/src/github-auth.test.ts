@@ -39,12 +39,14 @@ describe("github-auth", () => {
     });
   });
 
-  // simple-git refuses GIT_SSH_COMMAND, and setting it would override the user's
-  // own core.sshCommand, so only the HTTPS prompt is disabled here.
-  it("disables the HTTPS prompt and leaves the ssh command alone", () => {
+  // An inherited GIT_ASKPASS still opens a prompt while GIT_TERMINAL_PROMPT is 0,
+  // so both have to be set. The ssh command is left to the sandbox image, which
+  // has no user core.sshCommand to override.
+  it("closes both prompt routes and leaves the ssh command alone", () => {
     expect(withNonInteractiveGit({ PATH: "/bin" })).toEqual({
       PATH: "/bin",
       GIT_TERMINAL_PROMPT: "0",
+      GIT_ASKPASS: "",
     });
   });
 
@@ -52,6 +54,8 @@ describe("github-auth", () => {
     ["fatal: could not read Username for 'https://github.com'", true],
     ["fatal: Authentication failed for 'https://github.com/a/b'", true],
     ["git@github.com: Permission denied (publickey).", true],
+    // The server's identity failed verification, not the credential.
+    ["Host key verification failed.", false],
     ["remote: Repository not found.", true],
     // A transient network failure retries; reporting it as a credential problem would
     // send the user to reconnect GitHub for nothing.
