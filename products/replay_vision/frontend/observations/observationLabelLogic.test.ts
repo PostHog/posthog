@@ -69,6 +69,19 @@ describe('observationLabelLogic feedback autosave', () => {
         })
     })
 
+    it('keeps a rating still in flight when the page unmounts with an unsaved note', async () => {
+        mountLogic(true)
+        ;(visionObservationsLabelCreate as jest.Mock).mockImplementationOnce(() => new Promise(() => {}))
+        logic.actions.rate(false, 'old feedback')
+        logic.actions.setFeedbackDraft('it missed the declined card')
+        logic.unmount()
+
+        expect(visionObservationsLabelCreate).toHaveBeenLastCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'it missed the declined card',
+        })
+    })
+
     it('settles as synced when the API trims the feedback it stores', async () => {
         // The API trims before storing, so the echoed label never matches a draft with trailing whitespace.
         ;(visionObservationsLabelCreate as jest.Mock).mockImplementation((_team, _id, body) =>

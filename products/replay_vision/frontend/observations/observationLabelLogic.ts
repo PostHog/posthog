@@ -172,6 +172,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         rate: async ({ isCorrect, feedback }) => {
+            cache.lastSentLabel = { is_correct: isCorrect, feedback }
             cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
             const epoch = cache.labelEpoch
             const teamId = teamLogic.values.currentTeamId
@@ -199,6 +200,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         clearRating: async () => {
+            cache.lastSentLabel = null
             cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
             const epoch = cache.labelEpoch
             const teamId = teamLogic.values.currentTeamId
@@ -222,12 +224,14 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
     })),
     // Unmounting cancels the pending autosave, so a note typed just before leaving the page saves here instead.
-    beforeUnmount(({ values, props }) => {
-        const label = values.label
+    beforeUnmount(({ values, props, cache }) => {
+        // A rating still in flight has not reached `label` yet, and a save carrying the older rating could overwrite it.
+        const latest: ReplayObservationLabelApi | null =
+            cache.lastSentLabel === undefined ? values.label : cache.lastSentLabel
         const teamId = teamLogic.values.currentTeamId
-        if (label && teamId && normalizeFeedback(label.feedback) !== normalizeFeedback(values.feedbackDraft)) {
+        if (latest && teamId && normalizeFeedback(latest.feedback) !== normalizeFeedback(values.feedbackDraft)) {
             void visionObservationsLabelCreate(String(teamId), props.observationId, {
-                is_correct: label.is_correct,
+                is_correct: latest.is_correct,
                 feedback: values.feedbackDraft,
             }).catch(() => lemonToast.error('Failed to save your note'))
         }
