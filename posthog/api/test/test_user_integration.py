@@ -16,7 +16,7 @@ from posthog.api.github_callback.state import (
     store_unified_authorize_state,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubIntegrationError,
@@ -36,6 +36,7 @@ def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuth
     return GitHubUserAuthorization(
         gh_id=gh_id,
         gh_login=gh_login,
+        identity_verified_at=123,
         access_token="gho_access",
         refresh_token="ghr_refresh",
         access_token_expires_in=28800,
@@ -296,9 +297,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_last_reference_calls_github_uninstall(self, mock_uninstall):
-        mock_uninstall.return_value = True
+        mock_uninstall.return_value = "uninstalled"
         _create_user_integration(self.user, integration_id="12345")
 
         response = self.client.delete("/api/users/@me/integrations/github/12345/")
@@ -307,7 +308,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_called_once_with("12345")
         self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_skips_uninstall_when_team_reference_exists(self, mock_uninstall):
         _create_user_integration(self.user, integration_id="12345")
         Integration.objects.create(
@@ -320,7 +321,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_not_called()
         self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
 
-    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status")
     def test_delete_skips_uninstall_when_other_user_reference_exists(self, mock_uninstall):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         _create_user_integration(self.user, integration_id="12345")
@@ -332,16 +333,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_not_called()
 
     @patch(
-        "posthog.api.user_integration.UserGitHubIntegration.uninstall_if_last_reference",
+        "posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status",
         side_effect=Exception("GitHub API error"),
     )
-    def test_delete_still_returns_204_when_uninstall_fails(self, _mock_uninstall):
+    def test_delete_still_returns_204_when_uninstall_fails(self, mock_uninstall):
         _create_user_integration(self.user, integration_id="12345")
 
         response = self.client.delete("/api/users/@me/integrations/github/12345/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+        mock_uninstall.assert_called_once_with("12345")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
@@ -450,6 +452,33 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         data = response.json()
         self.assertEqual(data.get("connect_flow"), "app_install")
         self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+
+    @parameterized.expand([("oauth_discover", "posthog_code"), ("app_install", None)])
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=None)
+    @patch(
+        "posthog.api.github_callback.types.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_start_records_the_selected_project_organization(
+        self, expected_flow, connect_from, _mock_settings, _mock_unlinked
+    ):
+        other_org = Organization.objects.create(name="Synthetic other organization")
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        self.user.current_organization = other_org
+        self.user.save(update_fields=["current_organization"])
+
+        body = {"team_id": self.team.id, **({"connect_from": connect_from} if connect_from else {})}
+        response = self.client.post("/api/users/@me/integrations/github/start/", body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["connect_flow"], expected_flow)
+        state = parse_qs(urlparse(response.json()["install_url"]).query)["state"][0]
+        token, _ = parse_github_authorize_state_param(state)
+        assert token is not None
+        stored = load_authorize_state(token, user_id=self.user.id)
+        assert stored is not None
+        assert stored.originating_organization_id == self.organization.id
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
@@ -669,14 +698,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
 
         state = "tok_oauth_discover_empty"
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state,
-                flow=FlowKind.OAUTH_DISCOVER,
-                user_id=self.user.id,
-                connect_from="posthog_code",
-            ),
+        origin = GitHubAuthorizeState(
+            token=state,
+            flow=FlowKind.OAUTH_DISCOVER,
+            user_id=self.user.id,
+            connect_from="posthog_code",
         )
+        store_unified_authorize_state(origin)
+        other_org = Organization.objects.create(name="Synthetic other organization")
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        self.user.current_organization = other_org
+        self.user.save(update_fields=["current_organization"])
 
         response = self.client.get(
             "/complete/github-link/",
@@ -685,6 +717,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
+
+        next_state = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        next_token, _ = parse_github_authorize_state_param(next_state)
+        assert next_token is not None
+        resumed = load_authorize_state(next_token, user_id=self.user.id)
+        assert resumed is not None
+        assert resumed.originating_organization_id == self.organization.id
+        assert resumed.flow_id == origin.flow_id
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1078,10 +1118,12 @@ class TestUserGitHubIntegration(APIBaseTest):
         }
         mock_post.return_value = mock_response
 
-        gh = self._make_integration()
+        gh = self._make_integration(credential_version="synthetic-old-version", identity_verified_at=123)
         gh.refresh_user_access_token()
 
         gh.integration.refresh_from_db()
+        self.assertNotEqual(gh.integration.config["credential_version"], "synthetic-old-version")
+        self.assertEqual(gh.integration.config["identity_verified_at"], 123)
         self.assertEqual(gh.user_access_token, "gho_new")
         self.assertEqual(gh.user_refresh_token, "ghr_new")
 
@@ -1196,6 +1238,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["user_refresh_token"], "ghr_refresh")
+        self.assertEqual(integration.config["identity_verified_at"], 123)
 
     def test_different_installation_creates_second_integration(self):
         _create_user_integration(self.user)
@@ -1222,8 +1265,17 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.integration_id, "67890")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_new")
 
-    def test_same_installation_updates_existing_integration(self):
-        _create_user_integration(self.user, integration_id="12345")
+    @parameterized.expand(
+        [
+            ("relink_without_organization_keeps_stored", False, "stored"),
+            ("relink_with_organization_replaces_stored", True, "new"),
+        ]
+    )
+    def test_same_installation_updates_existing_integration(self, _name, relink_with_organization, expected):
+        stored_organization = Organization.objects.create(name="Synthetic stored organization")
+        existing = _create_user_integration(self.user, integration_id="12345")
+        existing.config["originating_organization_id"] = str(stored_organization.id)
+        existing.save(update_fields=["config"])
         integration = user_github_integration_from_installation(
             self.user,
             GitHubInstallationAccess(
@@ -1241,11 +1293,14 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
                 access_token_expires_in=28800,
                 refresh_token_expires_in=15897600,
             ),
+            originating_organization_id=self.organization.id if relink_with_organization else None,
         )
 
         self.assertEqual(UserIntegration.objects.filter(user=self.user, kind="github").count(), 1)
         self.assertEqual(integration.integration_id, "12345")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_refreshed")
+        expected_organization = stored_organization if expected == "stored" else self.organization
+        self.assertEqual(integration.config["originating_organization_id"], str(expected_organization.id))
 
     @parameterized.expand(
         [

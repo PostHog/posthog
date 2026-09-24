@@ -3,8 +3,9 @@ import * as construction from '@posthog/brand/hoggies/png/construction-1'
 import * as director from '@posthog/brand/hoggies/png/director'
 import * as experiment from '@posthog/brand/hoggies/png/experiment'
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
+import * as puzzle from '@posthog/brand/hoggies/png/puzzle'
 import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
 import * as reporter from '@posthog/brand/hoggies/png/reporter'
 import * as robot from '@posthog/brand/hoggies/png/robot'
@@ -54,6 +55,7 @@ const HedgehogExperiment = pngHoggie(experiment)
 const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 const HedgehogMailbox = pngHoggie(mailboxPng)
+const HedgehogPuzzle = pngHoggie(puzzle)
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
 const HedgehogReporter = pngHoggie(reporter)
 const HedgehogRobot = pngHoggie(robot)
@@ -353,7 +355,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Agent intent', problem: 'Know what agents were trying to do, not just which tools they ran' },
             { title: 'Failures & gaps', problem: 'Catch failing tools and capabilities agents wish you had' },
         ],
-        hedgehog: HedgehogRobot,
+        hedgehog: HedgehogPuzzle,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.mcpAnalytics(),

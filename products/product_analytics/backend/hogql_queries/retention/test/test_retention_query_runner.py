@@ -15,8 +15,10 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import skipIf
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -2958,6 +2960,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_retention_first_time_ever_breakdown_does_not_inflate_buckets(self):
         # First-ever retention with a breakdown by an event property that was
         # captured later than the user's first event (e.g. a flag rolled out
@@ -6579,6 +6585,24 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+        # A negative limit slices the ranked values from the end, which would keep all but one of them.
+        negative_limit_result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {
+                    "breakdowns": [{"property": "browser", "type": "event"}],
+                    "breakdown_limit": -1,
+                },
+            }
+        )
+
+        negative_limit_values = {c.get("breakdown_value") for c in negative_limit_result}
+        self.assertEqual(negative_limit_values, {BREAKDOWN_OTHER_STRING_LABEL})
 
     def test_retention_with_virtual_person_property_breakdown(self):
         with time_machine.travel("2020-01-12T12:00:00Z", tick=False):

@@ -18,6 +18,7 @@ from ..utils import (
     HogVMMemoryExceededException,
     _compile_regex,
     _require_string,
+    _validate_regex_pattern,
     get_nested_value,
     like,
     regex_extract,
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class STLFunction:
     fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
     minArgs: Optional[int] = None
@@ -51,6 +52,7 @@ class STLFunction:
     # Blocks the thread on time or I/O the VM's cooperative timeout can't interrupt, so callers
     # that run untrusted Hog on a request thread (e.g. HogQL placeholders) must refuse it.
     is_blocking: bool = False
+    memory_cost: Callable[[list[Any]], int] | None = None
 
 
 def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -877,6 +879,11 @@ def _guard_sequence_length(length: int) -> None:
         raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=(length + 1) * COST_PER_UNIT)
 
 
+def _range_memory_cost(args: list[Any]) -> int:
+    length = args[0] if len(args) == 1 else args[1] - args[0]
+    return (max(0, length) + 1) * COST_PER_UNIT
+
+
 def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     # range(a,b) -> [a..b-1], range(x) -> [0..x-1]
     if len(args) == 1:
@@ -978,6 +985,7 @@ def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
         return False
     input_string = _require_string(args[0], "input", "match")
     pattern = _require_string(args[1], "pattern", "match")
+    _validate_regex_pattern(pattern)
     return _compile_regex(pattern).search(input_string) is not None
 
 
@@ -1191,7 +1199,7 @@ STL: dict[str, STLFunction] = {
     "notEquals": STLFunction(fn=notEquals, minArgs=2, maxArgs=2),
     "or": STLFunction(fn=or_fn, minArgs=1, maxArgs=None),
     "plus": STLFunction(fn=plus, minArgs=2, maxArgs=2),
-    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
+    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2, memory_cost=_range_memory_cost),
     "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=2),
     "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
     "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),

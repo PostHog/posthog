@@ -13,7 +13,12 @@ from posthog.schema import DateRange, IntervalType
 from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
+from posthog.interval_specs import PERIOD_MAP
 from posthog.models.team import WeekStartDay
+
+
+class CalendarDayInclusiveDateRange(QueryDateRange):
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
 
 
 class TestQueryDateRange(APIBaseTest):
@@ -305,12 +310,24 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-02-25T12:25:23.000Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-04-25T10:59:23.000Z"))
 
-    def test_bare_calendar_date_to_is_inclusive(self):
+    @parameterized.expand(
+        [
+            (QueryDateRange, IntervalType.DAY, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
+            (QueryDateRange, IntervalType.HOUR, "2021-04-25", "2021-04-25T00:00:00Z"),
+            (QueryDateRange, IntervalType.MINUTE, "2021-04-25", "2021-04-25T00:00:00Z"),
+            (QueryDateRange, IntervalType.MINUTE, "20210425", "2021-04-25T00:00:00Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-4-25", "2021-04-25T23:59:59.999999Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "20210425", "2021-04-25T23:59:59.999999Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-04-25T10:30:00Z", "2021-04-25T10:30:00Z"),
+        ]
+    )
+    def test_bare_calendar_date_to_is_inclusive(self, date_range_class, interval, date_to, expected):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="2021-04-01", date_to="2021-04-25")
-        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+        date_range = DateRange(date_from="2021-04-01", date_to=date_to)
+        query_date_range = date_range_class(team=self.team, date_range=date_range, interval=interval, now=now)
 
-        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-04-25T23:59:59.999999Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected))
 
     def test_yesterday(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -718,6 +735,19 @@ class TestDaysOfWeek(APIBaseTest):
         self.assertIsNone(qdr.days_of_week())
 
 
+def _count_intervals_by_stepping(query: QueryDateRangeWithIntervals) -> int:
+    date_from = query.date_from()
+    date_to = query.date_to()
+    delta = PERIOD_MAP[query.interval_name]
+
+    intervals = 0
+    while date_from < date_to:
+        date_from = date_from + delta
+        intervals += 1
+
+    return intervals
+
+
 class TestQueryDateRangeWithIntervals(APIBaseTest):
     def setUp(self):
         self.now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -737,6 +767,37 @@ class TestQueryDateRangeWithIntervals(APIBaseTest):
         # date_to should reflect pinned_now (the subclass's date_to adds one interval
         # and truncates to start of interval, so 2021-07-01 00:00:00 UTC becomes 2021-07-02 00:00:00 UTC)
         self.assertEqual(query.date_to(), parser.isoparse("2021-07-02T00:00:00Z"))
+
+    def test_intervals_between_counts_the_intervals_the_range_spans(self):
+        query = QueryDateRangeWithIntervals(DateRange(date_from="-7d"), 8, self.team, IntervalType.DAY, self.now)
+        self.assertEqual(query.intervals_between, 8)
+
+    @parameterized.expand(
+        [
+            ("hourly_over_a_decade", "-10y", "2021-08-25T00:00:00Z", IntervalType.HOUR, "UTC"),
+            ("daily_over_a_year", "-365d", "2021-08-25T00:00:00Z", IntervalType.DAY, "UTC"),
+            (
+                "hourly_across_spring_forward",
+                "2024-03-09",
+                "2024-03-11T00:00:00Z",
+                IntervalType.HOUR,
+                "America/New_York",
+            ),
+            ("hourly_across_fall_back", "2024-11-02", "2024-11-04T00:00:00Z", IntervalType.HOUR, "America/New_York"),
+            ("daily_across_spring_forward", "2024-03-01", "2024-04-01T00:00:00Z", IntervalType.DAY, "America/New_York"),
+            ("weekly_across_fall_back", "2024-10-01", "2024-12-01T00:00:00Z", IntervalType.WEEK, "America/New_York"),
+            ("monthly_over_two_years", "-24m", "2024-06-15T00:00:00Z", IntervalType.MONTH, "America/New_York"),
+        ]
+    )
+    def test_intervals_between_matches_stepping_through_the_range(
+        self, _name: str, date_from: str, now: str, interval: IntervalType, timezone: str
+    ):
+        self.team.timezone = timezone
+        query = QueryDateRangeWithIntervals(
+            DateRange(date_from=date_from), 8, self.team, interval, parser.isoparse(now)
+        )
+
+        self.assertEqual(query.intervals_between, _count_intervals_by_stepping(query))
 
     def test_determine_time_delta_valid(self):
         delta = QueryDateRangeWithIntervals.determine_time_delta(5, "day")

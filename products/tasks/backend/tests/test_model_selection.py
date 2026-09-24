@@ -2,6 +2,7 @@ import pytest
 
 from django.core.exceptions import ValidationError
 
+from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.temporal.process_task.utils import (
     RuntimeAdapter,
@@ -62,20 +63,43 @@ def test_invalid_selections_raise(runtime_adapter, model, reasoning_effort, expe
 
 
 @pytest.mark.parametrize(
-    "model,expected_flag",
+    "model",
     [
-        ("zai-org/glm-5.3", "posthog-code-glm-53-model"),
-        ("anthropic/zai-org/glm-5.3", "posthog-code-glm-53-model"),
-        ("ANTHROPIC/ZAI-ORG/GLM-5.3", "posthog-code-glm-53-model"),
-        ("claude-opus-5", None),
+        "zai-org/glm-5.3",
+        "anthropic/zai-org/glm-5.3",
+        "ANTHROPIC/ZAI-ORG/GLM-5.3",
+        "deepseek-ai/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3",
+        "claude-opus-5",
     ],
-    ids=["canonical", "provider_qualified", "mixed_case", "ungated"],
+    ids=["canonical", "provider_qualified", "mixed_case", "deepseek", "kimi", "anthropic"],
 )
-def test_gated_model_is_gated_in_every_spelling(model: str, expected_flag: str | None) -> None:
-    # Every resolver folds a provider-qualified id onto the model it names, so a gate that
-    # missed that spelling would skip the entitlement check on an id the rest of the stack
-    # already treats as the gated one.
-    assert get_required_model_flag(model) == expected_flag
+def test_open_weights_models_need_no_entitlement(model: str) -> None:
+    # These run on the claude harness and are offered to everyone. Every resolver folds a
+    # provider-qualified id onto the model it names, so a spelling that resolved to a gate
+    # would reject a selection every other surface accepts.
+    assert get_required_model_flag(model) is None
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "gated-test-model",
+        "anthropic/gated-test-model",
+        "ANTHROPIC/GATED-TEST-MODEL",
+        "  gated-test-model  ",
+    ],
+    ids=["canonical", "provider_qualified", "mixed_case", "padded"],
+)
+def test_get_required_model_flag_resolves_a_real_gate(model: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The test above only proves every open-weights spelling resolves to None. Without a
+    # gated catalog entry, a resolver that always returned None would pass it too, leaving
+    # the retained rollout mechanism untested until another model is gated. This adds one.
+    gated = model_catalog.CatalogModel(
+        "gated-test-model", model_catalog.CLAUDE, ("low",), access_flag="tasks-gated-test-model"
+    )
+    monkeypatch.setitem(model_catalog._MODEL_BY_ID, gated.id, gated)
+    assert get_required_model_flag(model) == gated.access_flag
 
 
 @pytest.mark.parametrize(

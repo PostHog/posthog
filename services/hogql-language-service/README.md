@@ -30,13 +30,37 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
 
-Validation resolves table CTEs in the language service, validates their projected fields, and reports only the
-underlying catalog tables in `tableNames`.
-Each validation request can expand up to 16,384 projected CTE fields. Larger projections return a `query_limit`
-diagnostic and ask the user to select fewer fields.
+Completion and validation share scope analysis for table CTEs and aliased `FROM` subqueries.
+Completion suggests projected fields, including aliases and wildcard outputs, with catalog types for direct field projections.
+FROM and JOIN completion suggests visible CTE names before catalog tables and respects CTE shadowing.
+It reads unquoted multi-part table prefixes from the catalog: `FROM postgres.` shows the full `postgres.demo.orders` label and inserts only `demo.orders`.
+Already-typed namespace components must use the catalog's exact case, while the final partial component remains case-insensitive.
+Completion inside quoted path components remains unsupported.
+Completion omits dotted candidates when a remaining path component would require quotes.
+The editor replaces text from the start of the current word to the cursor and leaves text after the cursor unchanged.
+Empty queries offer SELECT and WITH; typed prefixes filter those starting keywords.
+Joined fields with the same name show their source and insert a qualified reference, including separate aliases in self-joins.
+Unique fields and already-qualified completion keep their existing insertion behavior.
+For example, `WITH t AS (SELECT event AS kind FROM events) SELECT t.` suggests `kind`, even before typing `FROM t`.
+Validation checks those output fields and reports only underlying catalog tables in `tableNames`.
+Each request can expand up to 16,384 projected fields before deduplication.
+Larger projections return HTTP 400 for completion or a `query_limit` validation diagnostic.
+Select fewer fields to stay within the limit.
+Field lookup work has a separate request-wide budget.
+Queries that exceed it return HTTP 400 for completion or a `query_limit` validation diagnostic; reduce the number of sources or qualify field names.
+Joining a CTE or subquery without a `properties` output does not suppress the physical table's property suggestions or validation.
+Direct property containers retain their catalog namespace through CTEs, aliased subqueries, renamed projections, wildcards, and visible SELECT aliases.
+For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.$br FROM t` suggests `$browser`.
+Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
+Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
+Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
+Multi-part names also retain distinct identities when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
+Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
+Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
-Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
-distance. Dynamic properties use the same cached namespaces as autocomplete.
+Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
+typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
+autocomplete.
 
 ```bash
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
@@ -48,16 +72,26 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
-`position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the default) or
-`utf-16`; editor clients such as Monaco should send `utf-16`. The response echoes the selected encoding.
+Autocomplete `position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the
+default) or `utf-16`; editor clients such as Monaco should send `utf-16`. Validation accepts the same setting, defaults
+to `utf-16`, and uses it for diagnostic positions. Both responses echo the selected encoding. Suggestion labels
+preserve catalog names, while `insertText` quotes identifiers that contain spaces or special characters.
+Suggestions omit identifiers containing `%` because HogQL does not support them.
 `durationMicros` covers only the
 in-memory completion path; network and JSON decoding are intentionally excluded. Responses contain at most 25
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and
 position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length` is the encoded response size.
 
 The parser currently accepts ClickHouse's `database.table` identifiers but not HogQL's three-part synced-table names.
-Completion retains the parser error for diagnostics and uses a catalog-aware table-reference fallback for those names.
-Validation normalizes those table references before parsing while preserving byte offsets.
+Shared analysis normalizes those table references before parsing while preserving byte offsets.
+For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
+Queries with complete CTE definitions can also retain their outer SELECT/FROM scope through unfinished trailing clauses, including completion inside an unfinished outer predicate.
+This preserves derived fields, known property origins, and retained SELECT aliases.
+Recovery excludes malformed CTE bodies, nested SELECTs in the outer query, FROM/JOIN cursor positions, and incomplete JOIN sources.
+Validation still reports the original query's syntax errors.
+Completion and validation recognize explicit SELECT aliases in later SELECT items and clauses resolved after SELECT, including WHERE, GROUP BY, HAVING, and ORDER BY.
+Aliases stay within their defining query and do not appear in JOIN conditions.
+Computed and nested property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
 
 ## Multitenant catalogs
 
@@ -70,12 +104,20 @@ curl -sS -X PUT http://localhost:8091/teams/2/users/17/catalog \
     "revision": "schema-42:permissions-9",
     "catalog": {
       "tables": {
-        "events": {"name": "events", "type": "posthog", "fields": {}}
+        "events": {"name": "events", "type": "posthog", "fields": {}},
+        "postgres.demo.orders": {"name": "postgres.demo.orders", "type": "data_warehouse", "fields": {}}
       },
+      "tableAliases": {"demo_postgres_orders": "postgres.demo.orders"},
       "properties": {"event": [{"name": "$geo_city", "property_type": "String"}]}
     }
   }'
 ```
+
+`tableAliases` is optional. Each key is an accepted alternate table spelling, and each value must name a canonical key in `tables`.
+An alias and its canonical table share prepared fields, but validation retains the spelling used in SQL in `tableNames`.
+An identity entry such as `"events": "events"` is a no-op.
+Publication rejects empty names, aliases that replace another canonical key, and targets that create a dangling reference, chain, or cycle.
+Catalogs without `tableAliases` keep the previous behavior.
 
 Every protected route requires positive `teamId` and `userId` path parameters. The response includes
 `catalogRevision`, allowing Django and the editor to detect a stale response. An unknown, expired, or evicted pair
@@ -87,6 +129,10 @@ Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projec
 When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `8 GiB`) is reached, the least recently used
 catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable
 catalog atomically.
+
+The generated scale fixture verifies publication, completion, pagination, and validation with 4,096 canonical tables, 25 fields per table, and 120,000 event properties for one user catalog.
+Table fields and event properties are separate catalog entries.
+This is a tested profile, not a count limit: admission still depends on the serialized request size and the prepared catalog's share of the cache byte budget.
 
 Authentication is required unless `HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1` explicitly disables it on a loopback
 listener for local development. Insecure mode logs a startup warning and is rejected on non-loopback listeners.

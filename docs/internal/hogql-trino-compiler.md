@@ -39,6 +39,9 @@ Warehouse callers can obtain curated definitions from `resolve_external_table_fi
 using the source resource name and the columns actually present in the import.
 Supplying raw column metadata alone omits these semantic mappings.
 
+Structural lowering retains logical field names until the second type-resolution pass finishes.
+Physical names are emitted during final lowering, so a curated schema does not need to expose physical columns as additional logical fields.
+
 When a logical field maps to a different physical column, Trino keeps the source qualifier after rewriting the field.
 This lets a query join tables that share the physical column name while selecting the intended logical field.
 `JOIN ... USING` becomes an `ON` condition with both sources qualified, including joins between CTEs and subqueries.
@@ -69,9 +72,14 @@ The integration does not provision catalogs, alter deployments, or make source-o
 
 ## Managed Trino connections
 
-Call `resolve_managed_warehouse_trino_connection(...)` through the managed-warehouse client facade when a backend job needs a live Trino target. The resolver accepts a target only when the control plane reports the organization as enabled and ready. It reads the catalog plus non-secret host, port, and username from `status.connection`, then combines them with the root password already stored for the managed warehouse. The connection contract redacts that password from its representation.
+Call `resolve_managed_warehouse_trino_connection(...)` through the managed-warehouse client facade when a backend job needs a live Trino target. The resolver accepts a target only when the control plane reports the organization as enabled and ready. It reads the catalog plus non-secret host, port, and username from `status.connection`, then uses the encrypted `DuckgresServer.trino_password` when one is configured. Existing rows fall back to the stored Duckgres password until a Trino password is set. Staff can set or replace the Trino password in the Duckgres server Django admin form; the saved value is never displayed there. The connection contract redacts that password from its representation.
 
 Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with basic authentication, HTTPS, certificate verification, and a bounded request timeout. The connector has no Duckgres fallback. A disabled target, non-ready state, organization mismatch, malformed endpoint, or missing stored credential fails before opening a socket.
+
+The managed connector uses a dedicated HTTP session that bypasses environment proxies only for known PostHog-hosted Trino endpoints on port 443.
+It uses the same hosted endpoint check as direct Trino connections.
+Other destinations retain proxy settings.
+The connector keeps certificate verification enabled and closes the session when the connection scope exits.
 
 The Django `DuckgresServer` row remains the transitional owner of the existing root secret; it does not become the source of truth for Trino placement. Trino cell assignment, endpoint identity, and catalog naming stay in the control plane. No second Django model or copied control-plane status is required.
 
@@ -92,6 +100,10 @@ Queries that exceed it fail with `TRINO_AST_EXPANSION_LIMIT`; simplify the expre
 The printer checks each rendered expression against a 1,000,000-character SQL limit and raises `TRINO_SQL_SIZE_LIMIT` before enclosing expressions can repeatedly expand it.
 `arraySlice` and dynamic `range` bind their arguments once so nesting does not multiply their generated SQL.
 Scalar CTE substitution preserves resolved column bindings, including columns that share a CTE name.
+
+Arithmetic operators render each operand once and reuse its SQL after applying Trino's type conversions.
+This keeps long arithmetic chains from repeatedly registering unused bind parameters, including JSON extraction paths.
+Integer conversions also render their input only in the selected conversion path, so nested casts do not retain discarded parameters.
 
 `numbers()` uses Trino's scalar `sequence`, which supports at most 10,000 entries.
 Constant counts above this limit fail during compilation; dynamic counts are clamped to the range from zero to 10,000.
@@ -137,6 +149,11 @@ queries = [compiler.compile(query) for query in batch]
 
 Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
 
+Both managed compilation modes preserve the source query's limits and offsets in the generated SQL and diagnostic HogQL.
+They do not add an implicit row limit or cap an explicit limit at the interactive query maximum.
+For example, an unbounded query stays unbounded, and `LIMIT 75000` stays `LIMIT 75000`.
+After deploying this behavior, rerun saved-view translation for queries compiled with the implicit cap; previously stored SQL is not rewritten automatically.
+
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
 - `events` and `persons` to the project's provisioned tables in the `posthog` schema;
@@ -163,11 +180,98 @@ Source metadata describes what HogQL means. Target mappings describe where the c
 
 Creating a job through Django admin starts the Temporal workflow after the database transaction commits. Provisioning does not create or start these jobs. A job can snapshot every eligible view in the organization or an explicit set of saved-query UUIDs. The workflow validates selected views against the organization and its control-plane-enabled teams, then compiles each represented team independently on the DuckLake task queue.
 
+If preparation fails because the Trino target is not ready, search worker logs by the job's `organization_id` for `trino_target_not_ready` or `refusing_trino_catalog_for_mismatched_organization`.
+The `reason` field distinguishes `http_error`, `invalid_response`, `invalid_enabled`, `not_enabled`, `invalid_status`, `state_not_ready`, `organization_mismatch`, and `invalid_catalog`.
+Each event includes `status_code`, with the readiness state or invalid field's type where relevant.
+Disabled and pending targets log at info level; request errors and invalid responses log at warning level.
+These readiness logs omit response bodies, upstream error text, and connection credentials.
+Response organization strings are limited to 128 characters; non-string values log only their type.
+
 Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
+
+Each team compilation activity has a one-hour start-to-close timeout, a two-minute heartbeat timeout, and at most two attempts.
+A background thread sends heartbeats during synchronous compilation, including while one view takes longer than the heartbeat interval.
+Cancellation propagates as an activity cancellation instead of a per-view compilation failure.
+Activities check cancellation and the job's running state before each view and before recording compilation outcomes; result updates also require a running job and a pending result.
+An interrupted view remains pending for an activity retry, which resumes from pending results.
 
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
 
-The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
+The `managed-warehouse-data-modeling-shadow` flag enables shadow materialization through Trino.
+It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
+The shadow activity executes the most recent matching conversion's stored `trino_sql` and `trino_values`, including its mapped table references.
+It checks the source hash again when the activity runs and fails the shadow job if no current conversion exists; rerun translation after editing the saved query.
+It does not recompile the query or fall back to DuckDB on failure.
+
+Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized model-path label or saved-query UUID.
+The compiler and materializer share this naming policy, so stored translations can read upstream model outputs directly.
+The legacy Duckgres path retains `shadow_<team_id>_models` and normalized saved-query names.
+ClickHouse materialization and publication continue independently.
+The DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or has no eligible translation, even if ClickHouse succeeds.
+Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous dependency behavior.
+Run upstream materialized models before their dependents when selecting a subset of the DAG.
+Do not run the legacy DuckLake model-copy workflow against the same destinations while Trino owns their refreshes.
+Publication uses the DuckLake connector's atomic `CREATE OR REPLACE TABLE` operation, so a failed write preserves the previous table.
+The shadow row count comes from Trino's write result; storage size metrics are unavailable and remain zero.
+
+### Execution limits and cancellation
+
+Trino enforces tenant capacity and query queueing.
+Model builds and alias passes submit work without application-level global or organization admission limits.
+Their synchronous client calls use a dedicated executor with Python's default pool size, separate from the general database thread pool.
+
+The client enforces a 15-minute execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
+Activities heartbeat every second under a two-minute heartbeat timeout, and workflow cancellation waits for activity cleanup.
+Alias passes use a five-minute total deadline and cancel the active Trino cursor when the deadline expires.
+
+### Readable model names
+
+After a successful Trino build, the activity starts or signals `managed-warehouse.reconcile-model-aliases` on the DuckLake task queue.
+One workflow per team (`managed-warehouse-model-aliases/<team_id>`) coalesces build signals for 30 seconds, then refreshes up to 100 requested models at a time.
+These passes load only the requested models and name conflicts, and fetch columns and ownership comments for their relations.
+Full audits handle renames, deletions, and missed signals, starting at a 30-minute interval and backing off to two hours when unchanged, with 20% jitter.
+Errors retry with backoff; pending model IDs survive retries and continuation.
+It continues as a new run after 100 passes to bound its history.
+Alias failures retry independently and do not fail a completed physical build or block downstream materialization.
+
+The workflow exposes each materialized saved query through an invoker-security view in `posthog_data_modeling_team_<team_id>`:
+
+```sql
+CREATE VIEW <catalog>.posthog_data_modeling_team_123.daily_revenue
+SECURITY INVOKER AS
+SELECT * FROM <catalog>.posthog_data_modeling_team_123.model_<saved_query_uuid>;
+```
+
+Physical destinations and compiled dependency references remain unchanged, including legacy physical table labels.
+Logical names use the saved-query name lowercased for Trino's case-insensitive identifiers.
+Dots, spaces, and quotes remain part of one quoted identifier, so a model named `reporting.orders` is queried as `<catalog>.<schema>."reporting.orders"`.
+If a legacy physical table already has its model's logical name, it needs no extra view.
+Names that collide after lowercasing, with another model's physical destination, or with an unmanaged relation are reported instead of overwritten.
+The `model_<32 hexadecimal characters>` namespace is reserved for physical destinations.
+
+Generated view comments record the team, saved-query ID, and a fingerprint of the destination and output columns.
+Reconciliation refreshes views when their destination or columns change and removes only marked views that are no longer desired.
+It leaves physical tables and unmarked relations intact.
+Renames and deletions are eventually reflected by the next successful full audit; alias cleanup does not delete backing data.
+The schema must be managed exclusively by this publisher for aliases; do not edit generated views or their ownership comments manually.
+
+The connector and DuckLake catalog must support views, view comments, and `CREATE OR REPLACE VIEW`.
+Unsupported catalogs retain working physical materializations while alias reconciliation reports failures.
+Inspect the workflow's `status` query and `trino_model_aliases_reconciled` worker logs for publication counts and errors (at most 50 collision messages per pass).
+The workflow stops when its team is missing or its shadow flag is disabled.
+An empty team gets one final owned-alias cleanup before the workflow stops.
+A subsequent build starts reconciliation again.
+If dispatch failed or the workflow was stopped, restart reconciliation without rebuilding any models from a Django shell:
+
+```python
+from asgiref.sync import async_to_sync
+from products.managed_warehouse.backend.facade.client import request_model_alias_reconciliation
+
+async_to_sync(request_model_alias_reconciliation)(123)
+```
+
+Existing Temporal histories retain their legacy execution path through a workflow patch.
+Explicit `managed_warehouse_only` runs without flag eligibility also retain the legacy path.
 
 ## Validation
 
@@ -180,6 +284,8 @@ expressions and numeric conditions in `if`/`multiIf` use native Trino conditiona
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
+This includes conditional argument, array, and quantile aggregates and conditional window functions.
+Window quantiles use a conditional NULL input because Trino does not support `FILTER` on window functions.
 
 Additional mappings cover common mathematical functions, array transforms,
 base64 strings, maps, URLs, date arithmetic, vector operations, and statistical
@@ -244,6 +350,7 @@ Dynamic arrays receive an equal-length guard instead of Trino's NULL padding.
 The regex group functions support constant patterns with 1–20 capture groups.
 They support one-match, vertical, and horizontal result shapes.
 `regexpExtract` supports a constant pattern and an optional constant group index.
+`extractAll` returns the first capture group when present and the entire match otherwise, for both constant and dynamic patterns.
 `replaceRegexpOne` supports constant
 patterns and replacements, including numbered replacement captures. Lookarounds,
 inline flags, and pattern backreferences remain rejected for first-only replacement.

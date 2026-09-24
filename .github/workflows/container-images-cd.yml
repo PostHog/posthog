@@ -175,6 +175,29 @@ jobs:
                       echo "Image for $SHA already present in ECR ($digest); skipping build." >&2
                   fi
 
+            # Create the error tracking release for this commit before the build, so the build can
+            # bake its id into the image as POSTHOG_RELEASE_ID (see the final stage of the Dockerfile).
+            # The Python SDK sends that id as $release_id on every event, which links a backend
+            # exception to the same release the frontend bundles carry: the sourcemap stage of the
+            # Dockerfile resolves the release by the same name and version, so it finds this one.
+            # Keep release-name and release-version equal to the --release-name and --release-version
+            # of that stage.
+            # This step must never block a deploy. Without the secret, the action passes with an empty
+            # id and a warning. A download, checksum, or API error fails the step, and
+            # continue-on-error keeps the build going with an empty id. The step timeout stops a hung
+            # API call. An empty id is fine: the SDK treats a blank value as unset.
+            - name: Resolve error tracking release
+              id: release
+              if: steps.preflight.outputs.digest == ''
+              continue-on-error: true
+              timeout-minutes: 5
+              uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
+              with:
+                  api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  project-id: '2'
+                  release-name: posthog
+                  release-version: ${{ github.sha }}
+
             - name: Build and push container image
               id: build
               if: steps.preflight.outputs.digest == ''
@@ -192,10 +215,12 @@ jobs:
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage creates. That stage builds in a container with no .git
-                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
@@ -270,10 +295,12 @@ jobs:
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage creates. That stage builds in a container with no .git
-                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
@@ -435,6 +462,8 @@ jobs:
                         - 'posthog/temporal/ingestion_acceptance_test/**'
                         - 'posthog/temporal/backfill_group_type_created_at/**'
                         - 'posthog/temporal/backfill_materialized_property/**'
+                        - 'products/security/backend/temporal/**'
+                        - 'products/security/backend/logic/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -478,6 +507,7 @@ jobs:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/backend/**'
                         - 'products/business_knowledge/backend/**'
+                        - 'products/customer_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -547,6 +577,9 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
+                        # The personhog gRPC stubs are an installed package, outside the
+                        # local packages the import analysis graphs.
+                        - 'packages/personhog-proto/**'
 
                       llmAnalyticsEvals:
                         - 'posthog/temporal/ai_observability/**'
@@ -1278,27 +1311,6 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Data Warehouse Metadata Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-data-warehouse-metadata",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

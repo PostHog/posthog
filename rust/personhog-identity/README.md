@@ -38,6 +38,13 @@ Tests need the persons database (`posthog_persons`) with `rust/persons_migration
 cargo test -p personhog-identity
 ```
 
+## Query tags
+
+Every statement carries `/* service='personhog-identity', operation='<name>' */` in front, the SQLCommenter shape both pganalyze and pgcollector parse, so load and latency can be cut by code path.
+Compile-time checked queries get it from `op = "..."` on the `mirrored_query*!` macros; statements built at runtime wrap their SQL in `personhog_common::query_tag!("<name>", sql)`.
+Operation names are `<saga or store>_<step>_<what>`, for example `merge_flip_lock_persons` or `stub_create_mappings`.
+See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
+
 ## Parked lifecycle ops
 
 A lifecycle op parks when the leader answers a semantic refusal after the point of no return: retrying a definitive refusal cannot succeed, so the op holds its fences and only an explicit retry under the same op id resumes it (the sweeper is barred). Refusals before the point of no return abort instead, recording `skipped_refused` for their sources and releasing fences in the same settlement. The sweeper re-drives interrupted sagas to a terminal state and defaults on; a fleet that disables it converts every orphaned saga into fences an operator must clear. The surface is the `personhog_lifecycle_ops_parked` gauge and the park's ERROR log carrying the op id and reason; resolution is a retry with the recorded op id.

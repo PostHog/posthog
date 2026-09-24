@@ -17,7 +17,9 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -54,6 +56,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -66,6 +69,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
@@ -454,6 +458,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
+            FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+            FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+            FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
             FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
             FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
         )
@@ -462,43 +469,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
+        generated = [
+            (
+                FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                "Shows the number of total calls made on feature flag with key: my-flag",
+            ),
+            (
+                FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                "Shows the number of unique user calls made on feature flag per variant with key: my-flag",
+            ),
+            # A group-aggregated flag names its entity instead of "users"
+            (
+                "Feature Flag calls made by unique organizations per variant",
+                "Shows the number of unique organization calls made on feature flag per variant with key: my-flag",
+            ),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+            (FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+        ]
+        # A generated name a person can reuse, which the description tells apart
+        kept = [
+            ("Regular Insight", ""),
+            (FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, "My own copy of this chart"),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, "My own copy of this chart"),
+        ]
 
-        # Create feature flag insights
-        Insight.objects.create(
-            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
+        for name, description in generated + kept:
+            Insight.objects.create(
+                name=name,
+                description=description,
+                filters=Filter(data=filter_dict).to_dict(),
+                saved=True,
+                team=self.team,
+                created_by=self.user,
+            )
 
-        Insight.objects.create(
-            name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Create a regular insight
-        Insight.objects.create(
-            name="Regular Insight",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Without filter, should return all 3 insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), len(generated) + len(kept))
 
-        # With filter, should exclude feature flag insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
+        self.assertEqual(
+            sorted((result["name"], result["description"]) for result in response.json()["results"]),
+            sorted(kept),
+        )
 
     def test_get_insight_in_dashboard_context(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -703,29 +717,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
-    @parameterized.expand([("full", ""), ("basic", "&basic=true")])
-    def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
-        # `unique_users` is not a math value the query schema accepts, so this definition cannot be
-        # expressed as a query at all. Reading it used to raise out of the serializer and fail the
-        # whole list request.
-        stored_filters = {"events": [{"id": "$pageview", "math": "unique_users"}]}
-        Insight.objects.create(
-            team=self.team,
-            saved=True,
-            short_id="brokenfl",
-            filters=stored_filters,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        result = response.json()["results"][0]
-        self.assertIsNone(result["query"])
-        # The stored definition survives the read, and the absent `insight` key is not filled in:
-        # the client's converter defaults it, the same way the server's converter does.
-        self.assertEqual(result["filters"]["events"], stored_filters["events"])
-        self.assertNotIn("insight", result["filters"])
-
     @parameterized.expand(
         [
             ("numeric_id", lambda insight: insight.id),
@@ -803,7 +794,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name",
                 "derived_name",
                 "favorited",
-                "filters",
                 "query",
                 "dashboard_tiles",
                 "description",
@@ -848,7 +838,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"({unsaved_no_dashboard.short_id}) must be excluded."
         )
 
-    def test_search_filter_does_not_duplicate_insights_with_multiple_matching_tags(self) -> None:
+    @parameterized.expand(
+        [
+            ("search", "search=needle"),
+            ("tags filter", 'tags=["needle-tag-a", "needle-tag-b", "needle-tag-c"]'),
+        ]
+    )
+    def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
         from posthog.models.tagged_item import TaggedItem
 
@@ -859,13 +855,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             tag = Tag.objects.create(name=tag_name, team=self.team)
             TaggedItem.objects.create(insight=insight, tag=tag)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK
-        matching_short_ids = [r["short_id"] for r in response.json()["results"] if r["short_id"] == insight.short_id]
+        body = response.json()
+        matching_short_ids = [r["short_id"] for r in body["results"] if r["short_id"] == insight.short_id]
         assert len(matching_short_ids) == 1, (
-            f"search=needle must return the insight once even though three tags + the name match it; "
+            f"?{query} must return the insight once even though three tags match it; "
             f"got {len(matching_short_ids)} copies."
         )
+        assert body["count"] == 1, f"?{query} must count the insight once; got {body['count']}."
 
     @parameterized.expand(
         [
@@ -1010,6 +1008,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         result_ids = [r["id"] for r in response.json()["results"]]
         assert result_ids.index(newer.id) < result_ids.index(older.id), (
             "explicit order=-id should override relevance ranking and put newer insight first"
+        )
+
+    def test_list_without_order_sorts_by_last_modified_at_descending(self):
+        now = timezone.now()
+        older = Insight.objects.create(
+            name="older",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=1,
+            last_modified_at=now - timedelta(days=2),
+        )
+        newer = Insight.objects.create(
+            name="newer",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=2,
+            last_modified_at=now - timedelta(days=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "the default list order must be newest-modified first, not the vestigial `order` column"
         )
 
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
@@ -3079,14 +3102,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        deleted_subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
+        )
+        delivery = SubscriptionDelivery.objects.create(
+            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
+
+        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
+        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+
+    def test_soft_delete_locks_the_insight_before_removing_its_alerts(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
+        AlertConfiguration.objects.create(team=self.team, insight_id=insight_id, name="alert")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock_index = next(
+            i for i, q in enumerate(sql) if q.startswith('SELECT "posthog_dashboarditem"') and "FOR NO KEY UPDATE" in q
+        )
+        delete_index = next(
+            i for i, q in enumerate(sql) if q.startswith("DELETE") and "posthog_alertconfiguration" in q
+        )
+        self.assertLess(lock_index, delete_index)
+
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
 
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -3129,6 +3193,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "field": "deleted",
             "type": "Insight",
         }
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -4295,12 +4361,24 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         insight = self._create_insight()
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight.id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
 
         response = self._bulk_delete([insight.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
         insight = self._create_insight()

@@ -6,7 +6,7 @@ policy files, raw reviewer output) is persisted on ``ReviewRun.output`` between 
 rather than threaded through the workflow, keeping every Temporal payload well under the
 ~2 MiB limit.
 
-The whole review engine (hard gates, tier classification, git-blame familiarity, and
+The whole review engine (hard gates, tier classification, author familiarity, and
 the LLM reviewer) runs inside the sandbox via the engine's own modules
 (``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never
 processes repo content. It fetches PR data and the trusted default-branch policy over
@@ -17,15 +17,18 @@ single verdict JSON.
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import shlex
 import base64
 import random
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -54,7 +57,17 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.engine_pregate import (
+    ENGINE_DIR,
+    PregateOutcome,
+    engine_source_files,
+    owners_package_files,
+    pregate_skip_reason,
+    run_engine_pregate,
+)
+from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.refusal_summary import summarize_refusal
 from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
@@ -62,10 +75,11 @@ from products.stamphog.backend.logic.reviewer import (
     build_reviewer_invocation,
     parse_reviewer_output,
 )
+from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
-    PREFETCH_BLAME_TIMEOUT_SECONDS,
+    PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
     REVIEWER_TIMEOUT_SECONDS,
     RUN_REVIEW_TIMEOUT,
     SANDBOX_PHASE_RESERVE_SECONDS,
@@ -88,12 +102,6 @@ from products.tasks.backend.facade.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_backend,
 )
-
-# The review engine on the server's own checkout. The server reads these as data files at runtime
-# and ships them into the sandbox checkout. It never imports them, because the directory is
-# hyphenated and sits outside the import graph. activities.py is at
-# products/stamphog/backend/temporal/activities.py, so the product root is three parents up.
-_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -132,8 +140,13 @@ STAMPHOG_AI_PRODUCT = "aio_stamphog"
 # The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
-_MINT_ATTEMPTS = 2
+_MINT_ATTEMPTS = 4
 _MINT_TIMEOUT_SECONDS = 3
+# Waits of about 1s, 2s and 4s before the retries, plus jitter so a fleet of workers refused at
+# once does not come back in step. A Retry-After the gateway sends wins, clamped to the same
+# ceiling: the whole mint must stay short against the review activity's start-to-close timeout.
+_MINT_BACKOFF_SECONDS = 1.0
+_MINT_MAX_BACKOFF_SECONDS = 10.0
 
 AI_GATEWAY_TOKEN_MINTS = Counter(
     "stamphog_ai_gateway_token_mints_total",
@@ -168,14 +181,40 @@ def _connected_user(run: ReviewRun) -> User:
     return user
 
 
+def _retry_after_seconds(response: requests.Response) -> float | None:
+    """Seconds the gateway asked the caller to wait, from either Retry-After form; None if unusable."""
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return max(0.0, float(header.strip()))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(header)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+def _mint_backoff_seconds(attempt: int, retry_after: float | None) -> float:
+    """What to wait before the next mint attempt: the gateway's own answer, else exponential backoff."""
+    if retry_after is not None:
+        return min(retry_after, _MINT_MAX_BACKOFF_SECONDS)
+    delay = min(_MINT_BACKOFF_SECONDS * 2**attempt, _MINT_MAX_BACKOFF_SECONDS)
+    return delay + random.uniform(0, delay / 4)
+
+
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
     """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
-    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
-    on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
-    fallback. A token minted without a requested model pin is revoked and fails the run. Kept
-    separate from the tasks and wizard minters: each product owns its failure posture, and this cap
-    and TTL are documented invariants rather than ops knobs.
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries with
+    growing backoff on 429, 5xx and network errors; any other refusal is final, and hosted runs have
+    no shared-key fallback. A token minted without a requested model pin is revoked and fails the
+    run. Kept separate from the tasks and wizard minters: each product owns its failure posture, and
+    this cap and TTL are documented invariants rather than ops knobs.
     """
     body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
@@ -192,6 +231,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     mint_url = f"{_gateway_root(gateway)}/v1/tokens"
     last_error = ""
     for attempt in range(_MINT_ATTEMPTS):
+        retry_after: float | None = None
         try:
             response = requests.post(
                 mint_url,
@@ -223,11 +263,12 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
                 break
             if response.status_code == 429 or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
+                retry_after = _retry_after_seconds(response)
             else:
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
                 break
         if attempt < _MINT_ATTEMPTS - 1:
-            time.sleep(0.5 + random.uniform(0, 0.25))
+            time.sleep(_mint_backoff_seconds(attempt, retry_after))
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
     raise RuntimeError(
         f"Could not mint the sandbox gateway token ({last_error}); hosted reviews require the LLM gateway"
@@ -257,6 +298,26 @@ def _release_reviewer_token(gateway: AIGatewayConfig, token: str) -> None:
         activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
 
 
+def _hosted_analytics_properties(run: ReviewRun) -> dict[str, object]:
+    properties: dict[str, object] = {
+        "stamphog_runtime": "hosted",
+        "stamphog_team_id": run.team_id,
+        "stamphog_review_run_id": str(run.id),
+    }
+    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
+    # completed events and LLM traces apart from reviews of human PRs.
+    if (run.output or {}).get("inbox_review"):
+        properties["stamphog_self_driving_review"] = True
+    return properties
+
+
+def _engine_analytics_environment(properties: dict[str, object]) -> dict[str, str]:
+    """The env the engine reads to emit its events: the capture key and host, plus the extra properties."""
+    env = {key: value for key in ("POSTHOG_API_KEY", "POSTHOG_HOST") if (value := os.environ.get(key))}
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(properties, separators=(",", ":"))
+    return env
+
+
 def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig]:
     """Environment for the in-sandbox reviewer.
 
@@ -273,7 +334,7 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
     token every frontend snippet ships — so its blast radius is event spam, not data access; it's still
-    added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
+    added to llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
     """
     gateway = resolve_ai_gateway_config()
@@ -292,21 +353,7 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
         "AI_GATEWAY_URL": gateway.url,
         "AI_GATEWAY_API_KEY": token,
     }
-    for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):
-        value = os.environ.get(key)
-        if value:
-            env[key] = value
-    extra_properties: dict[str, object] = {
-        "stamphog_runtime": "hosted",
-        "stamphog_team_id": run.team_id,
-        "stamphog_review_run_id": str(run.id),
-    }
-    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
-    # completed events and LLM traces apart from reviews of human PRs.
-    if (run.output or {}).get("inbox_review"):
-        extra_properties["stamphog_self_driving_review"] = True
-    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
-    return env, gateway
+    return {**env, **_engine_analytics_environment(_hosted_analytics_properties(run))}, gateway
 
 
 def _sandbox_egress_allowlist(gateway_url: str) -> list[str]:
@@ -339,6 +386,18 @@ def _resolve_sandbox_backend() -> str:
     return provider if provider else "modal"
 
 
+def _pr_commit_messages(client: StamphogGitHubClient, repo: str, pr_number: int, head_sha: str) -> list[str] | None:
+    """The PR's commit messages for the engine's provenance trailers, or None when they are unavailable.
+
+    Provenance is advisory, so a GitHub error leaves it out of the review instead of failing it.
+    """
+    try:
+        return client.get_pr_commit_messages(repo, pr_number, head_sha)
+    except Exception:
+        activity.logger.warning(f"stamphog: PR commit messages unavailable for {repo}#{pr_number}", exc_info=True)
+        return None
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
@@ -351,6 +410,18 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     client = StamphogGitHubClient(repo_config.installation_id)
     pr = client.get_pr(repo, pull_request.pr_number)
     files = client.get_pr_files(repo, pull_request.pr_number)
+    # Self-driving runs skip the author's history: the author is the App machine user, so
+    # familiarity from its merged PRs would read to the engine as human trust. Without facts the
+    # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
+    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    # The familiarity facts cost a few GraphQL round trips and depend only on the PR and its files,
+    # so they are read in a background thread while the fetches below run. fetch_review_history
+    # bounds its own time and never raises.
+    history_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stamphog-review-history")
+    history_future = history_executor.submit(
+        fetch_review_history, client, repo, pr, files, include_familiarity=not is_inbox_review
+    )
+    history_executor.shutdown(wait=False)
     # Reviews feed the engine's prerequisite gate — an active CHANGES_REQUESTED must block auto-approval.
     reviews = client.get_pr_reviews(repo, pull_request.pr_number)
     # Top-level discussion comments are blocker context (a maintainer's "please hold").
@@ -360,12 +431,10 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     review_threads = client.get_pr_review_threads(repo, pull_request.pr_number)
     # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
     check_runs = client.get_check_runs(repo, run.head_sha)
+    commit_messages = _pr_commit_messages(client, repo, pull_request.pr_number, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    # Self-driving runs skip this fetch: the author is the App machine user, so blame familiarity
-    # from its merged PRs would read to the engine as human trust. An empty list only omits the
-    # familiarity section from the reviewer prompt; the review itself proceeds normally.
-    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    # Skipped for self-driving runs, like the familiarity facts above.
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
     # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
     # no token, and the engine learns the owning teams only after it reads the checkout's ownership
@@ -381,6 +450,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         if content is not None:
             policy_files[path] = content
 
+    history: ReviewHistory = history_future.result()
+
     run.output = {
         **(run.output or {}),
         "pr": pr,
@@ -393,6 +464,13 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
         "author_team_slugs": author_team_slugs,
+        # Always set, null included: its presence tells the engine the server owns familiarity,
+        # so a null means "absent" rather than "compute it from git".
+        "familiarity_facts": history.familiarity_facts,
+        "merge_base_sha": history.merge_base_sha,
+        # Always set, null included, for the same reason: the sandbox checkout holds no history,
+        # so the engine must not fall back to `git log` for the provenance trailers.
+        "commit_messages": commit_messages,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -548,6 +626,170 @@ def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
     return min(ceiling_seconds, remaining)
 
 
+class _StepTimer:
+    """Wall-clock milliseconds per sandbox step, for the run output and the worker log."""
+
+    def __init__(self) -> None:
+        self.timings_ms: dict[str, int] = {}
+
+    @contextmanager
+    def step(self, name: str) -> Iterator[None]:
+        # Recorded on failure too, so the log line shows how long the failing step ran.
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.timings_ms[name] = int((time.monotonic() - started) * 1000)
+
+
+def _destroy_sandbox_in_background(sandbox: SandboxBase, run_id: str) -> None:
+    """Tear the sandbox down on a daemon thread, so the verdict does not wait for it.
+
+    The provider's terminate call blocks until the sandbox is gone, and nothing after the reviewer
+    needs the sandbox. A failed or lost teardown only leaves an orphan, and an orphan
+    self-terminates when SandboxConfig.ttl_seconds expires. That includes a thread that dies with
+    its worker.
+    """
+
+    def destroy() -> None:
+        try:
+            sandbox.destroy()
+        except Exception:
+            activity.logger.exception(f"Failed to destroy sandbox for run {run_id}")
+
+    threading.Thread(target=destroy, name=f"stamphog-destroy-{run_id}", daemon=True).start()
+
+
+def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerInvocation:
+    """The engine context and command for this run, shared by the pre-check and the sandbox review."""
+    output = run.output or {}
+    pr = output.get("pr", {})
+    return build_reviewer_invocation(
+        pr=pr,
+        files=output.get("files", []),
+        reviews=output.get("reviews", []),
+        discussion=output.get("discussion", []),
+        review_threads=output.get("review_threads", []),
+        check_runs=output.get("check_runs", []),
+        pr_reactions=output.get("pr_reactions", []),
+        author_pr_numbers=output.get("author_pr_numbers", []),
+        author_team_slugs=output.get("author_team_slugs", []),
+        # A run whose context predates the server facts gets None, which the engine reads as an
+        # absent signal. The sandbox checkout holds no history for it to fall back on.
+        familiarity_facts=output.get("familiarity_facts"),
+        commit_messages=output.get("commit_messages"),
+        base_sha=(pr.get("base") or {}).get("sha") or "",
+        merge_base_sha=merge_base_sha,
+        head_sha=run.head_sha,
+        repo=run.pull_request.repo_config.repository,
+        engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
+        context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
+        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
+        self_driving_review=bool(output.get("inbox_review")),
+        # Read as a description rather than a permission: the reviewer is told why it was asked,
+        # and decides for itself what that means for this diff.
+        review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
+    )
+
+
+def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None:
+    """A short LLM note for the refusal, or None, in which case the engine's gate messages stand in.
+
+    Same gateway, token scope and model as the sandbox reviewer. Every failure is soft: the verdict
+    is already REFUSED, so the note must never delay or fail it.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None or _is_legacy_stamphog_route(gateway.url) or outcome.result is None:
+        return None
+    try:
+        token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
+    except Exception:
+        activity.logger.warning(f"Run {run.id}: no gateway token for the refusal summary; using the gate messages")
+        return None
+    output = run.output or {}
+    try:
+        return summarize_refusal(
+            gateway_root=_gateway_root(gateway),
+            token=token,
+            model=outcome.summary_model,
+            gates=outcome.result.get("gates") or [],
+            pr=output.get("pr") or {},
+            files=output.get("files") or [],
+            attribution={**_hosted_analytics_properties(run), "stamphog_fast_path": True},
+        )
+    finally:
+        _release_reviewer_token(gateway, token)
+
+
+def _refuse_on_pre_gates(run: ReviewRun) -> dict:
+    output = run.output or {}
+    skip_reason = pregate_skip_reason(output.get("pr") or {}, output.get("files") or [], run.head_sha)
+    if skip_reason is not None:
+        activity.logger.info(f"Run {run.id}: pre-gates skipped ({skip_reason})")
+        return {"refused": False, "skipped": skip_reason}
+
+    context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
+    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
+    policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
+    timer = _StepTimer()
+    # No analytics env on this first run: it only decides, and the posted run below emits the event.
+    with timer.step("pregate"):
+        outcome = run_engine_pregate(context, policy_files, environment={})
+    if not outcome.final_deny:
+        return {"refused": False}
+
+    summary = None
+    if outcome.needs_summary:
+        with timer.step("summary"):
+            summary = _fast_refusal_summary(run, outcome)
+    if summary:
+        context["refusal_reasoning"] = summary
+    properties = {
+        **_hosted_analytics_properties(run),
+        "stamphog_fast_path": True,
+        "stamphog_fast_path_summary": "llm" if summary else "gate_messages",
+    }
+    with timer.step("render"):
+        final = run_engine_pregate(context, policy_files, environment=_engine_analytics_environment(properties))
+    if not final.final_deny or final.result is None:
+        raise RuntimeError("the engine pre-check changed its answer between two runs on the same context")
+
+    # The same last-line JSON contract the sandbox prints, so post_verdict parses it unchanged. The
+    # summary is LLM text over PR content, so it gets the same scrub as the sandbox's stdout.
+    run.output = {
+        **(run.output or {}),
+        "reviewer_raw": scrub_credentials(json.dumps(final.result)),
+        "reviewer_exit_code": 0,
+        "timings_ms": timer.timings_ms,
+        "fast_path": True,
+    }
+    run.save(update_fields=["output", "updated_at"])
+    activity.logger.info(f"Pre-gate refusal for run {run.id}; step timings: {timer.timings_ms}")
+    return {"refused": True}
+
+
+@activity.defn
+@asyncify
+def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
+    """Refuse a PR on its deterministic gates alone, before the bot wait and the sandbox.
+
+    Runs the engine's gate-only pre-check on the stored context (see logic/engine_pregate.py). Only a
+    deny the full review would also reach counts, and then the refusal is persisted in the sandbox's
+    output shape, so post_verdict and everything after it work unchanged. Everything else, including
+    any failure here, returns ``refused: False`` and the run takes the full review path, which runs
+    every gate again. This step can therefore only make a refusal faster, never cause one.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"refused": False, "skipped": "superseded"}
+    try:
+        return _refuse_on_pre_gates(run)
+    except Exception:
+        activity.logger.exception(f"Run {run.id}: pre-gates failed; falling through to the full review")
+        return {"refused": False, "skipped": "error"}
+
+
 @activity.defn
 @asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
@@ -567,15 +809,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     repo = repo_config.repository
     output = run.output or {}
     pr = output.get("pr", {})
-    files = output.get("files", [])
-    reviews = output.get("reviews", [])
-    discussion = output.get("discussion", [])
-    review_threads = output.get("review_threads", [])
-    check_runs = output.get("check_runs", [])
-    pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
-    author_pr_numbers = output.get("author_pr_numbers", [])
-    author_team_slugs = output.get("author_team_slugs", [])
 
     # The trusted source for each policy file is the repo's default branch layered over the
     # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
@@ -606,40 +840,23 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 
     client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
+    # The context fetch stores the merge base, but it keeps going without one, because familiarity
+    # only degrades. The shallow checkout cannot diff without it, so read it again here. A failure
+    # raises before the sandbox exists, and the activity retries.
+    merge_base_sha = output.get("merge_base_sha") or client.get_merge_base_sha(repo, base_sha, run.head_sha)
 
-    invocation = build_reviewer_invocation(
-        pr=pr,
-        files=files,
-        reviews=reviews,
-        discussion=discussion,
-        review_threads=review_threads,
-        check_runs=check_runs,
-        pr_reactions=pr_reactions,
-        author_pr_numbers=author_pr_numbers,
-        author_team_slugs=author_team_slugs,
-        base_sha=base_sha,
-        head_sha=run.head_sha,
-        repo=repo,
-        engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
-        context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
-        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
-        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
-        self_driving_review=bool(output.get("inbox_review")),
-        # Read as a description rather than a permission: the reviewer is told why it was asked,
-        # and decides for itself what that means for this diff.
-        review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
-    )
+    invocation = _review_invocation(run, merge_base_sha)
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     environment, gateway = _reviewer_environment(run)
     # Per-run credential, not in the worker env — scrub it explicitly wherever sandbox output
-    # is persisted or raised (_llm_env_secrets only covers worker-env values).
+    # is persisted or raised (llm_env_secrets only covers worker-env values).
     gateway_token = environment["AI_GATEWAY_API_KEY"]
     # Every path from here releases the token, including a failed claim read or save.
     try:
         config = SandboxConfig(
             name=f"stamphog-review-{run.id}",
-            template=SandboxTemplate.SLIM_BASE,
+            template=SandboxTemplate.STAMPHOG_REVIEW,
             metadata={"review_run_id": str(run.id)},
             environment_variables=environment,
             outbound_domain_allowlist=_sandbox_egress_allowlist(environment["AI_GATEWAY_URL"]),
@@ -666,43 +883,49 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
         run.save(update_fields=["output", "updated_at"])
 
+        timer = _StepTimer()
         # Sandbox creation draws on the same budget as the steps below it, so a slow provision
         # leaves the clone, the prefetch and the reviewer correspondingly less.
         try:
             # Raises when the budget is already gone, so an activity with no time left does not pay
             # for a box the first step would only reject.
             _step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS)
-            sandbox = sandbox_class.create(config)
+            with timer.step("sandbox_create"):
+                sandbox = sandbox_class.create(config)
             try:
-                _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
-                _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
+                with timer.step("clone"):
+                    _clone_pr(sandbox, repo, merge_base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
+                with timer.step("prefetch"):
+                    _prefetch_review_blobs(sandbox, merge_base_sha, token, deadline)
                 # The prefetch swallows its own failure, including a timeout that consumed the rest
                 # of the budget. Re-check here, because the three steps below write through the
                 # sandbox filesystem API and cannot take a deadline: passing one would switch them
                 # to an exec-based write, which is a different mechanism, not a bounded one.
                 _step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS)
-                _inject_policy_files(sandbox, policy_files)
-                _ship_engine(sandbox)
-                _write_context(sandbox, invocation)
+                with timer.step("ship_engine"):
+                    _inject_policy_files(sandbox, policy_files)
+                    _ship_engine(sandbox)
+                    _write_context(sandbox, invocation)
 
                 command = (
                     f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
                 )
-                result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS))
+                with timer.step("reviewer"):
+                    result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS))
             finally:
-                # A destroy failure must not mask a completed review — the verdict below still has to be
-                # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
-                try:
-                    sandbox.destroy()
-                except Exception:
-                    activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
+                # A destroy failure must not mask a completed review, because the verdict below still
+                # has to be persisted and posted.
+                with timer.step("destroy_dispatch"):
+                    _destroy_sandbox_in_background(sandbox, str(run.id))
+                activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
 
             # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
             # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
             run.output = {
                 **(run.output or {}),
-                "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
+                "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
                 "reviewer_exit_code": result.exit_code,
+                "timings_ms": timer.timings_ms,
             }
             run.save(update_fields=["output", "updated_at"])
 
@@ -711,7 +934,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 # This message reaches run.error, so keep the stderr in the worker log only.
                 activity.logger.error(
                     f"Reviewer exited with code {result.exit_code} for run {run.id}: "
-                    f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+                    f"{scrub_credentials(result.stderr, token, gateway_token)[:500]}"
                 )
                 raise RuntimeError(f"reviewer exited with code {result.exit_code}")
         except Exception as exc:
@@ -938,7 +1161,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     run.gate_result = parsed.gate_result
     # reviewer_raw was scrubbed on the way into the row; this re-scrub covers the worker's own LLM
     # env secrets, the same belt-and-braces the review body gets below.
-    run.change_summary = _scrub_credentials(parsed.change_summary)
+    run.change_summary = scrub_credentials(parsed.change_summary)
     if parsed.stamphog_version:
         run.output = {**output, "stamphog_version": parsed.stamphog_version}
 
@@ -1005,7 +1228,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             if adopted_review_id is not None:
                 run.posted_review_id = adopted_review_id
             else:
-                body = _scrub_credentials(_verdict_body(parsed, ReviewVerdict.APPROVED, relabel_label))
+                body = scrub_credentials(_verdict_body(parsed, ReviewVerdict.APPROVED, relabel_label))
                 review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
                 run.posted_review_id = _comment_id(review)
             # Persist the id immediately, outside the conditional terminal save below: if that save
@@ -1178,6 +1401,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_team_id": input.team_id,
                 "stamphog_runtime": "hosted",
                 "stamphog_error": first_error_line,
+                "stamphog_review_trigger": trigger_for_run(
+                    output=run.output, review_mode=pull_request.repo_config.review_mode
+                ),
             },
         )
 
@@ -1203,58 +1429,6 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     return shlex.join(parts)
 
 
-def _llm_env_secrets() -> list[str]:
-    """Non-empty LLM credential values in the worker env, gathered for output scrubbing.
-
-    These reach the sandbox via ``_reviewer_environment``; a confused or compromised
-    reviewer could echo them into stdout or the verdict. Redacting them server-side,
-    independent of model behavior, is what keeps a leaked key out of the PR and the DB.
-    POSTHOG_API_KEY is a public write token (spam-only blast radius) — scrubbed for tidiness.
-    """
-    return [
-        value
-        for key in ("AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_URL", "POSTHOG_API_KEY")
-        if (value := os.environ.get(key))
-    ]
-
-
-# Inline markdown images and raw <img> tags in text GitHub renders — both are removed outright,
-# URL included. Reference-style image forms are handled by the ``![`` demotion below.
-_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>", re.IGNORECASE)
-
-
-def _neutralize_active_markdown(text: str) -> str:
-    """Remove auto-fetched markdown constructs from reviewer-authored text before it reaches GitHub.
-
-    The reviewer LLM reads untrusted PR content, so its output can be prompt-injected. Credential
-    scrubbing is exact-string only — a token re-encoded (base64, split) into an image URL slips
-    through, and GitHub fetching the image on render (through its camo proxy, no click needed) would
-    exfiltrate it OUTSIDE the sandbox egress allowlist.
-
-    Inline images and <img> tags are removed URL-and-all. Every OTHER markdown image form —
-    reference ``![a][ref]``, collapsed, shortcut — starts with ``![``, so the trailing demotion to
-    ``[`` turns anything left into a plain link, which GitHub never fetches without a click.
-    Deliberately a syntax demotion rather than an enumeration of forms: an image form this function's
-    author didn't think of still gets demoted. Plain links stay clickable, so legitimate references
-    to code and PRs survive.
-    """
-    return _MARKDOWN_IMAGE_RE.sub("[image removed]", text).replace("![", "[")
-
-
-def _scrub_credentials(text: str, *secrets: str) -> str:
-    """Redact credential material before it reaches ``ReviewRun``, the logs, or GitHub.
-
-    Scrubs the passed GitHub token / basic-auth material plus any LLM credentials present
-    in the worker env — deterministic, so it does not depend on what the reviewer emits.
-    """
-    for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
-    for secret in _llm_env_secrets():
-        text = text.replace(secret, "[redacted]")
-    return text
-
-
 @frozen
 class _GitCredential:
     """The installation token in the two shapes a sandbox git command needs.
@@ -1265,7 +1439,7 @@ class _GitCredential:
 
     # The ``git`` prefix to run GitHub-facing commands with.
     command: str
-    # The raw credential, for _scrub_credentials to strip from anything the command echoes back.
+    # The raw credential, for scrub_credentials to strip from anything the command echoes back.
     secret: str = field(repr=False)
 
 
@@ -1285,36 +1459,43 @@ def _git_credential(token: str) -> _GitCredential:
 
 
 def _clone_pr(
-    sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, pr_number: int, token: str, deadline: float
+    sandbox: SandboxBase,
+    repo: str,
+    merge_base_sha: str,
+    head_sha: str,
+    pr_number: int,
+    token: str,
+    deadline: float,
 ) -> None:
-    """Clone the repo with full history, then fetch the PR base and head and check out head.
+    """Fetch the PR head with its files and the merge base without them, then check out the head.
 
-    Full history (no ``--depth``) is required so git-blame familiarity resolves: the
-    engine blames ``merge-base(base, head)`` for the diff's base-side lines, which needs
-    the merge-base commit AND the file history behind it present. A shallow clone would
-    truncate blame to the graft boundary (undercounting, which only ever weakens the
-    signal — a one-way ratchet — but is still avoidable here).
+    The review needs the head tree, which the reviewer explores, and the merge base, which the
+    engine diffs against. It needs no history: the server reads familiarity and the commit
+    trailers from GitHub. So both commits arrive at depth 1. The head comes in one full pack,
+    which is faster than a blobless fetch whose checkout then asks for every file. The merge base
+    brings only its trees, and _prefetch_review_blobs then fetches the few old-side files that
+    the diff reads.
 
-    ``--filter=blob:none`` keeps every commit and tree, so history stays complete and blame
-    still walks it; only file contents stay on the remote until something reads them. An
-    unfiltered clone of a monorepo does not finish inside the step timeout, because it carries
-    every blob of every commit. The head checkout batches the blobs it needs into one fetch, and
-    _prefetch_review_blobs batches the old-side ones the review reads, because left to itself blame
-    fetches them one object at a time.
+    The ``--filter`` on the merge-base fetch turns the checkout into a partial clone, which makes
+    origin a promisor remote: git then fetches a missing object on demand. The engine runs git
+    without the credential, so on a private repository that on-demand fetch fails. Every object
+    the engine reads must therefore arrive here or in the prefetch. The checkout runs with
+    ``GIT_NO_LAZY_FETCH``, so a missing object fails it rather than a silent fetch of a commit this
+    run did not ask for.
 
     The head is fetched through ``pull/<n>/head`` rather than the bare sha: a fork PR's
     head commit only exists in the base repo through that ref, so a bare-sha fetch fails
     for member-authored fork PRs (the only fork PRs that pass the webhook's author gate).
-    The base sha is still fetched directly so the merge-base is reachable even when the
-    PR targets a non-default branch. If the head moved since this run was queued, the
-    checkout of the recorded sha fails and the superseding run takes over — a stale sha
-    must not be reviewed against a newer pull ref.
+    If the head moved since this run was queued, the fetched commit is not ``head_sha`` and
+    the clone fails, so the superseding run takes over. A stale sha must not be reviewed
+    against a newer pull ref.
 
-    The remote stays a clean, tokenless URL — see _git_with_auth for how the token reaches git.
+    The remote stays a clean, tokenless URL. See _git_credential for how the token reaches git.
     """
     credential = _git_credential(token)
     auth = credential.command
     repo_url = f"https://github.com/{repo}.git"
+    repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
 
     def _execute_or_raise(command: str, failure_prefix: str) -> None:
         # sandbox.execute failures raised by the Docker/Modal layer can embed the full command string —
@@ -1324,89 +1505,33 @@ def _clone_pr(
         try:
             result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS))
         except Exception as exc:
-            raise RuntimeError(_scrub_credentials(str(exc), token, credential.secret)) from None
+            raise RuntimeError(scrub_credentials(str(exc), token, credential.secret)) from None
         if result.exit_code != 0:
-            raise RuntimeError(f"{failure_prefix}: {_scrub_credentials(result.stderr, token, credential.secret)[:500]}")
+            raise RuntimeError(f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}")
 
-    clone = (
-        f"rm -rf {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
-        f"{auth} clone --single-branch --filter=blob:none "
-        f"{shlex.quote(repo_url)} {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)}"
+    fetch_head = (
+        f"rm -rf {repo_dir} && git init --quiet {repo_dir} && cd {repo_dir} && "
+        f"git remote add origin {shlex.quote(repo_url)} && "
+        f"{auth} fetch --quiet --depth=1 --no-tags origin {shlex.quote(f'pull/{pr_number}/head')} && "
+        f'fetched=$(git rev-parse FETCH_HEAD) && if [ "$fetched" != {shlex.quote(head_sha)} ]; then '
+        f'echo "the PR head is now $fetched" >&2; exit 1; fi'
     )
-    _execute_or_raise(clone, f"Failed to clone {repo}")
+    _execute_or_raise(fetch_head, f"Failed to fetch the PR head {head_sha}")
 
-    fetch_specs = f"{auth} fetch origin {shlex.quote(f'pull/{pr_number}/head')}"
-    if base_sha:
-        fetch_specs = f"{auth} fetch origin {shlex.quote(base_sha)} && {fetch_specs}"
-    # The checkout carries the credential because it materializes the head tree: on a filtered
-    # clone that reads blobs the fetches above deliberately left on the remote, and git hands the
-    # -c settings to the promisor fetch it spawns. Without it that fetch is anonymous, which a
-    # private repository refuses.
     checkout = (
-        f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {fetch_specs} && {auth} checkout {shlex.quote(head_sha)}"
+        f"cd {repo_dir} && "
+        f"{auth} fetch --quiet --depth=1 --no-tags --filter=blob:none origin {shlex.quote(merge_base_sha)} && "
+        f"GIT_NO_LAZY_FETCH=1 git checkout --quiet --detach {shlex.quote(head_sha)}"
     )
     _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
-# Bounds the blame history walk. The engine blames at most 30 files, and this list is ordered the
-# same way, so the bound keeps headroom over that while stopping a pathological file list from
-# making the walk longer than anything will read.
-_MAX_BLAME_PREFETCH_PATHS = 100
+def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str, deadline: float) -> None:
+    """Fetch the old-side blobs of the PR diff, in one request.
 
-# Mirrors _MAX_CHANGED_LINES_PER_FILE in the engine's familiarity.py, which the backend cannot
-# import. Over-naming a path is cheap, but a file this large is one the engine drops before it
-# blames anything, and its history is the most expensive to fetch.
-_MAX_PREFETCH_CHANGED_LINES = 2000
-
-
-def _blame_paths(files: list[dict]) -> list[str]:
-    """Base-side paths of the changed text files, for the blame prefetch.
-
-    The engine blames the OLD path of each changed file, so a rename resolves through
-    ``previous_filename``. A binary is excluded, because its historical blobs are exactly the big
-    ones not worth fetching, and blame skips it anyway. The test is the changed-line count rather
-    than the presence of a patch: GitHub reports a binary as zero added and zero deleted, while it
-    omits the patch of a large text file the engine will still blame.
-
-    Deliberately wider than the engine's own blame selection (largest 30 files): duplicating that
-    heuristic here would let the two drift apart, and naming a path the engine skips costs one more
-    tree walk, because the enumeration reads local trees and the fetch is one request either way.
-    The size bound is the exception, because there the cost is the fetch itself.
-
-    Ordered by changed lines, the way the engine orders its own blame selection. Taking the API's
-    order instead would bound a different set: the engine blames the largest files, so a large one
-    late in the API list would be blamed with nothing prefetched for it.
-    """
-    candidates = [entry for entry in files if 0 < entry.get("changes", 0) <= _MAX_PREFETCH_CHANGED_LINES]
-    candidates.sort(key=lambda entry: entry.get("changes", 0), reverse=True)
-    paths: list[str] = []
-    for entry in candidates:
-        path = entry.get("previous_filename") or entry.get("filename")
-        if path and path not in paths:
-            paths.append(path)
-    return paths[:_MAX_BLAME_PREFETCH_PATHS]
-
-
-def _prefetch_review_blobs(
-    sandbox: SandboxBase,
-    base_sha: str,
-    head_sha: str,
-    token: str,
-    blame_paths: list[str],
-    deadline: float,
-) -> None:
-    """Fetch the old-side blobs the review reads, in one request.
-
-    On a blobless clone blame is the worst case git has: it reads the file's content at each
-    candidate commit, and each miss is its own round trip — for one PR's blame set, ~400 sequential
-    fetches and over three minutes. Enumerating the missing blobs first costs nothing, because the
-    trees are already local, and one batched fetch then serves the whole set, after which blame
-    runs offline in seconds.
-
-    Two sets, one fetch. The blame set needs every historical revision of its paths, which is why it
-    is bounded. The diff set needs the merge-base revision of every changed file, because the engine
-    diffs merge-base against head before it does anything else, and a missing old side there fails
-    the diff outright rather than degrading it.
+    The merge base arrives without file contents, and the engine diffs it against the head before
+    it does anything else. Enumerating the missing blobs costs nothing, because the trees are
+    already local, and one batched fetch then serves the whole set.
 
     ``diff --raw`` names the diff set: with rename detection off it compares tree entries, so it
     reads no content and needs no blobs, and it reports the old-side object id of every changed
@@ -1417,51 +1542,37 @@ def _prefetch_review_blobs(
 
     Each of those ids is tested with ``cat-file -e``, whose contract is only its exit status, so the
     result does not depend on how a given git version reports a missing promisor object — some print
-    it, some fail the command. The blame set uses ``rev-list --missing=print`` instead, which is the
-    documented way to ask that question of a traversal.
+    it, some fail the command.
 
-    Best effort by design. Everything here is also reachable by a lazy fetch, so a failure costs the
-    review speed rather than its verdict wherever that fetch can authenticate. Anything raised is
-    swallowed; the reviewer's own share of the budget shrinks accordingly and the shared deadline
-    keeps that bounded.
+    Best effort. A failure is logged and swallowed, and the engine then reads the missing blobs with
+    an on-demand fetch that carries no credential. That works on a public repository and fails the
+    engine's diff on a private one, which escalates the review. The shared deadline bounds the time
+    either way.
 
-    ``GIT_NO_LAZY_FETCH`` guards each enumeration: without it, the reads would fetch the very
+    ``GIT_NO_LAZY_FETCH`` guards the enumeration: without it, the reads would fetch the very
     objects they are supposed to be reporting as missing. ``fetch.negotiationAlgorithm=noop``
-    skips the have/want negotiation, which walks history to tell the server what the clone already
-    holds — wasted work when the request names the objects it wants outright.
+    skips the have/want negotiation, which is wasted work when the request names the objects it
+    wants outright.
     """
-    if not base_sha:
-        return
-
     credential = _git_credential(token)
     oid_file = "/tmp/stamphog-review-oids"
     auth = credential.command
-    # rev-list walks history for the blame set; diff --raw names the diff set, and cat-file reports
-    # which of those blobs are absent. The two lists overlap, hence sort -u.
-    history_oids = (
-        (
-            f"GIT_NO_LAZY_FETCH=1 git --literal-pathspecs rev-list --full-history --objects "
-            f'--no-object-names --missing=print "$merge_base" -- '
-            f"{' '.join(shlex.quote(path) for path in blame_paths)} | sed -n 's/^?//p'"
-        )
-        if blame_paths
-        else "true"
-    )
+    # diff --raw names the old-side blobs, and cat-file reports which of them are absent. Two
+    # changed files can share an old side, hence sort -u.
     diff_oids = (
         "for oid in $("
-        'GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 "$merge_base" HEAD '
+        f"GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 {shlex.quote(merge_base_sha)} HEAD "
         "| grep -v '^:160000' | cut -d' ' -f3 | grep -v '^0*$'"
         '); do GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null || echo "$oid"; done'
     )
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
-        f"merge_base=$(git merge-base {shlex.quote(base_sha)} {shlex.quote(head_sha)}) && "
-        f"{{ {history_oids}; {diff_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
+        f"{{ {diff_oids}; }} | sort -u > {shlex.quote(oid_file)} && "
         f"if [ -s {shlex.quote(oid_file)} ]; then "
         f"{auth} -c fetch.negotiationAlgorithm=noop fetch origin --no-tags --no-write-fetch-head "
         f"--filter=blob:none --stdin < {shlex.quote(oid_file)}; fi"
     )
-    timeout_seconds = _step_timeout(deadline, PREFETCH_BLAME_TIMEOUT_SECONDS)
+    timeout_seconds = _step_timeout(deadline, PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS)
     try:
         result = sandbox.execute(command, timeout_seconds=timeout_seconds)
     except Exception:
@@ -1472,7 +1583,7 @@ def _prefetch_review_blobs(
         # failure can echo the argv back.
         activity.logger.warning(
             f"stamphog: review blob prefetch exited {result.exit_code}; "
-            f"git will fetch as it reads: {_scrub_credentials(result.stderr, token, credential.secret)[:300]}"
+            f"git will fetch as it reads: {scrub_credentials(result.stderr, token, credential.secret)[:300]}"
         )
 
 
@@ -1563,9 +1674,9 @@ def _ship_engine(sandbox: SandboxBase) -> None:
     walk lands on the checkout, so it reads the injected trusted policy. The PR head's own
     copy (if any) is overwritten — we always run our version, not the PR's.
     """
-    files = _engine_source_files()
+    files = engine_source_files()
     if "review_local.py" not in files:
-        raise RuntimeError(f"engine source dir {_SERVER_ENGINE_DIR} is missing review_local.py")
+        raise RuntimeError(f"engine source dir {ENGINE_DIR} is missing review_local.py")
     # Wipe the directory first: the PR head's checkout may carry attacker-controlled files beside
     # our engine (e.g. tools/pr-approval-agent/yaml.py), which Python would import ahead of uv's
     # installed dependency — arbitrary code execution with the sandbox's LLM creds. Overwriting only
@@ -1578,35 +1689,19 @@ def _ship_engine(sandbox: SandboxBase) -> None:
 
 
 def _ship_owners_package(sandbox: SandboxBase) -> None:
-    """Ship the posthog-owners resolver package the engine's ownership format imports.
+    """Ship the owners-yaml resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
+    ``owners_yaml`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
     posture as the engine: always our copy, which overwrites whatever the PR head carried at that
     path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    # Repo root rather than a sibling of the engine. posthog_owners is a shared tool, so it stays
-    # under tools/ while the engine lives in the product.
-    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
-    if not package_dir.is_dir():
-        raise RuntimeError(f"owners package source dir not found: {package_dir}")
-    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"
+    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/owners_yaml"
     quoted = shlex.quote(STAMPHOG_SANDBOX_OWNERS_DIR)
     sandbox.execute(f"rm -rf {quoted} && mkdir -p {shlex.quote(target)}", timeout_seconds=30)
-    for path in sorted(package_dir.glob("*.py")):
-        sandbox.write_file(f"{target}/{path.name}", path.read_text().encode())
-
-
-def _engine_source_files() -> dict[str, str]:
-    """Read the engine's Python modules from the server checkout (excluding tests/README)."""
-    if not _SERVER_ENGINE_DIR.is_dir():
-        raise RuntimeError(f"engine source dir not found: {_SERVER_ENGINE_DIR}")
-    return {
-        path.name: path.read_text()
-        for path in sorted(_SERVER_ENGINE_DIR.glob("*.py"))
-        if not path.name.startswith("test_")
-    }
+    for name, content in owners_package_files().items():
+        sandbox.write_file(f"{target}/{name}", content.encode())
 
 
 def _write_context(sandbox: SandboxBase, invocation: ReviewerInvocation) -> None:
@@ -1684,7 +1779,7 @@ def _post_non_approval_review(
     """
     if (run.output or {}).get(NON_APPROVAL_REVIEW_ID_KEY) is not None:
         return
-    review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
+    review = client.post_comment_review(repo, pull_request.pr_number, scrub_credentials(body), run.head_sha)
     run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
 
@@ -1761,7 +1856,7 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     if relabel_label:
         headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
-    return f"{headline}\n\n{_neutralize_active_markdown(detail)}".rstrip()
+    return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()
 
 
 def _reasoning_detail(parsed: ReviewerVerdict) -> str:

@@ -8,9 +8,9 @@ from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
+    SourceOrSchemaDeletedError,
+    V3PipelineLockLostError,
+    _build_schema_snapshot,
     _create_job,
     _enrichment_pending,
     _statistics_stale,
@@ -85,9 +88,11 @@ class TestVerifyV3LockStillHeld:
         mock_get_holder.return_value = holder
 
         if expect_raise:
-            with pytest.raises(ApplicationError) as exc_info:
+            with pytest.raises(V3PipelineLockLostError) as exc_info:
                 _verify_v3_lock_still_held(1, self.SCHEMA_ID)
-            assert exc_info.value.non_retryable is True
+            # The takeover in acquire_v3_lock.py only steals from a terminal-looking holder, so
+            # this is the mechanism working as designed and must not open an error tracking issue.
+            assert is_expected_activity_failure(exc_info.value)
         else:
             _verify_v3_lock_still_held(1, self.SCHEMA_ID)
 
@@ -179,6 +184,28 @@ class TestEnrichmentPending:
         assert _enrichment_pending(team.id, table, _schema(team, table, description=None)) is False
 
 
+class TestBuildSchemaSnapshot:
+    def test_copies_the_config_without_the_per_run_state_blobs(self) -> None:
+        config = {
+            "incremental_field": "updated_at",
+            "incremental_field_last_value": "2026-09-01T00:00:00+00:00",
+            "reset_pipeline": True,
+            "schema_metadata": {"columns": [{"name": "id", "type": "int"}]},
+            "cdc_deferred_runs": [{"run_id": "r1"}],
+        }
+        schema = ExternalDataSchema(name="Charge", sync_type="incremental", sync_type_config=dict(config))
+
+        snapshot = _build_schema_snapshot(schema)
+
+        assert snapshot["sync_type_config"] == {
+            "incremental_field": "updated_at",
+            "incremental_field_last_value": "2026-09-01T00:00:00+00:00",
+            "reset_pipeline": True,
+        }
+        assert snapshot["sync_type"] == "incremental"
+        assert schema.sync_type_config == config
+
+
 @pytest.mark.django_db
 class TestCreateJob:
     # Guards the deadlock we saw in production: Postgres can abort the ExternalDataJob INSERT with
@@ -248,3 +275,73 @@ class TestCreateJobActivityStatusOrdering:
 
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @parameterized.expand([("broken", "cdc_broken"), ("paused", "cdc_extraction_paused")])
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_a_halted_cdc_schema_keeps_its_failed_status(
+        self, _name: str, marker: str, mock_activity: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.sync_type_config = {marker: {"reason": "critical_lag_self_managed"}}
+        schema.save()
+
+        create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
+            )
+        )
+
+        schema.refresh_from_db()
+        assert ExternalDataJob.objects.filter(schema_id=schema.id).exists()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
+
+@pytest.mark.django_db
+class TestCreateJobActivityDeletedSourceOrSchema:
+    # Deleting a source or a schema cancels its schedule, but a run Temporal already started still
+    # reaches this activity and finds the rows gone. The activity has to cancel the leftover
+    # schedule and fail with an error the interceptor will not report, or the race opens an error
+    # tracking issue per orphaned run.
+    @parameterized.expand(
+        [
+            ("source_deleted", True, False),
+            ("schema_deleted", False, True),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.delete_external_data_schedule")
+    def test_schedule_is_cancelled_and_the_failure_is_not_reported(
+        self,
+        _name: str,
+        delete_source: bool,
+        delete_schema: bool,
+        mock_delete_schedule: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        team = _team()
+        schema = _schema(team, None)
+        if delete_source:
+            schema.source.deleted = True
+            schema.source.save()
+        if delete_schema:
+            schema.deleted = True
+            schema.save()
+
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id,
+            schema_id=schema.id,
+            source_id=schema.source_id,
+            billable=True,
+        )
+
+        with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
+            create_external_data_job_model_activity(inputs)
+
+        assert is_expected_activity_failure(exc_info.value)
+        mock_delete_schedule.assert_called_once_with(str(schema.id))
+        assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 0

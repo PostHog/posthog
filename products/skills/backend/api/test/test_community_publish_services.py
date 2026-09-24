@@ -253,7 +253,18 @@ class TestRenderCommunitySkillFiles:
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
         # request whose skill never appears in the catalog. A trailing newline needs `fullmatch`.
-        for bad in ["Make-PR", "make_pr", "-bad", "double--hyphen", "x" * 65, "new", "review-hog", "make-pr\n"]:
+        # A catalog entry installs under its slug, so a slug PostHog bundles is refused here too.
+        for bad in [
+            "Make-PR",
+            "make_pr",
+            "-bad",
+            "double--hyphen",
+            "x" * 65,
+            "new",
+            "review-hog",
+            "make-pr\n",
+            "signals-scout-logs",
+        ]:
             try:
                 render_community_skill_files(slug=bad, name="n", description="d", body="b")
             except CommunitySkillPublishError:

@@ -12,7 +12,7 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightShortId, InsightModel } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
@@ -174,7 +174,7 @@ describe('SharingModal (dashboard)', () => {
 })
 
 describe('SharingModal (insight)', () => {
-    const fakeInsight: Partial<QueryBasedInsightModel> = {
+    const fakeInsight: Partial<InsightModel> = {
         id: defaultInsightId,
         short_id: insightShortId,
         name: 'My insight',

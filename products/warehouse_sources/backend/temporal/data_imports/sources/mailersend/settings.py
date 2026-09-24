@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailerSendEndpointConfig:
     name: str
     path: str
@@ -19,9 +19,11 @@ class MailerSendEndpointConfig:
     # The Activity stream lives under /activity/{domain_id}; we fan out one paginated request per
     # sending domain and stamp each row with its domain_id.
     fan_out_over_domains: bool = False
-    # First-sync lookback (days) for date-filtered endpoints. Capped to MailerSend's activity data
-    # retention window (1-30 days depending on plan); 30 is the widest a request can ask for.
-    default_lookback_days: Optional[int] = None
+    # Activity retention tiers (days), widest first, for the date-filtered Activity endpoint.
+    # MailerSend keeps email activity for 30, 7 or 1 days depending on the account's plan and
+    # rejects a window reaching back further with a 422, but exposes no endpoint for the plan. The
+    # sync asks for the widest window and narrows to the next tier when a request is rejected.
+    window_tiers_days: tuple[int, ...] = ()
     page_size: int = 100
     should_sync_default: bool = True
 
@@ -52,7 +54,7 @@ MAILERSEND_ENDPOINTS: dict[str, MailerSendEndpointConfig] = {
         incremental_fields=[_created_at_incremental_field()],
         supports_incremental=True,
         fan_out_over_domains=True,
-        default_lookback_days=30,
+        window_tiers_days=(30, 7, 1),
         page_size=100,
     ),
 }

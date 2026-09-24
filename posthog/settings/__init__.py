@@ -54,6 +54,7 @@ from posthog.settings.signals import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
 from posthog.settings.personhog import *
+from posthog.settings.security_hub import *
 from posthog.settings.ses import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
@@ -129,6 +130,10 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
+
+# When on, the person bulk delete API hands profile deletion to a Celery task that pages through
+# each person's distinct IDs, instead of tombstoning them inline in the request.
+PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
 
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
 # enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.

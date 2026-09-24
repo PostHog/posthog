@@ -7,7 +7,7 @@ import {
     SELECT_FIXED_VALUE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateFilterToText, dateMapping, dateStringToDayJs } from 'lib/utils/dateFilters'
 import { formatDate, formatDateRange, formatDateTime, formatDateTimeRange, isDate } from 'lib/utils/datetime'
 
 import { DateMappingOption } from '~/types'
@@ -19,6 +19,24 @@ const RELATIVE_UNIT_LABEL: Record<string, string> = {
     m: 'month',
     q: 'quarter',
     y: 'year',
+}
+
+/** A caller can narrow the preset list, so a stored range can match none of its options. Name the
+ * range anyway, rather than let the placeholder read as though no range were set. */
+function labelForRangeOutsideOptions(
+    dateFrom: string | Dayjs | null | undefined,
+    dateTo: string | Dayjs | null | undefined
+): string | null {
+    const mappedLabel = dateFilterToText(dateFrom, dateTo, null, dateMapping, false)
+    if (mappedLabel) {
+        return mappedLabel
+    }
+    const resolvedFrom = dayjs.isDayjs(dateFrom) ? dateFrom : dateStringToDayJs(dateFrom ?? null)
+    const resolvedTo = dayjs.isDayjs(dateTo) ? dateTo : dateStringToDayJs(dateTo ?? null)
+    if (!resolvedFrom?.isValid()) {
+        return resolvedTo?.isValid() ? `Until ${formatDate(resolvedTo)}` : null
+    }
+    return resolvedTo?.isValid() ? formatDateRange(resolvedFrom, resolvedTo) : `${formatDate(resolvedFrom)} to now`
 }
 
 function formatRelativeOffset(value: string): string {
@@ -62,7 +80,7 @@ export interface dateFilterLogicValues {
     isFixedRangeWithTime: boolean
     isRollingDateRange: boolean
     isVisible: boolean
-    label: string | null
+    label: string
     rangeDateFrom: Dayjs | null
     rangeDateTo: Dayjs | null
     view: DateFilterView
@@ -164,7 +182,7 @@ export interface dateFilterLogicMeta {
             arg5: any,
             dateFromHasTimePrecision: boolean,
             dateToHasTimePrecision: boolean
-        ) => string | null
+        ) => string
     }
 }
 
@@ -356,7 +374,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 allowSingleAndRange,
                 dateFromHasTimePrecision: boolean,
                 dateToHasTimePrecision: boolean
-            ) => {
+            ): string => {
                 // Only render the "N days ago to M days ago" label when the consumer has opted into
                 // the custom-relative-range picker — other call sites (e.g. trends) may legitimately
                 // store both dates as relative strings (e.g. "-0d"/"-0d" for "Today") without intending
@@ -398,15 +416,11 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         } to now`
                       : isFixedDate
                         ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
-                        : dateFilterToText(
-                              dateFrom,
-                              dateTo,
-                              isFixedDateMode
-                                  ? (placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER)
-                                  : NO_OVERRIDE_RANGE_PLACEHOLDER,
-                              dateOptions,
-                              false
-                          )
+                        : (dateFilterToText(dateFrom, dateTo, null, dateOptions, false) ??
+                          labelForRangeOutsideOptions(dateFrom, dateTo) ??
+                          (isFixedDateMode
+                              ? (placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER)
+                              : NO_OVERRIDE_RANGE_PLACEHOLDER))
             },
         ],
     }),

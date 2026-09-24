@@ -488,6 +488,9 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
+    build:object-tags:
+        bin_script: build-object-tags-registry.py
+        description: Generate the agent object-tag kind registry for TypeScript consumers
     build:bot-definitions:
         cmd: python livestream/bot/generate_definitions.py
         description: Generate livestream bot definitions JSON from bot_definitions.py
@@ -552,14 +555,52 @@ build:
         steps:
             - build:openapi-schema
             - build:widget-types
-            - build:openapi-types
-            - build:openapi-mcp-types
-            - build:openapi-mcp
-            - build:openapi-mcp-tools
+            - cmd: |
+                  log_dir=$(mktemp -d)
+                  generator_names=(frontend_types mcp_types mcp_tools task_catalog exec_docs)
+                  generator_pids=()
+                  generator_statuses=()
+                  setsid hogli build:openapi-types >"$log_dir/frontend_types.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid hogli build:openapi-mcp-types >"$log_dir/mcp_types.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid sh -c 'hogli build:openapi-mcp && exec hogli build:openapi-mcp-tools' >"$log_dir/mcp_tools.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid hogli build:task-model-catalog >"$log_dir/task_catalog.log" 2>&1 &
+                  generator_pids+=("$!")
+                  setsid hogli build:openapi-exec-docs >"$log_dir/exec_docs.log" 2>&1 &
+                  generator_pids+=("$!")
+                  pids="${generator_pids[*]}"
+                  trap 'for pid in $pids; do kill -- -"$pid" 2>/dev/null || true; done' INT TERM
+                  generation_status=0
+                  for index in "${!generator_names[@]}"; do
+                      if wait "${generator_pids[$index]}"; then
+                          generator_statuses[$index]=0
+                      else
+                          generator_statuses[$index]=$?
+                          generation_status=1
+                      fi
+                  done
+                  for expected_status in 0 1; do
+                      for index in "${!generator_names[@]}"; do
+                          if [ "$expected_status" -eq 0 ]; then
+                              if [ "${generator_statuses[$index]}" -ne 0 ]; then
+                                  continue
+                              fi
+                          elif [ "${generator_statuses[$index]}" -eq 0 ]; then
+                              continue
+                          fi
+                          name="${generator_names[$index]}"
+                          printf '::group::%s (exit %s)\n' "$name" "${generator_statuses[$index]}"
+                          cat "$log_dir/$name.log"
+                          printf '::endgroup::\n'
+                      done
+                  done
+                  rm -rf "$log_dir"
+                  trap - INT TERM
+                  exit "$generation_status"
             - build:openapi-mcp-scopes
-            - build:task-model-catalog
             - build:openapi-cli-agent-scopes
-            - build:openapi-exec-docs
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
             before the schema is generated. Start it with hogli up -d'
@@ -570,17 +611,17 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
     build:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py
+        cmd: python -m products.posthog_ai.scripts.build_skills
         description: Build agent skills from products/*/skills/ into dist/skills/ and
             dist/skills.zip
     init:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        cmd: python -m products.posthog_ai.scripts.build_skills --init
         description: Scaffold a new agent skill directory with SKILL.md boilerplate
     sync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync
         description: Build a product skill and sync to .agents/skills/ for local testing
     unsync:skill:
-        cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
+        cmd: python -m products.posthog_ai.scripts.build_skills --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
     docker:services:up:
@@ -824,7 +865,7 @@ quality:
         cmd: ./bin/ruff.sh format
         description: Format Python files
     lint:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py --lint
+        cmd: python -m products.posthog_ai.scripts.build_skills --lint
         description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
@@ -857,6 +898,9 @@ quality:
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
+    lint:api-ratchet:
+        click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
+        description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
@@ -997,6 +1041,10 @@ tools:
         bin_script: granian_metrics.py
         description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
+    tool:granian-shared-socket:
+        bin_script: granian_shared_socket.py
+        description: Granian launcher that keeps one listen socket shared by all workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -1071,22 +1119,25 @@ desktop:
 
 owners:
     owners:resolve:
-        click: posthog_owners.cli:cmd_resolve
+        click: owners_yaml.cli:cmd_resolve
         description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
     owners:who:
-        click: posthog_owners.cli:cmd_who
+        click: owners_yaml.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
     owners:census:
-        click: posthog_owners.cli:cmd_census
+        click: owners_yaml.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
+    owners:codeowners:
+        click: owners_yaml.cli:cmd_codeowners
+        description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
-        click: posthog_owners.cli:cmd_unowned
+        click: owners_yaml.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
     owners:lint:
-        click: posthog_owners.cli:cmd_lint
+        click: owners_yaml.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
     owners:fmt:
-        click: posthog_owners.cli:cmd_fmt
+        click: owners_yaml.cli:cmd_fmt
         description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
 devex:
     devex:feedback:
@@ -1170,7 +1221,7 @@ environment:
         hidden: true
     flags:jumphost:
         bin_script: rust-jumphost
-        description: 'Shell into the flags-cache-jumphost pod (namespace follows the environment: flags-cache-jumphost on dev, posthog elsewhere; $KUBE_NAMESPACE overrides)'
+        description: 'Shell into the flags-cache-jumphost pod (namespace flags-cache-jumphost in every environment; $KUBE_NAMESPACE overrides)'
         hidden: true
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
