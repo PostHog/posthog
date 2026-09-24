@@ -13,6 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.terminal import TerminalSandboxService, TerminalSandboxUnavailable
 from posthog.auth import SessionAuthentication
 from posthog.decorators import disallow_if_impersonated
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.ph_client import feature_enabled_or_false
 
@@ -74,6 +75,7 @@ class TerminalViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as error:
             if isinstance(error, APIException):
                 raise
+            capture_exception(error)
             raise TerminalSandboxUnavailable() from error
         response = Response(result, status=201)
         response["Cache-Control"] = "no-store"

@@ -69,11 +69,18 @@ class TestTerminalSandboxService(SimpleTestCase):
         assert other_session["id"] != session["id"]
         assert self.provider.create.call_count == 2
 
-    def test_failed_start_destroys_sandbox_and_can_retry(self) -> None:
+    @patch("posthog.api.services.terminal.capture_exception")
+    def test_failed_start_destroys_sandbox_and_can_retry(self, capture: MagicMock) -> None:
         self.sandbox.execute.return_value.exit_code = 1
         with self.assertRaises(TerminalSandboxUnavailable):
             self.service.start("small")
         self.sandbox.destroy.assert_called_once()
+        assert capture.call_args.args[1] == {
+            "team_id": 1,
+            "stage": "health check",
+            "sandbox_id": "sb-test-terminal",
+            "exit_code": 1,
+        }
         self.sandbox.execute.return_value.exit_code = 0
         assert self.service.start("small")["id"]
         assert self.provider.create.call_count == 2

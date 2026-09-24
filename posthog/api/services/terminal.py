@@ -11,6 +11,7 @@ from redis.exceptions import LockError, RedisError
 from redis.lock import Lock
 from rest_framework.exceptions import APIException, NotFound, Throttled
 
+from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
 from products.tasks.backend.facade.sandbox import (
@@ -56,6 +57,14 @@ class TerminalSandboxService:
                 stopped.set()
                 renewal.join()
 
+    def _startup_failure(self, stage: str, **properties: object) -> TerminalSandboxUnavailable:
+        # The DRF exception handler does not report APIException, so record the failed stage here.
+        capture_exception(
+            RuntimeError(f"Terminal sandbox {stage} failed"),
+            {"team_id": self.team_id, "stage": stage, **properties},
+        )
+        return TerminalSandboxUnavailable()
+
     def start(self, size: str) -> dict[str, str]:
         try:
             with self._acquire_lock() as lock:
@@ -70,7 +79,7 @@ class TerminalSandboxService:
                                 8080, {"team_id": self.team_id, "user_id": self.user_id}
                             )
                             if not credentials.token:
-                                raise TerminalSandboxUnavailable()
+                                raise self._startup_failure("connect token", sandbox_id=sandbox.id)
                             return {
                                 "id": record["id"],
                                 "url": credentials.url,
@@ -98,19 +107,19 @@ class TerminalSandboxService:
                         "/tmp/posthog-terminal.py", Path(__file__).with_name("terminal_server.py").read_bytes()
                     )
                     if written.exit_code:
-                        raise TerminalSandboxUnavailable()
+                        raise self._startup_failure("server upload", sandbox_id=sandbox.id, exit_code=written.exit_code)
                     launched = sandbox.execute(
                         "nohup python /tmp/posthog-terminal.py >/tmp/posthog-terminal.log 2>&1 </dev/null & "
                         "for i in $(seq 1 100); do curl -fsS http://127.0.0.1:8080/health >/dev/null && exit 0; sleep 0.1; done; exit 1",
                         timeout_seconds=15,
                     )
                     if launched.exit_code:
-                        raise TerminalSandboxUnavailable()
+                        raise self._startup_failure("health check", sandbox_id=sandbox.id, exit_code=launched.exit_code)
                     credentials = sandbox.create_preview_connect_credentials(
                         8080, {"team_id": self.team_id, "user_id": self.user_id}
                     )
                     if not credentials.token:
-                        raise TerminalSandboxUnavailable()
+                        raise self._startup_failure("connect token", sandbox_id=sandbox.id)
                     if not lock.owned():
                         raise Throttled(detail="The sandbox start expired. Try again in a moment.")
                     session_id = str(uuid4())
