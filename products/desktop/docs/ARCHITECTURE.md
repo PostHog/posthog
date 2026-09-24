@@ -304,6 +304,7 @@ The `posthog-desktop-system-map` feature flag controls access and defaults off i
 Development builds enable the view by default.
 
 The core service at `packages/core/src/system-map/` uses the existing Claude task runner with structured output.
+It creates a local run record through the Tasks API, then sets the adapter and plan mode directly on the local agent.
 It inventories source packages and nested modules before it groups them into areas and components.
 The output includes scan coverage, public operations, connections, unchecked assumptions, and source citations.
 Coverage links source scopes to component IDs and distinguishes reviewed, partly reviewed, and unreviewed source.

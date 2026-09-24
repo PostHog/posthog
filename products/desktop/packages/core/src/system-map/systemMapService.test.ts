@@ -1,4 +1,5 @@
-import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { FetchImplementation } from "@posthog/api-client/fetcher";
+import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { RootLogger } from "@posthog/di/logger";
 import { describe, expect, it, vi } from "vitest";
 import type { SystemMap } from "./schemas";
@@ -83,7 +84,51 @@ function setup() {
   return { values, storage, agent, getTaskRun, client, service };
 }
 
-describe("system map persistence", () => {
+describe("system map analysis", () => {
+  it("creates a local run without cloud runtime settings and starts Claude in plan mode", async () => {
+    const { service, agent } = setup();
+    const taskId = "10000000-0000-4000-8000-000000000001";
+    const runId = "10000000-0000-4000-8000-000000000002";
+    const fetch = vi
+      .fn<FetchImplementation>()
+      .mockResolvedValueOnce(Response.json({ id: taskId }, { status: 201 }))
+      .mockResolvedValueOnce(
+        Response.json({ id: runId, environment: "local" }, { status: 201 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ id: runId, status: "completed", output: map }),
+      );
+    const client = new PostHogAPIClient(
+      scope.apiHost,
+      async () => "test-token",
+      async () => "test-token",
+      scope.projectId,
+      { fetch },
+    );
+
+    const result = await service.analyze(client, {
+      ...scope,
+      signal: new AbortController().signal,
+    });
+
+    expect(result.map).toEqual(map);
+    const [url, request] = fetch.mock.calls[1];
+    expect(new URL(String(url)).pathname).toBe(
+      `/api/projects/1/tasks/${taskId}/runs/`,
+    );
+    expect(JSON.parse(String(request?.body))).toEqual({
+      environment: "local",
+      mode: "background",
+    });
+    expect(agent.start.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: "claude",
+        permissionMode: "plan",
+        settingSources: [],
+      }),
+    );
+  });
+
   it("restores a completed scan from a new service using only the saved reference", async () => {
     const { service, client, storage, values, agent } = setup();
     const result = await service.analyze(client, {

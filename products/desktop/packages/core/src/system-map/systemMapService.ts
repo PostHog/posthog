@@ -169,8 +169,6 @@ export class SystemMapService {
       const run = await withAbort(
         client.createTaskRun(task.id, {
           environment: "local",
-          adapter: "claude",
-          initialPermissionMode: "plan",
         }),
         signal,
       );
