@@ -62,6 +62,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         # at warning instead of raising an error tracking issue for a transient AWS outage.
         return {f"AWS Cost Explorer request failed: {code}" for code in THROTTLING_ERROR_CODES} | {
             "AWS Cost Explorer request failed: InternalFailure",
+            "AWS Cost Explorer request failed: ServiceUnavailable",
             "AWS Cost Explorer request failed: HTTP 5",
         }
 
