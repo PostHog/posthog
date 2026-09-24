@@ -383,3 +383,12 @@ export const LiveDoom: StoryObj<typeof TerminalScene> = {
         window.posthogTerminal?.write('doom\n')
     },
 }
+
+export const LiveClassics: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('figlet PostHog\n')
+    },
+}
