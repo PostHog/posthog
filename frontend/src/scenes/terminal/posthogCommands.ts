@@ -393,6 +393,11 @@ export class PosthogCommands {
                 throw new Error('The current project changed. Restart the terminal before running SQL.')
             }
             const result = await performQuery(query, { signal: this.signal }, 'force_blocking')
+            // With `explain` or `modifiers.debug`, a failed query returns `error` instead of throwing.
+            // JSON output shows that field, but a table would hide it behind an empty result.
+            if (format !== 'json' && result.error) {
+                throw new Error(result.error)
+            }
             return format === 'json' ? result : terminalQueryTable(result, format)
         }
         if (name === '_complete') {

@@ -81,6 +81,17 @@ describe('PostHog terminal commands', () => {
         )
     })
 
+    it.each(['--markdown', '--csv', '--tsv'])(
+        'fails hogql %s output when a debug query returns an error',
+        async (format) => {
+            jest.mocked(performQuery).mockResolvedValue({ columns: [], results: [], error: 'Unknown table missing' })
+            const request = { query: 'select * from missing', argv: [format, '--modifiers', '{"debug":true}'] }
+            await expect(commands.execute(['hogql', '--json', JSON.stringify(request)], cwd)).rejects.toThrow(
+                'Unknown table missing'
+            )
+        }
+    )
+
     it('passes connection options and JSON fields without changing the SQL or losing response metadata', async () => {
         const result = {
             columns: ['answer'],
