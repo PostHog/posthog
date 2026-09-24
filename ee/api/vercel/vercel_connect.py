@@ -341,15 +341,20 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             secrets=secrets,
         )
         if not import_result.success:
+            resource_id = str(production_resource.pk)
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
                 status_code=import_result.status_code,
                 error_detail=import_result.error_detail,
                 installation_id=installation_id,
-                resource_id=str(production_resource.pk),
+                resource_id=resource_id,
                 integration="vercel",
             )
+            with transaction.atomic():
+                org_integration.delete()
+                for resource in resources.values():
+                    resource.delete()
             capture_exception(
                 VercelImportError("Vercel did not accept the resource import"),
                 {
@@ -357,14 +362,10 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     "error": import_result.error,
                     "error_detail": import_result.error_detail,
                     "installation_id": installation_id,
-                    "resource_id": str(production_resource.pk),
+                    "resource_id": resource_id,
                     "organization_id": str(organization.id),
                 },
             )
-            with transaction.atomic():
-                org_integration.delete()
-                for resource in resources.values():
-                    resource.delete()
             if import_result.status_code is not None:
                 raise exceptions.ValidationError(
                     f"Vercel rejected the link (HTTP {import_result.status_code}). Start the link again from Vercel."
