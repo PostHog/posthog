@@ -2113,8 +2113,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.abortAnyRunningQuery()
             actions.resetLoadingTimer()
         },
-        loadData: () => {
-            actions.collectionNodeLoadData(props.key, props.query?.kind)
+        loadData: ({ overrideQuery }) => {
+            actions.collectionNodeLoadData(props.key, (overrideQuery ?? props.query)?.kind)
             actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {

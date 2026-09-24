@@ -141,6 +141,11 @@ describe('dataNodeLogic', () => {
                 query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*'] }),
             })
         }).toDispatchActions([collection.actionCreators.collectionNodeLoadData(testUniqueKey, NodeKind.EventsQuery)])
+
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        await expectLogic(collection, () => {
+            logic.actions.loadData(undefined, undefined, { kind: NodeKind.HogQLQuery, query: 'select 1' })
+        }).toDispatchActions([collection.actionCreators.collectionNodeLoadData(testUniqueKey, NodeKind.HogQLQuery)])
         collection.unmount()
     })
 
