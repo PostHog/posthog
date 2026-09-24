@@ -1076,6 +1076,109 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
+    def test_secret_input_turned_public_keeps_a_new_value(self, *args):
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True, "required": True}],
+            "inputs": {"token": {"value": "I AM SECRET"}},
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        function_id = res.json()["id"]
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "required": True}],
+                "inputs": {"token": {"value": "I AM PUBLIC NOW"}},
+            },
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inputs"]["token"]["value"] == "I AM PUBLIC NOW"
+        obj = HogFunction.objects.get(id=function_id)
+        assert (obj.inputs or {})["token"]["value"] == "I AM PUBLIC NOW"
+        assert (obj.encrypted_inputs or {}) == {}
+
+    @parameterized.expand(
+        [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]
+    )
+    def test_stored_duplicate_input_keys_do_not_block_updates(self, _name: str, payload: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy duplicates",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.message)",
+            inputs_schema=[{"key": "message", "type": "string"}, {"key": "message", "type": "string"}],
+            inputs={"message": {"value": "hello"}},
+        )
+
+        res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=payload)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    @parameterized.expand([("clean", ["message"]), ("already_duplicated", ["message", "message"])])
+    def test_newly_duplicated_input_key_is_rejected(self, _name: str, stored_keys: list[str]) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy duplicates",
+            type="destination",
+            hog="print(inputs.message)",
+            inputs_schema=[{"key": key, "type": "string"} for key in stored_keys],
+            inputs={"message": {"value": "hello"}},
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={
+                "inputs_schema": [
+                    *({"key": key, "type": "string"} for key in stored_keys),
+                    {"key": "added", "type": "string"},
+                    {"key": "added", "type": "string"},
+                ]
+            },
+        )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["detail"] == "Each input key must be unique. Remove duplicate keys."
+
+    @parameterized.expand(
+        [("rename", {"name": "Renamed"}), ("disable", {"enabled": False}), ("delete", {"deleted": True})]
+    )
+    def test_stored_secret_mapping_does_not_block_updates(self, _name: str, payload: dict) -> None:
+        mappings = [
+            {
+                "name": "Secret mapping",
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True}],
+                "inputs": {"token": {"value": "legacy-plaintext-value"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            }
+        ]
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy secret mapping",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.token)",
+            inputs_schema=[],
+            mappings=mappings,
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={"mappings": mappings},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data=payload,
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
     def test_secret_inputs_updated_if_changed(self, *args):
         payload = {
             "type": "destination",
@@ -1989,7 +2092,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         }
 
-    def test_validates_mappings(self):
+    @parameterized.expand(
+        [
+            ("required", {"required": True}, "inputs__required_field", "This field is required."),
+            ("duplicate", {"key": "message"}, "inputs_schema", "Each input key must be unique. Remove duplicate keys."),
+            (
+                "secret",
+                {"secret": True},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+            (
+                "secret_string",
+                {"secret": "true"},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+        ]
+    )
+    def test_validates_mappings(self, _name: str, schema_options: dict, error_attr: str, error_detail: str) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
@@ -1999,7 +2120,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
                         {"key": "message", "type": "string", "label": "Message", "required": True},
-                        {"key": "required_field", "type": "string", "label": "Required", "required": True},
+                        {"key": "required_field", "type": "string", "label": "Required", **schema_options},
                     ],
                 },
             ],
@@ -2017,11 +2138,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "mappings__0__inputs__required_field",
+            "detail": error_detail,
+            "attr": f"mappings__0__{error_attr}",
         }
 
-    def test_compiles_valid_mappings(self):
+    @parameterized.expand([("default", {}), ("false", {"secret": False}), ("string_false", {"secret": "false"})])
+    def test_compiles_valid_mappings(self, _name: str, schema_options: dict) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "print(inputs.message)",
@@ -2030,7 +2152,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {
                     "inputs": {"message": {"value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
-                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                        {"key": "message", "type": "string", "label": "Message", "required": True, **schema_options},
                     ],
                     "filters": {
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],

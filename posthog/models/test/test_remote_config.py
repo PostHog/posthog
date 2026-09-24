@@ -16,6 +16,7 @@ from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -402,6 +403,53 @@ class TestRemoteConfig(_RemoteConfigBase):
             result = self.remote_config._build_site_apps_js()
 
         assert result == []
+
+    def test_site_functions_keep_publishing_when_the_secret_is_encrypted(self) -> None:
+        # `move_secret_inputs` leaves the value in `encrypted_inputs`, which the transpiler never
+        # reads, so the function has to stay published.
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            inputs_schema=[{"key": "token", "type": "string", "secret": True}],
+            inputs={"token": {"value": "example-private-browser-value"}},
+        )
+        assert (function.inputs or {}) == {}
+        assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
+
+        with patch("posthog.cdp.site_functions.get_transpiled_function", return_value="function() {}"):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
+        assert "example-private-browser-value" not in result
+
+    @parameterized.expand([("mapping", True), ("legacy_plaintext_inputs", False)])
+    def test_site_functions_are_not_published_while_a_secret_sits_in_plaintext(
+        self, _name: str, in_mapping: bool
+    ) -> None:
+        config = {
+            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+            "inputs": {"token": {"value": "example-private-browser-value"}},
+        }
+        unsafe = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            **({"mappings": [config]} if in_mapping else config),
+        )
+        if not in_mapping:
+            # A row saved before secret inputs were encrypted keeps the value in `inputs`, which
+            # `save()` would otherwise move out of the way.
+            HogFunction.objects.filter(id=unsafe.id).update(inputs=config["inputs"], encrypted_inputs=None)
+            unsafe.refresh_from_db()
+        safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True)
+
+        with patch("posthog.cdp.site_functions.get_transpiled_function", return_value="function() {}"):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(unsafe.id) not in result
+        assert str(safe.id) in result
+        assert "example-private-browser-value" not in result
 
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):

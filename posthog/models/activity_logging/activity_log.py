@@ -262,6 +262,28 @@ class ActivityLog(UUIDTModel):
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
+    @property
+    def safe_detail(self) -> Optional[dict[str, Any]]:
+        if (
+            self.scope != "HogFunction"
+            or not isinstance(self.detail, dict)
+            or not isinstance(self.detail.get("changes"), list)
+        ):
+            return self.detail
+        masked_fields = {*field_with_masked_contents["HogFunction"], "transpiled"}
+        return {
+            **self.detail,
+            "changes": [
+                {
+                    **change,
+                    **{key: "masked" for key in ("before", "after") if change.get(key) is not None},
+                }
+                if isinstance(change, dict) and change.get("field") in masked_fields
+                else change
+                for change in self.detail.get("changes") or []
+            ],
+        }
+
 
 common_field_exclusions = [
     "id",
@@ -280,6 +302,8 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "HogFunction": [
+        "inputs",
+        "mappings",
         # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
         # leak-adjacent at worst; record that they changed, never the values.
         "encrypted_inputs",
@@ -666,7 +690,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "errors_calculating",
     ],
     "HogFunction": [
+        # Compiled output of `hog`, which the diff records on its own. For site functions the
+        # transpiled JavaScript also inlines the input values that `field_with_masked_contents`
+        # hides, so a diff of it would put those values back into the log.
         "bytecode",
+        "transpiled",
         "icon_url",
         # Bookkeeping for the draft/revision cycle: `draft` already records that config was staged,
         # and the per-version audit lives in the revisions endpoints.
