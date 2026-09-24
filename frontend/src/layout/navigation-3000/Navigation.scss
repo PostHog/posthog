@@ -49,7 +49,7 @@
     overflow: hidden;
     background: var(--color-bg-primary);
 
-    .storybook-test-runner & {
+    .storybook-test-runner:not(.storybook-viewport-layout) & {
         height: auto;
         min-height: 100vh;
     }
@@ -737,7 +737,7 @@
 
     overflow: hidden;
 
-    .storybook-test-runner & {
+    .storybook-test-runner:not(.storybook-viewport-layout) & {
         height: fit-content;
     }
 

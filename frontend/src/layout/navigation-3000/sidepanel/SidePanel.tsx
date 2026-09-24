@@ -161,7 +161,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
     return (
         <div
             className={cn(
-                'SidePanel3000 h-screen',
+                'SidePanel3000',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
                 '@container/side-panel bg-surface-secondary absolute top-0 right-0 bottom-0 h-full flex flex-col border-t-none',

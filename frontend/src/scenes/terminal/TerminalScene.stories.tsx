@@ -68,6 +68,10 @@ const meta: Meta<typeof TerminalScene> = {
         if (parameters.liveRuntime) {
             return
         }
+        // Dock resizing needs the app's viewport height, not the expanded snapshot layout.
+        if (parameters.docked) {
+            document.body.classList.add('storybook-viewport-layout')
+        }
         // Visual snapshots must not depend on firmware downloads or Linux boot timing.
         const start = spyOn(TerminalRuntime.prototype, 'start').mockImplementation(
             async (_server, _signal, onReady) => {
@@ -85,7 +89,10 @@ const meta: Meta<typeof TerminalScene> = {
                 onReady()
             }
         )
-        return () => start.mockRestore()
+        return () => {
+            start.mockRestore()
+            document.body.classList.remove('storybook-viewport-layout')
+        }
     },
     render: (_, { parameters }) => {
         const notebook = {
@@ -380,6 +387,14 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         await expectContentAboveDock()
     },
 }
+export const DockedWide: StoryObj<typeof TerminalScene> = {
+    ...Docked,
+    parameters: {
+        ...Docked.parameters,
+        testOptions: { viewport: { width: 1440, height: 900 }, includeNavigationInSnapshot: true },
+    },
+}
+
 export const DockDisabled: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
