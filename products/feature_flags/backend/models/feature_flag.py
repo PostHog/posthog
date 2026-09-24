@@ -206,7 +206,12 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         default="all",
         null=True,
         blank=True,
-        help_text="Specifies where this feature flag should be evaluated",
+        help_text=(
+            "Filters which SDKs receive this flag from /flags, based on the runtime the caller reports. "
+            "Local evaluation loads flag definitions for all runtimes. "
+            "This is a delivery filter and not an access control: any caller with the project's "
+            "public API key can still request any flag."
+        ),
     )
 
     BUCKETING_IDENTIFIER_CHOICES = [

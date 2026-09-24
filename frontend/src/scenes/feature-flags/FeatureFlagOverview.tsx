@@ -95,20 +95,20 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
             case FeatureFlagEvaluationRuntime.CLIENT:
                 return {
                     icon: <IconLaptop className="text-lg text-muted" />,
-                    label: 'Client-side only',
-                    tag: 'Single-user apps',
+                    label: 'Client-side requests',
+                    tag: 'Remote evaluation',
                 }
             case FeatureFlagEvaluationRuntime.SERVER:
                 return {
                     icon: <IconServer className="text-lg text-muted" />,
-                    label: 'Server-side only',
-                    tag: 'Multi-user systems',
+                    label: 'Server-side requests',
+                    tag: 'Remote evaluation',
                 }
             default:
                 return {
                     icon: <IconGlobe className="text-lg text-muted" />,
-                    label: 'Both client and server',
-                    tag: 'Single + multi-user',
+                    label: 'Client and server requests',
+                    tag: 'Remote evaluation',
                 }
         }
     }

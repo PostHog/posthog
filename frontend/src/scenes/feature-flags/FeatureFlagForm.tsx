@@ -647,8 +647,12 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     labelClassName="text-sm font-medium"
                                                     info={
                                                         <>
-                                                            Control whether this flag evaluates on client, server, or
-                                                            both.{' '}
+                                                            Filters requests that ask PostHog to evaluate this flag.
+                                                            Local evaluation loads flag definitions for all runtimes.
+                                                            This is not an access control: anyone with your public
+                                                            project API key can request any flag. To keep a value away
+                                                            from clients, use a remote config flag and encrypt the
+                                                            payload. Only a personal API key can read it.{' '}
                                                             <Link
                                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
                                                                 target="_blank"
@@ -665,10 +669,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 label: (
                                                                     <div className="flex flex-col">
                                                                         <span className="font-medium">
-                                                                            Both client and server
+                                                                            Client and server requests
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Single-user apps + multi-user systems
+                                                                            For either runtime
                                                                         </span>
                                                                     </div>
                                                                 ),
@@ -679,10 +683,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 label: (
                                                                     <div className="flex flex-col">
                                                                         <span className="font-medium">
-                                                                            Client-side only
+                                                                            Client-side requests
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Single-user apps (mobile, desktop, embedded)
+                                                                            Browser, mobile, and desktop SDKs
                                                                         </span>
                                                                     </div>
                                                                 ),
@@ -693,10 +697,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 label: (
                                                                     <div className="flex flex-col">
                                                                         <span className="font-medium">
-                                                                            Server-side only
+                                                                            Server-side requests
                                                                         </span>
                                                                         <span className="text-xs text-muted">
-                                                                            Multi-user systems in trusted environments
+                                                                            Server SDKs
                                                                         </span>
                                                                     </div>
                                                                 ),
