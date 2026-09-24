@@ -1,3 +1,4 @@
+import typing
 import pathlib
 
 import pytest
@@ -204,7 +205,9 @@ async def test_client_from_integration(postgres_config, setup_postgres_test_db, 
                 assert results == [(1,)]
 
 
-async def test_amerge_mutable_tables_stops_waiting_for_a_row_lock(postgres_config, postgres_connection):
+async def test_amerge_mutable_tables_stops_waiting_for_a_row_lock(
+    postgres_config: dict[str, typing.Any], postgres_connection: psycopg.AsyncConnection
+) -> None:
     schema = postgres_config["schema"]
     final_table = sql.Identifier(schema, "merge_lock_final")
     stage_table = sql.Identifier(schema, "merge_lock_stage")
