@@ -224,42 +224,33 @@ export function QueryWindow({
         </span>
     )
 
-    const editorSettingsItems = [
-        ...(vimModeFeatureEnabled
-            ? [
-                  {
-                      custom: true,
-                      label: () => (
-                          <LemonSwitch
-                              checked={editorVimModeEnabled}
-                              onChange={setEditorVimModeEnabled}
-                              label="Vim mode"
-                              size="small"
-                              fullWidth
-                              data-attr="sql-editor-vim-toggle"
-                          />
-                      ),
-                  },
-              ]
-            : []),
-        ...(canSendRawQuery
-            ? [
-                  {
-                      custom: true,
-                      label: () => (
-                          <LemonSwitch
-                              checked={sendRawQueryEnabled}
-                              onChange={setSendRawQuery}
-                              label={sendRawQueryLabel}
-                              size="small"
-                              fullWidth
-                              data-attr="sql-editor-send-raw-query-toggle"
-                          />
-                      ),
-                  },
-              ]
-            : []),
-    ]
+    const toggleVimMode = (enabled: boolean): void => {
+        setEditorVimModeEnabled(enabled)
+        // pinned: analytics event name — renaming breaks dashboards
+        posthog.capture('sql-editor-vim-mode-toggled', {
+            enabled,
+            mode: mode ?? SQLEditorMode.FullScene,
+            host_product: hostProduct ?? null,
+        })
+    }
+
+    const editorSettingsItems = canSendRawQuery
+        ? [
+              {
+                  custom: true,
+                  label: () => (
+                      <LemonSwitch
+                          checked={sendRawQueryEnabled}
+                          onChange={setSendRawQuery}
+                          label={sendRawQueryLabel}
+                          size="small"
+                          fullWidth
+                          data-attr="sql-editor-send-raw-query-toggle"
+                      />
+                  ),
+              },
+          ]
+        : []
 
     return (
         <div className="flex grow flex-col overflow-hidden">
@@ -303,6 +294,16 @@ export function QueryWindow({
                                 cancelQueryLoading={cancelQueryLoading}
                             />
                         )}
+                        {vimModeFeatureEnabled ? (
+                            <LemonSwitch
+                                checked={editorVimModeEnabled}
+                                onChange={toggleVimMode}
+                                label="Vim mode"
+                                size="small"
+                                bordered
+                                data-attr="sql-editor-vim-toggle"
+                            />
+                        ) : null}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
                         {!showBIEditor ? <LemonDivider vertical /> : null}
                         {!showBIEditor ? (
