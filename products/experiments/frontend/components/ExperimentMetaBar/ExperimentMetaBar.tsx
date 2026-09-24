@@ -88,7 +88,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
                         <Tooltip title="Feature flag">
                             <IconFlag className="text-secondary text-base shrink-0" />
                         </Tooltip>
-                        <TruncatedText text={experiment.feature_flag.key} maxLength={32} />
+                        <TruncatedText text={experiment.feature_flag.key} maxLength={32} className="truncate" />
                         <CopyToClipboardInline
                             explicitValue={experiment.feature_flag.key}
                             description="feature flag key"
