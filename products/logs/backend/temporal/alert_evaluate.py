@@ -101,10 +101,10 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
         results = await asyncio.gather(
             *(
                 workflow.start_child_workflow(
-                    "alerts-product-deliver-preview",
+                    "alerts-platform-deliver-preview",
                     preview,
                     id=f"alerts-deliver-preview-{preview.evaluation_key}",
-                    task_queue=settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+                    task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(minutes=1),
                 )

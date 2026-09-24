@@ -437,6 +437,9 @@ _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 
 _PATCH_ID_PROGRESS_EMIT_NONBLOCKING = "progress-emit-nonblocking-2026-09"
+# A new activity worker can record the merge queue flag as true while an old workflow worker
+# ignores it and dispatches, so replay takes the skip only where the marker was recorded.
+_PATCH_ID_MERGE_QUEUE_SKIP = "tasks-merge-queue-skip-2026-09"
 
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
 
@@ -990,6 +993,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
             return CIFollowUpDecision.SKIP
+        if pr_context.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
+            workflow.logger.info(
+                "PR is in the merge queue, skipping CI follow-up",
+                extra={"run_id": self.context.run_id, "pr_url": pr_context.pr_url},
+            )
+            return CIFollowUpDecision.SKIP
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires; feedback is not consulted.
@@ -1113,6 +1122,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             label = "PR merged" if snapshot.pr_state == "merged" else "PR closed"
             await self._emit_progress("ci", "completed", label, "setup")
             return CIFollowUpDecision.TERMINAL
+        if snapshot.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
+            # The journal stays untouched, so the feedback waits for the next tick after the PR
+            # leaves the queue instead of being marked handled.
+            workflow.logger.info(
+                "PR is in the merge queue, skipping CI follow-up",
+                extra={"run_id": self.context.run_id, "pr_url": snapshot.pr_url},
+            )
+            return CIFollowUpDecision.SKIP
         attention = self._babysit_journal.attention(snapshot)
         if attention.is_empty:
             if (

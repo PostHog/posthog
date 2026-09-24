@@ -8,6 +8,9 @@ import biosUrl from './assets/seabios.bin?url'
 import toolsUrl from './assets/tools-linux-i386.tar.gz.bin?url'
 import vgaBiosUrl from './assets/vgabios.bin?url'
 import { NinePServer } from './ninepServer'
+import packageManifest from './terminal-packages.json'
+import { DISPLAY_SCRIPT, TerminalDisplayInput } from './terminalDisplay'
+import { TerminalPackages } from './terminalPackages'
 
 function browserClock(): { timestamp: number; timezone: string } {
     const now = new Date()
@@ -52,10 +55,51 @@ export class TerminalRuntime {
     private disposed = false
     private columns = 80
     private rows = 24
+    private promptTail = ''
+    private atPrompt = false
+    private hasPrompt = false
+    private pendingDirectory?: string
 
-    constructor(private onOutput: (bytes: Uint8Array) => void) {}
+    readonly screen = document.createElement('div')
+    readonly displayInput = new TerminalDisplayInput(
+        (codes) => this.emulator?.keyboard_send_scancodes(codes),
+        (buttons) => this.sendMouse('mouse-click', buttons)
+    )
 
-    async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
+    constructor(
+        private onOutput: (bytes: Uint8Array) => void,
+        private onDisplay: (active: boolean) => void = () => {}
+    ) {
+        this.screen.append(document.createElement('div'), document.createElement('canvas'))
+    }
+
+    // v86 exposes PS/2 mouse input on its bus but has no public send-mouse method.
+    private sendMouse(event: 'mouse-click' | 'mouse-delta', value: boolean[] | number[]): void {
+        const emulator = this.emulator as
+            | (V86 & { bus: { send: (event: string, value: boolean[] | number[]) => void } })
+            | undefined
+        emulator?.bus.send(event, value)
+    }
+
+    moveMouse(x: number, y: number): void {
+        this.sendMouse('mouse-delta', [x, -y])
+    }
+
+    attachDisplay(container: HTMLElement): void {
+        container.append(this.screen)
+    }
+
+    detachDisplay(): void {
+        this.displayInput.release()
+        this.screen.remove()
+    }
+
+    async start(
+        server: NinePServer,
+        signal: AbortSignal,
+        onReady: () => void,
+        folder = '/posthog/files'
+    ): Promise<void> {
         const { V86 } = await import('v86')
         if (signal.aborted || this.disposed) {
             return
@@ -66,7 +110,7 @@ export class TerminalRuntime {
             verifiedImage(
                 // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
                 kernelUrl,
-                '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
+                packageManifest.kernel.sha256,
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
@@ -82,7 +126,9 @@ export class TerminalRuntime {
         if (signal.aborted || this.disposed) {
             return
         }
+        new TerminalPackages(server.filesystem, signal).mount()
         const bin = server.filesystem.directory('bin', server.filesystem.root)
+        server.filesystem.text('display', bin, DISPLAY_SCRIPT)
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
             toolsArchive.byteLength
@@ -91,9 +137,11 @@ export class TerminalRuntime {
             bios: { buffer: bios },
             vga_bios: { buffer: vgaBios },
             bzimage: { buffer: kernel },
-            memory_size: 128 * 1024 * 1024,
+            memory_size: 512 * 1024 * 1024,
             filesystem: { handle9p: server.handle },
-            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
+            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on video=640x480',
+            vga_memory_size: 8 * 1024 * 1024,
+            screen: { container: this.screen, use_graphical_text: true },
             disable_keyboard: true,
             disable_mouse: true,
             disable_speaker: true,
@@ -114,6 +162,9 @@ export class TerminalRuntime {
             if (this.disposed) {
                 return
             }
+            if (this.ready && (byte === 17 || byte === 18)) {
+                this.onDisplay(byte === 17)
+            }
             if (configured && !this.ready && byte === 30) {
                 this.ready = true
                 this.resize(this.columns, this.rows)
@@ -123,6 +174,17 @@ export class TerminalRuntime {
         emulator.add_listener('serial0-output-byte', (byte: number) => {
             if (this.disposed) {
                 return
+            }
+            this.atPrompt = false
+            this.promptTail = (this.promptTail + String.fromCharCode(byte)).slice(-8)
+            if (this.promptTail.endsWith('\x1b]133;B\x07')) {
+                this.hasPrompt = true
+                this.atPrompt = true
+                if (this.pendingDirectory) {
+                    const folder = this.pendingDirectory
+                    this.pendingDirectory = undefined
+                    this.changeDirectory(folder)
+                }
             }
             this.outputBuffer[this.outputLength++] = byte
             if (this.outputLength === this.outputBuffer.length) {
@@ -151,18 +213,33 @@ export class TerminalRuntime {
                         `date -s @${clock.timestamp} > /dev/null`,
                         'tar -xf /posthog/bin/tools.tar -C / || exit',
                         'export EDITOR=nano VISUAL=nano',
+                        'mkdir -p /opt/posthog-packages && mount -t tmpfs -o size=256m tmpfs /opt/posthog-packages || exit',
+                        'ln -sf /opt/posthog-tools/lib/ld-musl-i386.so.1 /lib/ld-musl-i386.so.1',
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
+                        'cp /posthog/bin/run /usr/bin/run && chmod +x /usr/bin/run || exit',
+                        '[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd',
+                        'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
+                        'export PATH=/usr/local/bin:$PATH',
+                        'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
+                        'cp /posthog/bin/display /usr/bin/display && chmod +x /usr/bin/display || exit',
+                        ...Object.values(packageManifest.packages).flatMap((pkg) =>
+                            Object.keys(pkg.commands).map(
+                                (command) =>
+                                    `cp /posthog/bin/${command} /usr/bin/${command} && chmod +x /usr/bin/${command} || exit`
+                            )
+                        ),
                         'stty -F /dev/ttyS1 raw -echo',
                         // Detach the control helper so the shell's wait command only waits for user jobs.
                         '(while read -r command first second; do case "$command" in resize) stty -F /dev/ttyS0 rows "$first" cols "$second";; clock) date -s "@$first" > /dev/null; printf "%s\\n" "$second" > /etc/TZ;; esac; done < /dev/ttyS1 &)',
                         "alias ls='ls --color=auto'",
-                        "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ '",
-                        'cd /posthog/files',
+                        "export PS1='\\[\\033[32m\\]posthog\\[\\033[0m\\]:\\[\\033[34m\\]\\w\\[\\033[0m\\] $ \\[\\e]133;B\\a\\]'",
+                        `cd -- '${folder.replaceAll("'", "'\\''")}' || cd /posthog/files`,
                         'clear',
                         "printf 'PostHog terminal\\n\\nTry:\\n  mc\\n  tree -C -L 3\\n  nano Unfiled/Notebooks/Foobar.md\\n  vi Unfiled/Notebooks/Foobar.md\\n  ncdu -r /posthog/files\\n  mkdir Research\\n  ph tools\\n  ph notebooks-list --limit 10 | jq .\\n  cat /posthog/README.txt\\n\\nUse your own notebook path. In nano, Ctrl+S saves and Ctrl+X exits.\\nIn vi, save with :wq; quit with :q!. Selecting text copies it.\\nFolder creation and moves update PostHog.\\n\\n'",
                         'stty echo',
                         "printf '\\036' > /dev/ttyS1",
+                        'exec /usr/bin/bash --rcfile /posthog/bin/shellrc -i',
                     ].join('\n') + '\n'
                 )
                 server.filesystem.file('init.sh', bin, async () => ({ bytes: setup })).size = setup.byteLength
@@ -177,8 +254,22 @@ export class TerminalRuntime {
 
     write(data: string): void {
         if (this.ready) {
+            this.atPrompt = false
+            this.promptTail = ''
             this.emulator?.serial_send_bytes(0, new TextEncoder().encode(data))
         }
+    }
+
+    changeDirectory(folder: string): boolean {
+        if (!this.disposed && !this.hasPrompt) {
+            this.pendingDirectory = folder
+            return true
+        }
+        if (!this.ready || this.disposed || !this.atPrompt) {
+            return false
+        }
+        this.write(`cd -- '${folder.replaceAll("'", "'\\''")}'\n`)
+        return true
     }
 
     read(): string {
@@ -215,6 +306,7 @@ export class TerminalRuntime {
     }
 
     dispose(): void {
+        this.detachDisplay()
         this.disposed = true
         this.ready = false
         // V86 cannot destroy its CPU until asynchronous WASM initialization has finished.

@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -7,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ConversionGoalFilter,
@@ -15,15 +17,22 @@ import {
     TrendsQuery,
     DataTableNode,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource } from '~/types'
+import { ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { MarketingAnalyticsTab, SetupSection, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import {
+    MarketingAnalyticsTab,
+    MarketingDashboardView,
+    SetupSection,
+    marketingAnalyticsLogic,
+} from './marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { marketingAnalyticsTilesLogic } from './marketingAnalyticsTilesLogic'
@@ -282,6 +291,108 @@ describe('marketingAnalyticsLogic', () => {
             }
             expect(settings.values.setupEntryPoint).toBeNull()
             unmountSettings()
+        }
+    )
+    it('carries dashboard view, breakdown and filters in the URL', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
+        expect(router.values.searchParams).not.toHaveProperty('view')
+        expect(router.values.searchParams).not.toHaveProperty('breakdown')
+
+        const filters: WebAnalyticsPropertyFilters = [
+            {
+                type: PropertyFilterType.Session,
+                key: '$channel_type',
+                operator: PropertyOperator.Exact,
+                value: 'Direct',
+            },
+        ]
+        logic.actions.setDashboardView(MarketingDashboardView.ENGAGEMENT)
+        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        logic.actions.setDashboardProperties(filters)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({
+            view: 'engagement',
+            breakdown: 'campaign',
+            filters,
+        })
+
+        await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ view: 'engagement', breakdown: 'campaign', filters })
+
+        logic.actions.setDashboardView(MarketingDashboardView.OVERVIEW)
+        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
+
+        await expectLogic(logic, () =>
+            router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
+        ).toMatchValues({
+            dashboardView: MarketingDashboardView.RETENTION,
+            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
+            dashboardProperties: [],
+        })
+
+        await expectLogic(logic, () => router.actions.push(urls.marketingAnalyticsApp())).toMatchValues({
+            dashboardView: MarketingDashboardView.OVERVIEW,
+            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+            dashboardProperties: [],
+        })
+    })
+
+    it.each([
+        {
+            search: { view: 'retention' },
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.RETENTION,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+        },
+        {
+            search: { breakdown: 'source' },
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.OVERVIEW,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
+        },
+        {
+            search: {},
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.ENGAGEMENT,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Campaign,
+        },
+        {
+            search: { view: 'retention' },
+            savedBreakdown: 'retired_dimension',
+            expectedView: MarketingDashboardView.RETENTION,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+        },
+    ])(
+        'hydrates $search with persisted breakdown $savedBreakdown',
+        async ({ search, savedBreakdown, expectedView, expectedBreakdown }) => {
+            localStorage.setItem(
+                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardView`,
+                JSON.stringify(MarketingDashboardView.ENGAGEMENT)
+            )
+            localStorage.setItem(
+                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
+                JSON.stringify(savedBreakdown)
+            )
+            router.actions.push(urls.marketingAnalyticsApp(), search)
+
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                dashboardView: expectedView,
+                dashboardBreakdown: expectedBreakdown,
+                dashboardProperties: [],
+            })
         }
     )
 })

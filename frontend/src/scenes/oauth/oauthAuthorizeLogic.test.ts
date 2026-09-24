@@ -162,6 +162,12 @@ describe('oauthAuthorizeLogic', () => {
             expected: ['openid', 'query:read'],
         },
         {
+            name: 'falls back to the identity scopes when the server resolved the request to nothing',
+            urlScope: 'made:up other:junk',
+            resolution: { scopes: [], was_defaulted: true },
+            expected: DEFAULT_OAUTH_SCOPES,
+        },
+        {
             name: 'falls back to the URL when the server sent no resolution',
             urlScope: 'insight:read',
             expected: ['insight:read'],

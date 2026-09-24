@@ -75,6 +75,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
+AUTORESEARCH_IMAGE_NAME = "posthog-sandbox-autoresearch"
 STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
 SLIM_IMAGE_NAME = "posthog-sandbox-slim"
 
@@ -412,6 +413,18 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
             return PI_IMAGE_NAME
 
+        if template == SandboxTemplate.AUTORESEARCH_BASE:
+            autoresearch_dockerfile = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch"
+            )
+            DockerSandbox._build_image_if_needed(
+                AUTORESEARCH_IMAGE_NAME,
+                autoresearch_dockerfile,
+                build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
+                needs_skills=False,  # the base image already carries them
+            )
+            return AUTORESEARCH_IMAGE_NAME
+
         local_monorepo_root = DockerSandbox._get_local_posthog_code_root()
         if local_monorepo_root:
             DockerSandbox._build_local_image(local_monorepo_root)
@@ -619,6 +632,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             SandboxTemplate.DEFAULT_BASE,
             SandboxTemplate.VM_BASE,
             SandboxTemplate.PI_BASE,
+            SandboxTemplate.AUTORESEARCH_BASE,
         }:
             return None
         source = os.environ.get("POSTHOG_DESKTOP_SKILLS")

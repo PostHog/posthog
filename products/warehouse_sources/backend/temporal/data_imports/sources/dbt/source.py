@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt import (
+    DISCOVERY_TOKEN_ERROR,
     DbtResumeConfig,
     dbt_source,
     get_endpoint_permissions as get_dbt_endpoint_permissions,
@@ -57,7 +58,9 @@ class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
 
 You can create a service account token under **Account settings** → **API tokens** → **Service tokens** in dbt (Team and Enterprise plans), or use a personal access token. Read-only access to the resources you want to sync is enough.
 
-Your account ID is the number after `/deploy/` in your dbt URL. If your account runs on a cell-based or single-tenant deployment (for example `https://ab123.us1.dbt.com`), enter that base URL in the custom base URL field.""",
+The model, test, source, snapshot, seed and exposure tables come from the dbt Discovery API, so those need a token with metadata access on a Starter plan or above. The audit log table needs an Enterprise plan.
+
+Your account ID is the number after `/deploy/` in your dbt URL. If your account runs on a cell-based or single-tenant deployment (for example `https://ab123.us1.dbt.com`), enter that base URL in the custom base URL field, and enter your Discovery API URL from **Account settings** → **Access URLs**.""",
             iconPath="/static/services/dbt.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dbt",
             fields=cast(
@@ -98,16 +101,24 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
                         placeholder="https://ab123.us1.dbt.com",
                         secret=False,
                     ),
+                    SourceFieldInputConfig(
+                        name="discovery_api_url",
+                        label="Discovery API URL (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="https://ab123.metadata.us1.dbt.com/graphql",
+                        secret=False,
+                    ),
                 ],
             ),
         )
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # region and custom_base_url pick the host; account_id is the path the token is sent to.
-        # Retargeting any of them must re-require the token so a preserved credential can't be
-        # pointed at another host or another account authorized by that same token.
-        return ["region", "custom_base_url", "account_id"]
+        # region, custom_base_url and discovery_api_url pick the hosts; account_id is the path the
+        # token is sent to. Retargeting any of them must re-require the token so a preserved
+        # credential can't be pointed at another host or another account authorized by that token.
+        return ["region", "custom_base_url", "discovery_api_url", "account_id"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.canonical_descriptions import (
@@ -122,6 +133,9 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
         return {
             "401 Client Error: Unauthorized for url:": "Your dbt API token is invalid or has been revoked. Create a new service token in your dbt account settings, then reconnect.",
             "403 Client Error: Forbidden for url:": "Your dbt API token is missing the permissions needed to sync this data. Grant the required read permissions in your dbt account settings, then reconnect.",
+            # The Discovery API answers an auth failure with HTTP 200 and an errors body, so there
+            # is no status text to match on.
+            DISCOVERY_TOKEN_ERROR: "Your dbt API token cannot read the Discovery API, which serves the model, test, source, snapshot, seed and exposure tables. Create a service token with metadata access, then reconnect.",
         }
 
     def get_schemas(
@@ -163,6 +177,7 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
             custom_base_url=config.custom_base_url,
             team_id=team_id,
             schema_name=schema_name,
+            discovery_api_url=config.discovery_api_url,
         )
 
     def get_endpoint_permissions(
@@ -175,6 +190,7 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
             custom_base_url=config.custom_base_url,
             team_id=team_id,
             endpoints=endpoints,
+            discovery_api_url=config.discovery_api_url,
         )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DbtResumeConfig]:
@@ -200,4 +216,5 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            discovery_api_url=config.discovery_api_url,
         )
