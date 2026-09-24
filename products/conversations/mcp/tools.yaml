@@ -165,6 +165,17 @@ tools:
             surface them, call inbox-reports-list with source_id set to this ticket's `id` and
             source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold
             the investigation and findings; the ticket's own messages do not.
+        param_overrides:
+            id:
+                description: >
+                    The ticket's UUID, or its numeric ticket number. Both identify the same ticket;
+                    conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`.
+                cast: int-string
+                aliases:
+                    - ticket_id
+                    - ticketId
+                    - ticket_number
+                    - ticketNumber
         response:
             include:
                 - id
@@ -189,17 +200,6 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
-        param_overrides:
-            id:
-                description: >
-                    The ticket's UUID, or its numeric ticket number. Both identify the same ticket;
-                    conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`.
-                cast: int-string
-                aliases:
-                    - ticket_id
-                    - ticketId
-                    - ticket_number
-                    - ticketNumber
     conversations-tickets-unread-count-retrieve:
         operation: conversations_tickets_unread_count_retrieve
         enabled: false
