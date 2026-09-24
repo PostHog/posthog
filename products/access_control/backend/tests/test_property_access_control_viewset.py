@@ -71,7 +71,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
 
     def _grant_role_based_access(self) -> None:
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL},
             {"name": AvailableFeature.ROLE_BASED_ACCESS, "key": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
