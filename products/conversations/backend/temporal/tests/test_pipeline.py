@@ -60,7 +60,6 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     ReviewReplyOutput,
     SafetyFilterInput,
     SafetyFilterOutput,
-    SupportReplyDraft,
     SupportReplyInput,
     ValidateInput,
     ValidateOutput,
@@ -80,6 +79,7 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.tasks.backend.facade.agents import EmptyAgentTurnError
 
 
 @pytest.fixture
@@ -1983,6 +1983,9 @@ class TestUtilityCallsUseStructuredOutput:
         assert fmt["schema"]["additionalProperties"] is False
 
 
+_OK_DRAFT_JSON = '{"reply": "ok", "citations": [], "confidence": 0.0, "sources": [], "verdict": "answerable"}'
+
+
 def _mock_gateway_client(text: str) -> MagicMock:
     """Build a mock Anthropic gateway client whose messages.create returns `text`."""
     block = MagicMock()
@@ -2048,14 +2051,13 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(DraftInput(team_id=1, ticket_context=injection, chunk_ids=[]))
 
@@ -2073,22 +2075,18 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            captured["output_schema"] = kwargs["output_schema"]
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
 
-        schema = captured["output_schema"]
-        assert schema["additionalProperties"] is False
-        assert schema["properties"]["confidence"]["type"] == "number"
         prompt = captured["prompt"]
+        assert "Do not end the turn while a tool or search is still running" in prompt
         assert "PLAN first" in prompt
         assert "blocked_on_customer" in prompt
         assert "blocked_on_knowledge" in prompt
@@ -2103,14 +2101,13 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2124,6 +2121,79 @@ class TestUntrustedTicketGuard:
         assert "FOLLOW-UP:" in captured["prompt"]
         assert "Do not set verdict=blocked_on_customer" in captured["prompt"]
         assert "If a fact you need can only come from the customer" not in captured["prompt"]
+
+
+class TestDraftWithoutJson:
+    @parameterized.expand(
+        [
+            ("nudge_returns_json", "I'll wait for the background search", _OK_DRAFT_JSON, "ok", "answerable"),
+            ("nudge_still_prose", "I'll wait for the background search", "still waiting", "", "blocked_on_knowledge"),
+            (
+                "nudge_empty",
+                "",
+                EmptyAgentTurnError("empty", total_lines=1, printed_lines=0),
+                "",
+                "blocked_on_knowledge",
+            ),
+            ("nudge_crash", "I'll wait", RuntimeError("Agent server crashed"), "", "blocked_on_knowledge"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_recovers_or_blocks_instead_of_failing(
+        self, _name: str, first_text: str, followup: object, expected_reply: str, expected_verdict: str
+    ) -> None:
+        session = MagicMock()
+        session.end = AsyncMock()
+        if isinstance(followup, Exception):
+            session.send_followup_raw = AsyncMock(side_effect=followup)
+        else:
+            session.send_followup_raw = AsyncMock(return_value=followup)
+
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(return_value=(session, first_text))),
+        ):
+            output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+
+        assert (output.reply, output.verdict) == (expected_reply, expected_verdict)
+        session.send_followup_raw.assert_awaited_once()
+        session.end.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            ("empty_first_turn", EmptyAgentTurnError("empty", total_lines=1, printed_lines=0), 1),
+            ("agent_crash_last_attempt", RuntimeError("Agent server crashed: Internal error"), 2),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_failed_first_turn_returns_blocked_draft(self, _name: str, error: Exception, attempt: int) -> None:
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=attempt),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=error)),
+        ):
+            output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+
+        assert (output.verdict, output.confidence, output.task_run_id) == ("blocked_on_knowledge", 0.0, "")
+
+    @pytest.mark.asyncio
+    async def test_agent_crash_before_last_attempt_is_retried(self) -> None:
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=1),
+            patch(
+                f"{DRAFT_MODULE}.MultiTurnSession.start_raw",
+                new=AsyncMock(side_effect=RuntimeError("Agent server crashed: Internal error")),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Agent server crashed"):
+                await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
 
 
 class TestDiagnosticScopes:
@@ -2147,14 +2217,13 @@ class TestDiagnosticScopes:
             captured["prompt"] = prompt
             captured["scopes"] = context.posthog_mcp_scopes
             captured["exclude_tools"] = context.mcp_exclude_tools
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2322,14 +2391,13 @@ class TestDiagnosticScopes:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
