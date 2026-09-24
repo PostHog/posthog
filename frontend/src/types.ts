@@ -2643,6 +2643,7 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     derived_name?: string | null
     description?: string
     favorited?: boolean
+    /** @deprecated Legacy insight ordering. Does not control dashboard tile order or default insight list order. */
     order: number | null
     result: any
     /** Result column names, served alongside `result`. SQL insights draw from these. */

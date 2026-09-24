@@ -72,6 +72,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     filters_hash = models.CharField(max_length=400, null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
     query_metadata = models.JSONField(null=True, blank=True)
+    # DEPRECATED: legacy insight ordering; dashboard tiles have their own layout order.
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     # DEPRECATED: legacy field from a removed history feature. Retained to filter out old saved=False records.

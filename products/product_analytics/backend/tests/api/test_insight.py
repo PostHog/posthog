@@ -72,6 +72,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile, Tex
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 # What "insight created"/"insight updated" report for a single-event trends query.
 PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
@@ -1034,6 +1035,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert result_ids.index(newer.id) < result_ids.index(older.id), (
             "the default list order must be newest-modified first, not the vestigial `order` column"
         )
+
+    def test_legacy_order_field_is_deprecated_but_writable(self):
+        field = InsightSerializer().fields["order"]
+
+        assert "DEPRECATED" in field.help_text
+        assert not field.read_only
+        assert field.run_validation(3) == 3
 
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):

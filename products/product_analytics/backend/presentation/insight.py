@@ -644,6 +644,11 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "is_cached",
         )
+        extra_kwargs = {
+            "order": {
+                "help_text": "DEPRECATED. Legacy insight ordering field. It does not control dashboard tile order or the default insight list order."
+            }
+        }
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
