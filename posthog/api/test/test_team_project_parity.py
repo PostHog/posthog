@@ -4,7 +4,8 @@ from rest_framework import viewsets
 
 from posthog.api.project import ProjectBackwardCompatSerializer, ProjectViewSet
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer, TeamBasicSerializer
-from posthog.api.team import TeamSerializer, TeamViewSet
+from posthog.api.team.team_serializer import TeamSerializer
+from posthog.api.team.viewsets import TeamViewSet
 
 # /api/projects/ (Project model) is the canonical surface; /api/environments/ (Team model) is the
 # backward-compat alias, now served through /api/projects/ by an in-process path rewrite

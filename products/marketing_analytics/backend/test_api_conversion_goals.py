@@ -9,7 +9,7 @@ from django.db import close_old_connections, connection, transaction
 
 from parameterized import parameterized
 
-from posthog.api.team import TeamMarketingAnalyticsConfigSerializer
+from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
