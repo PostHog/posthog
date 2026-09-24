@@ -5,6 +5,7 @@ import type { DashboardBasicApi } from '@posthog/products-dashboards/frontend/ge
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
@@ -172,5 +173,64 @@ describe('aiFirstHomepageLogic', () => {
         })
         await expectLogic(logic).delay(1).toMatchValues({ mode: 'ai' })
         expect(maxLogic({ panelId: HOMEPAGE_TAB_ID }).values.conversationId).toEqual('conv-1')
+    })
+
+    it('suggests continuing the newest web sandbox task when it is newer than the last conversation', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/conversations/': {
+                    results: [
+                        {
+                            id: 'conv-1',
+                            title: 'Retention dip investigation',
+                            type: 'assistant',
+                            status: 'idle',
+                            created_at: '2026-01-01T00:00:00Z',
+                            updated_at: '2026-01-01T00:00:00Z',
+                        },
+                    ],
+                },
+                '/api/projects/:team_id/tasks/': {
+                    results: [
+                        {
+                            id: 'task-1',
+                            slug: 'TASK-1',
+                            title: 'Find semantic layer users',
+                            origin_product: 'posthog_ai',
+                            last_activity_at: '2026-02-01T00:00:00Z',
+                        },
+                    ],
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
+        logic.unmount()
+        logic = aiFirstHomepageLogic()
+        logic.mount()
+        maxGlobalLogic.actions.loadConversationHistory()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ latestWebTaskLoading: false })
+        await expectLogic(maxGlobalLogic).toFinishAllListeners()
+
+        expect(logic.values.suggestionItems[0]).toMatchObject({ source: 'continue', taskId: 'task-1' })
+    })
+
+    it('activating a continue suggestion for a sandbox task opens that task on /ai', async () => {
+        router.actions.push(urls.projectHomepage())
+
+        logic.actions.activateGridItem({
+            id: 'suggestion-continue-task-1',
+            label: 'Continue your last conversation',
+            kind: 'suggestion',
+            source: 'continue',
+            taskId: 'task-1',
+        })
+        await expectLogic(logic).delay(1)
+
+        expect(router.values.location.pathname).toEqual('/project/997/ai')
+        expect(router.values.searchParams.task).toEqual('task-1')
+        expect(logic.values.mode).toEqual('idle')
     })
 })
