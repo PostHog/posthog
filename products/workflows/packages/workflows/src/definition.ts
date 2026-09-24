@@ -1,5 +1,7 @@
 // The create/update body that POST/PATCH /api/projects/{id}/hog_flows/ accepts.
 
+import type { PassThroughActionConfig } from './steps.js'
+
 /**
  * A wait, written as a number and a unit: `s`, `m`, `h` or `d`.
  *
@@ -126,7 +128,10 @@ export interface TriggerActionOptions {
     readonly description?: string
 }
 
-export type TriggerAuthoringConfig = TriggerConfig & {
+/**
+ * A trigger config as a file writes it, before emit resolves each `secret` in `inputs`.
+ */
+export type TriggerAuthoringConfig = (TriggerConfig | ({ readonly type: string } & PassThroughActionConfig)) & {
     readonly __workflowTriggerName?: string
     readonly __workflowTriggerDescription?: string
 }

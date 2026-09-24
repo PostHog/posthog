@@ -14,15 +14,17 @@ import type {
     JsonValue,
     StepFilters,
     TriggerAuthoringConfig,
+    TriggerConfig,
     WorkflowDefinition,
     WorkflowStatus,
     WorkflowVariable,
 } from './definition.js'
 import { WorkflowError } from './errors.js'
-import { isSecretRef, type Path, type Step } from './steps.js'
+import { isSecretRef, type PassThroughActionConfig, type Path, type SecretRef, type Step } from './steps.js'
 
 /** The trigger and the exit carry no author-written name, so their ids are fixed. */
 const TRIGGER_ID = 'trigger_node'
+const TRIGGER_OWNER = 'The trigger'
 const EXIT_ID = 'exit_node'
 const RESERVED_IDS = new Set([TRIGGER_ID, EXIT_ID])
 
@@ -363,14 +365,18 @@ function secretPath(value: unknown, seen = new Set<unknown>()): string[] | undef
     return undefined
 }
 
+function stepOwner(step: { readonly name: string }): string {
+    return `Step "${step.name}"`
+}
+
 // A secret inside a value would reach PostHog as the name of the variable, not its value.
-function refuseNestedSecret(value: unknown, key: string, step: Step): void {
+function refuseNestedSecret(value: unknown, key: string, owner: string): void {
     if (secretPath(value) === undefined) {
         return
     }
     throw new WorkflowError({
         status: 'nested_secret',
-        message: `Step "${step.name}" puts a secret inside "${key}".`,
+        message: `${owner} puts a secret inside "${key}".`,
         why: 'Only a whole input can be a secret. Inside a value the name of the environment variable, not its value, would reach PostHog.',
         fix: `Pass secret('NAME') as the value of "${key}" itself, or move that part of the value into its own input.`,
     })
@@ -384,7 +390,7 @@ function refuseUnresolvedSecret(action: Action): void {
     const where = at.join('.')
     throw new WorkflowError({
         status: 'nested_secret',
-        message: `${action.type === 'trigger' ? 'The trigger' : `Step "${action.name}"`} puts a secret at "${where}".`,
+        message: `${action.type === 'trigger' ? TRIGGER_OWNER : stepOwner(action)} puts a secret at "${where}".`,
         why: 'Only a whole entry of inputs can be a secret. Anywhere else the name of the environment variable, not its value, would reach PostHog, and PostHog would store it as plain config.',
         fix: `Remove the secret from "${where}". If the value is a credential, pass secret('NAME') as a whole entry of inputs instead.`,
     })
@@ -397,25 +403,29 @@ interface Context {
     readonly env: Readonly<Record<string, string | undefined>>
 }
 
+function resolveSecret(raw: SecretRef, key: string, owner: string, actionId: string, context: Context): string {
+    const value = context.env[raw.__secret]
+    if (value === undefined || value === '') {
+        throw new WorkflowError({
+            status: 'missing_secret',
+            message: `The environment variable ${raw.__secret} is not set or is empty.`,
+            why: `${owner} names ${raw.__secret} for the secret input "${key}". A secret is always sent rather than read back from PostHog, so there is nothing to send.`,
+            fix: `Set ${raw.__secret} in the environment that runs the push, then push again.`,
+        })
+    }
+    context.secretInputs.push({ actionId, inputKey: key, envName: raw.__secret })
+    return value
+}
+
 function resolveInputs(step: Step & { kind: 'function' }, actionId: string, context: Context): FunctionInputs {
     const resolved: Record<string, { value: JsonValue }> = {}
     for (const [key, raw] of Object.entries(step.inputs)) {
         if (!isSecretRef(raw)) {
-            refuseNestedSecret(raw, key, step)
+            refuseNestedSecret(raw, key, stepOwner(step))
             resolved[key] = { value: raw }
             continue
         }
-        const value = context.env[raw.__secret]
-        if (value === undefined || value === '') {
-            throw new WorkflowError({
-                status: 'missing_secret',
-                message: `The environment variable ${raw.__secret} is not set or is empty.`,
-                why: `Step "${step.name}" names ${raw.__secret} for the secret input "${key}". A secret is always sent rather than read back from PostHog, so there is nothing to send.`,
-                fix: `Set ${raw.__secret} in the environment that runs the push, then push again.`,
-            })
-        }
-        resolved[key] = { value }
-        context.secretInputs.push({ actionId, inputKey: key, envName: raw.__secret })
+        resolved[key] = { value: resolveSecret(raw, key, stepOwner(step), actionId, context) }
     }
     return resolved
 }
@@ -508,42 +518,33 @@ function optionalActionFields(step: Step): {
     }
 }
 
-function resolvePassThroughConfig(
-    step: Step & { kind: 'passthrough' },
+function resolveConfigInputs(
+    config: PassThroughActionConfig,
+    owner: string,
     actionId: string,
     context: Context
 ): JsonObject {
-    if (!Object.hasOwn(step.config, 'inputs')) {
-        return step.config as JsonObject
+    if (!Object.hasOwn(config, 'inputs')) {
+        return config as JsonObject
     }
 
-    const inputs = step.config.inputs
+    const inputs = config.inputs
     if (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs)) {
-        refuseNestedSecret(inputs, 'inputs', step)
-        return step.config as JsonObject
+        refuseNestedSecret(inputs, 'inputs', owner)
+        return config as JsonObject
     }
 
     const resolvedInputs: Record<string, JsonValue> = {}
     for (const [key, raw] of Object.entries(inputs)) {
         if (!isSecretRef(raw)) {
-            refuseNestedSecret(raw, key, step)
+            refuseNestedSecret(raw, key, owner)
             resolvedInputs[key] = raw
             continue
         }
-        const value = context.env[raw.__secret]
-        if (value === undefined || value === '') {
-            throw new WorkflowError({
-                status: 'missing_secret',
-                message: `The environment variable ${raw.__secret} is not set or is empty.`,
-                why: `Step "${step.name}" names ${raw.__secret} for the secret input "${key}". A secret is always sent rather than read back from PostHog, so there is nothing to send.`,
-                fix: `Set ${raw.__secret} in the environment that runs the push, then push again.`,
-            })
-        }
-        resolvedInputs[key] = { value }
-        context.secretInputs.push({ actionId, inputKey: key, envName: raw.__secret })
+        resolvedInputs[key] = { value: resolveSecret(raw, key, owner, actionId, context) }
     }
 
-    return { ...step.config, inputs: resolvedInputs }
+    return { ...config, inputs: resolvedInputs }
 }
 
 // Returns the id of the path's first node, which the caller needs for the edge into it.
@@ -579,7 +580,7 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
 
         if (step.kind === 'email') {
             // `template-email` has no secret input, so a secret here can only be a mistake.
-            refuseNestedSecret(step.email, 'the email', step)
+            refuseNestedSecret(step.email, 'the email', stepOwner(step))
             checkSender(step.email.from, step)
             context.actions.push({
                 id,
@@ -611,7 +612,7 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
                 ...descriptionOf(step),
                 ...optionalActionFields(step),
                 type: step.type,
-                config: resolvePassThroughConfig(step, id, context),
+                config: resolveConfigInputs(step.config, stepOwner(step), id, context),
             } as Action)
         }
         // The fall-through edge is the no-match path out of the branch.
@@ -670,17 +671,22 @@ export function compile(options: CompileOptions, emitOptions: EmitOptions = {}):
         env: emitOptions.env ?? process.env,
     }
 
-    const placements = place(options.steps, new Ids(), false)
-    const entry = emitPath(placements, EXIT_ID, context)
-
     const { __workflowTriggerName, __workflowTriggerDescription, ...triggerConfig } = options.trigger
-    context.actions.unshift({
+    context.actions.push({
         id: TRIGGER_ID,
         name: __workflowTriggerName ?? 'Trigger',
         ...(__workflowTriggerDescription === undefined ? {} : { description: __workflowTriggerDescription }),
         type: 'trigger',
-        config: triggerConfig,
+        config: resolveConfigInputs(
+            triggerConfig as PassThroughActionConfig,
+            TRIGGER_OWNER,
+            TRIGGER_ID,
+            context
+        ) as TriggerConfig,
     })
+
+    const placements = place(options.steps, new Ids(), false)
+    const entry = emitPath(placements, EXIT_ID, context)
     context.edges.unshift({ from: TRIGGER_ID, to: entry, type: 'continue' })
     context.actions.push({
         id: EXIT_ID,

@@ -19,7 +19,7 @@ declare const secretRefBrand: unique symbol
  * A named environment variable, standing in for a value the repository must not hold.
  *
  * Build one with `secret`. Pass it as the value of a whole input of `fn`, as a whole
- * entry of `config.inputs` on `step`, or as `signingSecret` on `webhook`. `emit` reads
+ * entry of `config.inputs` on `step` or `trigger`, or as `signingSecret` on `webhook`. `emit` reads
  * the variable and sends the value, so PostHog never has to recover a secret it was not
  * sent. The type is branded, so a JSON-only field does not accept one.
  */
@@ -29,7 +29,7 @@ export interface SecretRef {
 }
 
 /**
- * Names an environment variable to read at emit, for one input of one step.
+ * Names an environment variable to read at emit, for one input of one step or trigger.
  *
  * The name travels in the source file and the value never does. `emit` reads the
  * variable from the deployer's environment and always sends the resolved value, so a
@@ -37,7 +37,7 @@ export interface SecretRef {
  * input. A secret anywhere else is a refusal, because only the name of the variable
  * would reach PostHog, stored as plain config. That covers a secret inside a larger
  * value, in a pass-through config key other than `inputs`, in `filters` or
- * `output_variable`, and in a trigger's config.
+ * `output_variable`, and in a trigger's config outside `inputs`.
  *
  * @param envName - The environment variable to read, for example `CRM_WEBHOOK_SECRET`.
  * @returns A secret reference to use as an input value.

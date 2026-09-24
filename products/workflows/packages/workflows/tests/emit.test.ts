@@ -413,7 +413,7 @@ describe('@posthog/workflows', () => {
         })
     })
 
-    test('emits a pass-through trigger as the trigger action config', () => {
+    test('emits a pass-through trigger as the trigger action config, with its secret input resolved', () => {
         const flow = workflow({
             key: 'webhook-trigger',
             name: 'Webhook trigger',
@@ -423,13 +423,16 @@ describe('@posthog/workflows', () => {
                 inputs: {
                     event: { value: '{request.body.event}' },
                     distinct_id: { value: '{request.body.distinct_id}' },
+                    auth_header: secret('CRM_TOKEN'),
                 },
             }),
             steps: path(delay('1d', { name: 'Wait' })),
             exit: { reason: 'Done' },
         })
 
-        assert.deepStrictEqual(action(flow.emit().definition.actions, 'trigger_node'), {
+        const { definition, secretInputs } = flow.emit({ env })
+
+        assert.deepStrictEqual(action(definition.actions, 'trigger_node'), {
             id: 'trigger_node',
             name: 'Trigger',
             type: 'trigger',
@@ -439,9 +442,14 @@ describe('@posthog/workflows', () => {
                 inputs: {
                     event: { value: '{request.body.event}' },
                     distinct_id: { value: '{request.body.distinct_id}' },
+                    auth_header: { value: 'shhh' },
                 },
             },
         })
+        assert.ok(!JSON.stringify(definition).includes('CRM_TOKEN'))
+        assert.deepStrictEqual(secretInputs, [
+            { actionId: 'trigger_node', inputKey: 'auth_header', envName: 'CRM_TOKEN' },
+        ])
     })
 
     test('emits trigger and exit names and descriptions when set', () => {

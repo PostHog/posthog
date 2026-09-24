@@ -65,7 +65,7 @@ Each rule is stated in full in the JSDoc of the symbol that owns it, which your 
 - **Edges come from placement**, including the branch indexes. See `branch`.
 - **A sub-path takes at least one step.** See `Path`.
 - **PostHog owns the status unless the file sets it.** A new workflow starts as a draft because that is the PostHog model default. See `WorkflowOptions.status`.
-- **A secret is named in the file and resolved at emit.** Pass `secret('NAME')` as a whole input of `fn`, a whole entry of `config.inputs` on `step`, or `signingSecret` on `webhook`. A secret anywhere else, including inside a larger value, is refused before anything is sent, because only the variable name would reach PostHog. See `secret`.
+- **A secret is named in the file and resolved at emit.** Pass `secret('NAME')` as a whole input of `fn`, a whole entry of `config.inputs` on `step` or `trigger`, or `signingSecret` on `webhook`. A secret anywhere else, including inside a larger value, is refused before anything is sent, because only the variable name would reach PostHog. See `secret`.
 - **Every refusal carries `status`, `message`, `why` and `fix`.** See `WorkflowError`, and each function's `@throws` for the statuses it can produce.
 
 ## v1 surface

@@ -140,6 +140,10 @@ step({
     config: { template_id: 'template-twilio', auth: { token: secret('SMS_TOKEN') } },
 })
 
+trigger({ type: 'webhook', inputs: { auth_header: secret('WEBHOOK_AUTH') } })
+// @ts-expect-error - a secret is accepted only as a whole entry of config.inputs
+trigger({ type: 'webhook', auth: { header: secret('WEBHOOK_AUTH') } })
+
 workflow({
     key: 'manual-start',
     name: 'Manual start',

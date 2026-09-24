@@ -1,10 +1,5 @@
-import type {
-    JsonObject,
-    PropertyCondition,
-    TriggerActionOptions,
-    TriggerAuthoringConfig,
-    TriggerConfig,
-} from './definition.js'
+import type { PropertyCondition, TriggerActionOptions, TriggerAuthoringConfig } from './definition.js'
+import type { PassThroughActionConfig, SecretInputsOnly } from './steps.js'
 
 /**
  * A trigger that starts a run for each matching event, emitted as the trigger action's
@@ -57,7 +52,7 @@ export function onEvent(options: {
     })
 }
 
-function withTriggerMeta(options: TriggerActionOptions, config: TriggerConfig): TriggerAuthoringConfig {
+function withTriggerMeta(options: TriggerActionOptions, config: TriggerAuthoringConfig): TriggerAuthoringConfig {
     return Object.freeze({
         ...config,
         ...(options.name === undefined ? {} : { __workflowTriggerName: options.name }),
@@ -116,14 +111,22 @@ export function onSchedule(options: TriggerActionOptions = {}): TriggerAuthoring
  * trigger action's `config`. For webhook triggers, include the fixed source template id
  * the editor stores.
  *
+ * A `secret` passed as a whole entry of `config.inputs` resolves the same way it does for
+ * `step`: emit sends `{ value: <resolved> }` and reports the input as a secret input of
+ * the trigger action. Use it for a credential such as a webhook trigger's auth header. A
+ * secret anywhere else in the config is a refusal.
+ *
  * @param config - The trigger config to emit.
  * @param options - The trigger action label and description.
  * @param options.name - The trigger action label. Defaults to `Trigger`.
  * @param options.description - What starts the workflow, shown on the trigger in the editor.
  * @returns A trigger config to pass as a workflow's `on`.
+ * @throws {WorkflowError} At emit, `missing_secret` when a whole input names an unset
+ * variable, and `nested_secret` when a secret sits anywhere but a whole entry of
+ * `config.inputs`.
  * @example
  * ```ts
- * import { trigger } from '@posthog/workflows'
+ * import { secret, trigger } from '@posthog/workflows'
  *
  * const startsFromWebhook = trigger({
  *     type: 'webhook',
@@ -131,12 +134,13 @@ export function onSchedule(options: TriggerActionOptions = {}): TriggerAuthoring
  *     inputs: {
  *         event: { value: '{request.body.event}' },
  *         distinct_id: { value: '{request.body.distinct_id}' },
+ *         auth_header: secret('INCOMING_WEBHOOK_AUTH'),
  *     },
  * })
  * ```
  */
-export function trigger(
-    config: TriggerConfig & JsonObject,
+export function trigger<C extends { readonly type: string } & PassThroughActionConfig>(
+    config: C & SecretInputsOnly<C>,
     options: TriggerActionOptions = {}
 ): TriggerAuthoringConfig {
     return withTriggerMeta(options, config)
