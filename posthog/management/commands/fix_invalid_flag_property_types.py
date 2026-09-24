@@ -59,7 +59,7 @@ class Command(BaseCommand):
                 continue
             filters = copy.deepcopy(flag.filters or {})
             groups = filters.get("groups") or []
-            modified = False
+            flag_fixed = 0
 
             for group_idx, group in enumerate(groups):
                 properties = (group.get("properties") or []) if isinstance(group, dict) else []
@@ -73,8 +73,7 @@ class Command(BaseCommand):
                                 f"{label}: group[{group_idx}].properties[{prop_idx}].type '{prop_type}' -> '{new_type}'"
                             )
                             prop["type"] = new_type
-                            modified = True
-                            fixed_count += 1
+                            flag_fixed += 1
                         else:
                             self.stdout.write(
                                 self.style.WARNING(
@@ -83,13 +82,15 @@ class Command(BaseCommand):
                             )
                             unfixable_count += 1
 
-            if modified and live_run:
+            if live_run and flag_fixed:
                 # Compare-and-swap on the scanned document: a row edited since the scan keeps its new value.
                 if FeatureFlag.objects.filter(pk=flag.pk, filters=flag.filters).update(filters=filters):
                     saved_count += 1
                 else:
                     self.stdout.write(self.style.WARNING(f"{label}: changed during the run, not saved"))
                     skipped_count += 1
+                    flag_fixed = 0
+            fixed_count += flag_fixed
 
         if live_run:
             self.stdout.write(self.style.SUCCESS(f"  Saved {saved_count} flags"))
