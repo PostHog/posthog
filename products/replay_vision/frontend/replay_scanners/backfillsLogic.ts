@@ -242,6 +242,7 @@ export const backfillsLogic = kea<backfillsLogicType>([
                     await visionScannersBackfillsCreate(String(teamId), props.scannerId, {
                         window_start: windowStart,
                         window_end: windowEnd,
+                        max_total_credits: values.estimate?.total_credits ?? 0,
                     })
                     lemonToast.success('Backfill started')
                     actions.loadBackfills()

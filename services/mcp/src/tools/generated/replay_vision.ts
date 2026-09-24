@@ -682,6 +682,9 @@ const visionScannersBackfillsCreate = (): ToolBase<
         if (params.window_end !== undefined) {
             body['window_end'] = params.window_end
         }
+        if (params.max_total_credits !== undefined) {
+            body['max_total_credits'] = params.max_total_credits
+        }
         const result = await context.api.request<Schemas.ReplayScannerBackfill>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/backfills/`,
@@ -1462,6 +1465,9 @@ const visionScannersScoutsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersScoutsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }

@@ -32,15 +32,6 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
         # Scout suggestions are a Signals surface; a scanner scout never comes from one, so the
         # field would only be accepted here to be ignored.
         fields.pop("suggestion_id", None)
-        # `create_scout_for_source` takes an explicit name and no label, so there is no slug to derive.
-        fields.pop("display_name", None)
-        fields["name"].required = True
-        fields["name"].help_text = (
-            "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens. The "
-            "`signals-scout-` prefix is optional. Repeating a create with this scanner's scout name and the same "
-            "description and body returns that scout with the new config; any other reuse of a taken name "
-            "is a conflict."
-        )
         return fields
 
 
@@ -111,7 +102,8 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         result = signals_facade.create_scout_for_source(
             team=canonical_team,
             user=request.user,
-            name=validated["name"],
+            name=validated.get("name"),
+            display_name=validated.get("display_name", ""),
             description=validated["description"],
             body=validated["body"],
             files=[],

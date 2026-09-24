@@ -393,6 +393,14 @@ class TestVisionAlertAccessControl(_VisionAlertAPITestCase):
         )
         assert response.status_code == 201, response.json()
 
+        self._sync_destination_templates()
+        destinations_url = f"{self.base_url}{response.json()['id']}/destinations/"
+        webhook = {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        response = self.client.post(destinations_url, webhook, format="json", HTTP_AUTHORIZATION=f"Bearer {write_only}")
+        assert response.status_code == 403, response.json()
+        response = self.client.post(destinations_url, webhook, format="json", HTTP_AUTHORIZATION=f"Bearer {full}")
+        assert response.status_code == 201, response.json()
+
 
 class TestVisionAlertActivityLogging(_VisionAlertAPITestCase):
     def _logs(self, alert_id: str) -> list[ActivityLog]:

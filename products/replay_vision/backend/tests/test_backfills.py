@@ -630,7 +630,16 @@ class TestBackfillsApi(APIBaseTest):
         # rather than the microseconds between scanner creation and this request.
         self.scanner.last_swept_at = timezone.now() - dt.timedelta(days=2)
         self.scanner.save(update_fields=["last_swept_at"])
-        response = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
+        cost = 7 * observation_credits_for_model(self.scanner.model)
+        response = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": cost - 1}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+        assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
+
+        response = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": cost}, format="json"
+        )
         assert response.status_code == 201, response.json()
         body = response.json()
         assert body["total_count"] == 7
@@ -645,7 +654,9 @@ class TestBackfillsApi(APIBaseTest):
         assert backfill.credits_per_observation > 0
         assert mock_upsert.await_count == 1
 
-        response = self.client.post(f"{self.base_url}/", self._window_body(), format="json")
+        response = self.client.post(
+            f"{self.base_url}/", {**self._window_body(), "max_total_credits": cost}, format="json"
+        )
         assert response.status_code == 400
         assert "active backfill" in response.json()["detail"]
 

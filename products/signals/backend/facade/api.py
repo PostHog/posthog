@@ -881,7 +881,8 @@ def create_scout_for_source(
     *,
     team: "Team",
     user: Any,
-    name: str,
+    name: str | None,
+    display_name: str = "",
     description: str,
     body: str,
     files: list[Any],
@@ -898,26 +899,30 @@ def create_scout_for_source(
     the pair is not settable through the public scout API precisely because Signals cannot make that
     check for an object it knows nothing about. Imported here rather than defined here because the
     creation flow lives with the private helpers it shares with the scout create endpoint.
+
+    With no `name`, the slug is derived from `display_name` the way the public endpoint derives it.
     """
     # Imported inside the call to keep the view module (and the whole API surface it imports) off the
     # facade's import path, which Celery workers and management commands also load.
     from products.signals.backend.scout_harness.views import (  # noqa: PLC0415 — keeps the API surface off the import path
         create_scout_for_source as _create,
+        create_scout_with_generated_slug,
     )
 
-    outcome = _create(
-        team=team,
-        user=user,
-        name=name,
-        description=description,
-        body=body,
-        files=files,
-        config_options=config_options,
-        request=request,
-        serializer_context=serializer_context,
-        source_product=source_product,
-        source_id=source_id,
-    )
+    definition: dict[str, Any] = {
+        "team": team,
+        "user": user,
+        "display_name": display_name,
+        "description": description,
+        "body": body,
+        "files": files,
+        "config_options": config_options,
+        "request": request,
+        "serializer_context": serializer_context,
+        "source_product": source_product,
+        "source_id": source_id,
+    }
+    outcome = _create(name=name, **definition) if name else create_scout_with_generated_slug(**definition)
     return ScoutCreated(skill=outcome.skill, config=outcome.config, created=outcome.created)
 
 

@@ -574,7 +574,13 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: VisionAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["vision_alert:write"])
+    # Method-level required_scopes wins over dangerously_get_required_scopes, so repeat the recording scope here.
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="destinations",
+        required_scopes=["vision_alert:write", "session_recording:read"],
+    )
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = VisionAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

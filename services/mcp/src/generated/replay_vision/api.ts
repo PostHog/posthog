@@ -1230,6 +1230,8 @@ export const VisionScannersBackfillsCreateParams = () => zod.object({
     scanner_id: zod.string(),
 })
 
+export const visionScannersBackfillsCreateBodyMaxTotalCreditsMin = 0
+
 export const VisionScannersBackfillsCreateBody = () => zod.object({
     window_start: zod.iso
         .datetime({ offset: true })
@@ -1237,6 +1239,12 @@ export const VisionScannersBackfillsCreateBody = () => zod.object({
     window_end: zod.iso
         .datetime({ offset: true })
         .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+    max_total_credits: zod
+        .number()
+        .min(visionScannersBackfillsCreateBodyMaxTotalCreditsMin)
+        .describe(
+            'The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.'
+        ),
 })
 
 /**
@@ -1633,6 +1641,8 @@ export const VisionScannersScoutsCreateParams = () => zod.object({
     scanner_id: zod.string(),
 })
 
+export const visionScannersScoutsCreateBodyDisplayNameMax = 200
+
 export const visionScannersScoutsCreateBodyNameMax = 64
 
 export const visionScannersScoutsCreateBodyDescriptionMax = 1024
@@ -1666,11 +1676,19 @@ export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const VisionScannersScoutsCreateBody = () => zod
     .object({
+        display_name: zod
+            .string()
+            .max(visionScannersScoutsCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
+            .optional()
             .describe(
-                "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional. Repeating a create with this scanner's scout name and the same description and body returns that scout with the new config; any other reuse of a taken name is a conflict."
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
