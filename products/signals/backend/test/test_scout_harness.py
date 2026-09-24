@@ -1095,6 +1095,7 @@ class TestPromptBuilder(BaseTest):
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).
         assert "Authoring vs. editing: search the inbox first" in prompt
+        assert "edit_report(mark_addressed=true" in prompt
         assert "inbox-reports-list" in prompt
         assert "Suggested reviewers route the report" in prompt
         assert "suggested_reviewers" in prompt

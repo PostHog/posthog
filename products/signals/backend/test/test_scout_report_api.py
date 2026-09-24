@@ -1963,6 +1963,37 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
 
+    def test_addressed_edit_event_is_distinct_and_reports_the_transition(self) -> None:
+        run = _make_run(self.team)
+        report_id = str(uuid4())
+        note_result = EditReportResult(report_id=report_id, updated_fields=[], note_appended=True)
+        addressed_result = EditReportResult(
+            report_id=report_id, updated_fields=[], note_appended=True, addressed_marked=True
+        )
+
+        with patch(CAPTURE_PATH):
+            note = _capture_report_edited(
+                team=self.team,
+                run=run,
+                result=note_result,
+                title=None,
+                summary=None,
+                note="verified",
+            )
+            addressed = _capture_report_edited(
+                team=self.team,
+                run=run,
+                result=addressed_result,
+                title=None,
+                summary=None,
+                note="verified",
+            )
+
+        assert note is not None
+        assert addressed is not None
+        assert note.event_uuid != addressed.event_uuid
+        assert addressed.properties["addressed_marked"] is True
+
     def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
         # Classification must ride both lifecycle events: stamped from the authored title on emit, and
         # resolved from the *stored* report title on a note-only edit (the payload carries no title) —

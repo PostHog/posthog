@@ -314,6 +314,7 @@ class EditReportResult:
             bool(
                 self.updated_fields
                 or self.note_appended
+                or self.addressed_marked
                 or self.reviewers_set
                 or self.repository_set
                 or self.evidence_appended
@@ -1343,6 +1344,7 @@ def _capture_report_edited(
         "report_id": result.report_id,
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
+        "addressed_marked": result.addressed_marked,
         "evidence_appended": result.evidence_appended,
         "reviewers_set": result.reviewers_set,
         "repository_set": result.repository_set,
@@ -1383,6 +1385,8 @@ def _capture_report_edited(
     # otherwise hash identically and ingestion would collapse the later routing change; key on the
     # reviewer identity too (only when reviewers were set, so non-reviewer edits keep their existing uuid).
     parts: list[object] = ["edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note]
+    if result.addressed_marked:
+        parts.append("addressed_marked:true")
     if result.reviewers_set and suggested_reviewers:
         parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
     # Evidence is a valid sole input too, so two evidence-only edits to one report in a run share
@@ -1973,7 +1977,15 @@ def _do_edit_report(
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     evidence_appended = len(evidence_document_ids)
     changed = (
-        bool(updated_fields or note_appended or reviewers_set or repository_set or evidence_appended or links_appended)
+        bool(
+            updated_fields
+            or note_appended
+            or addressed_marked
+            or reviewers_set
+            or repository_set
+            or evidence_appended
+            or links_appended
+        )
         or charts_set is not None
         or metrics_set is not None
         or prompts_set is not None
