@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   deriveTaskData,
   deriveTaskRunState,
+  filterVisibleTasks,
   limitTasksPerGroup,
   narrowFullTask,
   type RunMode,
   readRunMode,
+  type SidebarTask,
   sliceVisibleTasks,
   type TaskSession,
 } from "./buildSidebarData";
@@ -38,6 +40,80 @@ function makeGroup(id: string, taskCount: number): TaskGroup {
     tasks: Array.from({ length: taskCount }, (_, i) => makeTask(`${id}-${i}`)),
   };
 }
+
+describe("filterVisibleTasks", () => {
+  const tasks: SidebarTask[] = [
+    {
+      id: "user-task",
+      title: "Review checkout",
+      origin_product: "user_created",
+    },
+    {
+      id: "report-task",
+      title: "Fix checkout",
+      origin_product: "signal_report",
+    },
+    {
+      id: "renamed-scout",
+      title: "Daily scan",
+      origin_product: "signals_scout",
+    },
+    {
+      id: "legacy-scout",
+      title: "[sandbox_prompt:signals_scout:example] Scan the project",
+    },
+    {
+      id: "plain-scout",
+      title: "[sandbox_prompt:signals_scout] Scan the project",
+    },
+    {
+      id: "archived-task",
+      title: "Archived task",
+      origin_product: "user_created",
+    },
+  ].map((task) => ({ ...task, created_at: "", updated_at: "" }));
+
+  it.each([
+    { name: "personal", showAllUsers: false, provisioning: false },
+    { name: "all-user", showAllUsers: true, provisioning: false },
+    { name: "provisioning", showAllUsers: false, provisioning: true },
+  ])(
+    "keeps scout runs out of the $name list",
+    ({ showAllUsers, provisioning }) => {
+      const ids = new Set(tasks.map((task) => task.id));
+      const result = filterVisibleTasks(tasks, {
+        archivedIds: new Set(["archived-task"]),
+        workspaceIds: !showAllUsers && !provisioning ? ids : new Set(),
+        provisioningIds: provisioning ? ids : new Set(),
+        showAllUsers,
+        showInternal: false,
+      });
+
+      expect(result.map((task) => task.id)).toEqual([
+        "user-task",
+        "report-task",
+      ]);
+    },
+  );
+
+  it("keeps scout runs available in the internal view", () => {
+    const result = filterVisibleTasks(tasks, {
+      archivedIds: new Set(["archived-task"]),
+      workspaceIds: new Set(),
+      provisioningIds: new Set(),
+      showAllUsers: false,
+      showInternal: true,
+    });
+
+    expect(result.map((task) => task.id)).toEqual([
+      "user-task",
+      "report-task",
+      "renamed-scout",
+      "legacy-scout",
+      "plain-scout",
+    ]);
+  });
+});
 
 describe("deriveTaskRunState", () => {
   it.each<

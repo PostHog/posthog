@@ -85,6 +85,10 @@ The sidebar shows startup only when a startup marker or a live session reports i
 The open chat can still show loading while it waits for its local connection.
 The shared lifecycle state must not treat an unopened task as an active startup.
 
+Normal sidebar lists exclude Signals scout execution tasks, including tasks already stored in local workspaces.
+The filter uses `origin_product` and the scout sandbox title marker for older task summaries that omit the origin.
+The internal-task view can still show these runs. Tasks created from reports remain visible.
+
 New cloud runs seed the full user message before subscribing to setup progress.
 The chat renders that message immediately, including its space context chip.
 Reopened transcripts reconcile the plain initial prompt with its context-bearing
