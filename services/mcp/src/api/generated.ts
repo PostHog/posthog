@@ -167,189 +167,6 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
-    /**
-     * * `account` - account
-     * * `action` - action
-     * * `activity_log` - activity_log
-     * * `ai_observability_clusters` - ai_observability_clusters
-     * * `customer_analytics` - customer_analytics
-     * * `customer_journey` - customer_journey
-     * * `customer_task` - customer_task
-     * * `dashboard` - dashboard
-     * * `dashboard_template` - dashboard_template
-     * * `data_catalog` - data_catalog
-     * * `dataset` - dataset
-     * * `early_access_feature` - early_access_feature
-     * * `endpoint` - endpoint
-     * * `error_tracking` - error_tracking
-     * * `evaluation` - evaluation
-     * * `experiment` - experiment
-     * * `experiment_holdout` - experiment_holdout
-     * * `experiment_saved_metric` - experiment_saved_metric
-     * * `export` - export
-     * * `external_data_source` - external_data_source
-     * * `feature_flag` - feature_flag
-     * * `heatmap` - heatmap
-     * * `hog_flow` - hog_flow
-     * * `insight` - insight
-     * * `llm_analytics` - llm_analytics
-     * * `llm_playground` - llm_playground
-     * * `llm_prompt` - llm_prompt
-     * * `llm_provider_key` - llm_provider_key
-     * * `llm_skill` - llm_skill
-     * * `logs` - logs
-     * * `marketing_analytics` - marketing_analytics
-     * * `mcp_analytics` - mcp_analytics
-     * * `metrics` - metrics
-     * * `notebook` - notebook
-     * * `project` - project
-     * * `property_definition` - property_definition
-     * * `replay_scanner` - replay_scanner
-     * * `revenue_analytics` - revenue_analytics
-     * * `session_recording` - session_recording
-     * * `session_recording_playlist` - session_recording_playlist
-     * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
-     * * `survey` - survey
-     * * `tagger` - tagger
-     * * `ticket` - ticket
-     * * `toolbar` - toolbar
-     * * `tracing` - tracing
-     * * `vision_alert` - vision_alert
-     * * `warehouse_objects` - warehouse_objects
-     * * `warehouse_table` - warehouse_table
-     * * `warehouse_view` - warehouse_view
-     * * `web_analytics` - web_analytics
-     */
-    export type RuleResourceEnum = typeof RuleResourceEnum[keyof typeof RuleResourceEnum];
-
-
-    export const RuleResourceEnum = {
-      Account: 'account',
-      Action: 'action',
-      ActivityLog: 'activity_log',
-      AiObservabilityClusters: 'ai_observability_clusters',
-      CustomerAnalytics: 'customer_analytics',
-      CustomerJourney: 'customer_journey',
-      CustomerTask: 'customer_task',
-      Dashboard: 'dashboard',
-      DashboardTemplate: 'dashboard_template',
-      DataCatalog: 'data_catalog',
-      Dataset: 'dataset',
-      EarlyAccessFeature: 'early_access_feature',
-      Endpoint: 'endpoint',
-      ErrorTracking: 'error_tracking',
-      Evaluation: 'evaluation',
-      Experiment: 'experiment',
-      ExperimentHoldout: 'experiment_holdout',
-      ExperimentSavedMetric: 'experiment_saved_metric',
-      Export: 'export',
-      ExternalDataSource: 'external_data_source',
-      FeatureFlag: 'feature_flag',
-      Heatmap: 'heatmap',
-      HogFlow: 'hog_flow',
-      Insight: 'insight',
-      LlmAnalytics: 'llm_analytics',
-      LlmPlayground: 'llm_playground',
-      LlmPrompt: 'llm_prompt',
-      LlmProviderKey: 'llm_provider_key',
-      LlmSkill: 'llm_skill',
-      Logs: 'logs',
-      MarketingAnalytics: 'marketing_analytics',
-      McpAnalytics: 'mcp_analytics',
-      Metrics: 'metrics',
-      Notebook: 'notebook',
-      Project: 'project',
-      PropertyDefinition: 'property_definition',
-      ReplayScanner: 'replay_scanner',
-      RevenueAnalytics: 'revenue_analytics',
-      SessionRecording: 'session_recording',
-      SessionRecordingPlaylist: 'session_recording_playlist',
-      SharingConfiguration: 'sharing_configuration',
-      Stamphog: 'stamphog',
-      Survey: 'survey',
-      Tagger: 'tagger',
-      Ticket: 'ticket',
-      Toolbar: 'toolbar',
-      Tracing: 'tracing',
-      VisionAlert: 'vision_alert',
-      WarehouseObjects: 'warehouse_objects',
-      WarehouseTable: 'warehouse_table',
-      WarehouseView: 'warehouse_view',
-      WebAnalytics: 'web_analytics',
-    } as const;
-
-    /**
-     * A rule for everyone in the project without a member or role rule of their own.
-     */
-    export interface AccessControlDefaultRuleRequest {
-      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
-       *
-       * * `account` - account
-       * * `action` - action
-       * * `activity_log` - activity_log
-       * * `ai_observability_clusters` - ai_observability_clusters
-       * * `customer_analytics` - customer_analytics
-       * * `customer_journey` - customer_journey
-       * * `customer_task` - customer_task
-       * * `dashboard` - dashboard
-       * * `dashboard_template` - dashboard_template
-       * * `data_catalog` - data_catalog
-       * * `dataset` - dataset
-       * * `early_access_feature` - early_access_feature
-       * * `endpoint` - endpoint
-       * * `error_tracking` - error_tracking
-       * * `evaluation` - evaluation
-       * * `experiment` - experiment
-       * * `experiment_holdout` - experiment_holdout
-       * * `experiment_saved_metric` - experiment_saved_metric
-       * * `export` - export
-       * * `external_data_source` - external_data_source
-       * * `feature_flag` - feature_flag
-       * * `heatmap` - heatmap
-       * * `hog_flow` - hog_flow
-       * * `insight` - insight
-       * * `llm_analytics` - llm_analytics
-       * * `llm_playground` - llm_playground
-       * * `llm_prompt` - llm_prompt
-       * * `llm_provider_key` - llm_provider_key
-       * * `llm_skill` - llm_skill
-       * * `logs` - logs
-       * * `marketing_analytics` - marketing_analytics
-       * * `mcp_analytics` - mcp_analytics
-       * * `metrics` - metrics
-       * * `notebook` - notebook
-       * * `project` - project
-       * * `property_definition` - property_definition
-       * * `replay_scanner` - replay_scanner
-       * * `revenue_analytics` - revenue_analytics
-       * * `session_recording` - session_recording
-       * * `session_recording_playlist` - session_recording_playlist
-       * * `sharing_configuration` - sharing_configuration
-       * * `stamphog` - stamphog
-       * * `survey` - survey
-       * * `tagger` - tagger
-       * * `ticket` - ticket
-       * * `toolbar` - toolbar
-       * * `tracing` - tracing
-       * * `vision_alert` - vision_alert
-       * * `warehouse_objects` - warehouse_objects
-       * * `warehouse_table` - warehouse_table
-       * * `warehouse_view` - warehouse_view
-       * * `web_analytics` - web_analytics */
-      resource: RuleResourceEnum;
-      /**
-         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
-         * @nullable
-         */
-      resource_id?: string | null;
-      /**
-         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
-         * @nullable
-         */
-      access_level: string | null;
-    }
-
     export interface AccessControlResourceDefault {
       /**
          * The stored default level for this resource type. Null when the PostHog default applies.
@@ -559,6 +376,118 @@ export namespace Schemas {
       /** Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`). */
       resources: AccessControlMemberAccessResources;
     }
+
+    /**
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics
+     */
+    export type RuleResourceEnum = typeof RuleResourceEnum[keyof typeof RuleResourceEnum];
+
+
+    export const RuleResourceEnum = {
+      Account: 'account',
+      Action: 'action',
+      ActivityLog: 'activity_log',
+      AiObservabilityClusters: 'ai_observability_clusters',
+      CustomerAnalytics: 'customer_analytics',
+      CustomerJourney: 'customer_journey',
+      CustomerTask: 'customer_task',
+      Dashboard: 'dashboard',
+      DashboardTemplate: 'dashboard_template',
+      DataCatalog: 'data_catalog',
+      Dataset: 'dataset',
+      EarlyAccessFeature: 'early_access_feature',
+      Endpoint: 'endpoint',
+      ErrorTracking: 'error_tracking',
+      Evaluation: 'evaluation',
+      Experiment: 'experiment',
+      ExperimentHoldout: 'experiment_holdout',
+      ExperimentSavedMetric: 'experiment_saved_metric',
+      Export: 'export',
+      ExternalDataSource: 'external_data_source',
+      FeatureFlag: 'feature_flag',
+      Heatmap: 'heatmap',
+      HogFlow: 'hog_flow',
+      Insight: 'insight',
+      LlmAnalytics: 'llm_analytics',
+      LlmPlayground: 'llm_playground',
+      LlmPrompt: 'llm_prompt',
+      LlmProviderKey: 'llm_provider_key',
+      LlmSkill: 'llm_skill',
+      Logs: 'logs',
+      MarketingAnalytics: 'marketing_analytics',
+      McpAnalytics: 'mcp_analytics',
+      Metrics: 'metrics',
+      Notebook: 'notebook',
+      Project: 'project',
+      PropertyDefinition: 'property_definition',
+      ReplayScanner: 'replay_scanner',
+      RevenueAnalytics: 'revenue_analytics',
+      SessionRecording: 'session_recording',
+      SessionRecordingPlaylist: 'session_recording_playlist',
+      SharingConfiguration: 'sharing_configuration',
+      Stamphog: 'stamphog',
+      Survey: 'survey',
+      Tagger: 'tagger',
+      Ticket: 'ticket',
+      Toolbar: 'toolbar',
+      Tracing: 'tracing',
+      VisionAlert: 'vision_alert',
+      WarehouseObjects: 'warehouse_objects',
+      WarehouseTable: 'warehouse_table',
+      WarehouseView: 'warehouse_view',
+      WebAnalytics: 'web_analytics',
+    } as const;
 
     /**
      * A rule for one organization member.
@@ -788,6 +717,78 @@ export namespace Schemas {
       can_edit: boolean;
       /** One entry per role in the organization. */
       results: AccessControlRoleAccess[];
+    }
+
+    /**
+     * The scope and level of one rule write. On its own it is the default rule, for everyone in the
+     * project without a member or role rule of their own. The subclasses add the subject.
+     */
+    export interface AccessControlRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
     }
 
     /**

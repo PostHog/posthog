@@ -141,7 +141,9 @@ export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = () => zo
                 'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
             ),
     })
-    .describe('A rule for everyone in the project without a member or role rule of their own.')
+    .describe(
+        'The scope and level of one rule write. On its own it is the default rule, for everyone in the\nproject without a member or role rule of their own. The subclasses add the subject.'
+    )
 
 /**
  * The project's default access. Returns the level that applies to the project and to each resource type when a member or a role has no rule of their own. Also lists the resource types that accept rules on single objects, with the levels such a rule can set.

@@ -88,7 +88,9 @@ export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PU
                 'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
             ),
     })
-    .describe('A rule for everyone in the project without a member or role rule of their own.')
+    .describe(
+        'The scope and level of one rule write. On its own it is the default rule, for everyone in the\nproject without a member or role rule of their own. The subclasses add the subject.'
+    )
 
 /**
  * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule.
