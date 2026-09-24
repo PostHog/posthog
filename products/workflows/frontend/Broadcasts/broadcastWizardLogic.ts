@@ -143,16 +143,13 @@ export interface broadcastWizardLogicActions {
     applyExternalEdit: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
     }
+    continueStep: () => {
+        value: true
+    }
     draftAutosaved: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
     }
     ensureDraft: () => {
-        value: true
-    }
-    replayDeferredEdit: () => {
-        value: true
-    }
-    continueStep: () => {
         value: true
     }
     hydrateFromBroadcast: (broadcast: HogFlowApi) => {
@@ -213,6 +210,9 @@ export interface broadcastWizardLogicActions {
         value: true
     }
     prevStep: () => {
+        value: true
+    }
+    replayDeferredEdit: () => {
         value: true
     }
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
