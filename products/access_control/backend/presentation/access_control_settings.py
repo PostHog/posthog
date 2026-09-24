@@ -10,6 +10,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.core.cache import cache as django_cache
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -837,18 +838,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, body),
         )
-        rule = (
-            {
-                "resource": result.rule.resource,
-                "resource_id": result.rule.resource_id,
-                "access_level": result.rule.access_level,
-                "member_id": result.rule.organization_member_id,
-                "role_id": result.rule.role_id,
-            }
-            if result.rule is not None
-            else None
+        if result.rule is None:
+            return self._rule_write_response(result.outcome)
+        return self._rule_write_response(
+            result.outcome,
+            resource=result.rule.resource,
+            resource_id=result.rule.resource_id,
+            access_level=result.rule.access_level,
+            member_id=result.rule.organization_member_id,
+            role_id=result.rule.role_id,
         )
-        return Response(AccessControlRuleWriteResponseSerializer({"outcome": result.outcome, "rule": rule}).data)
 
     def _write_property_rule(
         self,
@@ -884,8 +883,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     )
                 except access_control_api.PropertyAccessControlRuleNotFoundError:
                     # Nothing to clear, including a rule a concurrent clear removed first
-                    return self._property_rule_response("noop", None)
-                return self._property_rule_response("cleared", None)
+                    return self._rule_write_response("noop")
+                return self._rule_write_response("cleared")
             existing = next(
                 (
                     rule
@@ -910,19 +909,35 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             raise exceptions.NotFound("Property definition not found.")
         except access_control_api.InvalidPropertyAccessControlTargetError as exc:
             raise exceptions.ValidationError(str(exc))
-        return self._property_rule_response("updated" if existing else "created", rule)
+        return self._rule_write_response(
+            "updated" if existing else "created",
+            resource="property_definition",
+            resource_id=str(rule.property_definition_id),
+            access_level=rule.access_level.value,
+            member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
 
     @staticmethod
-    def _property_rule_response(outcome: RuleWriteOutcomeValue, rule: Any) -> Response:
+    def _rule_write_response(
+        outcome: RuleWriteOutcomeValue,
+        *,
+        resource: str | None = None,
+        resource_id: str | None = None,
+        access_level: str | None = None,
+        member_id: UUID | None = None,
+        role_id: UUID | None = None,
+    ) -> Response:
+        """The one response shape of every rule write. Without a resource there is no stored rule."""
         stored = (
             {
-                "resource": "property_definition",
-                "resource_id": str(rule.property_definition_id),
-                "access_level": rule.access_level.value,
-                "member_id": rule.organization_member_id,
-                "role_id": rule.role_id,
+                "resource": resource,
+                "resource_id": resource_id,
+                "access_level": access_level,
+                "member_id": member_id,
+                "role_id": role_id,
             }
-            if rule is not None
+            if resource is not None
             else None
         )
         return Response(AccessControlRuleWriteResponseSerializer({"outcome": outcome, "rule": stored}).data)
