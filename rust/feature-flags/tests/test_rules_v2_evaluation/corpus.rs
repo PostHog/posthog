@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::flags::config_v2::Config;
-use crate::flags::evaluate_v2::{
+use feature_flags::flags::config_v2::Config;
+use feature_flags::flags::evaluate_v2::{
     Evaluation, EvaluationContext, EvaluationError, MatchedRule, PersonProperties, RuleKind,
 };
-use crate::flags::flag_models::FeatureFlag;
+use feature_flags::flags::flag_models::FeatureFlag;
 use serde_json::{json, Value};
 
 pub fn root() -> PathBuf {

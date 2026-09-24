@@ -57,7 +57,7 @@ To roll back parsing, remove its reader consumer first while retaining opaque no
 Never restore a reader that interprets v2 data as v1.
 
 The dormant `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
-The reader compiles each regex predicate once at parse time and stores it on the cached config, counted with the same opaque-engine estimate as v1; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
+The reader compiles each regex predicate once at parse time and stores it on the cached config, counted as a fixed `ESTIMATED_COMPILED_REGEX_BYTES` (2048) per compiled regex, as v1 does; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
 The evaluator does not participate in the service cache or HTTP dispatch.
 Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
 The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
@@ -68,9 +68,11 @@ The first conclusive predicate miss skips that rule; a reached error fails the e
 The property adapter reuses existing operator semantics and an explicit clock for relative dates.
 Invalid compiled regexes are errors in this evaluator, so negation cannot turn invalid syntax into success; v1 keeps its existing invalid-pattern behavior.
 Targeted matches and percentage inclusions return the rule's boolean, including false, with its UUID, kind, and original index.
-A terminal rollout miss returns the configured boolean/null default and the claiming rule; a continuing miss retains no terminal context.
+With `on_rollout_miss: return_default`, a rollout miss returns the configured boolean/null default and reports the missed rule.
+With `on_rollout_miss: continue`, evaluation moves to the next rule and the missed rule is not reported in the result.
 Exhaustion returns the default with no matched rule.
-Null means no configured value for the caller; errors and remote omission remain separate from successful false or null.
+Null means no configured value for the caller.
+Errors and flags left out of the `/flags` response remain separate from a successful false or null.
 
 Percentage rules use the stored seed and the shared SHA1/60-bit binary64 primitive with an empty salt.
 The comparison is inclusive, including hash zero at 0%.

@@ -68,6 +68,10 @@ pub enum PropertyType {
     Flag,
 }
 
+/// Regex backtrack limit to prevent ReDoS attacks.
+/// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
+const REGEX_BACKTRACK_LIMIT: usize = 10_000;
+
 /// Pre-compiled regex state for Regex/NotRegex operators.
 /// Populated by `prepare_regex()` at flag-load time.
 /// Clone is cheap: fancy_regex::Regex uses Arc<Prog> internally.
@@ -82,7 +86,7 @@ pub enum CompiledRegex {
 impl CompiledRegex {
     pub fn new(pattern: &str) -> Self {
         match fancy_regex::RegexBuilder::new(pattern)
-            .backtrack_limit(crate::properties::property_matching::REGEX_BACKTRACK_LIMIT)
+            .backtrack_limit(REGEX_BACKTRACK_LIMIT)
             .build()
         {
             Ok(regex) => Self::Compiled(regex),

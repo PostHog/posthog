@@ -11,10 +11,6 @@ use dateparser::parse as parse_date;
 use semver::{Version, VersionReq};
 use serde_json::Value;
 
-/// Regex backtrack limit to prevent ReDoS attacks.
-/// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
-pub(crate) const REGEX_BACKTRACK_LIMIT: usize = 10_000;
-
 /// Prefix used when storing PersonMetadata field values (e.g. created_at) in the
 /// person properties map. Avoids collision with user-set properties of the same name.
 const PERSON_METADATA_KEY_PREFIX: &str = "__posthog_person_metadata__";

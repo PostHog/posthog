@@ -7,7 +7,7 @@ use chrono_tz::Tz;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::config_v2::{Config, Outcome, RolloutMiss};
+use super::config_v2::{Config, Outcome, RolloutMiss, Rule};
 use super::flag_matching_utils::calculate_hash;
 use super::flag_request::MAX_DISTINCT_ID_LEN;
 use super::v1_bucketing::is_in_rollout;
@@ -100,7 +100,9 @@ impl<'a> Evaluator<'a> {
         })
     }
 
-    fn evaluate_with_hash(
+    /// Test seam for injecting hash values; not part of the supported API.
+    #[doc(hidden)]
+    pub fn evaluate_with_hash(
         &self,
         context: &EvaluationContext<'_>,
         mut hash: impl FnMut(&str, &str) -> Result<f64, EvaluationError>,
@@ -116,40 +118,9 @@ impl<'a> Evaluator<'a> {
             PersonProperties::Unavailable => None,
         };
         let mut hashes = HashMap::new();
-        'rules: for (index, rule) in self.config.rules.iter().enumerate() {
-            for predicate in &rule.targeting {
-                let (properties, partial) =
-                    person_properties.ok_or(EvaluationError::MissingContext)?;
-                if partial && !properties.contains_key(&predicate.key) {
-                    return Err(EvaluationError::MissingContext);
-                }
-                let regex = predicate.compiled_regex.as_ref();
-                // An invalid pattern is not a conclusive false result that negation can invert.
-                if matches!(regex, Some(CompiledRegex::InvalidPattern)) {
-                    return Err(EvaluationError::InvalidRegex);
-                }
-                let matched = match_property_input(
-                    PropertyMatchInput {
-                        key: &predicate.key,
-                        value: predicate.value.as_ref(),
-                        operator: predicate.operator,
-                        compiled_regex: regex,
-                    },
-                    properties,
-                    partial,
-                    matching,
-                )
-                .map_err(|error| match error {
-                    FlagMatchingError::MissingProperty(_)
-                    | FlagMatchingError::InconclusiveOperatorMatch => {
-                        EvaluationError::MissingContext
-                    }
-                    FlagMatchingError::ValidationError(_) => EvaluationError::InvalidProperty,
-                    FlagMatchingError::InvalidRegexPattern => EvaluationError::InvalidRegex,
-                })?;
-                if matched == predicate.negation {
-                    continue 'rules;
-                }
+        for (index, rule) in self.config.rules.iter().enumerate() {
+            if !rule_targets(rule, person_properties, matching)? {
+                continue;
             }
             let matched_rule = |kind| MatchedRule {
                 id: rule.id,
@@ -198,6 +169,42 @@ impl<'a> Evaluator<'a> {
     }
 }
 
-#[cfg(test)]
-#[path = "evaluate_v2/tests.rs"]
-mod tests;
+/// Whether every predicate of `rule` matches; a reached error fails the evaluation.
+fn rule_targets(
+    rule: &Rule,
+    person_properties: Option<(&HashMap<String, Value>, bool)>,
+    matching: PropertyMatchingContext,
+) -> Result<bool, EvaluationError> {
+    for predicate in &rule.targeting {
+        let (properties, partial) = person_properties.ok_or(EvaluationError::MissingContext)?;
+        if partial && !properties.contains_key(&predicate.key) {
+            return Err(EvaluationError::MissingContext);
+        }
+        let regex = predicate.compiled_regex.as_ref();
+        // An invalid pattern is not a conclusive false result that negation can invert.
+        if matches!(regex, Some(CompiledRegex::InvalidPattern)) {
+            return Err(EvaluationError::InvalidRegex);
+        }
+        let matched = match_property_input(
+            PropertyMatchInput {
+                key: &predicate.key,
+                value: predicate.value.as_ref(),
+                operator: predicate.operator,
+                compiled_regex: regex,
+            },
+            properties,
+            partial,
+            matching,
+        )
+        .map_err(|error| match error {
+            FlagMatchingError::MissingProperty(_)
+            | FlagMatchingError::InconclusiveOperatorMatch => EvaluationError::MissingContext,
+            FlagMatchingError::ValidationError(_) => EvaluationError::InvalidProperty,
+            FlagMatchingError::InvalidRegexPattern => EvaluationError::InvalidRegex,
+        })?;
+        if matched == predicate.negation {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
