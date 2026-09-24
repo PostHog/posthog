@@ -8,9 +8,11 @@ so it has no dependency on ClickHouse->Postgres sync timing. For the given team 
 - ensures a small shared pool of organization-member users and assigns them as each account's
   CSM / account executive / account owner,
 - adds a few notes (internal notebooks) to a handful of accounts,
+- creates production-shaped billing insights with stable short IDs,
+- adds meetings and conversation fixtures to a handful of accounts,
 - points the team's customer-analytics config at group type index 0.
 
-Re-running is safe: existing accounts, pool users, and notes are left alone.
+Re-running is safe: existing accounts, users, notes, insights, meetings, and conversations are reused.
 
 Usage:
     python manage.py seed_customer_analytics_accounts --team-id 1
@@ -31,6 +33,7 @@ from posthog.persons_db import persons_db_connection
 from products.customer_analytics.backend.facade.api import create_account
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
+from products.customer_analytics.backend.management.seed_widget_data import WIDGET_ACCOUNT_COUNT, seed_widget_data
 from products.customer_analytics.backend.models.account import Account, AccountProperties
 from products.customer_analytics.backend.models.relationship import AccountRelationshipDefinition
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
@@ -65,6 +68,12 @@ class Command(BaseCommand):
             "--notes-per-account", type=int, default=2, help="Notes created per selected account (default: 2)."
         )
         parser.add_argument(
+            "--accounts-with-widget-data",
+            type=int,
+            default=WIDGET_ACCOUNT_COUNT,
+            help=f"How many accounts get meetings and conversations (default: {WIDGET_ACCOUNT_COUNT}).",
+        )
+        parser.add_argument(
             "--limit", type=int, default=None, help="Cap how many groups become accounts (default: all)."
         )
         parser.add_argument("--dry-run", action="store_true", help="Report what would be created without writing.")
@@ -81,12 +90,14 @@ class Command(BaseCommand):
 
         if options["dry_run"]:
             note_account_count = min(options["accounts_with_notes"], len(groups))
-            self.stdout.write(self.style.WARNING("Dry run — no changes will be written."))
+            widget_account_count = min(options["accounts_with_widget_data"], len(groups))
+            self.stdout.write(self.style.WARNING("Dry run - no changes will be written."))
             self.stdout.write(
                 f"Would set account_group_type_index = {ACCOUNT_GROUP_TYPE_INDEX}, "
                 f"create up to {len(groups)} account(s), ensure a pool of {options['users']} user(s), "
-                f"and add up to {note_account_count * options['notes_per_account']} note(s) "
-                f"across {note_account_count} account(s)."
+                f"add up to {note_account_count * options['notes_per_account']} note(s) "
+                f"across {note_account_count} account(s), create three billing insights, "
+                f"and add meetings and conversations to {widget_account_count} account(s)."
             )
             return
 
@@ -94,6 +105,13 @@ class Command(BaseCommand):
         user_pool = self._ensure_user_pool(team, options["users"])
         accounts = self._create_accounts(team, groups, user_pool)
         self._create_notes(team, accounts, user_pool, options["accounts_with_notes"], options["notes_per_account"])
+        seed_widget_data(
+            team=team,
+            accounts=accounts,
+            user_pool=user_pool,
+            output=self.stdout.write,
+            account_count=options["accounts_with_widget_data"],
+        )
         self.stdout.write(self.style.SUCCESS("Done."))
 
     def _get_team(self, team_id: int) -> Team:

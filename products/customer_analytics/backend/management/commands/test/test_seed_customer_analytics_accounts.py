@@ -10,11 +10,21 @@ from posthog.models import OrganizationMembership, User
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group
 
+from products.conversations.backend.models import (
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadMessage,
+    EmailThreadParticipant,
+)
+from products.conversations.backend.models.ticket import Ticket
+from products.customer_analytics.backend.management.seed_widget_data import BILLING_INSIGHT_SHORT_IDS
+from products.customer_analytics.backend.models import AccountChannelSummary, Meeting, MeetingParticipant
 from products.customer_analytics.backend.models.account import Account
 from products.customer_analytics.backend.models.relationship import AccountRelationship
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.facade.content import is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 pytestmark = pytest.mark.persons_db_direct
 
@@ -86,6 +96,26 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         )
         assert accounts_with_notes == {accounts["acme-id"].id, accounts["globex-id"].id}
 
+        assert set(Insight.objects.filter(team=self.team).values_list("short_id", flat=True)) >= set(
+            BILLING_INSIGHT_SHORT_IDS.values()
+        )
+        assert set(InsightVariable.objects.filter(team=self.team).values_list("code_name", flat=True)) >= {
+            "billing_org_id",
+            "billing_start_date",
+            "billing_end_date",
+        }
+
+        assert Meeting.objects.for_team(self.team.pk).count() == 6
+        assert MeetingParticipant.objects.for_team(self.team.pk).count() == 18
+        assert EmailThread.objects.for_team(self.team.pk).count() == 3
+        assert EmailThreadAccountLink.objects.for_team(self.team.pk).count() == 3
+        assert EmailThreadMessage.objects.for_team(self.team.pk).count() == 6
+        assert EmailThreadParticipant.objects.for_team(self.team.pk).count() == 6
+        assert Ticket.objects.filter(team=self.team).count() == 3
+        assert AccountChannelSummary.objects.for_team(self.team.pk).count() == 3
+        assert all(account.properties.email_domains for account in accounts.values())
+        assert all(account.properties.slack_channel_id for account in accounts.values())
+
     def test_is_idempotent(self):
         self._make_group("acme-id", "Acme")
         self._make_group("globex-id", "Globex")
@@ -102,6 +132,15 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
             == 3
         )
         assert ResourceNotebook.objects.filter(account__team_id=self.team.pk).count() == 2
+        assert Insight.objects.filter(team=self.team, short_id__in=BILLING_INSIGHT_SHORT_IDS.values()).count() == 3
+        assert Meeting.objects.for_team(self.team.pk).count() == 4
+        assert MeetingParticipant.objects.for_team(self.team.pk).count() == 12
+        assert EmailThread.objects.for_team(self.team.pk).count() == 2
+        assert EmailThreadAccountLink.objects.for_team(self.team.pk).count() == 2
+        assert EmailThreadMessage.objects.for_team(self.team.pk).count() == 4
+        assert EmailThreadParticipant.objects.for_team(self.team.pk).count() == 4
+        assert Ticket.objects.filter(team=self.team).count() == 2
+        assert AccountChannelSummary.objects.for_team(self.team.pk).count() == 2
 
     def test_dry_run_writes_nothing(self):
         self._make_group("acme-id", "Acme")
@@ -114,6 +153,10 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         assert not TeamCustomerAnalyticsConfig.objects.filter(
             team=self.team, account_group_type_index__isnull=False
         ).exists()
+        assert not Insight.objects.filter(team=self.team, short_id__in=BILLING_INSIGHT_SHORT_IDS.values()).exists()
+        assert not Meeting.objects.for_team(self.team.pk).exists()
+        assert not EmailThread.objects.for_team(self.team.pk).exists()
+        assert not Ticket.objects.filter(team=self.team).exists()
 
     def test_errors_when_no_groups(self):
         with self.assertRaises(CommandError):
