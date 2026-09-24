@@ -18,7 +18,12 @@ describe('HogFlowFunctionConfiguration', () => {
     describe('buildSampleGlobals', () => {
         const realSampleGlobals: CyclotronJobInvocationGlobals = {
             project: { id: 2, name: 'Real project', url: 'https://app.example.com/project/2' },
-            source: { name: 'Send email', url: 'https://app.example.com/project/2/workflows/1' },
+            source: {
+                id: '1',
+                name: 'Send email',
+                url: 'https://app.example.com/project/2/workflows/1',
+                workflow_name: 'Send email',
+            },
             event: {
                 uuid: '0192f0e1-0000-0000-0000-000000000000',
                 event: 'purchase_completed',
@@ -47,7 +52,12 @@ describe('HogFlowFunctionConfiguration', () => {
         // Mirrors createExampleEvent, which hogFlowEditorTestLogic supplies for every non-event trigger.
         const exampleSampleGlobals: CyclotronJobInvocationGlobals = {
             project: { id: 2, name: 'Default project', url: 'https://app.example.com/project/2' },
-            source: { name: 'Unnamed', url: 'https://app.example.com/project/2/workflows/1' },
+            source: {
+                id: '1',
+                name: 'Unnamed',
+                url: 'https://app.example.com/project/2/workflows/1',
+                workflow_name: 'Unnamed',
+            },
             event: {
                 uuid: '0192f0e1-2222-2222-2222-222222222222',
                 event: '$pageview',
@@ -123,7 +133,8 @@ describe('HogFlowFunctionConfiguration', () => {
         ])('exposes the right globals for a %s trigger', (_name, trigger, present) => {
             const globals = buildSampleGlobals(trigger, undefined, exampleSampleGlobals)
             expect(globals).toHaveProperty('project')
-            expect(globals).toHaveProperty('source')
+            expect(globals.source).toHaveProperty('id')
+            expect(globals.source).toHaveProperty('workflow_name')
             Object.entries(present).forEach(([key, shouldExist]) => {
                 expect(key in globals).toBe(shouldExist)
             })

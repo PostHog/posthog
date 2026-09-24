@@ -44,6 +44,7 @@ describe('LiquidRenderer', () => {
                 url: 'https://test.com',
             },
             source: {
+                id: 'test-source-id',
                 name: 'test-source',
                 url: 'https://test.com',
             },
@@ -351,6 +352,7 @@ describe('LiquidRenderer', () => {
                     url: 'https://test.com',
                 },
                 source: {
+                    id: 'test-source-id',
                     name: 'test-source',
                     url: 'https://test.com',
                 },
@@ -393,6 +395,7 @@ describe('LiquidRenderer', () => {
                     url: 'https://test.com',
                 },
                 source: {
+                    id: 'test-source-id',
                     name: 'test-source',
                     url: 'https://test.com',
                 },

@@ -1213,6 +1213,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             }
                         })
                         globals.source = {
+                            id: props.id ?? '',
                             name: values.configuration?.name ?? 'Unnamed',
                             url: window.location.href.split('#')[0],
                         }
@@ -1399,13 +1400,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey, s.logicProps],
             (
                 configuration: HogFunctionConfigurationType,
                 currentProject: null | import('~/types').ProjectType,
                 groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 contextId: HogFunctionConfigurationContextId,
-                survey: Survey | null
+                survey: Survey | null,
+                logicProps: HogFunctionConfigurationLogicProps
             ): CyclotronJobInvocationGlobals => {
                 // Log transformations are seeded with a sample record (no event), so the inline
                 // tester shows something useful to run against instead of an empty object.
@@ -1423,6 +1425,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const eventId = uuid()
                 const personId = uuid()
                 const source = {
+                    id: logicProps.id ?? '',
                     name: configuration?.name ?? 'Unnamed',
                     url: currentUrl,
                 }

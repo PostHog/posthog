@@ -161,6 +161,7 @@ const createGlobals = (
             ...globals.person,
         },
         source: {
+            id: 'hog-function-id',
             url: 'https://us.posthog.com/hog_functions/1234',
             name: 'hog-function-name',
             ...globals.source,

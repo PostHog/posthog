@@ -275,6 +275,32 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    it.each([
+        ['id', (): string => invocation.hogFlow.id],
+        ['workflow_name', (): string => invocation.hogFlow.name],
+        [
+            'url',
+            (): string =>
+                `${hub.SITE_URL}/project/${team.id}/workflows/${invocation.hogFlow.id}/workflow?node=function`,
+        ],
+    ])('renders {source.%s} for the workflow that owns the step', async (field, expected) => {
+        action.config.inputs.name = {
+            value: `{source.${field}}`,
+            templating: 'hog',
+            bytecode: ['_H', 1, 32, field, 32, 'source', 1, 2],
+        }
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBeUndefined()
+        expect(parseJSON(mockFetch.mock.calls[0][1].body).name).toBe(expected())
+    })
+
     describe('missing variable references', () => {
         beforeEach(() => {
             // {variables.coupon} compiled to hog bytecode; the run has no `coupon` variable

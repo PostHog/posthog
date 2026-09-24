@@ -88,8 +88,11 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     source?: {
+        // The hog function or hog flow that owns the invocation.
+        id: string
         name: string
         url: string
+        workflow_name?: string
     }
     event: {
         /* Database fields */
