@@ -285,6 +285,8 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         response = self._post({"access_level": PropertyAccessLevel.NONE.value})
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
+        # The gate runs before the body is validated, so an invalid body is still a 403 and not a 400
+        assert self._post({}).status_code == status.HTTP_403_FORBIDDEN
 
     def test_role_rule_forbidden_without_role_based_access_feature(self):
         from products.access_control.backend.models.role import Role

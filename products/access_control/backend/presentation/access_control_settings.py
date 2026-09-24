@@ -74,7 +74,7 @@ from .serializers import (
     AccessControlRolesResponseSerializer,
     AccessControlRuleWriteResponseSerializer,
 )
-from .views import check_can_write_property_rule
+from .views import check_can_write_property_rules, check_can_write_role_rule
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -863,7 +863,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         same gate as PropertyAccessControlViewSet."""
         if not property_definition_id:
             raise exceptions.ValidationError("resource_id is required for a property rule.")
-        check_can_write_property_rule(team, user_access_control, role_id=role.id if role else None)
+        check_can_write_property_rules(team, user_access_control)
+        check_can_write_role_rule(team, role_id=role.id if role else None)
         levels = [level.value for level in PropertyAccessLevel]
         if access_level is not None and access_level not in levels:
             raise exceptions.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
