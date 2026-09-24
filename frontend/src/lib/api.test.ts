@@ -284,6 +284,20 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    it('names the request that failed on the error, since every ApiError shares one stack', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: '',
+            headers: new Headers(),
+            json: () => Promise.resolve({ detail: 'A server error occurred.' }),
+        })
+
+        await expect(api.create('/api/environments/2/query/ErrorTrackingBreakdownsQuery')).rejects.toMatchObject({
+            endpoint: { method: 'POST', pathname: '/api/environments/2/query/ErrorTrackingBreakdownsQuery/' },
+        } satisfies Partial<ApiError>)
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(
