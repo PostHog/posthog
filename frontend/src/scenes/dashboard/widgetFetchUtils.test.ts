@@ -3,7 +3,8 @@ import type { DashboardTile } from '~/types'
 import { chunkTileIds, findNewlyAddedWidgetTiles, isWidgetStale } from './widgetFetchUtils'
 
 describe('widgetFetchUtils', () => {
-    it('does not treat a failed widget fetch as fresh', () => {
+    it('treats failed widgets as stale but not loading or missing widgets', () => {
+        expect(isWidgetStale(undefined, 1_000_000)).toBe(false)
         expect(isWidgetStale({ error: 'Query failed', fetchedAt: 1_000_000 }, 1_000_000)).toBe(true)
         expect(isWidgetStale({ loading: true, fetchedAt: 1_000_000 }, 1_000_000)).toBe(false)
     })

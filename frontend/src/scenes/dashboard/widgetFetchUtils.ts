@@ -12,9 +12,8 @@ export function isWidgetStale(
     currentTime = Date.now()
 ): boolean {
     return (
-        !!status &&
-        !status.loading &&
-        (!!status.error || (!!status.fetchedAt && currentTime - status.fetchedAt >= WIDGET_CLIENT_TTL_MS))
+        !status?.loading &&
+        (!!status?.error || (!!status?.fetchedAt && currentTime - status.fetchedAt >= WIDGET_CLIENT_TTL_MS))
     )
 }
 
