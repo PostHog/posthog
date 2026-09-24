@@ -4857,6 +4857,61 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     results: UserGitHubIntegrationListResponseApi[]
 }
 
+/**
+ * * `connected` - Connected
+ * * `reauth_required` - Reauth Required
+ * * `not_connected` - Not Connected
+ */
+export type CodexIntegrationStatusEnumApi =
+    (typeof CodexIntegrationStatusEnumApi)[keyof typeof CodexIntegrationStatusEnumApi]
+
+export const CodexIntegrationStatusEnumApi = {
+    Connected: 'connected',
+    ReauthRequired: 'reauth_required',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserCodexIntegrationApi {
+    /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+     *
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected */
+    status: CodexIntegrationStatusEnumApi
+    /**
+     * The ChatGPT plan type OpenAI reports for the account.
+     * @nullable
+     */
+    plan_type?: string | null
+    /**
+     * The email of the connected ChatGPT account.
+     * @nullable
+     */
+    email?: string | null
+    /**
+     * When the account was connected.
+     * @nullable
+     */
+    connected_at?: string | null
+}
+
+export interface UserCodexAuthTokensApi {
+    /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+    access_token: string
+    /** The single-use ChatGPT refresh token from the same `tokens` object. */
+    refresh_token: string
+    /**
+     * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+     * @nullable
+     */
+    id_token?: string | null
+}
+
+export interface UserCodexConnectRequestApi {
+    /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+    tokens: UserCodexAuthTokensApi
+}
+
 export interface GitHubBranchesResponseApi {
     /** List of branch names */
     branches: string[]

@@ -50,6 +50,9 @@ MULTI_TOUCH_MODES: frozenset[AttributionMode] = frozenset(
     }
 )
 
+# Conversion-goal reads serve from the precompute for a team with this flag on.
+CONVERSION_PRECOMPUTE_FLAG = "marketing-analytics-precomputation"
+
 
 # Mutable by design: `from_team` builds a default instance and then overwrites the
 # team-derived fields on it, rather than threading them all through the constructor.
@@ -133,7 +136,7 @@ class MarketingAnalyticsConfig:
         group_properties = {"organization": {"id": str(team.organization.id)}}
         flags = {
             "conversion": feature_enabled_or_false(
-                "marketing-analytics-precomputation",
+                CONVERSION_PRECOMPUTE_FLAG,
                 str(team.uuid),
                 groups=groups,
                 group_properties=group_properties,
@@ -153,6 +156,23 @@ class MarketingAnalyticsConfig:
         }
         team._ma_precompute_flags = flags  # type: ignore[attr-defined]
         return flags
+
+    @staticmethod
+    def conversion_precompute_enabled_without_exposure(team: "Team") -> bool:
+        """Evaluate only the conversion read flag, and record no exposure for it.
+
+        For a background inventory scan that reads the flag to pick an audience, which is not a user
+        read of marketing analytics. It must not count as an exposure, because synthetic exposures
+        distort the flag's own rollout numbers, and it has no use for the cost and session flags that
+        `_precompute_flags` evaluates alongside the conversion one.
+        """
+        return feature_enabled_or_false(
+            CONVERSION_PRECOMPUTE_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+            send_feature_flag_events=False,
+        )
 
     @staticmethod
     def _multi_touch_enabled(team: "Team") -> bool:

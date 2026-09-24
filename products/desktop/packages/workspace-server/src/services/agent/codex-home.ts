@@ -9,6 +9,17 @@ import {
 } from "../skills/skill-discovery";
 import type { AgentScopedLogger } from "./ports";
 
+/** The CODEX_HOME the user logs into for cloud runs. Separate from `~/.codex`, which stays local. */
+export const CODEX_CLOUD_HOME_DIRNAME = ".codex-posthog";
+
+export function getCodexCloudHomeDir(): string {
+  return path.join(os.homedir(), CODEX_CLOUD_HOME_DIRNAME);
+}
+
+export function getCodexCloudAuthFilePath(): string {
+  return path.join(getCodexCloudHomeDir(), "auth.json");
+}
+
 /**
  * Resolves a task run's private CODEX_HOME directory. Each run gets its own so
  * concurrent Codex sessions never share — and never race to rebuild — the same
