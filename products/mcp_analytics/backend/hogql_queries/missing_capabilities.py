@@ -29,6 +29,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     display_person_properties,
     mcp_query_date_range,
     validate_mcp_analytics_access,
@@ -46,7 +47,7 @@ _REPORT_TEXT = "toString(properties.$mcp_intent)"
 
 # Conversation id, same resolution as the tool-call surfaces: the SDK's own
 # $mcp_session_id when set, else the ambient $session_id.
-_CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
+_CONVERSATION_ID = CONVERSATION_ID_SQL
 
 
 class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):

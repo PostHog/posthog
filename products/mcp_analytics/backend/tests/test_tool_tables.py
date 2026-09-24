@@ -485,13 +485,15 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         _emit_tool_call(self.team, distinct_id="d1", session_id="s1")
         _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
         _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
+        _emit_tool_call(self.team, distinct_id="d3", tool_name="other")
         flush_persons_and_events()
 
         row = self._run()[0]
 
         assert row.calls == 2
         assert row.conversations == 1
-        assert row.total_calls == 4
+        assert row.total_calls == 5
+        # The call without any session id adds a call but no conversation.
         assert row.total_conversations == 2
 
     def test_shared_property_filter_narrows_totals_not_just_this_tool(self) -> None:

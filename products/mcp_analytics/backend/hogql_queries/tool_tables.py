@@ -55,6 +55,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
@@ -307,7 +308,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         )
 
 
-_CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
+_CONVERSATION_ID = CONVERSATION_ID_SQL
 
 # Mirrors the capture-side MAX_ERROR_MESSAGE_LENGTH (services/mcp); event-supplied, so
 # re-capped here in case a non-PostHog server emits an unbounded value.
@@ -470,10 +471,10 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
                 round(quantileIf(0.5)(duration_ms, is_tool)) AS p50_ms,
                 round(quantileIf(0.95)(duration_ms, is_tool)) AS p95_ms,
                 uniqIf(distinct_id, is_tool) AS users,
-                uniqIf(conversation_id, is_tool) AS conversations,
+                uniqIf(conversation_id, is_tool AND conversation_id != '') AS conversations,
                 countIf(is_tool AND has_intent) AS with_intent,
                 count() AS total_calls,
-                uniq(conversation_id) AS total_conversations
+                uniq(nullIf(conversation_id, '')) AS total_conversations
             FROM (
                 SELECT
                     distinct_id,
@@ -563,7 +564,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
                 {_P50} AS p50,
                 {_P95} AS p95,
                 uniq(distinct_id) AS users,
-                uniq({_CONVERSATION_ID}) AS sessions
+                uniq(nullIf({_CONVERSATION_ID}, '')) AS sessions
             FROM events
             WHERE {where}
             GROUP BY day

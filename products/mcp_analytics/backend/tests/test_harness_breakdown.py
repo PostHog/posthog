@@ -255,15 +255,25 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert row.harness_sessions is None
 
-    def test_harness_sessions_counts_all_tools_when_tool_name_set(self) -> None:
+    @parameterized.expand([("posthog_session_id", "$session_id"), ("mcp_session_id", "$mcp_session_id")])
+    def test_harness_sessions_counts_all_tools_when_tool_name_set(self, _name: str, session_key: str) -> None:
         new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
-        self._emit(distinct_id="d1", session_id="a", properties={"$mcp_client_name": "codex-mcp-client", **new_sdk})
+        self._emit(
+            distinct_id="d1",
+            session_id="",
+            properties={"$mcp_client_name": "codex-mcp-client", session_key: "a", **new_sdk},
+        )
         # A different tool, same harness, different session: counts toward harness_sessions
         # but not toward this tool's own `sessions`.
         self._emit(
             distinct_id="d2",
-            session_id="b",
-            properties={"$mcp_tool_name": "other_tool", "$mcp_client_name": "codex-mcp-client", **new_sdk},
+            session_id="",
+            properties={
+                "$mcp_tool_name": "other_tool",
+                "$mcp_client_name": "codex-mcp-client",
+                session_key: "b",
+                **new_sdk,
+            },
         )
         flush_persons_and_events()
 

@@ -19,6 +19,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     effective_tool_expr,
     mcp_query_date_range,
     mcp_source_expr,
@@ -93,7 +94,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
                 FROM (
                     SELECT
                         {token} AS h,
-                        $session_id AS session_id,
+                        {conversation_id} AS session_id,
                         toBool(properties.$mcp_is_error) AS is_error,
                         {is_tool} AS is_tool
                     FROM events
@@ -107,6 +108,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
                     "label": parse_expr(mcp_harness.harness_label_sql("h")),
                     "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                     "is_tool": effective_tool_expr(self.query.toolName),
+                    "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                     "where": self._where_scoped_to_source(),
                 },
             )
