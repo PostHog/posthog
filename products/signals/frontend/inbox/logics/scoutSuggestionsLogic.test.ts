@@ -225,6 +225,19 @@ describe('scoutSuggestionsLogic', () => {
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
+    // Access can go away between reads — a role change, or a project switch leaving a stale id in
+    // the URL. Every button on a pick would be refused, so the picks go with the access.
+    it('takes the strip away when a later read is refused', async () => {
+        await mountWithBatch()
+        expect(logic.values.stripVisible).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
+
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
     it.each([
         ['never scanned', 'empty', null],

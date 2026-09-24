@@ -335,13 +335,15 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                         return set
                     } catch (error) {
                         // A member without resource-level scout access, or a stale project id left
-                        // by a project switch, are expected — the strip stays hidden either way, so
-                        // keep the current batch instead of reporting them. Anything else, notably
-                        // a 5xx, still throws so a real backend failure reaches error tracking.
+                        // by a project switch, are expected — degrade to the empty batch instead of
+                        // reporting them. Keeping the picks an earlier read returned would leave a
+                        // strip whose every button is refused. Anything else, notably a 5xx, still
+                        // throws so a real backend failure reaches error tracking.
                         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-                            // The strip can unmount before the refusal lands, and the `values` read throws then.
+                            // The strip can unmount before the refusal lands, and a loader that
+                            // resolves into a dead store is what reports next.
                             breakpoint()
-                            return values.suggestionSet
+                            return null
                         }
                         throw error
                     }
