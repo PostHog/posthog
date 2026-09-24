@@ -147,7 +147,7 @@
                         "type": "string"
                     },
                     "op": {
-                        "description": "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of them means 'delete'.\n\n* `write` - Write\n* `delete` - Delete\n* `rename` - Rename\n* `str_replace` - Str Replace",
+                        "description": "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of them means 'delete'.\n\n* `write` - Write\n* `delete` - Delete\n* `rename` - Rename\n* `str_replace` - Str Replace",
                         "enum": ["write", "delete", "rename", "str_replace"],
                         "type": "string"
                     },

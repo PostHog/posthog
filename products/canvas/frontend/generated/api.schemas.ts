@@ -814,7 +814,7 @@ export const CanvasSourceEditOpEnumApi = {
  * One file edit: replace text in a file, write a whole file, delete it, or rename it.
  */
 export interface CanvasSourceEditOperationApi {
-    /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of them means 'delete'.
+    /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of them means 'delete'.
      *
      * * `write` - Write
      * * `delete` - Delete
@@ -898,7 +898,7 @@ export interface CanvasSummaryApi {
 export interface CanvasPublishedBuildApi {
     /** The build's id. */
     id: string
-    /** 'ready': the canvas is live with this version, no need to call canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
+    /** 'ready': the build finished. The canvas is live with this version when canvas.published_build_id equals this id; then you do not need canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
      *
      * * `queued` - queued
      * * `building` - building
