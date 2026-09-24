@@ -100,14 +100,19 @@ describe('variableValuesLogic', () => {
         expect(truncated).toBe(expectedTruncated)
     })
 
-    it('reports a query the wrapper cannot hold as cut when it comes back on a full page', async () => {
+    // The fallback runs the query as written, so a LIMIT of its own can return more rows than the
+    // ceiling the dropdown holds.
+    it.each([
+        ['a full default page is reported as cut', 100, 100],
+        ['rows past the ceiling are still capped', MAX_LIST_VARIABLE_OPTIONS + 1, MAX_LIST_VARIABLE_OPTIONS],
+    ])('a query the wrapper cannot hold: %s', async (_name, rowCount, expectedOptions) => {
         jest.mocked(performQuery)
             .mockRejectedValueOnce(new Error('Syntax error'))
-            .mockResolvedValueOnce({ results: Array.from({ length: 100 }, (_, index) => [`value-${index}`]) })
+            .mockResolvedValueOnce({ results: Array.from({ length: rowCount }, (_, index) => [`value-${index}`]) })
 
         const { options, truncated } = await loadListVariableOptions(queryVariable)
 
-        expect(options).toHaveLength(100)
+        expect(options).toHaveLength(expectedOptions)
         expect(truncated).toBe(true)
         expect(performQuery).toHaveBeenLastCalledWith({
             kind: 'HogQLQuery',

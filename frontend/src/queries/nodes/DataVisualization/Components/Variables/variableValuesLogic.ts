@@ -111,7 +111,7 @@ export const loadListVariableOptions = async (variable: ListVariable): Promise<L
         // page here means values are missing.
         const rows = await runValuesQuery(variable, valuesQuery)
         return {
-            options: queryResultsToVariableOptions(rows),
+            options: queryResultsToVariableOptions(rows.slice(0, MAX_LIST_VARIABLE_OPTIONS)),
             truncated: rows.length >= HOGQL_DEFAULT_ROW_LIMIT,
         }
     }
