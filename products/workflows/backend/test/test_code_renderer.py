@@ -215,6 +215,36 @@ class TestCodeRenderer(SimpleTestCase):
                 None,
             ),
             (
+                "trailing_newlines_are_not_read_as_a_key_or_a_duration",
+                _basic_workflow(
+                    actions=[
+                        {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "schedule"}},
+                        {"id": "wait", "name": "Wait", "type": "delay", "config": {"delay_duration": "1d\n"}},
+                        {
+                            "id": "hook",
+                            "name": "Hook",
+                            "type": "function",
+                            "config": {
+                                "template_id": "template-webhook",
+                                "inputs": {
+                                    "url": {"value": "https://example.com/hook"},
+                                    "body": {"value": {"line\n": "x"}},
+                                },
+                            },
+                        },
+                        {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+                    ],
+                    edges=[
+                        {"from": "trigger_node", "to": "wait", "type": "continue"},
+                        {"from": "wait", "to": "hook", "type": "continue"},
+                        {"from": "hook", "to": "exit_node", "type": "continue"},
+                    ],
+                ),
+                ["'line\\n': 'x'", "delay_duration: '1d\\n'"],
+                ["delay('1d"],
+                None,
+            ),
+            (
                 "malformed_trigger_filters_stay_in_a_raw_trigger",
                 _basic_workflow(
                     actions=[
