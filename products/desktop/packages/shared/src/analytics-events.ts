@@ -54,6 +54,7 @@ export type CommandMenuAction =
   | "logout"
   | "toggle-theme"
   | "toggle-left-sidebar"
+  | "toggle-notifications-pause"
   | "open-review-panel"
   | "archive-task"
   | "go-back"
