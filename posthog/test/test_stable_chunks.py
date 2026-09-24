@@ -21,6 +21,7 @@ from posthog.utils import render_template
 VALID_MANIFEST = {
     "imports": {"@c/eAAAA": "static/index-S0000000000.js"},
     "preload": {"js": ["static/index-S0000000000.js"], "authenticatedJs": ["static/chunk-S1111111111.js"]},
+    "eagerCss": ["static/styles-eager-tailwind-AAAA1111.css", "static/styles-eager-app-BBBB2222.css"],
 }
 
 
@@ -31,6 +32,7 @@ class TestStableChunks(SimpleTestCase):
             ("imports is not a mapping", {**VALID_MANIFEST, "imports": ["static/index.js"]}, False),
             ("empty imports", {**VALID_MANIFEST, "imports": {}}, False),
             ("preload url is not a string", {**VALID_MANIFEST, "preload": {"js": [1], "authenticatedJs": []}}, False),
+            ("eager css url is not a string", {**VALID_MANIFEST, "eagerCss": [1]}, False),
         ]
     )
     def test_manifest_problems_fall_back_to_the_default_build(self, _name, manifest, expect_stable):
@@ -46,6 +48,10 @@ class TestStableChunks(SimpleTestCase):
                 "imports": {"@c/eAAAA": "https://cdn.example.com/static/index-S0000000000.js"}
             }
             assert stable.preload_urls(include_authenticated_shell=False) == ("static/index-S0000000000.js",)
+            assert stable.eager_css_urls == (
+                "static/styles-eager-tailwind-AAAA1111.css",
+                "static/styles-eager-app-BBBB2222.css",
+            )
 
     def test_import_map_cannot_close_its_script_tag(self):
         with tempfile.TemporaryDirectory() as directory:

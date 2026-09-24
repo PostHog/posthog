@@ -103,4 +103,18 @@ describe('planStableChunks', () => {
             expect(() => stableFileName('index.js', 'source')).toThrow(/does not end in the expected/)
         })
     })
+
+    // The copied source map is shifted down exactly one line, so the prelude must be a line of its own.
+    it('puts a prelude on its own first line and names the chunk by it', () => {
+        const sources = entry('export const a=1')
+        const withPrelude = planStableChunks(
+            OUTPUTS,
+            (outputPath: string) => sources[outputPath],
+            'dist/',
+            new Map([['dist/Scene-AAAA1111.js', 'await window.ESBUILD_LOAD_CSS([]);']])
+        ).plan.get('dist/Scene-AAAA1111.js')!
+
+        expect(withPrelude.source.split('\n')[0]).toBe('await window.ESBUILD_LOAD_CSS([]);')
+        expect(withPrelude.stableFile).not.toBe(plan(sources).get('dist/Scene-AAAA1111.js')!.stableFile)
+    })
 })

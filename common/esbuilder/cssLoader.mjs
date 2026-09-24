@@ -127,3 +127,64 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
         })();
     `
 }
+
+export const CSS_LOAD_GLOBAL = 'ESBUILD_LOAD_CSS'
+
+/**
+ * Inline loader for the stable build's split stylesheets (see frontend/bin/stableCss.mjs).
+ *
+ * The eager layers load in order, and `window.ESBUILD_CSS_READY` resolves once all of them apply.
+ * `window.ESBUILD_LOAD_CSS(urls)` loads the stylesheets a lazy chunk waits on before it runs.
+ *
+ * When a stable stylesheet fails or stalls, the loader runs `cssLoaderScript` for the full
+ * stylesheet, which holds every rule, with its whole retry and reporting ladder. A failure in the
+ * stable build therefore ends up where the default build starts, never with an unstyled page.
+ */
+export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallback) {
+    return `
+        (function () {
+            var fullStylesheet = null;
+            function loadFullStylesheet() {
+                if (!fullStylesheet) {
+                    ${cssLoaderScript(fullCssFile, fullCssFileFallback)}
+                    fullStylesheet = window.${CSS_READY_GLOBAL};
+                }
+                return fullStylesheet;
+            }
+
+            function loadStylesheet(href) {
+                return new Promise(function (resolve) {
+                    var link = document.createElement("link");
+                    link.rel = "stylesheet";
+                    link.crossOrigin = "anonymous";
+                    link.href = href;
+                    var timer = setTimeout(function () { resolve(false); }, ${CSS_ATTEMPT_TIMEOUT_MS});
+                    link.addEventListener("load", function () { clearTimeout(timer); resolve(!!link.sheet); });
+                    link.addEventListener("error", function () { clearTimeout(timer); resolve(false); });
+                    document.head.appendChild(link);
+                });
+            }
+
+            var requested = {};
+            window.${CSS_LOAD_GLOBAL} = function (urls) {
+                return Promise.all(urls.map(function (url) {
+                    if (!requested[url]) {
+                        requested[url] = loadStylesheet(url).then(function (applied) {
+                            if (applied) { return true; }
+                            console.error('[PostHog] Stylesheet did not apply, loading the full stylesheet: ' + url);
+                            return loadFullStylesheet();
+                        });
+                    }
+                    return requested[url];
+                })).then(function (results) {
+                    return results.every(Boolean);
+                });
+            };
+
+            var eager = ${JSON.stringify(eagerFiles)}.map(function (file) {
+                return (window.JS_URL || '') + '/static/' + file;
+            });
+            window.${CSS_READY_GLOBAL} = window.${CSS_LOAD_GLOBAL}(eager);
+        })();
+    `
+}

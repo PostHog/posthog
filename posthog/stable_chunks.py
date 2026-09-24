@@ -37,6 +37,8 @@ class StableChunks:
     imports: dict[str, str]
     preload_js_urls: tuple[str, ...]
     authenticated_preload_js_urls: tuple[str, ...]
+    # The split eager stylesheets, in link order. Empty for a build that does not split its CSS.
+    eager_css_urls: tuple[str, ...] = ()
 
     def import_map_json(self, js_url: str) -> str:
         import_map = json.dumps(
@@ -65,19 +67,22 @@ def read_stable_chunks_manifest(manifest_path: str) -> Optional[StableChunks]:
         preload = manifest.get("preload", {})
         js = preload.get("js", [])
         authenticated_js = preload.get("authenticatedJs", [])
+        eager_css = manifest.get("eagerCss", [])
         if not (
             isinstance(imports, dict)
             and imports
             and all(isinstance(k, str) and isinstance(v, str) for k, v in imports.items())
             and isinstance(js, list)
             and isinstance(authenticated_js, list)
-            and all(isinstance(url, str) for url in [*js, *authenticated_js])
+            and isinstance(eager_css, list)
+            and all(isinstance(url, str) for url in [*js, *authenticated_js, *eager_css])
         ):
             raise ValueError("stable chunks manifest fields have unexpected types")
         return StableChunks(
             imports=imports,
             preload_js_urls=tuple(js),
             authenticated_preload_js_urls=tuple(authenticated_js),
+            eager_css_urls=tuple(eager_css),
         )
     except Exception as e:
         logger.warning("stable_chunks_manifest_unreadable", manifest_path=manifest_path, error=str(e))

@@ -36,6 +36,9 @@
             {# to a single copy. crossorigin matches the loader's fetch mode so one response is reused. #}
             <link rel="preload" href="{{ js_url }}/{{ preload_css_url }}" as="style" crossorigin="anonymous">
         {% endif %}
+        {% for url in stable_preload_css_urls %}
+            <link rel="preload" href="{{ js_url }}/{{ url }}" as="style" crossorigin="anonymous">
+        {% endfor %}
         {# Stable chunk names (opt-in, see posthog/stable_chunks.py): the import map must come before #}
         {# the modulepreload hints below, because browsers ignore an import map added after module #}
         {# loading has started. #}

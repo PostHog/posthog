@@ -1,4 +1,4 @@
-import { CSS_ATTEMPT_TIMEOUT_MS, cssLoaderScript } from './cssLoader.mjs'
+import { CSS_ATTEMPT_TIMEOUT_MS, cssLoaderScript, stableCssLoaderScript } from './cssLoader.mjs'
 
 const CSS_FILE = 'index-ABCD1234.css'
 const CSS_FALLBACK = 'index.css?t=99'
@@ -24,7 +24,11 @@ function makeLink(): FakeLink {
     }
 }
 
-function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as string | null } = {}): {
+function runLoader({
+    cssFileFallback = CSS_FALLBACK,
+    apiKey = 'phc_test' as string | null,
+    script = cssLoaderScript(CSS_FILE, cssFileFallback),
+} = {}): {
     ready: Promise<boolean>
     links: FakeLink[]
     beacons: Record<string, any>[]
@@ -50,14 +54,13 @@ function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as stri
         },
     }
     // The inline loader runs in the page as a classic script: these are all globals there.
-    new Function(
-        'window',
-        'document',
-        'navigator',
-        'console',
-        'fetch',
-        cssLoaderScript(CSS_FILE, cssFileFallback)
-    )(win, doc, nav, { error: () => {} }, () => Promise.resolve())
+    new Function('window', 'document', 'navigator', 'console', 'fetch', script)(
+        win,
+        doc,
+        nav,
+        { error: () => {} },
+        () => Promise.resolve()
+    )
     return { ready: win.ESBUILD_CSS_READY, links, beacons }
 }
 
@@ -149,5 +152,30 @@ describe('css loader script', () => {
         expect(links[1].href).toMatch(new RegExp(`^${STATIC}index-ABCD1234\\.css\\?retry=\\d+$`))
         links[1].dispatch('error')
         expect(links).toHaveLength(2)
+    })
+
+    // The stable build splits the stylesheet; a split stylesheet that fails must not leave the page
+    // unstyled, because the full stylesheet holds every rule.
+    it.each([
+        ['every split stylesheet applies', false],
+        ['a split stylesheet fails', true],
+    ])('reports ready when %s', async (_name, splitFails) => {
+        const { ready, links } = runLoader({
+            script: stableCssLoaderScript(['a-1.css', 'b-2.css'], CSS_FILE, CSS_FALLBACK),
+        })
+        expect(links.map((link) => link.href)).toEqual([`${STATIC}a-1.css`, `${STATIC}b-2.css`])
+
+        applyStylesheet(links[0])
+        if (splitFails) {
+            links[1].dispatch('error')
+            await Promise.resolve()
+            expect(links[2].href).toBe(`${STATIC}${CSS_FILE}`)
+            applyStylesheet(links[2])
+        } else {
+            applyStylesheet(links[1])
+        }
+
+        await expect(ready).resolves.toBe(true)
+        expect(links).toHaveLength(splitFails ? 3 : 2)
     })
 })

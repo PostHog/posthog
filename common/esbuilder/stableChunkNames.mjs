@@ -79,7 +79,7 @@ export function stableFileName(originalFile, rewrittenSource) {
  * Returns, per JS output, its identity, stable file name and rewritten source, plus the import
  * map.
  */
-export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
+export function planStableChunks(outputs, readSource, distPrefix = 'dist/', preludes = new Map()) {
     const jsOutputs = Object.entries(outputs).filter(([outputPath]) => outputPath.endsWith('.js'))
     const fileOf = (outputPath) => outputPath.slice(distPrefix.length)
 
@@ -108,9 +108,12 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
         // Every replacement preserves length, except an identity collision with a short entry name
         // (see rewriteChunkSource). When that happens the map's byte offsets no longer line up.
         const mapValid = source.length === rawSource.replace(SOURCE_MAP_COMMENT, '').length
+        // A prelude goes on its own first line, so the map only needs to shift down one line.
+        const prelude = preludes.get(outputPath) ?? null
+        const finalSource = prelude ? `${prelude}\n${source}` : source
         const identity = identityByFile.get(file)
-        const stableFile = stableFileName(file, source)
-        plan.set(outputPath, { identity, file, stableFile, source, mapValid })
+        const stableFile = stableFileName(file, finalSource)
+        plan.set(outputPath, { identity, file, stableFile, source: finalSource, mapValid, prelude })
         imports[`${SPECIFIER_PREFIX}${identity}`] = `static/${stableFile}`
     }
     return { plan, imports }
@@ -121,14 +124,27 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
  * manifest the backend reads. `chunks` is the chunk map (scene name -> esbuild chunk hashes) and
  * `entrypoints` the absolute paths of the entry files, as `buildOrWatch` returns them.
  */
-export function writeStableChunks({ absWorkingDir, outputs, chunks, entrypoints, preloadManifest }) {
+export function writeStableChunks({
+    absWorkingDir,
+    outputs,
+    chunks,
+    entrypoints,
+    preloadManifest,
+    preludes = new Map(),
+    extraImports = {},
+    eagerCss = [],
+}) {
     const distDir = path.resolve(absWorkingDir, 'dist')
-    const { plan, imports } = planStableChunks(outputs, (outputPath) =>
-        fs.readFileSync(path.resolve(absWorkingDir, outputPath), 'utf8')
+    const { plan, imports } = planStableChunks(
+        outputs,
+        (outputPath) => fs.readFileSync(path.resolve(absWorkingDir, outputPath), 'utf8'),
+        'dist/',
+        preludes
     )
+    Object.assign(imports, extraImports)
 
     const stableByFile = new Map([...plan.values()].map((entry) => [entry.file, entry.stableFile]))
-    for (const { file, stableFile, source, mapValid } of plan.values()) {
+    for (const { file, stableFile, source, mapValid, prelude } of plan.values()) {
         const mapFile = path.resolve(distDir, `${file}.map`)
         // A rewrite that changed the source's length invalidates the map's byte offsets, so serve
         // the source with no map rather than one that points at the wrong columns.
@@ -137,7 +153,11 @@ export function writeStableChunks({ absWorkingDir, outputs, chunks, entrypoints,
             path.resolve(distDir, stableFile),
             hasMap ? `${source}\n//# sourceMappingURL=${stableFile}.map\n` : source
         )
-        if (hasMap) {
+        if (hasMap && prelude) {
+            const map = JSON.parse(fs.readFileSync(mapFile, 'utf8'))
+            map.mappings = `;${map.mappings}`
+            fs.writeFileSync(path.resolve(distDir, `${stableFile}.map`), JSON.stringify(map))
+        } else if (hasMap) {
             fs.copyFileSync(mapFile, path.resolve(distDir, `${stableFile}.map`))
         }
     }
@@ -153,11 +173,12 @@ export function writeStableChunks({ absWorkingDir, outputs, chunks, entrypoints,
     const toStableUrl = (url) => `static/${toStable(url.replace(/^static\//, ''))}`
     const manifest = {
         imports,
+        eagerCss: eagerCss.map((file) => `static/${file}`),
         preload: {
             js: (preloadManifest?.js || []).map(toStableUrl),
             authenticatedJs: (preloadManifest?.authenticatedJs || []).map(toStableUrl),
         },
     }
     fs.writeFileSync(path.resolve(distDir, 'stable-chunks-manifest.json'), JSON.stringify(manifest))
-    return { chunks: stableChunks, entrypoints: stableEntrypoints, manifest }
+    return { chunks: stableChunks, entrypoints: stableEntrypoints, eagerCss, manifest }
 }
