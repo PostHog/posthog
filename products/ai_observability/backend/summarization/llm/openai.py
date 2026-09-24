@@ -29,14 +29,13 @@ def _provider_status(error: Exception) -> int | None:
     return status_code if isinstance(status_code, int) else None
 
 
-def _failure_reason(error: Exception) -> str | None:
-    """A short reason a user can read and quote to support. None when we have nothing to add."""
-    status_code = _provider_status(error)
+def _failure_reason(error: Exception, status_code: int | None) -> str:
+    """A short reason a user can read and quote to support. Empty when we have nothing to add."""
     if status_code is not None:
-        return f"the model provider returned {status_code}"
+        return f" (the model provider returned {status_code})"
     if isinstance(error, APIConnectionError):
-        return "we could not reach the model provider"
-    return None
+        return " (we could not reach the model provider)"
+    return ""
 
 
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
@@ -137,7 +136,7 @@ def summarize_with_openai(
         raise
     except Exception as e:
         status_code = _provider_status(e)
-        reason = _failure_reason(e)
+        reason = _failure_reason(e, status_code)
         logger.exception(
             "OpenAI API call failed",
             error=str(e),
@@ -161,6 +160,4 @@ def summarize_with_openai(
                 "flex": flex,
             },
         )
-        raise exceptions.APIException(
-            f"Failed to generate summary ({reason})" if reason else "Failed to generate summary"
-        )
+        raise exceptions.APIException(f"Failed to generate summary{reason}")
