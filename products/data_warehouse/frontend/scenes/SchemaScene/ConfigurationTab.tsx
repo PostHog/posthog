@@ -1006,7 +1006,7 @@ function ScheduleSection({
                                 type="number"
                                 min={1}
                                 max={MAX_FULL_REFRESH_INTERVAL_DAYS}
-                                value={draftFullRefreshDays ?? undefined}
+                                value={draftFullRefreshDays ?? NaN}
                                 onChange={(value) =>
                                     setDraftFullRefreshDays(value === undefined || Number.isNaN(value) ? null : value)
                                 }

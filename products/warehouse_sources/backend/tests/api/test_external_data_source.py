@@ -3132,6 +3132,8 @@ class TestExternalDataSource(APIBaseTest):
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
+                    "full_refresh_interval_days": None,
+                    "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
