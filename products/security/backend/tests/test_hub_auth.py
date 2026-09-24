@@ -7,25 +7,26 @@ from django.test import SimpleTestCase, override_settings
 import jwt as pyjwt
 from parameterized import parameterized
 
-from products.security.backend.logic.hub_auth import MAX_TOKEN_LIFETIME_SECONDS, claims_allow, mint_rules_token
+from products.security.backend.logic.hub_auth import (
+    MAX_TOKEN_LIFETIME_SECONDS,
+    MIN_MINT_MARGIN_SECONDS,
+    claims_allow,
+    mint_rules_token,
+)
 
 
 @override_settings(SECURITY_HUB_REGION="us", SECURITY_HUB_OUTBOUND_JWT_SECRETS=["new", "old"])
 class TestHubAuth(SimpleTestCase):
-    def test_rules_token_claims(self) -> None:
-        claims = pyjwt.decode(mint_rules_token(), "new", algorithms=["HS256"], audience="posthog:security_hub:rules")
+    @parameterized.expand([("no pause", 0), ("almost the whole margin", MIN_MINT_MARGIN_SECONDS - 1)])
+    def test_rules_token_claims(self, _name: str, pause: int) -> None:
+        # encode_jwt reads the clock again after mint_rules_token stamps iat, so an earlier iat
+        # stands in for a pause between the two reads.
+        with patch("products.security.backend.logic.hub_auth.time.time", return_value=time.time() - pause):
+            token = mint_rules_token()
+        claims = pyjwt.decode(token, "new", algorithms=["HS256"], audience="posthog:security_hub:rules")
         assert claims["region"] == "us"
         assert claims["op"] == "rules:read"
         assert 0 < claims["exp"] - claims["iat"] <= MAX_TOKEN_LIFETIME_SECONDS
-
-    def test_a_pause_between_the_two_clock_reads_still_fits_the_hub_ceiling(self) -> None:
-        # iat comes from mint_rules_token and exp from a later read inside encode_jwt, so an
-        # earlier iat stands in for a pause between them.
-        with patch("products.security.backend.logic.hub_auth.time.time", return_value=time.time() - 20):
-            claims = pyjwt.decode(
-                mint_rules_token(), "new", algorithms=["HS256"], audience="posthog:security_hub:rules"
-            )
-        assert claims["exp"] - claims["iat"] <= MAX_TOKEN_LIFETIME_SECONDS
 
     @parameterized.expand(
         [
