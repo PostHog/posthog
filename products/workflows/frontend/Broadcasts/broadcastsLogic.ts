@@ -52,22 +52,23 @@ type FlowEdge = { from?: string; to?: string }
  */
 export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
     const steps = actions ?? []
-    const trigger = steps.find((step) => step.type === 'trigger')
-    const email = steps.find((step) => step.type === 'function_email')
-    const exit = steps.find((step) => step.type === 'exit')
-    if (!trigger || !email || !exit) {
+    const [trigger, email, exit] = ['trigger', 'function_email', 'exit'].map((type) =>
+        steps.filter((step) => step.type === type)
+    )
+    // One of each and nothing else, so the steps the wizard edits are the only ones there are.
+    if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
         return false
     }
-    const recipient = email.config?.inputs?.email?.value?.to?.email
+    const recipient = email[0].config?.inputs?.email?.value?.to?.email
     // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
     // that skips the email.
     const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
-        trigger.config?.filters?.audience_type !== 'accounts' &&
+        trigger[0].config?.filters?.audience_type !== 'accounts' &&
         (!recipient || recipient === DEFAULT_RECIPIENT) &&
         paths.size === 2 &&
-        paths.has(`${trigger.id}->${email.id}`) &&
-        paths.has(`${email.id}->${exit.id}`)
+        paths.has(`${trigger[0].id}->${email[0].id}`) &&
+        paths.has(`${email[0].id}->${exit[0].id}`)
     )
 }
 

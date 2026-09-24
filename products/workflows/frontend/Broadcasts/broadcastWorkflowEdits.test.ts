@@ -33,6 +33,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             [{ from: 'trigger_node', to: 'exit_node' }],
             false,
         ],
+        ['a second, disconnected exit', [trigger(), email(), exit, { ...exit, id: 'exit_2' }], edges, false],
         [
             'an extra path around the email',
             [trigger(), email(), exit],
