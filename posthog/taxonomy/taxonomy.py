@@ -478,39 +478,39 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$error_tracking_issue_created": {
             "label": "Error tracking issue created",
-            "description": 'Fires when a new error tracking issue is created from an incoming exception. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`, `status` and `exception_timestamp`. `status` is the raw value `active` on this event, while the other issue events send the display label, such as `Active`. `assignee` is set only when an assignment rule matched the new issue. It is a JSON string such as `{"type":"user","id":123}` or `{"type":"role","id":"<uuid>"}`.',
+            "description": "Fires when a new error tracking issue is created from an incoming exception.",
         },
         "$error_tracking_issue_reopened": {
             "label": "Error tracking issue reopened",
-            "description": 'Fires when an error tracking issue becomes active again. A new exception reopens any issue that is not active or suppressed, and a person can also set an issue back to active. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint` and `status`. A manual reopen adds `previous_status`, and a reopen by a new exception adds `exception_timestamp`. `assignee` is set only when the issue has an assignee. It is a JSON string such as `{"type":"user","id":123}`.',
+            "description": "Fires when a previously resolved error tracking issue is seen again and reopened.",
         },
         "$error_tracking_issue_spiking": {
             "label": "Error tracking issue spiking",
-            "description": 'Fires when an error tracking issue\'s volume spikes above its expected rate. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen` and `fingerprint`, plus `computed_baseline`, `current_bucket_value` and `exception_timestamp`. It does not carry `status`. `assignee` is set only when the issue has an assignee. It is a JSON string such as `{"type":"user","id":123}`.',
+            "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
         },
         "$error_tracking_issue_resolved": {
             "label": "Error tracking issue resolved",
-            "description": 'Fires when an error tracking issue is marked as resolved. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`, `status` and `previous_status`. `assignee` is set only when the issue has an assignee. It is a JSON string such as `{"type":"user","id":123}`.',
+            "description": "Fires when an error tracking issue is marked as resolved.",
         },
         "$error_tracking_issue_suppressed": {
             "label": "Error tracking issue suppressed",
-            "description": 'Fires when an error tracking issue is marked as suppressed. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint`, `status` and `previous_status`. `assignee` is set only when the issue has an assignee. It is a JSON string such as `{"type":"user","id":123}`.',
+            "description": "Fires when an error tracking issue is marked as suppressed.",
         },
         "$error_tracking_issue_assigned": {
             "label": "Error tracking issue assigned",
-            "description": 'Fires when an error tracking issue is assigned to a user or role. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint` and `status`. `assignee` holds the new assignee as a JSON string such as `{"type":"user","id":123}` or `{"type":"role","id":"<uuid>"}`.',
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
         },
         "$error_tracking_issue_unassigned": {
             "label": "Error tracking issue unassigned",
-            "description": 'Fires when an error tracking issue\'s assignee is removed. Carries the issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint` and `status`. `previous_assignee` holds the removed assignee as a JSON string such as `{"type":"user","id":123}`. `assignee` is not set.',
+            "description": "Fires when an error tracking issue's assignee is removed.",
         },
         "$error_tracking_issue_merged": {
             "label": "Error tracking issue merged",
-            "description": 'Fires when error tracking issues are merged into another issue. Carries the `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint` and `status` of the issue they were merged into, plus `merged_issue_ids`. `assignee` is set only when that issue has an assignee. It is a JSON string such as `{"type":"user","id":123}`.',
+            "description": "Fires when error tracking issues are merged into another issue.",
         },
         "$error_tracking_issue_split": {
             "label": "Error tracking issue split",
-            "description": 'Fires when fingerprints are split out of an error tracking issue into new issues. Carries the original issue\'s `name`, `description`, `issue_description`, `severity`, `first_seen`, `fingerprint` and `status`, plus `split_issue_ids` for the new issues. `assignee` is set only when the original issue has an assignee. It is a JSON string such as `{"type":"user","id":123}`.',
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
