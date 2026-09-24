@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { osBridgeLogic } from '../bridge/osBridgeLogic'
 import { osAppPreviewLogic } from '../store/osAppPreviewLogic'
 import { OsWindow } from './OsWindow'
+import { osWindowFramesLogic } from './osWindowFramesLogic'
 import { OsSnapZone, snapZoneBounds } from './osWindowGeometry'
 import { osWindowCommandFor } from './osWindowShortcuts'
 import { osWindowsLogic } from './osWindowsLogic'
@@ -13,6 +14,7 @@ import { osWindowsLogic } from './osWindowsLogic'
 export function OsWindowLayer(): JSX.Element {
     useMountedLogic(osBridgeLogic)
     useMountedLogic(osAppPreviewLogic)
+    useMountedLogic(osWindowFramesLogic)
     const { windows, focusedWindow, desktop } = useValues(osWindowsLogic)
     const { setDesktopSize, runWindowCommand } = useActions(osWindowsLogic)
     const reduceMotion = useReducedMotion()

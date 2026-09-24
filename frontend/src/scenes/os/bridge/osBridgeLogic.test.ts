@@ -147,6 +147,22 @@ describe('osBridgeLogic', () => {
         expect(navigates()).toEqual(2)
     })
 
+    it('sends a page to a window whose frame is not in the page yet, once its app reports', () => {
+        const id = windows.values.windows[0].id
+        frame.remove()
+
+        bridge.actions.navigateWindow(id, '/alerts')
+
+        document.body.appendChild(frame)
+        const postMessage = jest.spyOn(frame.contentWindow as Window, 'postMessage')
+        send({ type: 'location', path: INSIGHTS, title: 'Insights', traversed: false })
+
+        expect(postMessage).toHaveBeenCalledWith(
+            { channel: OS_BRIDGE_CHANNEL, version: OS_BRIDGE_VERSION, type: 'navigate', path: '/alerts' },
+            window.location.origin
+        )
+    })
+
     it('reloads its own user and tells the other frames when a window changes the user', async () => {
         const other = document.createElement('iframe')
         other.name = osFrameName('other1')

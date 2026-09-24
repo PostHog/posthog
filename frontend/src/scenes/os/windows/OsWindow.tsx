@@ -11,6 +11,8 @@ import { cn } from 'lib/utils/css-classes'
 import { OS_PREVIEW_FRAME_ATTRIBUTE, osFrameName, osFrameSrc } from '../bridge/osFrame'
 import { OsAppPreviewBar } from '../store/OsAppPreviewBar'
 import { osAppPreviewLogic } from '../store/osAppPreviewLogic'
+import { osFrameShowsApp, osWindowFramesLogic } from './osWindowFramesLogic'
+import { OsWindowFrameStatus } from './OsWindowFrameStatus'
 import { OsBounds, OsPoint, OsResizeEdge, OsSnapZone, resizeBounds, snapZoneAt } from './osWindowGeometry'
 import { OS_WINDOW_SHORTCUT_KEYS, OsWindowCommand } from './osWindowShortcuts'
 import { OsWindowState, osWindowsLogic } from './osWindowsLogic'
@@ -65,13 +67,17 @@ export function OsWindow({
 }: OsWindowProps): JSX.Element {
     const { desktop, zoomOrigins } = useValues(osWindowsLogic)
     const { previewBarApps } = useValues(osAppPreviewLogic)
+    const { frameStatus, frameAttempts } = useValues(osWindowFramesLogic)
+    const { reloadFrame, framePageLoaded } = useActions(osWindowFramesLogic)
+    const status = frameStatus[win.id] ?? 'queued'
     const previewedApp = win.preview ? previewBarApps[win.preview] : undefined
     const { focusWindow, closeWindow, minimizeWindow, maximizeWindow, unmaximizeWindow, snapWindow, setWindowBounds } =
         useActions(osWindowsLogic)
     const reduceMotion = useReducedMotion()
     const [liveBounds, setLiveBounds] = useState<OsBounds | null>(null)
     const gesture = useRef<Gesture | null>(null)
-    // The frame loads its first path once. Later paths come from the frame itself, and changing `src` would reload it.
+    // The frame loads the window's path once. Later paths come from the frame itself, and changing `src` would reload it.
+    // A window waits for its frame without a way to change its path, so the path at mount is still current then.
     const [src] = useState(() => osFrameSrc({ pathname: win.path, search: '', hash: '' }, window.location.origin))
     const [zoomOrigin] = useState(() => zoomOrigins[win.id] ?? null)
 
@@ -275,18 +281,32 @@ export function OsWindow({
                 </div>
             </header>
             {previewedApp && <OsAppPreviewBar app={previewedApp} />}
-            {src && (
-                <iframe
-                    name={osFrameName(win.id)}
-                    {...(previewedApp ? { [OS_PREVIEW_FRAME_ATTRIBUTE]: '' } : {})}
-                    src={src}
-                    title={win.title}
-                    className={cn(
-                        'flex-1 w-full min-h-0 border-0 bg-surface-primary',
-                        interacting && 'pointer-events-none'
-                    )}
-                />
-            )}
+            <div
+                className="relative flex flex-col flex-1 min-h-0"
+                aria-busy={status === 'queued' || status === 'loading' || undefined}
+            >
+                {/* Before the frame, so the slow bar sits above it. The loading cover is positioned and still paints over the frame. */}
+                <OsWindowFrameStatus status={status} title={win.title} onReload={() => reloadFrame(win.id)} />
+                {src && status !== 'queued' && (
+                    <iframe
+                        // A reload remounts the frame, which loads the window's page from the start.
+                        key={frameAttempts[win.id] ?? 0}
+                        name={osFrameName(win.id)}
+                        {...(previewedApp ? { [OS_PREVIEW_FRAME_ATTRIBUTE]: '' } : {})}
+                        src={src}
+                        title={win.title}
+                        className={cn(
+                            'flex-1 w-full min-h-0 border-0 bg-surface-primary',
+                            interacting && 'pointer-events-none'
+                        )}
+                        onLoad={(event) => {
+                            if (!osFrameShowsApp(event.currentTarget)) {
+                                framePageLoaded(win.id)
+                            }
+                        }}
+                    />
+                )}
+            </div>
             {!win.maximized &&
                 RESIZE_HANDLES.map(({ edge, className }) => (
                     <div

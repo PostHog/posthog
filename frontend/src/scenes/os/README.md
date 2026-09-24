@@ -71,6 +71,19 @@ A window keeps the bounds it asked for, and the desktop clamps them only for dis
 When a window navigates to another project and a reload follows, the page opens that project's desktop.
 Saved paths go through `osFrameSrc` again when they load, and entries that do not parse are dropped.
 
+**Frames load in turn.** `windows/osWindowFramesLogic` decides when a window gets its frame, and `windows/OsWindow` renders the frame from then on.
+Frames share the page's main thread and the web server, so apps that boot together slow each other down.
+
+- The top visible window always gets its frame at once, also when it is opened, focused or restored.
+- The windows behind it get theirs from the top down, while fewer than two frames load (`OS_FRAME_BOOT_LIMIT`). This matters after a reload, when every saved window would otherwise boot at the same time.
+- A minimized window gets its frame only when it is restored. A frame that is in the page stays there, so minimizing or covering a window keeps its app as it was.
+- A frame counts as loaded when its app sends its first `location` message, which happens once the app's page shell runs, before the scene has its data.
+  A frame that loads a page that is not the app (another site, or a server error page without the app's `#root`) counts as loaded when the page loads.
+- Until then the window shows "Loading <title>" (`windows/OsWindowFrameStatus`).
+  After 20 seconds (`OS_FRAME_SLOW_MS`) a bar with Reload replaces it above the frame, so an error page inside the frame stays visible, and the frame stops holding up the windows behind it.
+  Reload loads the frame again right away.
+- The menu bar can send a page to a window that still waits for its frame. The page goes to the frame once its app reports.
+
 **Keyboard shortcuts** use Option+Shift (Alt+Shift) and a key: arrows snap, maximize and minimize, W closes, G tidies up.
 They only work while the desktop has focus, because key presses inside a window stay in its frame.
 

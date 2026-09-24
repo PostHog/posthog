@@ -177,6 +177,8 @@ export const osBridgeLogic = kea<osBridgeLogicType>([
         navigateWindow: ({ windowId, path }) => {
             const frame = osWindowFrames().find((candidate) => candidate.name === osFrameName(windowId))
             if (!frame) {
+                // The window still waits for its frame, so the frame's first location report sends the page.
+                cache.pendingNavigations.set(windowId, { path, retried: false })
                 return
             }
             // A frame on another origin (a sign-in page) cannot read messages, so it loads the page again.
