@@ -45,10 +45,6 @@ MAX_LIMIT = 500
 # Both the result column and search expression use this property so they cannot drift.
 _REPORT_TEXT = "toString(properties.$mcp_intent)"
 
-# Conversation id, same resolution as the tool-call surfaces: the SDK's own
-# $mcp_session_id when set, else the ambient $session_id.
-_CONVERSATION_ID = CONVERSATION_ID_SQL
-
 
 class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
     """Chronological feed of the capabilities agents asked for and could not get.
@@ -140,7 +136,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),
-                "conversation_id": parse_expr(_CONVERSATION_ID),
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": self._where(),
                 # Over-fetch one row to detect the next page without a separate count query.
                 "limit": ast.Constant(value=self.limit + 1),

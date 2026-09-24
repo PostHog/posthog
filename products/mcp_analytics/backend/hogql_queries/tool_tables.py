@@ -112,18 +112,20 @@ def _tool_call_where(
     date_range: QueryDateRange,
     team: "Team",
     *,
+    scope_to_tool: bool = True,
     extra: list[ast.Expr] | None = None,
 ) -> ast.Expr:
     """WHERE for new-SDK $mcp_tool_call events scoped to one effective tool and window.
 
-    The tool name is bound as an ast.Constant, never interpolated. `extra` appends
-    query-specific predicates (e.g. notEmpty(description)).
+    The tool name is bound as an ast.Constant, never interpolated. `scope_to_tool=False` keeps
+    every tool's calls, for queries that mark this tool with a column to compute its share.
+    `extra` appends query-specific predicates (e.g. notEmpty(description)).
     """
     exprs: list[ast.Expr] = [
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
         parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
         parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
-        *tool_scope_exprs(query.toolName),
+        *(tool_scope_exprs(query.toolName) if scope_to_tool else [mcp_source_expr()]),
         *shared_filter_exprs(team, query.properties, query.filterTestAccounts),
     ]
     if extra:
@@ -308,8 +310,6 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         )
 
 
-_CONVERSATION_ID = CONVERSATION_ID_SQL
-
 # Mirrors the capture-side MAX_ERROR_MESSAGE_LENGTH (services/mcp); event-supplied, so
 # re-capped here in case a non-PostHog server emits an unbounded value.
 _ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
@@ -382,7 +382,7 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             """,
             placeholders={
                 "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
-                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "_ERROR_MESSAGE": parse_expr(_ERROR_MESSAGE),
                 "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
@@ -443,25 +443,6 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
-    def _where(self) -> ast.Expr:
-        # Scoped to the new-SDK source but not to one effective tool, so the outer query
-        # can compute this tool's own aggregates via `is_tool` alongside the all-tool
-        # totals (the call/session share denominators) in a single scan.
-        return ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
-                parse_expr(
-                    "timestamp >= {date_from}",
-                    placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                mcp_source_expr(),
-                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
-            ]
-        )
-
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
             """
@@ -471,14 +452,14 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
                 round(quantileIf(0.5)(duration_ms, is_tool)) AS p50_ms,
                 round(quantileIf(0.95)(duration_ms, is_tool)) AS p95_ms,
                 uniqIf(distinct_id, is_tool) AS users,
-                uniqIf(conversation_id, is_tool AND conversation_id != '') AS conversations,
+                uniqIf(conversation_id, is_tool) AS conversations,
                 countIf(is_tool AND has_intent) AS with_intent,
                 count() AS total_calls,
-                uniq(nullIf(conversation_id, '')) AS total_conversations
+                uniq(conversation_id) AS total_conversations
             FROM (
                 SELECT
                     distinct_id,
-                    {_CONVERSATION_ID} AS conversation_id,
+                    nullIf({_CONVERSATION_ID}, '') AS conversation_id,
                     toBool(properties.$mcp_is_error) AS is_error,
                     toFloat(properties.$mcp_duration_ms) AS duration_ms,
                     notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}' AS has_intent,
@@ -488,9 +469,9 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
             )
             """,
             placeholders={
-                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "is_tool": effective_tool_expr(self.query.toolName),
-                "where": self._where(),
+                "where": _tool_call_where(self.query, self.query_date_range, self.team, scope_to_tool=False),
             },
         )
 
@@ -573,7 +554,7 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
             """,
             placeholders={
                 "interval": ast.Constant(value=interval),
-                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
@@ -800,7 +781,7 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
                 parse_expr(
                     "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
                 ),
-                parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(_CONVERSATION_ID)}),
+                parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(CONVERSATION_ID_SQL)}),
                 # In the CTE so a filtered-out call cannot count as a neighbour either.
                 *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
             ]
@@ -828,7 +809,7 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             LIMIT 5
             """,
             placeholders={
-                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
                 "neighbor_expr": parse_expr(neighbor_expr),
                 "cte_where": cte_where,

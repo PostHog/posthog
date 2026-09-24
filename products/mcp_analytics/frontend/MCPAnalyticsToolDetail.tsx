@@ -227,8 +227,7 @@ function spark(values: number[]): number[] {
     return values.map((v) => (Number.isFinite(v) ? v : 0))
 }
 
-// Below this, formatPercentage's two-significant-digit rounding would show "0%", hiding that
-// the tool ran at all.
+// formatPercentage keeps two significant digits, so a tiny share would read like "0.00004%".
 const MIN_DISPLAYED_SHARE_PCT = 0.01
 
 // undefined when there's nothing to divide by, so the caller can fall back to the date range subtitle.
