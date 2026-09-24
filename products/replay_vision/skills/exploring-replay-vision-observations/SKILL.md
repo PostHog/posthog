@@ -61,9 +61,10 @@ Pick the axis that matches the question:
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
   and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
-- **Has something already summarized this?** → if the scanner has scout digests attached, read their inbox
-  reports instead of re-deriving the pattern (`inbox-reports-list`, filtered to the scout named after the
-  scanner).
+- **Which recordings are worth watching?** → `vision-scanners-watch-feed` ranks succeeded observations across
+  every readable scanner over a window (default the last 7 days) and says why each made the cut.
+- **Has something already summarized this?** → if the scanner has scouts attached, read their reports instead
+  of re-deriving the pattern (`vision-scanners-scout-reports-list`, then `vision-scanners-scout-reports-get`).
 - **The full detail of one finding** → `vision-scanners-observations-get` (`scanner_id` + `id`) or
   `vision-observations-retrieve` (`id`) — returns the frozen `scanner_snapshot` (config at run time) and the
   complete `scanner_result`, including any event citations that link the finding back to specific events in the
@@ -83,6 +84,9 @@ Triage `status` so you don't mistake a non-result for "nothing wrong":
 A scanner that looks like it "found nothing" is often producing mostly `ineligible` observations — check the
 mix before concluding.
 
+A `failed` or `ineligible` observation can be re-run with `vision-observations-retry`, which deletes it and scans the same recording again at the normal credit price.
+Retry transient failures (`provider_transient`, `orphaned`, `internal_error`); an ineligible `too_short` or `no_recording` session comes back ineligible again.
+
 ## Step 3 — Read the findings
 
 - **Monitors:** focus on `verdict: yes`; treat `inconclusive` as a weak signal. The observation text is the
@@ -96,8 +100,9 @@ Weight by `confidence`, and don't over-index on a single observation. To underst
 recording with the [[investigating-replay]] skill and the session-recording MCP tools.
 
 To test a scanner's lens against a specific session that doesn't have an observation yet, trigger one on demand
-with `vision-scanners-scan-session` — it's async (minutes; rasterising the recording + the LLM call are slow)
-and, like all observations, runs at most once per `(scanner, session)`.
+with `vision-scanners-scan-session` (or `vision-scanners-scan-sessions` for up to 200 at once) — it's async
+(minutes; rasterising the recording + the LLM call are slow) and, like all observations, runs at most once per
+`(scanner, session)`.
 
 ### Cite moments, not just sessions
 
@@ -129,10 +134,13 @@ Match the action to the user's intent, and **corroborate before you create work*
   frequency, bundle the supporting recordings into a session-recording playlist so a human can watch the
   evidence, and add an `annotation` if it marks a regression. To act on the affected people rather than the
   sessions, `vision-scanners-affected-cohort-create` snapshots them into a static cohort (dated, not
-  live-updating) you can use for funnels, retention, surveys, or experiment exclusion. There is **no MCP tool to open a PostHog
-  task directly** — to route a finding into tracked work, use the Inbox path below (for signal-emitting
-  scanners) or hand the summary to a human or coding agent to act on. Group by distinct issue, not per
-  observation.
+  live-updating) you can use for funnels, retention, surveys, or experiment exclusion. To route a finding into
+  tracked work, `vision-observations-create-task` opens a PostHog task from one observation (idempotent per
+  observation; it does not start a coding agent). Group by distinct issue, not per observation: pick the
+  clearest observation for each issue.
+- **Get told when it recurs.** `vision-alerts-create` puts an alert on the scanner: a `match` alert fires on
+  every matching observation, a `metric` alert when a count or average score crosses a threshold over a
+  window. Add a Slack or webhook destination with `vision-alerts-destinations-create`, or it notifies nobody.
 - **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
   and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
   team-wide, last write wins, clearable with `vision-observations-label-destroy`). **Never rate from your own
@@ -148,8 +156,10 @@ Match the action to the user's intent, and **corroborate before you create work*
   their call, not yours. There is also **no MCP tool to test a suggestion** against the rated results, so tell
   them to test it on the scanner's Calibration tab first.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
-  read and act on those with `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the
-  evidence). See the [[inbox-exploration]] skill; that path also records your work against the report.
+  `vision-observations-signal-reports-list` names the reports one observation fed, and
+  `vision-scanners-self-driving-stats` sums what the scanner led to. Read and act on those reports with
+  `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the evidence). See the
+  [[inbox-exploration]] skill; that path also records your work against the report.
 
 The discipline that matters: a single observation is one model's judgment on one recording. Confirm a finding
 reproduces across observations (or against the raw recording) before turning it into a task, an alert, or a
@@ -161,7 +171,8 @@ claim — the same rigor the signals pipeline applies before it promotes observa
 - **`ineligible` ≠ `failed`.** Ineligible is a normal terminal outcome (e.g. the recording was too short), not
   a bug to chase.
 - **One observation per `(scanner, session)`** — re-scanning a session that already has any observation
-  (even ineligible/failed) is a no-op.
+  (even ineligible/failed) is a no-op. `vision-observations-retry` is the way to re-run a failed or
+  ineligible one.
 - **Findings are snapshotted.** Each observation keeps the `scanner_snapshot` it ran under, so older
   observations may reflect a previous prompt/config (`scanner_version`).
 - **Quota is shared and priced in credits.** Every observation spends credits (1 credit = $0.01) by model,
