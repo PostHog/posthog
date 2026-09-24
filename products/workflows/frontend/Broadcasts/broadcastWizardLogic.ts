@@ -870,7 +870,41 @@ function buildBroadcastPayload(values: {
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    broadcast?: HogFlowApi | null
 }): Record<string, any> {
+    const existing = values.broadcast
+    if (existing && existing.origin_product !== 'broadcasts') {
+        // A workflow shaped like a broadcast keeps its own steps: its ids, names and any setting the
+        // wizard does not manage survive, and origin_product stays as it was created.
+        return {
+            name: values.name,
+            conversion: values.goalEnabled ? values.conversion : null,
+            email_sending_rate_limit: values.emailRateLimit,
+            actions: (existing.actions as Record<string, any>[]).map((action) =>
+                action.type === 'trigger'
+                    ? {
+                          ...action,
+                          config: {
+                              ...action.config,
+                              filters: { ...action.config?.filters, properties: values.audienceProperties },
+                          },
+                      }
+                    : action.type === 'function_email'
+                      ? {
+                            ...action,
+                            config: {
+                                ...action.config,
+                                inputs: {
+                                    ...action.config?.inputs,
+                                    email: { ...action.config?.inputs?.email, value: values.email },
+                                },
+                            },
+                        }
+                      : action
+            ),
+            edges: existing.edges,
+        }
+    }
     return {
         origin_product: 'broadcasts',
         status: 'draft',

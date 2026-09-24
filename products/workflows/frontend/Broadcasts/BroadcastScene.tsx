@@ -8,6 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
+import { isBroadcastShaped } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
@@ -44,9 +45,9 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (!broadcast) {
             return <NotFound object="broadcast" />
         }
-        // Any workflow id resolves on this route, and the wizard would rewrite whatever graph it
-        // opened into a broadcast's trigger/email/exit on the next save. Only open real broadcasts.
-        if (broadcast.origin_product !== 'broadcasts') {
+        // Any workflow id resolves on this route. A workflow shaped like a broadcast opens here like
+        // one (the wizard edits its steps in place); any other workflow is not a broadcast at all.
+        if (broadcast.origin_product !== 'broadcasts' && !isBroadcastShaped(broadcast.actions as any)) {
             return <NotFound object="broadcast" />
         }
         if (broadcast.status !== 'draft') {

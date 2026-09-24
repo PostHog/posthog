@@ -28,6 +28,18 @@ export interface BroadcastRowDetails {
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
 export const BROADCASTS_PAGE_SIZE = 100
 
+/** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
+export function isBroadcastShaped(
+    actions: { type?: string; config?: { type?: string } }[] | null | undefined
+): boolean {
+    const steps = actions ?? []
+    return (
+        steps.some((step) => step.type === 'trigger' && step.config?.type === 'batch') &&
+        steps.filter((step) => step.type === 'function_email').length === 1 &&
+        steps.every((step) => ['trigger', 'function_email', 'exit'].includes(step.type ?? ''))
+    )
+}
+
 export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
     return flow.origin_product !== 'broadcasts'
 }
