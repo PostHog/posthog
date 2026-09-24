@@ -627,7 +627,16 @@ class TestDashboardTemplates(APIBaseTest):
                 "tiles": {
                     "description": "The tiles of the dashboard template",
                     "type": "array",
-                    "items": {"type": "object"},
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "agent_context": {
+                                "description": "Optional context for AI agents. Maximum 10000 characters.",
+                                "type": ["string", "null"],
+                                "maxLength": 10000,
+                            }
+                        },
+                    },
                     "minItems": 1,
                 },
                 "variables": {

@@ -35,7 +35,14 @@
             "type": "array",
             "minItems": 1,
             "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                    "agent_context": {
+                        "description": "Optional context for AI agents. Maximum 10000 characters.",
+                        "type": ["string", "null"],
+                        "maxLength": 10000
+                    }
+                }
             }
         },
         "variables": {

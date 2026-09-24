@@ -3022,6 +3022,30 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
+    def test_create_from_template_json_rejects_oversized_agent_context(self) -> None:
+        template: dict = {
+            **valid_template,
+            "tiles": [
+                {
+                    "type": "TEXT",
+                    "body": "hello world",
+                    "agent_context": "x" * 10_001,
+                    "layouts": {},
+                }
+            ],
+        }
+        dashboard_count = Dashboard.objects.count()
+        text_count = Text.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert Dashboard.objects.count() == dashboard_count
+        assert Text.objects.count() == text_count
+
     @parameterized.expand(
         [
             ("inline_fields", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
