@@ -171,6 +171,37 @@ The mixin's before-update read is by primary key without a team filter (`unscope
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.
 See `posthog/models/scoping/README.md`.
 
+## Credential attribution
+
+A row written during a request also records the credential that authenticated the request, in `credential_type`, `credential_id` and `impersonated_by_id`.
+`ActivityLoggingMiddleware` records the session, resolved again for each row.
+The session applies only while `request.user` is still the session's user: DRF writes the principal of the authentication class that succeeded back onto the request, so a class that authenticates someone else and records nothing leaves the row without a credential.
+A bearer authentication class that succeeds replaces the session with its own credential through `record_activity_actor` in `posthog/models/activity_logging/utils.py`.
+The values come from the authenticated object, never from a request header, so a caller cannot choose them.
+Unlike `client`, they are evidence of which credential made a change.
+
+| `credential_type`     | `credential_id`                                   |
+| --------------------- | ------------------------------------------------- |
+| `session`             | the session's public id, from `session_public_id` |
+| `personal_api_key`    | the key id                                        |
+| `oauth`               | the OAuth application UUID                        |
+| `project_secret_key`  | the key id                                        |
+| `team_secret_token`   | none                                              |
+| `id_jag`              | the `client_id` claim                             |
+| `internal_jwt`        | none                                              |
+| `service_jwt`         | the audience of the scoped service JWT            |
+| `internal_api_secret` | none                                              |
+| `scim`                | the SCIM identity provider config id              |
+
+- A credential without a user (a project secret key, the legacy team secret token, a service JWT, the internal API secret or a SCIM token) clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
+- `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
+- The fields are null outside a request.
+- The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
+- A new authentication class that writes activity rows must call `record_activity_actor` when it succeeds. Otherwise its rows carry no credential. A partner OAuth class passes `oauth_activity_credential(access_token)`, so its rows read the same as the main OAuth path.
+
+To match a row to a session, compare `credential_id` with `session_public_id(session_key)` from `posthog/session/activity.py`.
+The login sessions API (`/api/users/@me/login_sessions/`) returns the same id and revokes a session by it.
+
 ## Product models on a separate database
 
 `ActivityLog` lives on the main database.
