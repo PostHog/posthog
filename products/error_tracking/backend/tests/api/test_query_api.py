@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -660,7 +661,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                                     "source": "src/checkout.ts",
                                     "line": 42,
                                     "in_app": True,
-                                    "code_variables": {"order": {"customer": None}},
+                                    "code_variables": {"order": {"customer": None, "total": 42}},
                                 }
                             ]
                         },
@@ -696,7 +697,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         assert "code_variables" not in stack_frame
-        assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        # The native-JSON table does not store a null leaf, so the null variable is absent there.
+        expected_variables = (
+            {"order": {"total": 42}}
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else {"order": {"customer": None, "total": 42}}
+        )
+        assert variables_frame["code_variables"] == expected_variables
         assert variables_properties["$exception_level"] == "error"
         assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}

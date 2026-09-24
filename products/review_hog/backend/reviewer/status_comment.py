@@ -37,6 +37,7 @@ from products.review_hog.backend.reviewer.constants import (
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
 from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
@@ -272,6 +273,28 @@ def render_resolution_failed_section(*, done: int, total: int) -> str:
             "<sub>The remaining threads were not touched. The next review or resolution run picks them up.</sub>",
         ]
     )
+
+
+def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: int = 0) -> str:
+    """Why the stage did not commit fixes, so the author knows the open threads are theirs.
+
+    `total` is set only when the run stopped part way.
+    """
+    if hold == CommitHold.STACKED:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: another pull request is now stacked on this branch"
+            if total
+            else "Not resolving comments: other pull requests are stacked on this branch"
+        )
+        why = "A fix commit here would leave the stacked pull requests out of date"
+    else:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
+            if total
+            else "Not resolving comments: this pull request is submitted to the merge queue"
+        )
+        why = "A fix commit would change what was submitted, or remove it from the queue"
+    return "\n".join([f"**{line}**", "", f"<sub>{why}, so the open threads stay with you.</sub>"])
 
 
 def _splice_resolution_section(body: str, section: str) -> str:

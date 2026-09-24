@@ -19,9 +19,15 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 3. Updates to the latest `master` and stops successfully if no changesets remain
 4. Runs `sampo release` from `./cli`
 5. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
-6. Commits the release bump to `master`
+6. Opens a release pull request carrying that bump
+
+Merging the release pull request runs the workflow a second time, which then:
+
 7. Runs cargo-dist against the release bump commit
 8. Publishes the artifacts to the release bucket, then creates the `posthog-cli/vX.Y.Z` GitHub release, refreshes `posthog-cli-latest` for stable releases, and publishes the npm package
+
+A release therefore takes two merges: the changeset, then the release pull request.
+The bump arrives as a pull request rather than a direct commit because every change to `master` goes through the merge queue.
 
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
@@ -64,6 +70,16 @@ A prerelease does not move the formula, because Homebrew has no notion of one.
 
 Users install with `brew install posthog/tap/posthog-cli`.
 A Homebrew install is managed by Homebrew, so `brew upgrade` is how it updates.
+
+### Updating an install
+
+`posthog-cli update` reads `posthog-cli/stable/dist-manifest.json` from the release bucket, so updating never touches the GitHub API.
+
+It updates in place only for installs made by `install.sh` or `install.ps1`, and only when the install receipt's `install_prefix` contains the running binary.
+Every other install belongs to a package manager, so the command prints what that manager expects rather than overwriting its files.
+
+cargo-dist's standalone updater is not shipped: `install-updater = false`.
+It resolved versions by walking the GitHub releases API, which stops at 1000 items unauthenticated while this repo holds more than that, so it never reached a CLI release.
 
 ### Where installers download from
 

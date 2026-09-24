@@ -158,23 +158,29 @@ def _git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], capture_output=True, text=True, timeout=30, cwd=repo_root)
 
 
-def manifest_script_changes(manifest_paths: list[str], base_sha: str, head_sha: str, repo_root: Path) -> list[str]:
+def manifest_script_changes(
+    manifest_paths: list[str], base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = ""
+) -> list[str]:
     """Manifests whose change touches scripts/hooks/build config.
 
     Both the structural compare and the diff are anchored at the merge base,
     matching the merge-base→head semantics of every other diff in this tool:
     comparing against the base branch *tip* would count base-side drift
     (someone else's scripts change landing on the base) as this PR's doing.
+    A given ``merge_base_sha`` is used as is, because a shallow checkout has no
+    history to compute it from.
     Fails closed: if the merge base can't be resolved every manifest counts
     as risky — an unreadable repo state must not skip the deterministic gate.
     A file missing at one sha (added/deleted manifest) reads as empty.
     """
     if not manifest_paths:
         return []
-    merge_base = _git(["merge-base", base_sha, head_sha], repo_root)
-    if merge_base.returncode != 0:
-        return list(manifest_paths)
-    base = merge_base.stdout.strip()
+    base = merge_base_sha
+    if not base:
+        merge_base = _git(["merge-base", base_sha, head_sha], repo_root)
+        if merge_base.returncode != 0:
+            return list(manifest_paths)
+        base = merge_base.stdout.strip()
 
     risky = []
     for path in manifest_paths:

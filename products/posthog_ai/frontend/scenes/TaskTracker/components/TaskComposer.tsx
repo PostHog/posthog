@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -14,7 +14,11 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
-import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import {
+    getRuntimeAdapterForModel,
+    pickerModels,
+    resolveEffortForModel,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import {
     cycleMode,
     getModesForRuntimeAdapter,
@@ -49,6 +53,7 @@ export function TaskComposer(): JSX.Element {
         composerAdapter,
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
+    const offeredModels = useMemo(() => pickerModels(catalogue, displayModel), [catalogue, displayModel])
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
@@ -123,7 +128,7 @@ export function TaskComposer(): JSX.Element {
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
-                                        models={catalogue}
+                                        models={offeredModels}
                                         selectedModel={displayModel}
                                         defaultModel={defaultModel}
                                         isDefaultModelLoading={myConfigLoading}

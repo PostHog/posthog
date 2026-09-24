@@ -40,6 +40,8 @@ export type DefaultReasoningEffort = EffortLevel | "last_used";
 export type SendMessagesWith = "enter" | "cmd+enter";
 export type AutoConvertLongText = "off" | "1000" | "2500" | "5000" | "10000";
 export type DiffOpenMode = "auto" | "split" | "same-pane" | "last-active-pane";
+export type NavRailSize = "small" | "medium" | "large";
+export const DEFAULT_NAV_RAIL_SIZE: NavRailSize = "large";
 
 // When spoken notifications are allowed to talk, relative to what's on screen:
 //   - always: speak regardless of what the user is looking at
@@ -252,6 +254,9 @@ export interface SettingsStore {
   // Diff viewer
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
+
+  navRailSize: NavRailSize;
+  setNavRailSize: (size: NavRailSize) => void;
 
   // Spend limits. A warn line only notifies; a stop line pauses new agent
   // messages in this app, and the monthly stop also syncs to the gateway
@@ -519,6 +524,9 @@ export const useSettingsStore = create<SettingsStore>()(
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
 
+      navRailSize: DEFAULT_NAV_RAIL_SIZE,
+      setNavRailSize: (size) => set({ navRailSize: size }),
+
       // Spend limits
       spendLimits: EMPTY_SPEND_LIMITS,
       spendNoticesSeen: {},
@@ -711,6 +719,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
+        navRailSize: state.navRailSize,
 
         // Spend limits
         spendLimits: state.spendLimits,
