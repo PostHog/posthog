@@ -25,7 +25,7 @@ CODE_MANAGED_WRITER_EVENT_SOURCES: Final = frozenset({EventSource.API, EventSour
 _ALLOWED_PAYLOADS: Final = (frozenset({"status"}), frozenset({"managed_by"}))
 
 # Actions that operate a workflow rather than define it, so the file has no opinion on them.
-# `schedules` and `schedule_detail` are absent because a schedule is part of the trigger.
+# `onSchedule()` in a file declares a schedule trigger but no cadence, so the cadence is set here.
 _OPERATIONS_ACTIONS: Final = frozenset(
     {
         "rerun",
@@ -35,6 +35,8 @@ _OPERATIONS_ACTIONS: Final = frozenset(
         "batch_jobs",
         "cancel_batch_job",
         "resume_email_sending",
+        "schedules",
+        "schedule_detail",
     }
 )
 
