@@ -675,6 +675,13 @@ class TestClickHouseSourceNonRetryableErrors:
             "Received ClickHouse exception, code: 243 (for url https://host:8443)\n Code: 243. "
             "DB::Exception: Failed to reserve 1048576 bytes for temporary file: reason cannot evict "
             "enough space: While executing BufferingToFileSink. (NOT_ENOUGH_SPACE)",
+            # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own result-size
+            # limit rejected the extraction query. Some ClickHouse-compatible endpoints
+            # (e.g. Tinybird) wrap this without the usual "Code: NNN. DB::Exception:"
+            # native wording, so the match must not depend on that shape.
+            "Received ClickHouse exception, code: 396, server response: [Error] Limit for result "
+            "exceeded, max bytes: 500.00 MiB, current bytes: 501.03 MiB. (TOO_MANY_ROWS_OR_BYTES) "
+            "(query_id=abc123) (for url https://host:8443)",
             # Source table no longer exists at sync time — dropped/renamed, or a materialized
             # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
             "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
