@@ -39,7 +39,7 @@ Three things to know before using them:
 
 And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent-clusters-retrieve` and `posthog:mcp-analytics-intent-clusters-recompute` (embedding-based intent clustering).
 
-**HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the typed tools above aren't in your tool list.
+**HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the event-derived typed tools above aren't in your tool list; intent clustering has no SQL fallback.
 
 ## Key properties
 
