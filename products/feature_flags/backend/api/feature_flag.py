@@ -37,6 +37,8 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -917,6 +919,23 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 # entire cached flag set. person_metadata is here because Rust accepts it — the narrower
 # four-type set the structural tier enforces is a policy choice, not a serde limit.
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
+
+
+def _uses_reserved_variant_key(filters: dict) -> bool:
+    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
+
+    Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
+    rollout switch.
+    """
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return False
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return False
+    return any(
+        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+    )
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -1845,6 +1864,12 @@ class FeatureFlagSerializer(
         validated_data["filters"] = document
 
     def _validate_filters_inner(self, filters, operation: str):
+        if _uses_reserved_variant_key(filters):
+            raise serializers.ValidationError(
+                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
+                code="reserved_variant_key",
+            )
+
         if self._v2_update_limits is not None:
             # An admitted v2 replacement passes through untouched — no v1 merge, no
             # normalization. It is resolved and validated in update(), against the locked
