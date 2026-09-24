@@ -85,6 +85,16 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (
+                # ConnectionTimeout only ever reaches here after _connect_with_dropped_retry has
+                # already exhausted its in-process reconnect attempts, so it means the host is
+                # persistently unreachable, not a transient blip. Must not fall through to the
+                # retryable CONNECTION_FAILED bucket, or the workflow retries into the same wall
+                # forever instead of surfacing an actionable message.
+                "connect_timeout_exhausted_is_non_retryable_host",
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
                 "ssh_tunnel_host_not_allowed_is_a_tunnel_failure",
                 HostNotAllowedError("SSH tunnel host not allowed: resolves to a private address"),
                 CDCErrorCategory.SSH_TUNNEL_FAILED,

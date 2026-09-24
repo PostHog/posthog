@@ -131,6 +131,16 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
             return CDCErrorCategory.HOST_UNREACHABLE
         if _QUOTA_EXCEEDED_MARKER in message:
             return CDCErrorCategory.QUOTA_EXCEEDED
+        # psycopg raises ConnectionTimeout only from connect() itself, and the reader already
+        # retries it in-process first (stream_reader._open_streaming_connection wraps every
+        # connect in _connect_with_dropped_retry, which widens its predicate to connect-time
+        # timeouts). Reaching here means every one of those reconnects also timed out — a
+        # persistently unreachable host, not a one-off blip — so treat it like the other
+        # unreachable-host markers above instead of retrying the same wall forever. Mirrors the
+        # non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
+        # "connection timeout expired" entry).
+        if isinstance(exc, psycopg.errors.ConnectionTimeout):
+            return CDCErrorCategory.HOST_UNREACHABLE
         return CDCErrorCategory.CONNECTION_FAILED
 
     return None
