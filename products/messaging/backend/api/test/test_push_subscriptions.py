@@ -26,6 +26,7 @@ from products.messaging.backend.api.push_subscriptions import (
     _api_key_fingerprint,
     _parse_user_agent_sdk,
     _SdkIdentity,
+    device_subscription_key,
 )
 
 
@@ -119,7 +120,61 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert call_kwargs["distinct_id"] == "user-1"
         assert call_kwargs["event_name"] == "$set"
         assert call_kwargs["process_person_profile"] is True
-        assert "$device_push_subscription_my-firebase-project" in call_kwargs["properties"]["$set"]
+        assert any(
+            key.startswith("$device_push_subscription_my-firebase-project:")
+            for key in call_kwargs["properties"]["$set"]
+        )
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_two_devices_on_one_app_are_stored_under_separate_keys(self, mock_capture: MagicMock):
+        # A second device on the same app used to overwrite the first, leaving it unreachable.
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        keys = []
+        for device_token in ("fcm-token-phone", "fcm-token-tablet"):
+            mock_capture.reset_mock()
+            response = self._post(
+                {
+                    "distinct_id": "user-1",
+                    "device_token": device_token,
+                    "app_id": "my-firebase-project",
+                }
+            )
+            assert response.status_code == status.HTTP_200_OK
+            keys.append(next(iter(mock_capture.call_args.kwargs["properties"]["$set"])))
+
+        assert keys[0] != keys[1]
+        assert keys == [
+            device_subscription_key("my-firebase-project", "fcm-token-phone"),
+            device_subscription_key("my-firebase-project", "fcm-token-tablet"),
+        ]
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_the_same_device_registering_twice_reuses_its_key(self, mock_capture: MagicMock):
+        # Re-registration must not accumulate a key per call.
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        keys = []
+        for _ in range(2):
+            mock_capture.reset_mock()
+            self._post(
+                {
+                    "distinct_id": "user-1",
+                    "device_token": "fcm-token-phone",
+                    "app_id": "my-firebase-project",
+                }
+            )
+            keys.append(next(iter(mock_capture.call_args.kwargs["properties"]["$set"])))
+
+        assert keys[0] == keys[1]
+
+    def test_device_key_matches_the_digest_the_send_path_derives(self):
+        # The nodejs read path rebuilds this key from the same digest. If the two drift, a
+        # registration lands on a key sends never look at. Pinned on both sides to this literal.
+        assert (
+            device_subscription_key("my-project", "device-token-abc123")
+            == "$device_push_subscription_my-project:7d8d408df65cffa5"
+        )
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_ios_token(self, mock_capture: MagicMock):
@@ -140,7 +195,9 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
-        assert "$device_push_subscription_com.example.app" in call_kwargs["properties"]["$set"]
+        assert any(
+            key.startswith("$device_push_subscription_com.example.app:") for key in call_kwargs["properties"]["$set"]
+        )
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_ios_device_registers_a_firebase_token(self, mock_capture: MagicMock):
@@ -159,7 +216,10 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         call_kwargs = mock_capture.call_args.kwargs
-        assert "$device_push_subscription_my-firebase-project" in call_kwargs["properties"]["$set"]
+        assert any(
+            key.startswith("$device_push_subscription_my-firebase-project:")
+            for key in call_kwargs["properties"]["$set"]
+        )
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_token_is_encrypted(self, mock_capture: MagicMock):
@@ -177,7 +237,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         call_kwargs = mock_capture.call_args.kwargs
-        encrypted_value = call_kwargs["properties"]["$set"]["$device_push_subscription_my-firebase-project"]
+        encrypted_value = next(iter(call_kwargs["properties"]["$set"].values()))
         # The encrypted value should not be the raw token
         assert encrypted_value != "fcm-device-token-abc"
         # It should be a non-empty string (Fernet token)
@@ -208,7 +268,10 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert call_kwargs["event_name"] == "$set"
         assert call_kwargs["process_person_profile"] is True
         # Unregister clears the property instead of storing a token.
-        assert call_kwargs["properties"] == {"$unset": ["$device_push_subscription_my-firebase-project"]}
+        assert call_kwargs["properties"]["$unset"] == [
+            device_subscription_key("my-firebase-project", "fcm-device-token-abc"),
+            "$device_push_subscription_my-firebase-project",
+        ]
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_unregister_ios_token(self, mock_capture: MagicMock):
@@ -225,7 +288,7 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_com.example.app"]
+        assert call_kwargs["properties"]["$unset"][-1] == "$device_push_subscription_com.example.app"
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_unregister_without_integration_still_unsets(self, mock_capture: MagicMock):
@@ -242,7 +305,7 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_nonexistent-project"]
+        assert call_kwargs["properties"]["$unset"][-1] == "$device_push_subscription_nonexistent-project"
 
     def test_missing_api_key_returns_401(self):
         response = self.client.post(
@@ -313,7 +376,10 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert "platform" not in response.json()
         assert capture.call_count == 1
-        assert "$device_push_subscription_my-firebase-project" in capture.call_args.kwargs["properties"]["$set"]
+        assert any(
+            key.startswith("$device_push_subscription_my-firebase-project:")
+            for key in capture.call_args.kwargs["properties"]["$set"]
+        )
 
     def test_platform_sent_by_older_sdks_is_ignored(self):
         with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
