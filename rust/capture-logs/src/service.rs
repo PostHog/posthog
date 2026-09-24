@@ -1,5 +1,5 @@
 use crate::authorizer::{Authorizer, Signal};
-use crate::log_record::KafkaLogRow;
+use crate::log_record::{default_max_past, KafkaLogRow};
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
 use axum::{
@@ -9,6 +9,7 @@ use axum::{
     response::Json,
 };
 use bytes::Bytes;
+use chrono::TimeDelta;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
@@ -304,6 +305,7 @@ pub struct Service {
     pub(crate) sink: KafkaSink,
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
+    pub(crate) max_backfill_days: u32,
 }
 
 #[derive(Deserialize)]
@@ -311,18 +313,49 @@ pub struct QueryParams {
     token: Option<String>,
 }
 
+/// Logs-only, so the traces and metrics handlers cannot accept a parameter they do not honor.
+#[derive(Deserialize)]
+pub struct BackfillParams {
+    backfill_days: Option<u32>,
+}
+
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
+        max_backfill_days: u32,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
+            max_backfill_days,
         })
     }
+}
+
+/// An over-wide request is rejected, not narrowed to the default. A quietly narrowed import
+/// writes most of its records onto the ingest time and still returns 200, so nobody notices.
+pub(crate) fn resolve_backfill_window(
+    requested_days: Option<u32>,
+    max_backfill_days: u32,
+) -> Result<TimeDelta, String> {
+    let Some(days) = requested_days else {
+        return Ok(default_max_past());
+    };
+
+    if max_backfill_days == 0 {
+        return Err("This deployment does not accept backdated logs. Remove backfill_days, or contact PostHog support to turn on historical imports.".to_string());
+    }
+
+    if days == 0 || days > max_backfill_days {
+        return Err(format!(
+            "backfill_days {days} is outside the accepted range. Use a value between 1 and {max_backfill_days}."
+        ));
+    }
+
+    Ok(TimeDelta::days(days as i64))
 }
 
 pub(crate) fn decode_body_if_gzip_magic(
@@ -369,6 +402,7 @@ pub(crate) fn decode_body_if_gzip_magic(
 pub async fn export_logs_http(
     State(service): State<Service>,
     Query(query_params): Query<QueryParams>,
+    Query(backfill_params): Query<BackfillParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -378,6 +412,10 @@ pub async fn export_logs_http(
             .authorize(&headers, query_params.token.as_deref(), Signal::Logs)?;
 
     tracing::Span::current().record("token", token);
+
+    let max_past =
+        resolve_backfill_window(backfill_params.backfill_days, service.max_backfill_days)
+            .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -420,6 +458,7 @@ pub async fn export_logs_http(
                     log_record,
                     resource_logs.resource.clone(),
                     scope_logs.scope.clone(),
+                    max_past,
                 ) {
                     Ok(result) => result,
                     Err(e) => {
@@ -762,6 +801,41 @@ mod tests {
         let decoded = decode_body_if_gzip_magic(body, 1024).unwrap();
 
         assert_eq!(decoded, Bytes::from_static(br#"{"resourceLogs":[]}"#));
+    }
+
+    #[test]
+    fn resolve_backfill_window_defaults_when_no_window_is_requested() {
+        for (case, ceiling) in [("backfill off", 0), ("backfill on", 400)] {
+            let window = resolve_backfill_window(None, ceiling);
+
+            assert_eq!(window, Ok(default_max_past()), "{case}");
+        }
+    }
+
+    #[test]
+    fn resolve_backfill_window_accepts_a_window_within_the_ceiling() {
+        for (case, days, ceiling) in [
+            ("at the ceiling", 400, 400),
+            ("under the ceiling", 30, 400),
+            ("the smallest window", 1, 400),
+        ] {
+            let window = resolve_backfill_window(Some(days), ceiling);
+
+            assert_eq!(window, Ok(TimeDelta::days(days as i64)), "{case}");
+        }
+    }
+
+    #[test]
+    fn resolve_backfill_window_rejects_a_window_it_cannot_grant() {
+        for (case, days, ceiling) in [
+            ("above the ceiling", 401, 400),
+            ("zero is not a window", 0, 400),
+            ("any window where backfill is off", 1, 0),
+        ] {
+            let window = resolve_backfill_window(Some(days), ceiling);
+
+            assert!(window.is_err(), "{case}");
+        }
     }
 
     #[test]
