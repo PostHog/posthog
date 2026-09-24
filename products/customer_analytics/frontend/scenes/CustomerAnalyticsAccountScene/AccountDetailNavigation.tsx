@@ -75,6 +75,7 @@ export function AccountDetailNavigation({
             ]
           : visibleTabs
 
+    const displayedTab = tabDefinitions.find((tab) => tab.id === activeTabId)
     const rightSlot = activeTab?.view ? (
         <div className="flex items-center gap-2">
             {activeTab.view.visibility === 'team' ? <LemonTag type="muted">Team</LemonTag> : null}
@@ -99,24 +100,32 @@ export function AccountDetailNavigation({
                     Couldn't load account views. System tabs are still available.
                 </LemonBanner>
             ) : null}
-            <LemonTabs
-                activeKey={activeTabId}
-                onChange={(tabId) => onChange(getAccountTabRoute(tabId))}
-                size="small"
-                rightSlot={rightSlot}
-                tabs={tabDefinitions.map((tab) => ({
-                    key: tab.id,
-                    label: tab.label,
-                    content: renderTabContent({
-                        tab,
+            <div className="sticky top-0 z-10 bg-primary">
+                <LemonTabs
+                    key={JSON.stringify(tabDefinitions.map(({ id, label }) => [id, label]))}
+                    activeKey={activeTabId}
+                    onChange={(tabId) => onChange(getAccountTabRoute(tabId))}
+                    rightSlotClassName="pr-0"
+                    size="small"
+                    rightSlot={rightSlot}
+                    tabs={tabDefinitions.map((tab) => ({
+                        key: tab.id,
+                        label: tab.label,
+                    }))}
+                />
+            </div>
+            {displayedTab ? (
+                <div key={activeTabId}>
+                    {renderTabContent({
+                        tab: displayedTab,
                         accountId,
                         externalId,
                         accountDetailTabs,
                         loadingViewId: loadingView ? activeTabId : undefined,
                         openConfigure: accountViewsEnabled ? openConfigure : undefined,
-                    }),
-                }))}
-            />
+                    })}
+                </div>
+            ) : null}
         </div>
     )
 }

@@ -138,11 +138,11 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                 }
             />
             <SceneDivider />
-            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto @min-[60rem]:-mt-4 @min-[60rem]:-ml-4">
+            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto @min-[60rem]:-mt-4 @min-[60rem]:-ml-4 @min-[60rem]:-mr-4">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:flex-row">
                     <AccountSidebar account={account} />
                     <main
-                        className="flex-1 min-w-0 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:overflow-y-auto"
+                        className="flex-1 min-w-0 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:overflow-y-auto @min-[60rem]/account-detail:[scrollbar-gutter:stable]"
                         data-attr="account-detail-tabs"
                     >
                         {projectId ? (
