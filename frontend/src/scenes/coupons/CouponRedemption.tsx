@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconArrowRight, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { NotFound } from 'lib/components/NotFound'
@@ -106,6 +106,39 @@ export function CouponRedemption({
             </div>
         )
     }
+
+    const couponForm = (
+        <Form logic={couponLogic} formKey="coupon" enableFormOnSubmit className="space-y-3" props={{ campaign }}>
+            <LemonField
+                name="organization_name"
+                label="PostHog organization"
+                info="To claim for a different organization, switch to that organization first"
+            >
+                <LemonInput disabled />
+            </LemonField>
+
+            <LemonField name="code" label="Coupon code">
+                <LemonInput placeholder="XXX-XXXXXXXXXXX" />
+            </LemonField>
+
+            <div className="flex gap-2 mt-4">
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    loading={isCouponSubmitting}
+                    disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
+                >
+                    Redeem coupon
+                </LemonButton>
+                {renderFooter && renderFooter()}
+            </div>
+
+            {/* Form-level error */}
+            <LemonField name="_form">
+                <span />
+            </LemonField>
+        </Form>
+    )
 
     return (
         <div className="mx-auto max-w-[1200px]">
@@ -255,44 +288,16 @@ export function CouponRedemption({
                                         View in billing
                                     </LemonButton>
                                 )}
+                                {config.allowsRepeatClaims && (
+                                    <>
+                                        <LemonDivider />
+                                        <p className="text-muted">Have another code? Redeem it below.</p>
+                                        {couponForm}
+                                    </>
+                                )}
                             </div>
                         ) : (
-                            <Form
-                                logic={couponLogic}
-                                formKey="coupon"
-                                enableFormOnSubmit
-                                className="space-y-3"
-                                props={{ campaign }}
-                            >
-                                <LemonField
-                                    name="organization_name"
-                                    label="PostHog organization"
-                                    info="To claim for a different organization, switch to that organization first"
-                                >
-                                    <LemonInput disabled />
-                                </LemonField>
-
-                                <LemonField name="code" label="Coupon code">
-                                    <LemonInput placeholder="XXX-XXXXXXXXXXX" />
-                                </LemonField>
-
-                                <div className="flex gap-2 mt-4">
-                                    <LemonButton
-                                        type="primary"
-                                        htmlType="submit"
-                                        loading={isCouponSubmitting}
-                                        disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
-                                    >
-                                        Redeem coupon
-                                    </LemonButton>
-                                    {renderFooter && renderFooter()}
-                                </div>
-
-                                {/* Form-level error */}
-                                <LemonField name="_form">
-                                    <span />
-                                </LemonField>
-                            </Form>
+                            couponForm
                         )}
                     </div>
                 </div>

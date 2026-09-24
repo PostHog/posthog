@@ -17,8 +17,9 @@ export const communityCampaign: CampaignConfig = {
         'A valid code from the PostHog community store',
         'Organization admin or owner in PostHog',
         'An active PostHog subscription with a payment method on file',
-        'One community code per organization during the beta',
+        'Up to three community codes per organization each month',
     ],
+    allowsRepeatClaims: true,
     footerNote: (
         <>
             Problems redeeming? Email <Link to="mailto:community@posthog.com">community@posthog.com</Link>

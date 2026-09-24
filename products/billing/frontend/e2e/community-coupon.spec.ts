@@ -15,8 +15,9 @@ import { expect, test } from '@playwright-utils/workspace-test-base'
  *   RUN_BILLING_E2E=1 BASE_URL=http://localhost:8010 COMMUNITY_COUPON_E2E_CODE=COM-... \
  *     pnpm --filter=@posthog/playwright exec playwright test products/billing/frontend/e2e/community-coupon.spec.ts
  *
- * A code redeems once, and an organization redeems one community code, so each run needs an unused
- * code and an organization that has not claimed one yet.
+ * A code redeems once, and an organization redeems up to three community codes per calendar month
+ * (UTC), so each run needs an unused code and an organization that has not used its three for the
+ * month.
  */
 
 const code = process.env.COMMUNITY_COUPON_E2E_CODE ?? ''
@@ -40,10 +41,11 @@ test.describe('Community coupon', () => {
             await expect(page.getByText('Coupon redeemed successfully!')).toBeVisible()
         })
 
-        await test.step('the claim is still there after a reload', async () => {
+        await test.step('the claim is still there after a reload, and another code can be entered', async () => {
             await page.reload()
             await expect(page.getByText("You've already claimed this offer!")).toBeVisible({ timeout: 30000 })
-            await expect(page.getByLabel('Coupon code')).toHaveCount(0)
+            // Community allows more than one code, so the form stays below the claimed state.
+            await expect(page.getByLabel('Coupon code')).toBeVisible()
         })
     })
 })
