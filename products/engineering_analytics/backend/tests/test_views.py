@@ -322,7 +322,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             ],
         )
         runs = depot_ci.with_depot_runs(runs_table, depot_table, prs_table)
-        jobs = depot_ci.with_depot_jobs(jobs_table, depot_table, prs_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot_table)
 
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
@@ -334,12 +334,12 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
         ]
         assert self._select(
-            "SELECT run_id, run_attempt, name, conclusion, head_branch, duration_seconds, is_rerun_copy "
+            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
             f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at"
         ) == [
-            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", "feature/depot", 30, 0),
-            (80213453736890, 1, "Product tests (experiments)", "failure", "feature/depot", 120, 0),
-            (80213453736890, 2, "Product tests (experiments)", "success", "feature/depot", 180, 0),
+            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
+            (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
+            (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
         ]
         assert self._select(
             "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "
