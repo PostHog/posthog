@@ -11,6 +11,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
+from products.engineering_analytics.backend.tests._github_fixtures import create_depot_source
 from products.engineering_analytics.backend.warehouse_view_sync import sync_engineering_analytics_views
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
@@ -98,14 +99,7 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
         if from_depot:
             # A Depot load adds its attempts to the views' SQL, so it must re-sync them too.
-            source = ExternalDataSource.objects.create(
-                team=self.team,
-                source_id="depot",
-                connection_id="depot",
-                status=ExternalDataSource.Status.COMPLETED,
-                source_type=ExternalDataSourceType.DEPOT,
-                prefix=PREFIX,
-            )
+            source = create_depot_source(self.team, prefix=PREFIX)
             schema = self._schema(source, DEPOT_JOB_ATTEMPTS_SCHEMA, self._table(f"{PREFIX}depot_job_attempts", source))
 
         sync_engineering_analytics_views(schema, source)

@@ -113,6 +113,7 @@ DEPOT_JOB_ATTEMPTS_COLUMNS: dict[str, dict[str, str]] = {
         )
     },
     "attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "run_workflow_count": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
 }
 
 # Contract for the ``github_issue_events`` warehouse source: immutable issue/PR events, every

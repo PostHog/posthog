@@ -256,12 +256,16 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             finished: str,
             *,
             run_id: str = "427q556wmn",
-            workflow: tuple[str, str, str] = ("6n4tghls33", "Backend CI on Depot", "failed"),
+            run_workflow_count: int = 1,
+            workflow_id: str = "6n4tghls33",
+            workflow_name: str = "Backend CI on Depot",
+            workflow_status: str = "failed",
             ref: str = "refs/pull/101991/merge",
+            display_name: str = "Product tests (experiments)",
         ) -> dict[str, str | int]:
-            workflow_id, workflow_name, workflow_status = workflow
             return {
                 "run_id": run_id,
+                "run_workflow_count": run_workflow_count,
                 "repo": "PostHog/posthog",
                 "ref": ref,
                 "head_sha": "abc123",
@@ -272,7 +276,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "workflow_started_at": "2026-09-24T14:51:18.000Z",
                 "workflow_finished_at": "2026-09-24T15:01:18.000Z",
                 "job_key": "ci-backend.yml:turbo-tests:matrix-38",
-                "job_display_name": "Product tests (experiments)" if attempt_id != "b82nsv77wl" else "",
+                "job_display_name": display_name,
                 "attempt_id": attempt_id,
                 "attempt": attempt,
                 "attempt_status": status,
@@ -281,14 +285,17 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "sandbox_id": "sandbox",
             }
 
-        schedule = {"run_id": "bbbbbbbbbb", "ref": "refs/heads/master"}
+        schedule: dict[str, Any] = {"run_id": "bbbbbbbbbb", "run_workflow_count": 2, "ref": "refs/heads/master"}
         depot_table = self._create_table(
             "depot_job_attempts",
             DEPOT_JOB_ATTEMPTS_COLUMNS,
             [
                 attempt("zf6sbbn2wh", 1, "failed", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
                 attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
-                attempt("b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z"),
+                # A job with no display name falls back to its key.
+                attempt(
+                    "b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z", display_name=""
+                ),
                 # A run with two workflows keys each one by its own id, so no join on the id fans out.
                 attempt(
                     "q28m5dl5rg",
@@ -296,7 +303,9 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
-                    workflow=("cccccccccc", "Monitor", "finished"),
+                    workflow_id="cccccccccc",
+                    workflow_name="Monitor",
+                    workflow_status="finished",
                     **schedule,
                 ),
                 attempt(
@@ -305,7 +314,9 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "failed",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
-                    workflow=("dddddddddd", "Timing", "failed"),
+                    workflow_id="dddddddddd",
+                    workflow_name="Timing",
+                    workflow_status="failed",
                     **schedule,
                 ),
             ],

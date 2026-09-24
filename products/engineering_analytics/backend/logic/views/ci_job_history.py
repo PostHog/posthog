@@ -53,7 +53,7 @@ from posthog.hogql.database.models import (
 )
 
 from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
-from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -116,7 +116,13 @@ def _head_commit_query(runs_table: str) -> str:
     """
 
 
-def build_query(*, jobs_table: str, runs_table: str, pull_requests_table: str | None = None) -> str:
+def build_query(
+    *,
+    jobs_table: str,
+    runs_table: str,
+    pull_requests_table: str | None = None,
+    head_commit_runs_table: str | None = None,
+) -> str:
     """The per-job-attempt history SELECT for one GitHub source: curated jobs LEFT JOIN curated runs,
     plus the run's commit attribution.
 
@@ -124,10 +130,13 @@ def build_query(*, jobs_table: str, runs_table: str, pull_requests_table: str | 
     merged PR's ``merge_commit_sha`` instead of the head commit's message. It is optional because
     this view qualifies on jobs + runs alone (see ``resolve_job_source_tables``), so a repo can
     reach it without a PR snapshot; without one, attribution falls back to the message suffix.
+
+    ``head_commit_runs_table`` names the plain GitHub runs table when ``runs_table`` also holds Depot
+    CI runs, which carry no commit object, so the attribution scan skips them.
     """
     jobs = workflow_jobs.build_query(jobs_table)
     runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table)
-    head_commits = _head_commit_query(runs_table)
+    head_commits = _head_commit_query(head_commit_runs_table or runs_table)
 
     return f"""
         SELECT
@@ -174,9 +183,10 @@ def build_team_view(team: "Team") -> str | None:
         return None
     selects = [
         build_query(
-            jobs_table=depot_ci.with_depot_jobs(source.workflow_jobs, source.depot_job_attempts, source.pull_requests),
-            runs_table=depot_ci.with_depot_runs(source.workflow_runs, source.depot_job_attempts, source.pull_requests),
+            jobs_table=source.jobs_source,
+            runs_table=source.runs_source,
             pull_requests_table=source.pull_requests,
+            head_commit_runs_table=source.workflow_runs,
         )
         for source in sources
     ]

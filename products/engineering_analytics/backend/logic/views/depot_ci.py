@@ -64,16 +64,11 @@ def _attempts(attempts_table: str, pull_requests_table: str | None) -> str:
     else:
         head_branch = "NULL"
         branch_join = ""
-    # The ids are filtered in their own SELECT because the outer SELECTs alias the decoded ids over
-    # the raw column names, and ClickHouse would resolve a WHERE there against the aliases. A push
-    # run's id carries a prefix outside the alphabet, and such a run holds no workflows.
+    # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
         SELECT
-            if(
-                workflows.count = 1,
-                {_id_to_int("a.run_id")},
-                {_id_to_int("a.workflow_id")}
-            ) AS github_run_id,
+            {_id_to_int("if(a.run_workflow_count = 1, a.run_id, a.workflow_id)")} AS github_run_id,
+            {_id_to_int("a.attempt_id")} AS github_job_id,
             {pr_number} AS pr_number,
             {head_branch} AS head_branch,
             a.repo AS repo,
@@ -85,20 +80,14 @@ def _attempts(attempts_table: str, pull_requests_table: str | None) -> str:
             a.workflow_finished_at AS workflow_finished_at,
             a.job_key AS job_key,
             a.job_display_name AS job_display_name,
-            {_id_to_int("a.attempt_id")} AS attempt_id,
             a.attempt AS attempt,
             a.attempt_status AS attempt_status,
             a.attempt_started_at AS attempt_started_at,
             a.attempt_finished_at AS attempt_finished_at,
             a.sandbox_id AS sandbox_id
-        FROM (
-            SELECT * FROM {attempts_table}
-            WHERE {_is_id("run_id")} AND {_is_id("workflow_id")} AND {_is_id("attempt_id")}
-        ) AS a
-        JOIN (
-            SELECT run_id, uniq(workflow_id) AS count FROM {attempts_table} GROUP BY run_id
-        ) AS workflows ON a.run_id = workflows.run_id
+        FROM {attempts_table} AS a
         {branch_join}
+        WHERE {_is_id("a.run_id")} AND {_is_id("a.workflow_id")} AND {_is_id("a.attempt_id")}
     )"""
 
 
@@ -131,7 +120,7 @@ def _runs(attempts: str) -> str:
 def _jobs(attempts: str) -> str:
     return f"""
         SELECT
-            attempt_id AS id,
+            github_job_id AS id,
             github_run_id AS run_id,
             attempt AS run_attempt,
             if(ifNull(job_display_name, '') != '', job_display_name, job_key) AS name,

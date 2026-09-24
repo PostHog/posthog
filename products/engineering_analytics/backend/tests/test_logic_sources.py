@@ -29,6 +29,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    create_depot_source,
     create_warehouse_table_row,
     link_schema,
 )
@@ -489,15 +490,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
             },
         )
         # A Depot source joins only the repository it syncs, matched case-insensitively.
-        depot = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="src-depot",
-            connection_id="src-depot",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.DEPOT,
-            prefix="ci",
-            job_inputs={"repository": "posthog/PostHog"},
-        )
+        depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
         link_schema(
             self.team,
             depot,
