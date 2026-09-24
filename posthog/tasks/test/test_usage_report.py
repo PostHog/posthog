@@ -5542,9 +5542,19 @@ class TestSendUsageNoLicense(APIBaseTest):
 
         mock_post.assert_not_called()
 
+    def test_get_teams_for_usage_reports_excludes_demo_and_internal_metrics_teams(self) -> None:
+        internal_org = Organization.objects.create(name="Internal metrics", for_internal_metrics=True)
+        internal_team = Team.objects.create(organization=internal_org, name="Internal")
+        demo_team = Team.objects.create(organization=self.organization, name="Demo", is_demo=True)
+
+        team_ids = {team.id for team in _get_teams_for_usage_reports()}
+
+        assert internal_team.id not in team_ids
+        assert demo_team.id not in team_ids
+        assert self.team.id in team_ids
+
     def test_get_teams_for_usage_reports_only_fields(self) -> None:
-        teams = _get_teams_for_usage_reports()
-        team: Team = teams[0]
+        team: Team = next(iter(_get_teams_for_usage_reports()))
 
         # these fields are included in the query, so shouldn't require additional queries
         with self.assertNumQueries(0):
