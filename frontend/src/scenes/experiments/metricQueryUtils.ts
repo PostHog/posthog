@@ -3,9 +3,8 @@ import { match } from 'ts-pattern'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { objectCleanWithEmpty } from 'lib/utils/objects'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -29,7 +28,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
+import type { FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
@@ -107,23 +106,11 @@ const defaultFunnelsFilter: FunnelsFilter = {
 /**
  * returns the default date range
  */
-export const getDefaultDateRange = (): DateRange => ({
+const getDefaultDateRange = (): DateRange => ({
     date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
     explicitDate: true,
 })
-
-/**
- * returns a date range using an experiment's start and end date, or the default duration if not set.
- */
-export const getExperimentDateRange = (experiment: Experiment): DateRange => {
-    const defaultRange = getDefaultDateRange()
-    return {
-        date_from: experiment.start_date ?? defaultRange.date_from,
-        date_to: experiment.end_date ?? defaultRange.date_to,
-        explicitDate: true,
-    }
-}
 
 /**
  * returns the math properties for the source
@@ -214,42 +201,51 @@ export const getQuery =
                     dateRange,
                     funnelsFilter,
                     interval: funnelsInterval,
-                    series: getFunnelSeries(funnelMetric), // Use proper conversion pipeline
+                    series: getFunnelSeries(funnelMetric),
                 }) as FunnelsQuery
             })
             .otherwise(() => undefined)
     }
 
-/**
- * converts a funnel metric to a series of events, actions, and data warehouse nodes
- * this is part of the conversion pipeline for funnel metrics.
- *
- * Funnel series are validated with:
- * Metric Series (ExperimentDataWarehouseNode) -> Filter (FunnelDatawarehouseFilter) -> Query Series (FunnelsDataWarehouseNode)
- *
- * Note: ExperimentDataWarehouseNode is converted to FunnelsDataWarehouseNode via actionsAndEventsToSeries
- */
+/** Funnel steps carry no math, so only identity, name and properties cross over. */
 const getFunnelSeries = (
     funnelMetric: ExperimentFunnelMetric
-): (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[] => {
-    const { events, actions, data_warehouse } = getFilter(funnelMetric)
-
-    return actionsAndEventsToSeries(
-        {
-            actions,
-            events,
-            data_warehouse,
-        } as any,
-        true, // includeProperties
-        MathAvailability.None, // No math for funnels
-        NodeKind.FunnelsDataWarehouseNode // Convert data warehouse filters to FunnelsDataWarehouseNode
-    ).filter(
-        (series) =>
-            series.kind === NodeKind.EventsNode ||
-            series.kind === NodeKind.ActionsNode ||
-            series.kind === NodeKind.FunnelsDataWarehouseNode
-    ) as (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[]
-}
+): (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[] =>
+    funnelMetric.series.map((step) =>
+        match(step)
+            .with({ kind: NodeKind.EventsNode }, (eventStep) =>
+                objectCleanWithEmpty({
+                    kind: NodeKind.EventsNode as const,
+                    event: eventStep.event,
+                    name: eventStep.name || eventStep.event || undefined,
+                    custom_name: eventStep.custom_name,
+                    properties: eventStep.properties,
+                })
+            )
+            .with({ kind: NodeKind.ActionsNode }, (actionStep) =>
+                objectCleanWithEmpty({
+                    kind: NodeKind.ActionsNode as const,
+                    id: actionStep.id,
+                    name: actionStep.name || undefined,
+                    custom_name: actionStep.custom_name,
+                    properties: actionStep.properties,
+                })
+            )
+            .with({ kind: NodeKind.ExperimentDataWarehouseNode }, (dwStep) =>
+                objectCleanWithEmpty({
+                    kind: NodeKind.FunnelsDataWarehouseNode as const,
+                    id: dwStep.table_name,
+                    name: dwStep.name || dwStep.table_name,
+                    custom_name: dwStep.custom_name,
+                    table_name: dwStep.table_name,
+                    timestamp_field: dwStep.timestamp_field,
+                    id_field: dwStep.data_warehouse_join_key,
+                    aggregation_target_field: dwStep.events_join_key,
+                    properties: dwStep.properties,
+                })
+            )
+            .exhaustive()
+    )
 
 /**
  * Creates an empty filter structure
@@ -575,20 +571,6 @@ export const addExposureToMetric =
                 }
             })
             .otherwise(() => metric)
-
-/**
- * unlike metrics, both Funnels and Trends queries have a series property,
- * so we can add the exposure event to the series.
- */
-export const addExposureToQuery =
-    (exposureEvent: EventsNode | ActionsNode) =>
-    (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
-        query
-            ? ({
-                  ...query,
-                  series: [exposureEvent, ...query.series],
-              } as typeof query)
-            : undefined
 
 type InsightVizNodeOptions = {
     showTable: boolean

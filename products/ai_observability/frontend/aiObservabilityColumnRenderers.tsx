@@ -6,7 +6,6 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
@@ -14,6 +13,8 @@ import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
 import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { PersonDisplay, PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { AIDataLoading } from './components/AIDataLoading'
@@ -535,3 +536,14 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
         },
     },
 }
+
+// The subset that `renderColumn` applies to every DataTable in the app. A key here wins over the
+// core renderer for that column name everywhere, so only namespaced keys belong: a `$ai_` property,
+// or a name carrying the `__llm_` prefix. A plain name such as `person` would take the column over
+// in the events table and the persons list too. Scenes opt into the rest through their own
+// QueryContext, the way AIObservabilityTracesScene does.
+export const aiObservabilityGlobalColumnRenderers: Record<string, QueryContextColumn> = Object.fromEntries(
+    Object.entries(aiObservabilityColumnRenderers).filter(
+        ([key]) => key.startsWith('properties.$ai_') || key.startsWith('__llm_')
+    )
+)

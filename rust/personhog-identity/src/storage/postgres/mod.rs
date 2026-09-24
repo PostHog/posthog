@@ -8,67 +8,36 @@ mod resolve;
 mod stub_create;
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use async_trait::async_trait;
-use sqlx::pool::PoolConnection;
-use sqlx::postgres::{PgPool, PgRow};
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::postgres::PgRow;
+use sqlx::Row;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
-const POOL_LABEL: &str = "primary";
-
-/// Wait for a pool connection. Connection churn shows up here while
-/// every other layer reads idle.
-const DB_POOL_ACQUIRE_DURATION: &str = "personhog_identity_db_pool_acquire_duration_ms";
-
-fn record_acquire(start: Instant) {
-    common_metrics::histogram(
-        DB_POOL_ACQUIRE_DURATION,
-        &[
-            ("pool".to_string(), POOL_LABEL.to_string()),
-            ("client".to_string(), current_client_name().to_string()),
-            ("method".to_string(), current_method_name().to_string()),
-        ],
-        start.elapsed().as_secs_f64() * 1000.0,
-    );
-}
-
-/// Acquire a primary connection, recording the wait.
-pub(super) async fn acquire_timed(pool: &PgPool) -> sqlx::Result<PoolConnection<Postgres>> {
-    let start = Instant::now();
-    let conn = pool.acquire().await;
-    record_acquire(start);
-    conn
-}
-
-/// Begin a primary transaction, recording the acquire wait it contains.
-pub(super) async fn begin_timed(pool: &PgPool) -> sqlx::Result<Transaction<'_, Postgres>> {
-    let start = Instant::now();
-    let tx = pool.begin().await;
-    record_acquire(start);
-    tx
-}
-
 /// Decode a person from a row whose SELECT list uses the canonical aliases
-/// (`team_id::bigint AS team_id`, `properties::text AS properties`, the
-/// `is_user_id` boolean CASE, …). Shared by every submodule that selects
-/// person rows — the table name is interpolated at runtime, so the queries
-/// cannot use the compile-time sqlx macros and their generated row types.
+/// (`team_id::bigint AS team_id`, the `is_user_id` boolean CASE, …). Shared
+/// by every submodule that selects person rows — the table name is
+/// interpolated at runtime, so the queries cannot use the compile-time sqlx
+/// macros and their generated row types.
+///
+/// Properties are never read. The identity service resolves identity only;
+/// the partition leader owns person properties, and a primary-sourced copy
+/// would lag it by writer apply lag.
 pub(super) fn person_from_row(row: &PgRow) -> Result<Person, sqlx::Error> {
     Ok(Person {
         id: row.try_get("id")?,
         uuid: row.try_get("uuid")?,
         team_id: row.try_get("team_id")?,
-        properties: row.try_get("properties")?,
-        properties_last_updated_at: row.try_get("properties_last_updated_at")?,
-        properties_last_operation: row.try_get("properties_last_operation")?,
+        properties: None,
+        properties_last_updated_at: None,
+        properties_last_operation: None,
         created_at: row.try_get("created_at")?,
         version: row.try_get("version")?,
         is_identified: row.try_get("is_identified")?,
@@ -82,9 +51,6 @@ pub(super) fn person_from_row(row: &PgRow) -> Result<Person, sqlx::Error> {
 pub(super) fn person_columns(p: &str) -> String {
     format!(
         "{p}.id, {p}.uuid, {p}.team_id::bigint AS team_id, \
-         {p}.properties::text AS properties, \
-         {p}.properties_last_updated_at::text AS properties_last_updated_at, \
-         {p}.properties_last_operation::text AS properties_last_operation, \
          {p}.created_at, {p}.version, {p}.is_identified, \
          CASE WHEN {p}.is_user_id IS NULL THEN NULL ELSE ({p}.is_user_id != 0) END AS is_user_id, \
          {p}.last_seen_at"
@@ -92,23 +58,20 @@ pub(super) fn person_columns(p: &str) -> String {
 }
 
 pub struct PostgresIdentityStorage {
-    pub primary_pool: PgPool,
+    pools: IdentityPools,
     tables: IdentityTables,
 }
 
 impl PostgresIdentityStorage {
-    pub fn new(primary_pool: PgPool, tables: IdentityTables) -> Self {
+    pub fn new(pools: IdentityPools, tables: IdentityTables) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self {
-            primary_pool,
-            tables,
-        }
+        Self { pools, tables }
     }
 
-    fn query_labels(operation: &str) -> [(String, String); 4] {
+    fn query_labels(operation: &str, lane: Lane) -> [(String, String); 4] {
         [
             ("operation".to_string(), operation.to_string()),
-            ("pool".to_string(), POOL_LABEL.to_string()),
+            ("pool".to_string(), lane.label().to_string()),
             ("client".to_string(), current_client_name().to_string()),
             ("method".to_string(), current_method_name().to_string()),
         ]
@@ -121,9 +84,9 @@ impl IdentityStorage for PostgresIdentityStorage {
         &self,
         keys: &[(i64, String)],
     ) -> StorageResult<HashMap<(i64, String), Person>> {
-        let labels = Self::query_labels("resolve_distinct_ids");
+        let labels = Self::query_labels("resolve_distinct_ids", Lane::Fast);
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-        resolve::resolve_distinct_ids(&self.primary_pool, &self.tables, keys).await
+        resolve::resolve_distinct_ids(&self.pools, &self.tables, keys).await
     }
 
     async fn get_distinct_ids_for_persons(
@@ -132,10 +95,10 @@ impl IdentityStorage for PostgresIdentityStorage {
         person_ids: &[i64],
         limit_per_person: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdMapping>> {
-        let labels = Self::query_labels("get_distinct_ids_for_persons");
+        let labels = Self::query_labels("get_distinct_ids_for_persons", Lane::Fast);
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
         distinct_ids::get_distinct_ids_for_persons(
-            &self.primary_pool,
+            self.pools.fast(),
             &self.tables.person_distinct_id,
             team_id,
             person_ids,
@@ -145,9 +108,9 @@ impl IdentityStorage for PostgresIdentityStorage {
     }
 
     async fn create_person_stubs(&self, stubs: &[PersonStub]) -> StorageResult<Vec<StubOutcome>> {
-        let labels = Self::query_labels("create_person_stubs");
+        let labels = Self::query_labels("create_person_stubs", Lane::Heavy);
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-        stub_create::create_person_stubs(&self.primary_pool, &self.tables, stubs).await
+        stub_create::create_person_stubs(&self.pools, &self.tables, stubs).await
     }
 
     async fn attach_distinct_ids(
@@ -156,15 +119,9 @@ impl IdentityStorage for PostgresIdentityStorage {
         person_id: i64,
         distinct_ids: &[String],
     ) -> StorageResult<HashMap<String, AttachOutcome>> {
-        let labels = Self::query_labels("attach_distinct_ids");
+        let labels = Self::query_labels("attach_distinct_ids", Lane::Heavy);
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
-        attach::attach_distinct_ids(
-            &self.primary_pool,
-            &self.tables,
-            team_id,
-            person_id,
-            distinct_ids,
-        )
-        .await
+        attach::attach_distinct_ids(&self.pools, &self.tables, team_id, person_id, distinct_ids)
+            .await
     }
 }

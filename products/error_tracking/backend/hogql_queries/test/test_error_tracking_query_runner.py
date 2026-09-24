@@ -25,6 +25,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    ErrorTrackingSimilarIssuesQuery,
     EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
@@ -39,7 +40,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -60,6 +61,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner i
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
+    SimilarFingerprint,
 )
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     MAX_RECENT_ISSUE_STATES,
@@ -73,6 +75,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
+from products.event_definitions.backend.property_type import PropertyType
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -541,6 +544,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[0]["aggregations"]["sessions"], 0)
         self.assertEqual(results[0]["aggregations"]["users"], 1)
 
+    @parameterized.expand([("event", PropertyDefinition.Type.EVENT), ("person", PropertyDefinition.Type.PERSON)])
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
+    def test_search_with_non_string_property_definition(self, _name, definition_type):
+        # A Boolean definition makes the property swapper cast `email` away from
+        # String, which used to make `lower()` reject it and fail the query.
+        PropertyDefinition.objects.create(
+            team=self.team, name="email", type=definition_type, property_type=PropertyType.Boolean
+        )
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(searchQuery="databasenotfoundx")["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
+
     @time_machine.travel("2022-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_search_person_properties(self):
@@ -727,7 +751,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ErrorTrackingIssue.objects.create(
             team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now()
         )
-        self.assertEqual(load_recent_issue_states(self.team.pk), [])
+        with self.assertNumQueries(1):
+            self.assertEqual(load_recent_issue_states(self.team.pk), [])
+
+    @parameterized.expand(
+        [
+            ("within_window", 0, 1, 1),
+            ("outside_window", 61, 0, 0),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_watermark_decides_whether_the_overlay_reads(
+        self, _name, state_age_seconds, expected_queries, expected_states
+    ):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            state_updated_at=now() - timedelta(seconds=state_age_seconds)
+        )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        runner.get_cache_payload()
+
+        with self.assertNumQueries(expected_queries):
+            self.assertEqual(len(runner.recent_issue_states()), expected_states)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):
@@ -1030,6 +1082,57 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         }
         self.assertEqual(result_ids, expected_ids)
 
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_distinct_aggregations_are_capped_at_occurrences(self, _name: str, legacy_shape: bool):
+        # `uniq` is approximate, so on a high-cardinality issue it can report
+        # more users or sessions than there are occurrences. Both query shapes
+        # must cap the estimate at the exact occurrence count.
+        filter_group = None
+        if legacy_shape:
+            filter_group = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.OR_,
+                        values=[
+                            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+                withAggregations=True,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+
+        selected = {expr.alias: expr.expr for expr in builder.build_query().select if isinstance(expr, ast.Alias)}
+        occurrences = selected["occurrences"].to_hogql()
+        for alias in ("users", "sessions"):
+            capped = selected[alias]
+            assert isinstance(capped, ast.Call)
+            self.assertEqual(capped.name, "least")
+            self.assertEqual(capped.args[1].to_hogql(), occurrences)
+
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):
         filter_group = PropertyGroupFilter(
@@ -1328,6 +1431,47 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
+
+    def test_similar_issues_rejects_malformed_issue_id(self):
+        with self.assertRaises(ValidationError):
+            ErrorTrackingSimilarIssuesQueryRunner(
+                team=self.team,
+                query=ErrorTrackingSimilarIssuesQuery(
+                    kind="ErrorTrackingSimilarIssuesQuery",
+                    issueId="not-a-uuid",
+                ),
+            )
+
+    def test_similar_issues_ignores_another_teams_fingerprint_row(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(description="Own team issue")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team, description="Other team issue")
+        # A higher version, so an unscoped DISTINCT ON would pick this row over the team's own.
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=other_team,
+            issue=other_issue,
+            fingerprint=self.issue_one_fingerprint,
+            version=99,
+        )
+        runner = ErrorTrackingSimilarIssuesQueryRunner(
+            team=self.team,
+            query=ErrorTrackingSimilarIssuesQuery(
+                kind="ErrorTrackingSimilarIssuesQuery",
+                issueId=self.issue_id_two,
+            ),
+        )
+
+        similar_issues = runner.get_similar_issues(
+            [
+                SimilarFingerprint(
+                    fingerprint=self.issue_one_fingerprint,
+                    timestamp=now(),
+                    distance=0.1,
+                )
+            ]
+        )
+
+        self.assertEqual([issue.id for issue in similar_issues], [self.issue_id_one])
 
     def test_requires_error_tracking_viewer_access(self):
         for runner_class in (

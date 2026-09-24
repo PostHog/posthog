@@ -2,14 +2,14 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from celery.exceptions import Retry
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
@@ -200,6 +200,44 @@ def test_link_pull_request_appends_the_reference_once(team):
         issue_url="https://github.com/acme/web/issues/12",
     )
     pr_url = "https://github.com/acme/web/pull/50"
+    pull_request: dict[str, Any] = {"number": 50, "body": "Fixes the thing"}
+
+    # GitHub sends an ETag on the GET but rejects a conditional header on the PATCH.
+    def fake_github(method: str, path: str, *, headers: dict[str, str] | None = None, **kwargs: Any) -> MagicMock:
+        if method == "GET":
+            return MagicMock(status_code=200, headers={"ETag": '"v1"'}, json=MagicMock(return_value=pull_request))
+        if any(name.lower().startswith("if-") for name in headers or {}):
+            return MagicMock(status_code=400, text="Conditional request headers are not allowed in unsafe requests")
+        pull_request["body"] = kwargs["json_body"]["body"]
+        return MagicMock(status_code=200)
+
+    with (
+        patch.object(
+            GitHubIntegration, "first_for_team_repository", return_value=GitHubIntegration.__new__(GitHubIntegration)
+        ),
+        patch.object(GitHubIntegration, "api_request", side_effect=fake_github),
+    ):
+        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is True
+        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is False
+
+    assert pull_request["body"].count(PR_BODY_MARKER) == 1
+    assert "Closes #12" in pull_request["body"]
+    tracker.refresh_from_db()
+    assert tracker.pr_linked_at is not None
+
+
+@pytest.mark.django_db
+def test_link_pull_request_backs_off_when_the_body_changes_during_the_edit(team):
+    _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "acme/web", "number": 12},
+        issue_url="https://github.com/acme/web/issues/12",
+    )
 
     with (
         patch.object(
@@ -208,20 +246,21 @@ def test_link_pull_request_appends_the_reference_once(team):
         patch.object(
             GitHubIntegration,
             "get_pull_request",
-            return_value={"success": True, "body": "Fixes the thing", "etag": '"version-1"'},
+            side_effect=[
+                {"success": True, "body": "Fixes the thing"},
+                {"success": True, "body": "Fixes the thing, rewritten by the agent"},
+            ],
         ),
         patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
     ):
-        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is True
-        assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is False
+        linked = link_pull_request_to_tracker_issue(
+            team_id=team.id, report_id=str(report.id), pr_url="https://github.com/acme/web/pull/50"
+        )
 
-    assert update.call_count == 1
-    body = update.call_args.args[2]
-    assert PR_BODY_MARKER in body
-    assert "Closes #12" in body
-    assert update.call_args.kwargs["expected_etag"] == '"version-1"'
+    assert linked is False
+    update.assert_not_called()
     tracker.refresh_from_db()
-    assert tracker.pr_linked_at is not None
+    assert tracker.pr_linked_at is None
 
 
 @pytest.mark.django_db
@@ -242,6 +281,41 @@ def test_close_tracker_issue_is_recorded_once(team):
         assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
 
     close_issue.assert_called_once_with("web", 12, completed=False)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("comment_fails", [False, True])
+def test_tracker_issue_comment_names_the_actor_and_never_blocks_the_close(team, comment_fails):
+    # The close goes out under the GitHub App, so this comment is the only place the person who
+    # dismissed the report appears. A comment that fails must still leave the issue closed:
+    # an issue left open grows the backlog the close exists to prevent.
+    integration = _connect_tracker(team, "github")
+    report = _make_report(team)
+    user = User.objects.create_user(email="dismisser@example.com", password=None, first_name="Dismisser")
+    SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        integration=integration,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "web", "number": 12},
+    )
+
+    with (
+        patch.object(User, "get_github_login", return_value="octocat"),
+        patch.object(
+            GitHubIntegration,
+            "comment_on_issue",
+            side_effect=GitHubIntegrationError("boom") if comment_fails else None,
+        ) as comment,
+        patch.object(GitHubIntegration, "close_issue") as close_issue,
+    ):
+        assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), actor_user_id=user.id) is True
+
+    close_issue.assert_called_once_with("web", 12, completed=False)
+    body = comment.call_args.args[2]
+    assert "@octocat closed the" in body
+    assert f"/project/{team.id}/inbox/reports/{report.id})" in body
 
 
 @pytest.mark.django_db

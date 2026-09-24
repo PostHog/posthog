@@ -6,6 +6,12 @@ from celery import shared_task
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
+from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5, acks_late=True)
+def capture_budget_steer(*, team_id: int, event_uuid: str, timestamp: str, properties: BudgetSteerProperties) -> None:
+    BudgetSteerCapture.capture(team_id, event_uuid, timestamp, properties)
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)

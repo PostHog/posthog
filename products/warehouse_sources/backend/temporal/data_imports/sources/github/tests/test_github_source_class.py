@@ -139,10 +139,34 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_egress_budget_exhausted_is_retryable_not_non_retryable(self):
+        # Our own limiter shedding a deferrable call is the twin of GitHub's rate limit above, and
+        # must be classified the same way: tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
+        observed_error = "GitHub egress budget exhausted for installation 99844466; deferring"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     def test_transient_5xx_error_is_retryable_not_non_retryable(self):
         # A GithubRetryableError (any transient upstream 5xx) that exhausts _fetch_page's tenacity
         # retry must stay retryable, so a GitHub-side outage doesn't disable the source.
         observed_error = "Github API error (retryable): status=503, url=https://api.github.com/repos/o/r/issues"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_ssl_eof_error_is_retryable_not_non_retryable(self):
+        # A TLS session cut at the socket while minting the installation access token
+        # (client_request has no in-process retry, unlike _fetch_page). Must stay retryable so a
+        # dropped connection to GitHub doesn't disable the source.
+        observed_error = (
+            "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
+            "/app/installations/123/access_tokens (Caused by SSLError(SSLEOFError(8, "
+            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))"
+        )
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
         retryable_errors = self.source.get_retryable_errors()
@@ -494,7 +518,10 @@ class TestGithubSource:
         "selection,expected_message",
         [
             ("oauth", "No GitHub account is connected. Connect a GitHub account and try again."),
-            ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
+            (
+                "pat",
+                "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
+            ),
         ],
     )
     def test_validate_credentials_maps_config_errors_to_friendly_message(self, selection, expected_message):
@@ -521,6 +548,9 @@ class TestGithubSource:
             (None, ["PostHog/posthog", "posthog/posthog", " Other/Repo "], ["posthog/posthog", "other/repo"]),
             # A non-empty `repositories` is the authoritative set; `repository` only marks bare naming.
             ("posthog/posthog", ["a/b"], ["a/b"]),
+            # A repo pasted as a GitHub URL must route to the same storage as `owner/repo`, or the
+            # same repository would sync into two tables depending on how it was entered.
+            (None, ["https://github.com/PostHog/posthog.git", "posthog/posthog"], ["posthog/posthog"]),
         ],
     )
     def test_effective_repositories(self, repository, repositories, expected):

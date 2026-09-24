@@ -120,6 +120,14 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
 
 export const identityProviderConfigsCreateBodyNameMax = 255
 
+export const identityProviderConfigsCreateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsCreateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsCreateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsCreateBodyOidcClientSecretMax = 4096
+
 export const identityProviderConfigsCreateBodySamlEntityIdMax = 512
 
 export const identityProviderConfigsCreateBodySamlAcsUrlMax = 512
@@ -148,18 +156,39 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
         ),
     config_scope: zod
         .union([
-            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
         ),
     organization_domain_ids: zod
         .array(zod.uuid())
         .optional()
         .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsCreateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsCreateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsCreateBodySamlEntityIdMax)
@@ -195,6 +224,14 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
 
 export const identityProviderConfigsUpdateBodyNameMax = 255
 
+export const identityProviderConfigsUpdateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsUpdateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsUpdateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsUpdateBodyOidcClientSecretMax = 4096
+
 export const identityProviderConfigsUpdateBodySamlEntityIdMax = 512
 
 export const identityProviderConfigsUpdateBodySamlAcsUrlMax = 512
@@ -223,18 +260,39 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     config_scope: zod
         .union([
-            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
         ),
     organization_domain_ids: zod
         .array(zod.uuid())
         .optional()
         .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsUpdateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsUpdateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsUpdateBodySamlEntityIdMax)
@@ -270,6 +328,14 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
 
 export const identityProviderConfigsPartialUpdateBodyNameMax = 255
 
+export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsPartialUpdateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyOidcClientSecretMax = 4096
+
 export const identityProviderConfigsPartialUpdateBodySamlEntityIdMax = 512
 
 export const identityProviderConfigsPartialUpdateBodySamlAcsUrlMax = 512
@@ -298,18 +364,39 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         ),
     config_scope: zod
         .union([
-            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
         ),
     organization_domain_ids: zod
         .array(zod.uuid())
         .optional()
         .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsPartialUpdateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsPartialUpdateBodySamlEntityIdMax)
@@ -543,16 +630,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
@@ -735,7 +812,7 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutCreateBodyTypeMax = 100
 
-export const fileSystemShortcutCreateBodyRefMax = 100
+export const fileSystemShortcutCreateBodyRefMax = 4000
 
 export const fileSystemShortcutCreateBodyOrderMin = -2147483648
 export const fileSystemShortcutCreateBodyOrderMax = 2147483647
@@ -766,7 +843,7 @@ export const FileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutUpdateBodyTypeMax = 100
 
-export const fileSystemShortcutUpdateBodyRefMax = 100
+export const fileSystemShortcutUpdateBodyRefMax = 4000
 
 export const fileSystemShortcutUpdateBodyOrderMin = -2147483648
 export const fileSystemShortcutUpdateBodyOrderMax = 2147483647
@@ -797,7 +874,7 @@ export const FileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutPartialUpdateBodyTypeMax = 100
 
-export const fileSystemShortcutPartialUpdateBodyRefMax = 100
+export const fileSystemShortcutPartialUpdateBodyRefMax = 4000
 
 export const fileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
 export const fileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
@@ -997,7 +1074,7 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
     tags: zod
         .array(zod.string().max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
         .max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set.'),
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**
@@ -1340,6 +1417,29 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
+})
+
+/**
+ * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
+ * @summary Connect a ChatGPT account for Codex cloud tasks
+ */
+export const UsersIntegrationsCodexCreateBody = /* @__PURE__ */ zod.object({
+    tokens: zod
+        .object({
+            access_token: zod
+                .string()
+                .describe('The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`.'),
+            refresh_token: zod.string().describe('The single-use ChatGPT refresh token from the same `tokens` object.'),
+            id_token: zod
+                .string()
+                .nullish()
+                .describe(
+                    'The OpenID id token from the same `tokens` object, when present. Used to read the account email.'
+                ),
+        })
+        .describe(
+            'The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on.'
         ),
 })
 

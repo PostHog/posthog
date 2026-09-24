@@ -64,6 +64,8 @@ class TestOauthIntegrationModel(BaseTest):
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
         "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
+        "LINEAR_APP_CLIENT_ID": "linear-client-id",
+        "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
     }
 
     def create_integration(
@@ -146,6 +148,15 @@ class TestOauthIntegrationModel(BaseTest):
                 url
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
+
+    def test_linear_authorize_url_forces_the_approval_screen(self):
+        # Without the prompt, a person with several Linear workspaces never sees the switcher.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("linear", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert params["prompt"] == "consent"
+            assert params["actor"] == "application"
 
     def test_authorize_url_google_calendar(self):
         with self.settings(**self.mock_settings):
@@ -1509,6 +1520,47 @@ class TestPardotIntegrationModel(BaseTest):
         # minted for the CRM kind cannot call it. That is why this kind exists at all.
         assert config.scope == "pardot_api refresh_token"
         assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
+
+    def test_authorize_url_sends_the_registered_salesforce_callback(self):
+        url = OauthIntegration.authorize_url("pardot", token="state_token", next="/projects/test")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+        state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+
+        # This kind borrows the Salesforce connected app, whose allowed callback list holds only the
+        # Salesforce path. A /integrations/pardot/callback redirect_uri is rejected with
+        # redirect_uri_mismatch before the user can grant anything.
+        assert params["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # The callback path can no longer name the kind, so the kind rides in the state instead.
+        assert state["kind"] == "pardot"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_retries_against_the_sandbox_host(self, mock_post):
+        # An Account Engagement business unit can live on a Salesforce sandbox org, which mints a
+        # code the production token host rejects. Refresh and revoke already follow the org's own
+        # host, so without this retry the connect is the only step that fails for those orgs.
+        production = MagicMock(status_code=400, text='{"error":"invalid_grant"}')
+        production.json.return_value = {"error": "invalid_grant"}
+        sandbox = MagicMock(status_code=200)
+        sandbox.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme--sandbox.sandbox.my.salesforce.com",
+        }
+        mock_post.side_effect = [production, sandbox]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme--sandbox.sandbox.my.salesforce.com"
+        retry = mock_post.call_args_list[1]
+        assert retry.args[0] == "https://test.salesforce.com/services/oauth2/token"
+        assert retry.kwargs["data"]["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # Same guard as the first exchange: a 30x must not resend the client secret and the code.
+        assert retry.kwargs["allow_redirects"] is False
 
     def test_pardot_is_an_oauth_kind(self):
         # Not being listed makes the authorize + callback endpoints reject the kind and drops

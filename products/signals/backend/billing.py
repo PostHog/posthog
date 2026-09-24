@@ -6,9 +6,8 @@ deterministic — the first implementation `TaskRun` with a `pr_url` set — so 
 billed exactly once, in the period that PR first appeared, regardless of any later status
 changes, re-judgements, or additional runs.
 
-The PR↔report link lives on the `SignalReportTask` bridge (relationship="implementation"); the
-PR URL itself is written to `TaskRun.output['pr_url']`. There is no artefact that records the
-implementation task or its PR, so the query is rooted on that bridge, not on artefacts.
+Billing eligibility uses the `SignalReportTask` implementation bridge and the first task-run
+PR URL. PR-link artefacts also include external work, so their presence cannot authorize a charge.
 
 Because this is a billing source it fails closed: a run only bills when its PR URL is a GitHub
 URL and the run, task, bridge, and report teams all agree, so malformed bridge rows never
@@ -52,18 +51,14 @@ from posthog.models.organization import BillingPeriod
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
-from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
 _IMPLEMENTATION = TASK_RUN_TYPE_IMPLEMENTATION
-
-# Only PRs hosted on GitHub are billable. The PR URL is GitHub's `html_url`
-# (https://github.com/owner/repo/pull/N), so validate the host prefix to avoid charging
-# for malformed or non-GitHub values written into `output.pr_url`.
-_GITHUB_PR_URL_PREFIX = "https://github.com/"
 
 SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
@@ -78,17 +73,21 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     `task__runs` relation, so the query never imports the tasks product's internals — it stays
     behind the tasks public interface. Postgres is free to drive the join from the run
     `created_at` index regardless, so the period scan stays bounded by PRs shipped, not by the
-    number of bridges.
+    number of bridges. `task_run_github_pr_run_idx` keeps that scan off the runs' `output` JSONB,
+    but only while the prefix test here stays spelled as the `GITHUB_PR_URL_PREFIX` its predicate
+    was built from.
 
     Fail closed: a bridge only counts when one of its runs carries a GitHub PR URL within the
     given `created_at` bound and the four teams in the chain — run, task, bridge, and report —
-    all agree. A malformed bridge whose teams disagree is excluded rather than charged to
-    whichever team_id happened to be on it. The run-level conditions sit in one `filter()` so
-    they all resolve against the same `TaskRun` row.
+    all agree. Only GitHub is billable, because the URL is GitHub's `html_url`, so the host
+    prefix test keeps malformed values written into `output.pr_url` from raising a charge. A
+    malformed bridge whose teams disagree is excluded rather than charged to whichever team_id
+    happened to be on it. The run-level conditions sit in one `filter()` so they all resolve
+    against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
-        task__runs__output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
+        task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.
         task__team_id=F("team_id"),
         report__team_id=F("team_id"),
@@ -127,11 +126,11 @@ def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
 
     `skill_name` alone doesn't attest PostHog-system origin: a team can edit a seeded scout in
     place and the diverged row keeps its canonical name, which would let a repurposed fork mint
-    permanent exemptions. `scout_skill_row_origin` settles it by content hash against the
-    fingerprint stamped at seed time. Fails closed — no row, no proof → billable.
+    permanent exemptions. `scout_skill_row_is_proven_canonical` settles it by content hash against
+    the fingerprint stamped at seed time. Fails closed — no row, no hash, no match → billable.
     """
     skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True).first()
-    return skill is not None and scout_skill_row_origin(skill) == "canonical"
+    return skill is not None and scout_skill_row_is_proven_canonical(skill)
 
 
 def system_billing_exempt_reason(team_id: int, report_id: str | uuid.UUID) -> str | None:
@@ -211,21 +210,13 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
-def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
-    """Whether *this* PR of the report merged, per the tasks GitHub webhook.
+def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str, *, team_id: int) -> bool:
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
-    Reads `output.pr_merged`, the flag the webhook persists when a PR merges — the factual record of
-    a merge, independent of report status. A report can now reach RESOLVED without a merged PR (a
-    user or agent can resolve it directly), so status alone no longer attests a merge.
+    for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
+        if pr.url == pr_url and pr.attached_at is not None:
+            return pr.merged
 
-    Scoped to one `pr_url` rather than the whole report, because the caller is deciding about a
-    specific PR: the refund reverses the charge for the billable run's PR, and it's that PR which
-    must be closed if it never merged. A report-level check would let an unrelated later PR that did
-    merge vouch for the refunded one, leaving the refunded PR open.
-
-    Fail closed like `_bridges_with_pr_run`: the PR URL, the merge flag, and the four team checks all
-    sit in one `filter()` so they resolve against the same `TaskRun` row.
-    """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
         report_id=report_id,

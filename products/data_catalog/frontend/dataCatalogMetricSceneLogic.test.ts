@@ -1,14 +1,20 @@
 import { router } from 'kea-router'
 
-import { ApiConfig, ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
-import { dataCatalogMetricSceneLogic, MARKDOWN_DEFINITION_TEMPLATE } from './dataCatalogMetricSceneLogic'
+import {
+    dataCatalogMetricSceneLogic,
+    LINEAGE_RETRY_MS,
+    MARKDOWN_DEFINITION_TEMPLATE,
+} from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsPartialUpdate,
@@ -29,7 +35,7 @@ jest.mock('lib/api', () => {
     }
     return {
         __esModule: true,
-        default: {},
+        default: { dataModelingNodes: { lineage: jest.fn() } },
         ApiConfig: { getCurrentTeamId: jest.fn(() => 1) },
         ApiError,
     }
@@ -71,12 +77,226 @@ describe('dataCatalogMetricSceneLogic', () => {
         initKeaTests()
         logic = dataCatalogMetricSceneLogic({ name: 'weekly_active_users' })
         logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
+            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
+        })
         await expectLogic(logic).toDispatchActions(['loadMetricSuccess'])
     })
 
     afterEach(() => {
         ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(1)
     })
+
+    const lineageRequest = (): jest.Mock => api.dataModelingNodes.lineage as unknown as jest.Mock
+
+    it('loads lineage when the tab opens and keeps what it returned', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledWith({ metricId: 'metric-1' })
+        expect(logic.values.lineage?.nodes).toHaveLength(1)
+        expect(logic.values.lineageProblem).toBeNull()
+    })
+
+    it.each([
+        ['replaced locally', (metric: DataCatalogMetricApi) => logic.actions.setMetric(metric)],
+        [
+            'reloaded from the API',
+            (metric: DataCatalogMetricApi) => {
+                ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(metric)
+                logic.actions.loadMetric()
+            },
+        ],
+    ])('reloads lineage when the metric is %s under the open tab', async (_, changeMetric) => {
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+        lineageRequest().mockClear()
+
+        changeMetric(buildMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+    })
+
+    it('reloads lineage when the metric reloaded while the tab was closed', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+        lineageRequest().mockClear()
+
+        logic.actions.setActiveTab('definition')
+        logic.actions.loadMetric()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks for lineage once when the tab opens and the metric reloads together', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [], edges: [] })
+
+        logic.actions.setActiveTab('lineage')
+        logic.actions.loadMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks for no lineage for a metric that cannot have one', async () => {
+        const markdownMetric = buildMetric({ definition_kind: 'MarkdownDefinition' })
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(markdownMetric)
+        logic.actions.setMetric(markdownMetric)
+        await expectLogic(logic).toFinishAllListeners()
+        lineageRequest().mockClear()
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).not.toHaveBeenCalled()
+    })
+
+    it('retries a not-ready lineage exactly once', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            lineageRequest().mockRejectedValue(new ApiError('nope', 404))
+            logic.actions.setActiveTab('lineage')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(lineageRequest()).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
+            expect(lineageRequest()).toHaveBeenCalledTimes(2)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 3)
+            expect(lineageRequest()).toHaveBeenCalledTimes(2)
+            expect(logic.values.lineageProblem).toBe('not_ready')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('reloads lineage when the metric is replaced while the request is in flight', async () => {
+        let finishFirstRequest: (lineage: unknown) => void = () => {}
+        lineageRequest().mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishFirstRequest = resolve
+            })
+        )
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-2' }], edges: [] })
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toDispatchActions(['loadLineage'])
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+
+        logic.actions.setMetric(buildMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }))
+        finishFirstRequest({ nodes: [{ id: 'node-1' }], edges: [] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(2)
+        expect(logic.values.lineage?.nodes.map((node) => node.id)).toEqual(['node-2'])
+    })
+
+    it('keeps the delayed retry when the metric reload lands after the failure', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            lineageRequest().mockRejectedValue(new ApiError('nope', 404))
+            let finishReload: (metric: DataCatalogMetricApi) => void = () => {}
+            ;(dataCatalogMetricsRetrieve as jest.Mock).mockReturnValue(
+                new Promise<DataCatalogMetricApi>((resolve) => {
+                    finishReload = resolve
+                })
+            )
+
+            logic.actions.setActiveTab('lineage')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.lineageProblem).toBe('not_ready')
+
+            finishReload(buildMetric())
+            await jest.advanceTimersByTimeAsync(0)
+            expect(lineageRequest()).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
+            expect(lineageRequest()).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('drops the delayed retry when a refresh loaded lineage inside the window', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            lineageRequest().mockRejectedValue(new ApiError('nope', 404))
+            logic.actions.setActiveTab('lineage')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.lineageProblem).toBe('not_ready')
+            lineageRequest().mockClear()
+
+            lineageRequest().mockResolvedValueOnce({ nodes: [{ id: 'node-1' }], edges: [] })
+            lineageRequest().mockRejectedValue(new ApiError('boom', 500))
+            logic.actions.loadLineage()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.lineage?.nodes).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 2)
+            expect(lineageRequest()).toHaveBeenCalledTimes(1)
+            expect(logic.values.lineageProblem).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        [404, 'not_ready'],
+        [403, 'no_warehouse_access'],
+        [500, 'failed'],
+    ])('turns a %s into the %s screen', async (status, expected) => {
+        lineageRequest().mockRejectedValue(new ApiError('nope', status))
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toDispatchActions(['loadLineageFailure'])
+
+        expect(logic.values.lineageProblem).toBe(expected)
+        expect(logic.values.lineageRetried).toBe(expected === 'not_ready')
+    })
+
+    it('synchronizes the Tests tab with navigation and preserves it on rename', async () => {
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeTab).toBe('tests')
+        expect(logic.values.mountedTabs).toEqual(['tests'])
+        logic.actions.setActiveTab('definition')
+        expect(router.values.searchParams.tab).toBeUndefined()
+        expect(logic.values.mountedTabs).toEqual(['tests', 'definition'])
+        logic.actions.setActiveTab('tests')
+        expect(router.values.searchParams.tab).toBe('tests')
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(buildMetric({ name: 'wau' }))
+        logic.actions.renameMetric('wau')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.tab).toBe('tests')
+    })
+
+    // The metric check endpoints are gated on the same flag, so a link to the tab from a project
+    // outside the rollout has to land on Definition. Otherwise the panel mounts against endpoints
+    // that reject every request.
+    it('refuses the Tests tab while the data quality flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.metricChecksEnabled).toBe(false)
+        expect(logic.values.activeTab).toBe('definition')
+        expect(router.values.searchParams.tab).toBeUndefined()
+    })
+
+    it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
+        'allows check authoring only for a HogQL definition (%s)',
+        (definition_kind) => {
+            logic.actions.setMetric(buildMetric({ definition_kind }))
+            expect(logic.values.supportsMetricChecks).toBe(definition_kind === 'HogQLQuery')
+        }
+    )
 
     it('saving an approved metric edit reflects the proposed status from the response', async () => {
         ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(

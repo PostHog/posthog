@@ -2,10 +2,15 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type ReportMetricApi,
+    type SignalReportPullRequestApi,
+    type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
+    type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
+    type SignalUserAutonomyConfigApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -41,7 +46,18 @@ export interface EnrichedReviewer {
     user: SignalReviewerUserInfo | null
     /** Why this reviewer was chosen. Absent on artefacts stored before the field existed. */
     reason?: string | null
+    source_skill?: string | null
+    /** User-facing provenance for this suggestion, derived by the backend. */
+    source_label?: string
+    /** Short user-facing explanation for this suggestion, derived by the backend. */
+    explanation?: string | null
 }
+
+/** What the backend labels a self-driving PR with when the team turns the label on without naming one. */
+export const DEFAULT_PULL_REQUEST_LABEL = 'self-driving'
+
+/** GitHub's own cap on a label name, mirrored so the input stops where the API would reject. */
+export const GITHUB_LABEL_NAME_MAX_LENGTH = 50
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
@@ -67,23 +83,27 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport {
+    pull_requests?: readonly SignalReportPullRequestApi[]
+    assignee?: SignalReportAssigneeApi | null
     id: string
     title: string | null
     summary: string | null
     status: SignalReportStatus
     total_weight: number
     signal_count: number
-    relevant_user_count: number | null
     created_at: string
     updated_at: string
     artefact_count: number
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
+    metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
+    /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
+    collapsed_note_count?: number
     /** P0–P4 from the priority judgment when the report is researched. */
     priority?: SignalReportPriority | null
     /** Actionability choice from the actionability judgment artefact. */
@@ -183,6 +203,14 @@ export enum SignalSourceConfigStatus {
 export const SOURCE_STEERING_KEY = 'steering'
 export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
+/** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
+export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+
+// Anything that is not a list of ids reads as "every team", matching the backend's fallback.
+export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
+    const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
+    return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 
@@ -374,16 +402,8 @@ export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelatio
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
-export interface SignalUserAutonomyConfig {
-    id?: string
-    autostart_priority: SignalReportPriority | null
-    slack_notification_integration_id?: number | null
-    slack_notification_channel?: string | null
-    slack_notification_min_priority?: SignalReportPriority | null
-    github_assign_on_pull_request?: boolean
-    created_at?: string
-    updated_at?: string
-}
+/** The per-user autonomy row, or the subset the optimistic reducers set before the first load lands. */
+export type SignalUserAutonomyConfigDraft = Partial<SignalUserAutonomyConfigApi>
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
 
@@ -403,6 +423,14 @@ export interface SignalTeamConfig {
     issue_tracking_config?: Record<string, string>
     /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
     max_reports_per_day?: number | null
+    /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
+    default_open_pull_request_ready?: boolean
+    /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
+    github_issue_writeback_enabled?: boolean
+    /** Whether self-driving labels every PR it opens, so GitHub search can separate them from other bot work. */
+    pull_request_label_enabled?: boolean
+    /** The label name to apply, at most 50 characters. Null or blank means the default label. */
+    pull_request_label?: string | null
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
@@ -444,20 +472,10 @@ export type SignalScoutRunStatus = SignalScoutRunSummaryApi['status']
  * instead of inlining `import(...)` references to the generated type. */
 export interface SignalScoutRunSummary extends SignalScoutRunSummaryApi {}
 
-/** One finding a scout run emitted to the inbox. */
-export interface SignalScoutEmission {
-    id: string
-    run_id: string
-    finding_id: string
-    description: string
-    weight: number
-    confidence: number
-    severity: SignalReportPriority | null
-    /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
-    tags: string[]
-    source_id: string
-    emitted_at: string
-}
+/** One finding a scout run emitted to the inbox.
+ * An interface extension (not a type alias) so kea-typegen keeps the domain name
+ * instead of inlining `import(...)` references to the generated type. */
+export interface SignalScoutEmission extends SignalScoutEmissionApi {}
 
 /** Minimal projection of the inbox report a scout finding grouped into (for the linked chip). */
 export interface LinkedSignalReport {

@@ -1,14 +1,14 @@
 import { dashboardsRunWidgetsRetrieve } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
-import type { DashboardTile, QueryBasedInsightModel } from '~/types'
+import type { DashboardTile } from '~/types'
 
 export const WIDGET_CLIENT_TTL_MS = 15 * 60 * 1000
 
 export function findNewlyAddedWidgetTiles(
     previousTileIds: ReadonlySet<number>,
-    tiles: DashboardTile<QueryBasedInsightModel>[] | undefined | null
-): DashboardTile<QueryBasedInsightModel>[] {
+    tiles: DashboardTile[] | undefined | null
+): DashboardTile[] {
     if (!tiles?.length) {
         return []
     }

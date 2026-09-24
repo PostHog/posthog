@@ -83,3 +83,36 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         assert rows["Other"].total_calls == 15
         assert sum(row.total_calls for row in rows.values()) == expected_total
         assert len([model for model in rows if model not in {"Other", "Unknown"}]) == MODEL_SERIES_LIMIT - 1
+
+        expanded_rows: list[MCPModelBreakdownItem] = []
+        for offset in (0, 3, 6):
+            page = MCPModelBreakdownQueryRunner(
+                query=MCPModelBreakdownQuery(
+                    dateRange=DateRange(date_from="-90d"), includeAllModels=True, limit=3, offset=offset
+                ),
+                team=self.team,
+            ).calculate()
+            assert len(page.results) == 3
+            assert page.hasMore == (offset < 6)
+            expanded_rows.extend(page.results)
+
+        assert [row.model for row in expanded_rows] == ["Other", *[f"model-{index}" for index in range(8)]]
+        assert expanded_rows[0].total_calls == 9
+        assert sum(row.total_calls for row in expanded_rows) == expected_total - 1
+
+    def test_bounds_pages_and_orders_tied_models_consistently(self) -> None:
+        for index in range(101):
+            self._emit(distinct_id=f"model-{index}", properties={"$mcp_llm_model": f"model-{index:03}"})
+        flush_persons_and_events()
+
+        first_page = MCPModelBreakdownQueryRunner(
+            query=MCPModelBreakdownQuery(includeAllModels=True, limit=1000, offset=-1), team=self.team
+        ).calculate()
+        assert first_page.hasMore
+        assert [row.model for row in first_page.results] == [f"model-{index:03}" for index in range(100)]
+
+        last_page = MCPModelBreakdownQueryRunner(
+            query=MCPModelBreakdownQuery(includeAllModels=True, limit=0, offset=100), team=self.team
+        ).calculate()
+        assert not last_page.hasMore
+        assert last_page.results == [MCPModelBreakdownItem(model="model-100", total_calls=1)]

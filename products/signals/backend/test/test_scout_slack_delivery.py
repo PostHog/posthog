@@ -12,10 +12,10 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.redis import get_client
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
@@ -24,12 +24,19 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackDestination,
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
+    _slack_retry_after_seconds,
     get_scout_slack_destination,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
-from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
+from products.signals.backend.slack_report_threads import report_id_for_slack_thread
+from products.signals.backend.tasks import (
+    deliver_scout_slack_output,
+    deliver_scout_slack_thread_replies,
+    enqueue_scout_slack_delivery,
+)
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 
 class FakeSlackResponse(dict):
@@ -76,10 +83,10 @@ class TestGetScoutSlackDestination(SimpleTestCase):
     @parameterized.expand(
         [
             ("explicit_true", {"thread_reports": True}, True),
-            ("omitted_defaults_off", {}, False),
+            ("omitted_defaults_on", {}, True),
             ("explicit_false", {"thread_reports": False}, False),
-            # Only a real boolean True turns threading on; a truthy non-bool stays off.
-            ("truthy_non_bool_stays_off", {"thread_reports": "yes"}, False),
+            # Only a real boolean False turns threading off; a falsy non-bool stays on.
+            ("falsy_non_bool_stays_on", {"thread_reports": "no"}, True),
         ]
     )
     def test_parses_thread_reports(self, _name: str, extra: dict, expected: bool) -> None:
@@ -111,8 +118,6 @@ class TestScoutSlackDelivery(BaseTest):
             scout_run=run,
             finding_id="checkout/500s",
             description=description,
-            weight=1.0,
-            confidence=0.84,
             severity="P1",
             tags=["checkout", "regression"],
             source_id=f"run:{run.id}:finding:checkout-500s",
@@ -155,8 +160,19 @@ class TestScoutSlackDelivery(BaseTest):
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
         assert fake_client.chat_postMessage.call_count == 1
+        assert call["blocks"][-1]["type"] == "actions"
 
-    def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("channel", "CSCOUTS|#scout-findings", "CSCOUTS", "CSCOUTS"),
+            # Posting to a member id opens a direct message, so Slack answers with the `D…`
+            # conversation. An inbound mention names that conversation, not the member id.
+            ("direct_message", "U123ABC45|@andy", "U123ABC45", "D123ABC45"),
+        ]
+    )
+    def test_posts_report_with_safe_markdown_and_delivery_id(
+        self, _name, channel_config, sent_channel, posted_channel
+    ) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
@@ -169,9 +185,11 @@ class TestScoutSlackDelivery(BaseTest):
                 "| [#93147 fix(checkout): retry 500s](https://example.com/pull/93147) | ready |\n"
             ),
         )
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T_SCOUTS"
+        )
         fake_client = MagicMock()
-        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200"}
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200", "channel": posted_channel}
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
@@ -183,11 +201,11 @@ class TestScoutSlackDelivery(BaseTest):
                 str(emission.scout_run_id),
                 delivery_id,
                 integration.id,
-                "CSCOUTS|#scout-findings",
+                channel_config,
             )
 
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
-        assert call["channel"] == "CSCOUTS"
+        assert call["channel"] == sent_channel
         assert call["client_msg_id"] == delivery_id
         assert "thread_ts" not in call
         markdown = call["blocks"][2]["text"]
@@ -199,12 +217,18 @@ class TestScoutSlackDelivery(BaseTest):
         # summary to mrkdwn: the converter lifted tables out before converting anything, then put
         # the cells back untouched.
         assert "[#93147 fix(checkout): retry 500s](https://example.com/pull/93147)" in markdown
-        assert call["blocks"][-1]["elements"][0]["url"] == (
+        actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
+        assert actions_block["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
-        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
-        assert reply["thread_ts"] == "1785418710.000200"
-        assert reply["blocks"][0]["type"] == "context"
+        assert call["blocks"][-1]["type"] == "context"
+        assert fake_client.chat_postMessage.call_count == 1
+        assert report_id_for_slack_thread(
+            slack_workspace_id=integration.integration_id,
+            team_id=self.team.id,
+            channel=posted_channel,
+            thread_ts="1785418710.000200",
+        ) == str(report.id)
 
     def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
         # Without the edit_note branch a note-only edit re-posts the full report message, which is
@@ -244,7 +268,8 @@ class TestScoutSlackDelivery(BaseTest):
         assert "<!channel>" not in markdown
         assert "&lt;!channel&gt;" in markdown
         assert "failed for many users" not in markdown
-        assert call["blocks"][-1]["elements"][0]["url"] == (
+        actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
+        assert actions_block["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
 
@@ -405,7 +430,10 @@ class TestScoutSlackDelivery(BaseTest):
         fake_client = MagicMock()
         fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
 
-        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.scout_harness.slack_delivery.time.sleep") as sleep,
+        ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
                 self.team.id,
@@ -418,9 +446,8 @@ class TestScoutSlackDelivery(BaseTest):
                 thread_reports=True,
             )
 
-        # The lead, one reply per top-level section, then the unconditional @PostHog follow-up.
         calls = fake_client.chat_postMessage.call_args_list
-        assert len(calls) == 4
+        assert len(calls) == 3
         assert "thread_ts" not in calls[0].kwargs
         lead_chunks = [block["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "markdown"]
         assert lead_chunks == ["Lead line."]
@@ -435,7 +462,8 @@ class TestScoutSlackDelivery(BaseTest):
         assert "Detail" in first_reply["blocks"][0]["text"]
         assert "Second" not in first_reply["blocks"][0]["text"]
         assert "Second" in second_reply["blocks"][0]["text"]
-        assert calls[3].kwargs["blocks"][0]["type"] == "context"
+        assert calls[0].kwargs["blocks"][-1]["type"] == "context"
+        sleep.assert_called_once_with(1)
 
     def test_threaded_report_without_section_labels_posts_a_single_message(self) -> None:
         # Headings and bold labels are the seams threading splits on. A summary with neither has
@@ -464,16 +492,176 @@ class TestScoutSlackDelivery(BaseTest):
                 thread_reports=True,
             )
 
-        # Only the lead message and the unconditional @PostHog follow-up reply.
         calls = fake_client.chat_postMessage.call_args_list
-        assert len(calls) == 2
+        assert len(calls) == 1
         assert "thread_ts" not in calls[0].kwargs
         markdown_texts = [block["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "markdown"]
         assert len(markdown_texts) == 1
         assert "second one" in markdown_texts[0]
-        assert calls[1].kwargs["blocks"][0]["type"] == "context"
+        assert calls[0].kwargs["blocks"][-1]["type"] == "context"
 
-    def test_reply_posted_regardless_of_ai_approval(self) -> None:
+    def test_threaded_report_schedules_a_rate_limited_reply(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nFirst body.\n\n## Second\nSecond body.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        rate_limited = FakeSlackResponse({"error": "ratelimited"}, headers={"retry-after": "120"})
+        fake_client.chat_postMessage.side_effect = [
+            {"ts": "1785418710.000800"},
+            SlackApiError(message="rate limited", response=rate_limited),
+            {"ts": "1785418710.000801"},
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.deliver_scout_slack_thread_replies.apply_async") as apply_async,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        assert apply_async.call_args.kwargs["countdown"] == 120
+        retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["report_id"] == str(report.id)
+        assert retry_kwargs["report_revision"] == report.updated_at.isoformat()
+        assert retry_kwargs["chunk_offset"] == 0
+        assert len(retry_kwargs["reply_blocks"]) == 2
+        assert "First body" in retry_kwargs["reply_blocks"][0][0]["text"]
+        assert fake_client.chat_postMessage.call_count == 2
+
+    def test_thread_reply_retry_after_is_bounded_to_one_hour(self) -> None:
+        response = FakeSlackResponse({"error": "ratelimited"}, headers={"Retry-After": "7200"})
+        error = SlackApiError(message="rate limited", response=response)
+
+        assert _slack_retry_after_seconds(error) == 3600
+
+    @parameterized.expand([("suppressed",), ("newer_delivery",), ("edited",)])
+    def test_delayed_thread_replies_revalidate_report(self, state: str) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
+        channel = "CSCOUTS|#scout-findings"
+        report_revision = report.updated_at.isoformat()
+        if state == "suppressed":
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.SUPPRESSED)
+        elif state == "newer_delivery":
+            mark_latest_scout_report_delivery(
+                str(report.id), "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44", integration.id, channel
+            )
+        else:
+            report.title = "Redacted"
+            report.save()
+
+        with patch("products.signals.backend.tasks.SlackIntegration") as slack_integration:
+            deliver_scout_slack_thread_replies.run(
+                self.team.id,
+                integration.id,
+                channel,
+                "1785418710.000800",
+                delivery_id,
+                [[{"type": "markdown", "text": "stale"}]],
+                "stale",
+                0,
+                report_id=str(report.id),
+                report_revision=report_revision,
+            )
+
+        slack_integration.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_delayed_dm_thread_replies_retry_recipient_lookup_failure(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        error = SlackApiError(
+            message="rate limited",
+            response=FakeSlackResponse({"error": "ratelimited"}, headers={"retry-after": "120"}),
+        )
+
+        with (
+            patch("products.signals.backend.tasks.SlackIntegration") as slack_integration,
+            patch.object(deliver_scout_slack_thread_replies, "apply_async") as apply_async,
+        ):
+            slack_integration.return_value.get_user_by_id.side_effect = error
+            deliver_scout_slack_thread_replies.run(
+                self.team.id,
+                integration.id,
+                "U123ABC45|@andy",
+                "1785418710.000800",
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                [[{"type": "markdown", "text": "remaining"}]],
+                "remaining",
+                0,
+                report_id=str(report.id),
+                report_revision=report.updated_at.isoformat(),
+            )
+
+        assert apply_async.call_args.kwargs["countdown"] == 120
+        retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["report_id"] == str(report.id)
+        assert retry_kwargs["report_revision"] == report.updated_at.isoformat()
+        assert retry_kwargs["attempt"] == 2
+        slack_integration.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_thread_reply_transport_failure_schedules_a_retry(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nFirst body.\n\n## Second\nSecond body.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [
+            {"ts": "1785418710.000800"},
+            ConnectionError("Slack unavailable"),
+            {"ts": "1785418710.000801"},
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.deliver_scout_slack_thread_replies.apply_async") as apply_async,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        assert apply_async.call_args.kwargs["countdown"] == 60
+        retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["chunk_offset"] == 0
+        assert len(retry_kwargs["reply_blocks"]) == 2
+
+    def test_invite_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
@@ -500,17 +688,27 @@ class TestScoutSlackDelivery(BaseTest):
                 "CSCOUTS|#scout-findings",
             )
 
-        assert fake_client.chat_postMessage.call_count == 2
-        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
-        assert reply["thread_ts"] == "1785418710.000400"
+        assert fake_client.chat_postMessage.call_count == 1
+        blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert "@PostHog" in blocks[-1]["elements"][0]["text"]
 
-    def test_reply_transport_failure_does_not_fail_delivery(self) -> None:
-        # The parent message already landed, so a failing follow-up reply — even a non-SlackApiError
-        # transport error — must be swallowed rather than fail the task and retry the whole delivery.
+    @parameterized.expand(
+        [
+            ("bot_ready", REQUIRED_SLACK_SCOPES, "mention *@PostHog*"),
+            ("bot_not_ready", frozenset({"chat:write"}), "Set up the @PostHog bot"),
+        ]
+    )
+    def test_followup_invite_matches_install_readiness(
+        self, _name: str, scopes: frozenset[str], expected_fragment: str
+    ) -> None:
         emission = self._make_emission()
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.SLACK,
+            config={"scope": ",".join(sorted(scopes))},
+        )
         fake_client = MagicMock()
-        fake_client.chat_postMessage.side_effect = [{"ts": "1785418710.000500"}, ConnectionError("boom")]
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
             slack_integration.return_value.client = fake_client
@@ -521,7 +719,8 @@ class TestScoutSlackDelivery(BaseTest):
                 channel="CSCOUTS|#scout-findings",
             )
 
-        assert fake_client.chat_postMessage.call_count == 2
+        blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert expected_fragment in blocks[-1]["elements"][0]["text"]
 
     @parameterized.expand(
         [
@@ -961,8 +1160,17 @@ class TestScoutSlackDelivery(BaseTest):
             )
 
         rejected, resent = (call.kwargs["blocks"] for call in fake_client.chat_postMessage.call_args_list[:2])
-        assert [b["type"] for b in rejected] == ["context", "header", "markdown", "section", "image", "actions"]
-        assert [b["type"] for b in resent] == ["context", "header", "markdown", "actions"]
+        # The strip-and-retry drops only chart blocks, so the invite footer rides both attempts.
+        assert [b["type"] for b in rejected] == [
+            "context",
+            "header",
+            "markdown",
+            "section",
+            "image",
+            "actions",
+            "context",
+        ]
+        assert [b["type"] for b in resent] == ["context", "header", "markdown", "actions", "context"]
 
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()

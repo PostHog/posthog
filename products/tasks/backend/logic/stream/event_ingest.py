@@ -5,6 +5,7 @@ import json
 import math
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
@@ -17,11 +18,13 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
+from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
@@ -31,9 +34,15 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import (
+    PI_RUNTIME_ERROR_MESSAGE,
+    is_idle_resume_turn_complete,
+    is_turn_complete,
+    pi_turn_error,
+    turn_completed_successfully,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +56,9 @@ MAX_EVENTS_PER_REQUEST = 1_000
 STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete"
 RTK_SAVINGS_SIDE_EFFECT = "rtk-savings"
 RTK_SAVINGS_CAPTURE_LOCK_SECONDS = 60
+BUDGET_STEER_SIDE_EFFECT = "budget-steer"
+BUDGET_STEER_STAGES = frozenset({"warn", "critical"})
+BUDGET_STEER_MODES = frozenset({"publish", "wrap_up"})
 
 ASGIMessage = dict[str, object]
 ASGIReceive = Callable[[], Awaitable[ASGIMessage]]
@@ -201,12 +213,19 @@ async def _ingest_event_lines(
             sequence = parsed_line.sequence
             event = parsed_line.event
             rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
+            budget_steer_properties = _parse_budget_steer_properties(claims, event)
+            pending_side_effect = None
+            if rtk_savings_properties is not None:
+                pending_side_effect = RTK_SAVINGS_SIDE_EFFECT
+            elif budget_steer_properties is not None:
+                pending_side_effect = BUDGET_STEER_SIDE_EFFECT
             write = await redis_stream.write_event_with_sequence(
-                event,
-                sequence,
-                pending_side_effect=RTK_SAVINGS_SIDE_EFFECT if rtk_savings_properties is not None else None,
+                event, sequence, pending_side_effect=pending_side_effect
             )
             await _capture_rtk_savings_if_needed(redis_stream, claims, sequence, rtk_savings_properties)
+            await _capture_budget_steer_if_needed(
+                redis_stream, claims, sequence, budget_steer_properties, event.get("timestamp")
+            )
             if not write.accepted:
                 result.duplicate += 1
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
@@ -262,6 +281,90 @@ def _capture_rtk_savings(team_id: int, event_uuid: str, properties: dict[str, st
             properties=properties,
             uuid=event_uuid,
         )
+
+
+async def _capture_budget_steer_if_needed(
+    redis_stream: TaskRunRedisStream,
+    claims: SandboxEventIngestTokenPayload,
+    sequence: int,
+    properties: dict[str, str | int | float | bool] | None,
+    event_timestamp: object = None,
+) -> None:
+    if properties is None:
+        return
+    capture_claim = await redis_stream.claim_pending_side_effect(
+        BUDGET_STEER_SIDE_EFFECT, sequence, RTK_SAVINGS_CAPTURE_LOCK_SECONDS
+    )
+    if not capture_claim:
+        return
+    try:
+        await sync_to_async(BudgetSteerCapture.enqueue, thread_sensitive=False)(
+            claims.team_id, claims.run_id, sequence, properties, event_timestamp
+        )
+    except Exception:
+        await redis_stream.release_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
+        logger.warning("task_run_budget_steer_capture_failed", run_id=claims.run_id, exc_info=True)
+        return
+    await redis_stream.complete_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
+
+
+def _parse_budget_steer_properties(
+    claims: SandboxEventIngestTokenPayload, event: dict
+) -> dict[str, str | int | float | bool] | None:
+    notification = event.get("notification")
+    if not isinstance(notification, dict) or notification.get("method") != "_posthog/budget_steer":
+        return None
+    params = notification.get("params")
+    if not isinstance(params, dict):
+        return None
+    stage = params.get("stage")
+    mode = params.get("mode")
+    delivered = params.get("delivered")
+    if not isinstance(stage, str) or stage not in BUDGET_STEER_STAGES:
+        return None
+    if not isinstance(mode, str) or mode not in BUDGET_STEER_MODES or not isinstance(delivered, bool):
+        return None
+    amounts: dict[str, float] = {}
+    for key in ("spent_usd", "cap_usd"):
+        amount = _parse_usd_amount(params.get(key))
+        if amount is None:
+            return None
+        amounts[key] = amount
+    threshold = _parse_usd_amount(params.get("threshold_spent_usd"))
+    if threshold is not None:
+        amounts["threshold_spent_usd"] = threshold
+    timestamps: dict[str, str] = {}
+    for key in ("threshold_at", "delivered_at"):
+        value = params.get(key)
+        if isinstance(value, str) and len(value) <= 40:
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                continue
+            if parsed.tzinfo is not None:
+                timestamps[key] = value
+    return {
+        "team_id": claims.team_id,
+        "task_id": claims.task_id,
+        "run_id": claims.run_id,
+        "stage": stage,
+        "mode": mode,
+        "delivered": delivered,
+        **amounts,
+        **timestamps,
+    }
+
+
+def _parse_usd_amount(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        amount = float(value)
+    except OverflowError:
+        return None
+    if not math.isfinite(amount) or amount < 0:
+        return None
+    return amount
 
 
 def _parse_rtk_savings_properties(claims: SandboxEventIngestTokenPayload, event: dict) -> dict[str, str | int] | None:
@@ -394,7 +497,14 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
-        await _dispatch_turn_completed_if_interactive(run_id)
+        if pi_turn_error(event):
+            await _dispatch_turn_failed(run_id)
+        else:
+            await _dispatch_turn_completed(
+                run_id,
+                succeeded=turn_completed_successfully(event),
+                turn_completed=not is_idle_resume_turn_complete(event),
+            )
         return
 
     if _is_session_update(event):
@@ -445,11 +555,13 @@ def _signal_agent_boot_milestone(
     return task_run.signal_agent_boot_milestone(milestone)
 
 
-async def _dispatch_turn_completed_if_interactive(run_id: str) -> None:
-    await sync_to_async(_dispatch_turn_completed_if_interactive_sync, thread_sensitive=True)(run_id)
+async def _dispatch_turn_completed(run_id: str, *, succeeded: bool = False, turn_completed: bool = True) -> None:
+    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(
+        run_id, succeeded=succeeded, turn_completed=turn_completed
+    )
 
 
-def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
+def _dispatch_turn_completed_sync(run_id: str, *, succeeded: bool = False, turn_completed: bool = True) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -459,10 +571,19 @@ def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
         logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
-    if task_run.mode != "interactive":
-        return
+    task_run.signal_agent_turn_completed(succeeded=succeeded)
+    dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
 
-    notify_task_run_turn_completed(task_run)
+
+async def _dispatch_turn_failed(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_failed_sync, thread_sensitive=True)(run_id)
+
+
+def _dispatch_turn_failed_sync(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
+    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
 
 
 def _is_session_update(event: dict) -> bool:

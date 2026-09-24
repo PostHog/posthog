@@ -4,6 +4,11 @@ import { basename, dirname, join } from "node:path";
 import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
+import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
+import {
+  buildStoreSkillsInstructions,
+  syncStoreSkills,
+} from "@posthog/harness/extensions/skills-store";
 import {
   type AgentConversationEvent,
   type AgentTurnUsage,
@@ -17,11 +22,12 @@ import {
   type TaskRunArtifact,
 } from "@posthog/shared";
 import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import type { TaskContext } from "@posthog/shared/task-context";
 import { Hono } from "hono";
 import { z } from "zod/v4";
+import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
-import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
   createPiRpcClient,
@@ -32,7 +38,6 @@ import {
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
-import type { TaskContext } from "../pi/task-system-prompt";
 import {
   type PiExtensionEvent,
   piExtensionUIResponseSchema,
@@ -47,7 +52,6 @@ import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
-import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
 
 const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
@@ -181,6 +185,10 @@ export class PiAgentServer {
     this.app = this.createApp();
   }
 
+  private get agentVersion(): string {
+    return this.config.version ?? packageJson.version;
+  }
+
   private createRunTelemetry(
     payload: JwtPayload,
   ): OtelRunTelemetry | undefined {
@@ -303,6 +311,7 @@ export class PiAgentServer {
       .updateTaskRun(this.config.taskId, this.config.runId, {
         status: "failed",
         error_message: `Pi agent server crashed: ${message}`,
+        state: { agent_version: this.agentVersion },
       })
       .catch((updateError) =>
         this.logger.error(
@@ -671,6 +680,10 @@ export class PiAgentServer {
         apiUrl: this.config.apiUrl,
         projectId: this.config.projectId,
         apiKey: this.config.apiKey,
+        interactionOrigin:
+          process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
+          process.env.CODE_INTERACTION_ORIGIN ??
+          process.env.TWIG_INTERACTION_ORIGIN,
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
@@ -732,6 +745,7 @@ export class PiAgentServer {
     this.sessionInitMs = Date.now() - startedAt;
     await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
       status: "in_progress",
+      state: { agent_version: this.agentVersion },
     });
     this.broadcast({
       type: "pi_run_started",

@@ -640,6 +640,38 @@ export interface DashboardFiltersOpenApiApi {
     properties?: unknown
 }
 
+export interface _DashboardPatchTileLayoutBoxOpenApiApi {
+    /**
+     * Column position in the dashboard grid (0-indexed).
+     * @minimum 0
+     * @maximum 11
+     */
+    x: number
+    /**
+     * Row position in the dashboard grid (0-indexed).
+     * @minimum 0
+     */
+    y: number
+    /**
+     * Width in grid columns. The desktop grid is 12 columns wide.
+     * @minimum 1
+     * @maximum 12
+     */
+    w: number
+    /**
+     * Height in grid rows.
+     * @minimum 1
+     */
+    h: number
+}
+
+export interface _DashboardPatchTileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts. */
+    sm: _DashboardPatchTileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+    xs?: _DashboardPatchTileLayoutBoxOpenApiApi
+}
+
 /**
  * * `activity_events_list` - activity_events_list
  * * `conversations_recent_tickets` - conversations_recent_tickets
@@ -647,6 +679,7 @@ export interface DashboardFiltersOpenApiApi {
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
  * * `logs_list` - logs_list
+ * * `notebook_widget` - notebook_widget
  * * `session_replay_list` - session_replay_list
  * * `survey_results` - survey_results
  */
@@ -660,9 +693,17 @@ export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
+    NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
 } as const
+
+export interface NotebookWidgetConfigApi {
+    /** Source notebook short ID. */
+    notebookShortId?: string | null
+    /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+    snapshotId?: string | null
+}
 
 export type WidgetDateRangeApiDateFrom =
     | (typeof WidgetDateRangeApiDateFrom)[keyof typeof WidgetDateRangeApiDateFrom]
@@ -1095,6 +1136,7 @@ export interface ConversationsRecentTicketsWidgetConfigApi {
 }
 
 export type DashboardWidgetConfigApi =
+    | NotebookWidgetConfigApi
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
@@ -1115,6 +1157,7 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
@@ -1133,6 +1176,8 @@ export interface DashboardPatchWidgetOpenApiApi {
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
+    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
+    layouts?: _DashboardPatchTileLayoutsOpenApiApi
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
@@ -1188,7 +1233,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
-    /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+    /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
@@ -1328,12 +1373,53 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
 export interface ActionConversionGoalApi {
     actionId: number
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export interface CustomEventConversionGoalApi {
     customEventName: string
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
@@ -1352,7 +1438,7 @@ export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
     date_to?: string | null
     /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
     daysOfWeek?: DaysOfWeekEnumApi[] | null
@@ -1582,6 +1668,8 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
@@ -1623,24 +1711,6 @@ export interface HogQLQueryModifiersApi {
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export interface PersonMetadataPropertyFilterApi {
     key: string
     label?: string | null
@@ -1673,23 +1743,6 @@ export interface EventMetadataPropertyFilterApi {
     operator: PropertyOperatorApi
     type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface SessionPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'session'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
 }
 
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
@@ -1962,9 +2015,71 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+}
+
+export interface QueryScanAnalysisApi {
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** Every finding, fixable or not. Empty when the analysis found none. */
+    findings: QueryScanWarningApi[]
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number | null
+}
+
+export interface QueryScanSummaryApi {
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysisApi | null
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+}
+
 export interface QueryStatusApi {
     budget_remaining_bytes?: number | null
     bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -1984,6 +2099,7 @@ export interface QueryStatusApi {
     /** ONLY async queries use QueryStatus. */
     query_async?: true
     query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
     results?: unknown
     /** When was query execution task enqueued. */
     start_time?: string | null
@@ -2679,6 +2795,8 @@ export interface GroupNodeApi {
 export interface QueryLogTagsApi {
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
@@ -2698,6 +2816,15 @@ export const AggregationAxisFormatApi = {
     Short: 'short',
 } as const
 
+export type AnnotationScopeApi = (typeof AnnotationScopeApi)[keyof typeof AnnotationScopeApi]
+
+export const AnnotationScopeApi = {
+    DashboardItem: 'dashboard_item',
+    Dashboard: 'dashboard',
+    Project: 'project',
+    Organization: 'organization',
+} as const
+
 export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
 
 export const CurveApi = {
@@ -2705,9 +2832,18 @@ export const CurveApi = {
     Smooth: 'smooth',
 } as const
 
+export type SeriesColorModeApi = (typeof SeriesColorModeApi)[keyof typeof SeriesColorModeApi]
+
+export const SeriesColorModeApi = {
+    Palette: 'palette',
+    Opacity: 'opacity',
+} as const
+
 export interface ChartStyleApi {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: CurveApi | null
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: SeriesColorModeApi | null
 }
 
 export type DetailedResultsAggregationTypeApi =
@@ -2851,6 +2987,8 @@ export interface TrendsFilterApi {
     aggregationAxisPostfix?: string | null
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
+    /** Render only annotations with this scope. Unset renders every scope. */
+    annotationsScope?: AnnotationScopeApi | null
     breakdown_histogram_bin_count?: number | null
     /** Chart rendering style overrides (line shape). */
     chartStyle?: ChartStyleApi | null
@@ -2973,7 +3111,10 @@ export interface TrendsQueryApi {
     response?: TrendsQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
@@ -3223,6 +3364,8 @@ export const FunnelLayoutApi = {
 export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface FunnelsFilterApi {
+    /** Render only annotations with this scope. Only applies to historical-trends funnels. */
+    annotationsScope?: AnnotationScopeApi | null
     binCount?: number | null
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     breakdownAttributionValue?: number | null
@@ -3630,6 +3773,8 @@ export interface RetentionFilterApi {
     returningEntity?: RetentionEntityApi | null
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: number | null
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean | null
     showTrendLines?: boolean | null
     targetEntity?: RetentionEntityApi | null
     /** The time window mode to use for retention calculations */
@@ -3742,6 +3887,8 @@ export interface PathsFilterApi {
     showFullUrls?: boolean | null
     startPoint?: string | null
     stepLimit?: number | null
+    /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
+    stripQueryString?: boolean | null
 }
 
 export interface PathsLinkApi {
@@ -4117,7 +4264,10 @@ export interface StickinessQueryApi {
     response?: StickinessQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilterApi | null
@@ -4348,6 +4498,7 @@ export const WebStatsBreakdownApi = {
     FirstPageviewUTMContent: 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
     Browser: 'Browser',
+    InAppBrowser: 'InAppBrowser',
     Os: 'OS',
     Viewport: 'Viewport',
     DeviceType: 'DeviceType',
@@ -4455,6 +4606,7 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebStatsTableQuery'
@@ -4720,6 +4872,23 @@ export interface HogQLNoticeApi {
     start?: number | null
 }
 
+export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
+
+export const PredicateFixActionApi = {
+    EditQuery: 'edit_query',
+    EditPropertyType: 'edit_property_type',
+    Materialize: 'materialize',
+} as const
+
+export interface PredicateQuickfixApi {
+    /** Character offset in the query where the replaced range ends. */
+    end: number
+    /** Character offset in the query where the replaced range starts. */
+    start: number
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
+}
+
 export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]
 
 export const PredicateScopeApi = {
@@ -4740,15 +4909,21 @@ export const PredicateIndexVerdictApi = {
 } as const
 
 export interface PredicateIndexUsageApi {
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string | null
     column_name?: string | null
     end?: number | null
+    /** Prose advice for a reader. */
     fix?: string | null
+    fix_action?: PredicateFixActionApi | null
     message: string
     /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
     operator: string
     /** Type the value is physically stored as. */
     physical_type: string
     property_name: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfixApi | null
     scope: PredicateScopeApi
     /** Type the property definition declares. */
     semantic_type: string
@@ -5072,6 +5247,8 @@ export interface MarketingAnalyticsItemApi {
 
 export interface Response12Api {
     columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
@@ -5081,6 +5258,8 @@ export interface Response12Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5101,12 +5280,16 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5210,9 +5393,11 @@ export interface ErrorTrackingExternalReferenceIntegrationApi {
 }
 
 export interface ErrorTrackingExternalReferenceApi {
+    external_id: string
     external_url: string
     id: string
     integration: ErrorTrackingExternalReferenceIntegrationApi
+    title: string
 }
 
 export interface FirstEventApi {
@@ -6408,6 +6593,15 @@ export interface ExperimentRatioMetricApi {
     version?: number | null
 }
 
+export type ExperimentExposureNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentExposureNodeApi {
+    kind?: 'ExperimentExposureNode'
+    response?: ExperimentExposureNodeApiResponse
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
 
 export const StartHandlingApi = {
@@ -6433,7 +6627,7 @@ export interface ExperimentRetentionMetricApi {
     retention_window_start: number
     retention_window_unit: FunnelConversionWindowTimeUnitApi
     sharedMetricId?: number | null
-    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    start_event: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi | ExperimentExposureNodeApi
     start_handling: StartHandlingApi
     uuid?: string | null
     /** version of the node, used for schema migrations */
@@ -7730,6 +7924,8 @@ export const MarketingAnalyticsOrderByEnumApi = {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
@@ -7739,6 +7935,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7807,12 +8005,16 @@ export interface MarketingAnalyticsTableQueryApi {
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8383,6 +8585,8 @@ export interface AccountsQueryResponseApi {
 export interface AccountsQueryApi {
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean | null
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean | null
     /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
@@ -9323,6 +9527,8 @@ export interface InsightApi {
     readonly types: readonly unknown[] | null
     /** @nullable */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+    readonly query_scan: unknown
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -9454,6 +9660,7 @@ export interface PatchedMoveTileRequestApi {
 /**
  * * `preserve` - preserve
  * * `two_column` - two_column
+ * * `three_column` - three_column
  * * `full_width` - full_width
  */
 export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
@@ -9461,6 +9668,7 @@ export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
 export const LayoutEnumApi = {
     Preserve: 'preserve',
     TwoColumn: 'two_column',
+    ThreeColumn: 'three_column',
     FullWidth: 'full_width',
 } as const
 
@@ -9470,10 +9678,11 @@ export interface ReorderTilesRequestApi {
      * @minItems 1
      */
     tile_order: number[]
-    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. Use the other modes only when every tile should use the same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × 5-tall, and 'full_width' makes every tile 12-wide × 5-tall.
      *
      * * `preserve` - preserve
      * * `two_column` - two_column
+     * * `three_column` - three_column
      * * `full_width` - full_width */
     layout?: LayoutEnumApi
 }
@@ -9550,7 +9759,7 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
-export interface _WidgetTileLayoutBoxOpenApiApi {
+export interface _TileLayoutBoxOpenApiApi {
     /** Column position in the dashboard grid (0-indexed). */
     x?: number
     /** Row position in the dashboard grid (0-indexed). */
@@ -9561,11 +9770,36 @@ export interface _WidgetTileLayoutBoxOpenApiApi {
     h?: number
 }
 
-export interface _WidgetTileLayoutsOpenApiApi {
+export interface _TileLayoutsOpenApiApi {
     /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _WidgetTileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: _WidgetTileLayoutBoxOpenApiApi
+    sm?: _TileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+    xs?: _TileLayoutBoxOpenApiApi
+}
+
+export type NotebookWidgetAddRequestOpenApiApiWidgetType =
+    (typeof NotebookWidgetAddRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetAddRequestOpenApiApiWidgetType]
+
+export const NotebookWidgetAddRequestOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _TileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: NotebookWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the notebook widget widget. */
+    config: NotebookWidgetConfigApi
 }
 
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
@@ -9585,7 +9819,7 @@ export interface ActivityEventsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
@@ -9610,7 +9844,7 @@ export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
@@ -9635,7 +9869,7 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
@@ -9660,7 +9894,7 @@ export interface ExperimentsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentsListWidgetAddRequestOpenApiApiWidgetType
@@ -9685,7 +9919,7 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9710,7 +9944,7 @@ export interface SurveyResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SurveyResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9735,7 +9969,7 @@ export interface LogsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
@@ -9760,7 +9994,7 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
@@ -9769,6 +10003,7 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
 }
 
 export type AddDashboardWidgetRequestApi =
+    | NotebookWidgetAddRequestOpenApiApi
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
@@ -9783,7 +10018,7 @@ export type AddDashboardWidgetRequestApi =
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -9793,6 +10028,29 @@ export interface AddDashboardWidgetsBatchRequestOpenApiApi {
 export interface AddDashboardWidgetsBatchResponseApi {
     /** Created dashboard widget tiles in request order. */
     tiles: DashboardTileApi[]
+}
+
+export type NotebookWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const NotebookWidgetUpdateRequestOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: NotebookWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+    config?: NotebookWidgetConfigApi
 }
 
 export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
@@ -9980,6 +10238,7 @@ export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
 }
 
 export type UpdateDashboardWidgetRequestApi =
+    | NotebookWidgetUpdateRequestOpenApiApi
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
     | SessionReplayListWidgetUpdateRequestOpenApiApi
@@ -10032,7 +10291,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
     /**
-     * Tag names to add, remove, or set.
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
      * @maxItems 100
      * @items.maxLength 255
      */
@@ -10052,6 +10311,27 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export type NotebookWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof NotebookWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof NotebookWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const NotebookWidgetCatalogEntryOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetCatalogEntryOpenApiApi {
+    widget_type: NotebookWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: NotebookWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -10223,6 +10503,7 @@ export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
 }
 
 export type WidgetCatalogEntryApi =
+    | NotebookWidgetCatalogEntryOpenApiApi
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
@@ -10267,6 +10548,15 @@ export interface PatchedDataColorThemeApi {
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+/**
+ * * `notebook_widget` - notebook_widget
+ */
+export type NotebookWidgetTypeEnumApi = (typeof NotebookWidgetTypeEnumApi)[keyof typeof NotebookWidgetTypeEnumApi]
+
+export const NotebookWidgetTypeEnumApi = {
+    NotebookWidget: 'notebook_widget',
+} as const
 
 /**
  * * `activity_events_list` - activity_events_list
@@ -10412,6 +10702,10 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
+     * Optional. Exclude dashboards that PostHog generated.
+     */
+    exclude_generated?: boolean
+    /**
      * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
      */
     folder?: string
@@ -10424,6 +10718,10 @@ export type DashboardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Return only pinned dashboards.
+     */
+    pinned?: boolean
     /**
      * Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
@@ -10595,13 +10893,21 @@ export type DashboardsRunInsightsRetrieveParams = {
     filters_override?: string
     format?: DashboardsRunInsightsRetrieveFormat
     /**
-     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     * Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run.
+     */
+    max_result_chars?: number
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded.
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat
     /**
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
+    /**
+     * Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.
+     */
+    tile_ids?: string
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */

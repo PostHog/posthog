@@ -14,7 +14,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -68,6 +67,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { insightLogic } from './insightLogic'
 
@@ -198,7 +199,7 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 
     return insightId
         ? insightId
-        : (await api.get(`api/environments/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        : (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
               .results[0]?.id
 }
 

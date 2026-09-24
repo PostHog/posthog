@@ -7,25 +7,21 @@ source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
-# Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
-# defined once here so every surface breaks queue spend out with the same key.
-MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
-
-
-def merge_queue_branch_predicate(branch_sql: str) -> str:
-    """True when the branch expression names a merge-queue batch branch."""
-    return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
-
+# HogQL caps a query that names no LIMIT at 100 rows and clamps any larger LIMIT to this ceiling. Reads
+# bounded by the repo's shape (workflows, job names, a PR's runs) rather than by a page size take it whole.
+UNPAGED_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
 # Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
 DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+FAILED_RUN_CONDITION = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 
 # Duration percentiles use successful instances because cancelled, skipped, and failed instances
@@ -40,6 +36,12 @@ def success_rate_expr(scope: str | None = None) -> str:
     never a false 0%. ``scope`` ANDs an extra predicate into both counts (e.g. a window split)."""
     guard = f" AND {scope}" if scope else ""
     return f"countIf({SUCCESSFUL_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+
+
+def failure_rate_expr(scope: str | None = None) -> str:
+    """The complement of ``success_rate_expr`` over the same denominator."""
+    guard = f" AND {scope}" if scope else ""
+    return f"countIf({FAILED_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
 
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the
@@ -154,6 +156,16 @@ def branch_filter_clause(
     return f"AND {column} = {{branch}}"
 
 
+def workflow_name_filter_clause(
+    workflow_name: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.workflow_name"
+) -> str:
+    """The name binds unmodified so it matches the other workflow endpoints."""
+    if not (workflow_name or "").strip():
+        return ""
+    placeholders["workflow_name"] = ast.Constant(value=workflow_name)
+    return f"AND {column} = {{workflow_name}}"
+
+
 def date_to_filter_clause(
     date_to: datetime | None, placeholders: dict[str, ast.Expr], *, column: str = "r.run_started_at"
 ) -> str:
@@ -185,9 +197,8 @@ def window_pair_predicates(column: str, *, date_to: datetime | None) -> WindowPr
 
 
 def default_branch_predicate(branch_column: str = "r.head_branch") -> str:
-    """True when the branch expression names the repo's default branch. The source does not record
-    which branch that is, so the common default names stand in. ``repo_overview.query_default_branch``
-    resolves it per repo, but that costs an extra query."""
+    """Treats ``master`` and ``main`` as the default branch, because the runs source does not record it.
+    ``default_branches.query_default_branches`` reads GitHub's value from the PR snapshot."""
     return f"{branch_column} IN ('master', 'main')"
 
 
@@ -198,14 +209,9 @@ def run_scope_filter_clause(
     attributed_predicate: str = "r.pr_number > 0",
     merge_queue_predicate: str = "r.is_merge_queue",
 ) -> str:
-    """The WHERE fragment that narrows a run population to one ``WorkflowHealthRunScope`` (see that
-    enum for what each group covers), or '' for ``all``.
-
-    ``pull_request`` needs all three predicates. A default-branch run can still carry a PR
-    association (its SHA matches an open PR), so attribution alone (pr_number > 0 — see the
-    workflow_runs builder docstring) does not keep trunk runs out, and gate runs belong to
-    ``merge_queue`` instead.
-    """
+    """The WHERE fragment for one ``WorkflowHealthRunScope``, or '' for ``all``. ``pull_request`` needs
+    all three predicates: a default-branch run can still carry a PR association, and gate runs belong to
+    ``merge_queue``."""
     if run_scope == WorkflowHealthRunScope.DEFAULT_BRANCH:
         return f"AND {default_branch_predicate(branch_column)}"
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:

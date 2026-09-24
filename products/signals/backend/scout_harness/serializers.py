@@ -30,25 +30,44 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
-from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.artefact_schemas import (
+    MAX_REPORT_LINK_REASON_LENGTH,
+    MAX_REPORT_LINKS_PER_WRITE,
+    ActionabilityChoice,
+    Priority,
+)
+from products.signals.backend.enums import report_link_kind_choices
+from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_skill_names,
+    canonical_structured_output_schema_for,
+)
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
+from products.signals.backend.scout_harness.tools.checks import MAX_CHECK_EXPLANATION_LENGTH
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
+)
+from products.signals.backend.scout_harness.tools.lighthouse import (
+    DEFAULT_FORM_FACTOR,
+    FORM_FACTORS,
+    MAX_AUDITS_PER_RUN,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
@@ -75,15 +94,21 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     StructuredOutputSchemaError,
     validate_structured_output_schema,
 )
-from products.signals.backend.serializers import ReportChartSerializer
+from products.signals.backend.serializers import (
+    ReportChartSerializer,
+    ReportMetricWriteSerializer,
+    SignalReportCheckWriteSerializer,
+)
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
     LLMSkillFileInputSerializer,
+    validate_new_skill_name_value,
     validate_skill_body_size,
     validate_skill_name_value,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -106,6 +131,7 @@ logger = structlog.get_logger(__name__)
             "network_access": {"type": "string"},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
+            "run_note": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
             # a `[key: string]: boolean` index signature that the optional named flags cannot
@@ -295,16 +321,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
-    confidence = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1].",
-    )
     severity = serializers.ChoiceField(
         choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
@@ -326,8 +342,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "run_id",
             "finding_id",
             "description",
-            "weight",
-            "confidence",
             "severity",
             "tags",
             "source_id",
@@ -578,6 +592,190 @@ class RecordStructuredOutputResponseSerializer(serializers.Serializer):
             "order. Stable across a resubmission of the identical batch, which is what makes retrying "
             "a failed delivery safe."
         ),
+    )
+
+
+class LighthouseAuditRequestSerializer(serializers.Serializer):
+    """Request body for `scout-lighthouse-audit`: one page, one device profile."""
+
+    url = serializers.URLField(
+        max_length=2000,
+        help_text=(
+            "The page to audit. Must be an https url on an allowed host — public PostHog pages only. "
+            "Pages behind a login cannot be audited: the browser signs in to nothing, so it would "
+            "measure the login screen and report its numbers as the page's."
+        ),
+    )
+    form_factor = serializers.ChoiceField(
+        choices=[(value, value) for value in FORM_FACTORS],
+        default=DEFAULT_FORM_FACTOR,
+        help_text=(
+            "Which device profile to emulate. Desktop and mobile produce different numbers, so audit "
+            "the one whose field data you are explaining."
+        ),
+    )
+
+
+class LcpElementSerializer(serializers.Serializer):
+    """The element the browser chose as the Largest Contentful Paint."""
+
+    selector = serializers.CharField(allow_null=True, help_text="CSS selector for the element.")
+    snippet = serializers.CharField(allow_null=True, help_text="The element's opening tag, truncated by Lighthouse.")
+    node_label = serializers.CharField(allow_null=True, help_text="Human-readable label, usually the alt or text.")
+
+
+class LcpPhaseSerializer(serializers.Serializer):
+    """One phase of the LCP timeline, which is where the time actually went."""
+
+    phase = serializers.CharField(
+        help_text=(
+            "Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or "
+            "'Element render delay'. Passed through verbatim, so the exact wording follows the "
+            "Lighthouse version."
+        )
+    )
+    timing_ms = serializers.FloatField(allow_null=True, help_text="Milliseconds spent in this phase.")
+    percent = serializers.CharField(
+        allow_null=True,
+        help_text="This subpart's share of the total LCP, e.g. '62%'.",
+    )
+
+
+class AuditOpportunitySerializer(serializers.Serializer):
+    """A failing check or a savings estimate from the audit."""
+
+    audit_id = serializers.CharField(help_text="Lighthouse audit id, for example `prioritize-lcp-image`.")
+    title = serializers.CharField(help_text="Lighthouse's own title for the check.")
+    savings_ms = serializers.FloatField(
+        allow_null=True,
+        help_text="Estimated milliseconds this would save. Null for a pass/fail check with no estimate.",
+    )
+
+
+class LighthouseAuditResponseSerializer(serializers.Serializer):
+    """The audit, reduced to what a web vitals finding cites.
+
+    The full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the
+    response carries the metrics, the LCP element and its phase breakdown, and the ranked
+    opportunities, and drops the rest.
+    """
+
+    requested_url = serializers.CharField(help_text="The url that was audited.")
+    final_url = serializers.CharField(allow_null=True, help_text="Where the browser ended up after redirects.")
+    form_factor = serializers.CharField(help_text="The device profile the audit emulated.")
+    lighthouse_version = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The Lighthouse version that produced this report. Audit ids move between major "
+            "versions, so cite it when an expected field came back empty."
+        ),
+    )
+    performance_score = serializers.IntegerField(
+        allow_null=True, help_text="Lighthouse performance score out of 100 for this run."
+    )
+    metrics = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text=(
+            "Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. "
+            "One throttled cold load, not a p75 over real users — use it to explain a field finding, "
+            "never to replace one."
+        ),
+    )
+    lcp_element = LcpElementSerializer(
+        allow_null=True,
+        help_text="The element the browser chose as the LCP, or null when Lighthouse could not name one.",
+    )
+    lcp_phases = LcpPhaseSerializer(
+        many=True, help_text="Where the LCP time went, phase by phase. Empty when the report omits the breakdown."
+    )
+    lcp_checks_failed = AuditOpportunitySerializer(
+        many=True, help_text="LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image."
+    )
+    opportunities = AuditOpportunitySerializer(
+        many=True, help_text="Ranked savings estimates across the whole page, largest first."
+    )
+    audits_remaining = serializers.IntegerField(
+        help_text=f"How many audits this run may still spend. Each run gets {MAX_AUDITS_PER_RUN}."
+    )
+
+
+class RecordCheckResultRequestSerializer(serializers.Serializer):
+    """Request body for `scout-check-record-result`: the verdict on one dispatched report check."""
+
+    check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
+    outcome = serializers.ChoiceField(
+        choices=SignalReportCheck.Outcome.choices,
+        help_text=(
+            "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
+            "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."
+        ),
+    )
+    explanation = serializers.CharField(
+        max_length=MAX_CHECK_EXPLANATION_LENGTH,
+        help_text=(
+            "One or two sentences on what you looked at and what it showed. This is what a person reads on "
+            "the report, so write it for them, with the numbers or entities you checked."
+        ),
+    )
+    observed_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The number you measured, when the check came down to one. Leave it out otherwise.",
+    )
+
+
+class RecordCheckResultResponseSerializer(serializers.Serializer):
+    """Outcome of an accepted `scout-check-record-result` call."""
+
+    check_id = serializers.UUIDField(help_text="The check that was closed.")
+    outcome = serializers.CharField(help_text="The verdict that was recorded.")
+    check_status = serializers.CharField(
+        help_text=(
+            "The check's status after the verdict. `active` means a recurring check re-armed for its next "
+            "run; anything else is terminal."
+        )
+    )
+    runs_remaining = serializers.IntegerField(help_text="Evaluations the check still owes after this one.")
+
+
+class CreateReportCheckRequestSerializer(SignalReportCheckWriteSerializer):
+    """Request body for `scout-report-check-create`: one forward-looking check on a report.
+
+    The REST body plus the report it attaches to. Subclassed rather than restated so the schedule
+    bounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.
+    """
+
+    report_id = serializers.UUIDField(help_text="The report the check attaches to.")
+
+
+class CancelReportCheckRequestSerializer(serializers.Serializer):
+    """Request body for `scout-report-check-cancel`."""
+
+    check_id = serializers.UUIDField(help_text="The check to stop. Its recorded results stay on the report.")
+
+
+class ListReportChecksQuerySerializer(serializers.Serializer):
+    """Query for `scout-report-check-list`."""
+
+    report_id = serializers.UUIDField(help_text="The report whose checks to list.")
+
+
+class ScoutCheckSummarySerializer(serializers.Serializer):
+    """One check as a scout run reads it back."""
+
+    check_id = serializers.UUIDField(help_text="The check.")
+    report_id = serializers.UUIDField(help_text="The report it is attached to.")
+    title = serializers.CharField(help_text="The expectation the check states.")
+    kind = serializers.CharField(help_text="`metric_threshold` (the coordinator measures it) or `agent` (a run does).")
+    status = serializers.CharField(
+        help_text=(
+            "`pending` while the check waits for the report to resolve, `active` while it still runs; "
+            "every other value is terminal."
+        )
+    )
+    next_run_at = serializers.DateTimeField(help_text="When the check next runs. Provisional while it is `pending`.")
+    last_outcome = serializers.CharField(
+        allow_null=True, help_text="Verdict of the most recent run; null before the first."
     )
 
 
@@ -1114,11 +1312,6 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         max_length=MAX_FINDING_DESCRIPTION_LENGTH,
         help_text="Canonical evidence-bundle prose. Becomes the signal's `description`.",
     )
-    confidence = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
-    )
     evidence = serializers.ListField(
         child=EvidenceEntrySerializer(),
         max_length=20,
@@ -1282,7 +1475,10 @@ class EmitReportRequestSerializer(serializers.Serializer):
         help_text=(
             "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; "
             "`requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge "
-            "failure suppresses the report regardless."
+            "failure suppresses the report regardless. A root cause you have not found is not human "
+            "input: a report that names the evidence, the code surface, or a reproducible failure "
+            "path is `immediately_actionable`, because investigating it is the action. Reserve "
+            "`requires_human_input` for a report blocked on a decision only a person can make."
         ),
     )
     already_addressed = serializers.BooleanField(
@@ -1335,6 +1531,20 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "Optional charts to attach to the report — the inbox renders them inline, so a metric move "
             "is something the reader sees rather than a number they take on trust. Attach one whenever "
             "the finding rests on a trend, a spike, or a comparison you already queried."
+        ),
+    )
+    metrics = serializers.ListField(
+        required=False,
+        child=ReportMetricWriteSerializer(),
+        max_length=MAX_REPORT_METRICS,
+        help_text=(
+            "Optional typed impact measurements. Use one primary metric for the key observation and "
+            "supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every "
+            "metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or "
+            "ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive "
+            "BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. "
+            "Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are "
+            "invalid; legacy rows of that shape are always redacted."
         ),
     )
     suggested_prompts = serializers.ListField(
@@ -1399,6 +1609,27 @@ class EmitReportResponseSerializer(serializers.Serializer):
     )
 
 
+class ReportLinkWriteSerializer(serializers.Serializer):
+    """One typed, directed link to write on the report being edited."""
+
+    kind = serializers.ChoiceField(
+        choices=report_link_kind_choices(),
+        help_text=(
+            "How the edited report relates to `report_id`. `depends_on` for work that cannot land "
+            "until the other report's fix does, `part_of` for one piece of a larger report, "
+            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
+            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
+        ),
+    )
+    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        help_text="Optional one-line note on why the reports are linked this way.",
+    )
+
+
 class EditReportRequestSerializer(serializers.Serializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
@@ -1430,6 +1661,10 @@ class EditReportRequestSerializer(serializers.Serializer):
         max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    corroboration_only = serializers.BooleanField(
+        required=False,
+        help_text="Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.",
+    )
     append_evidence = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1455,6 +1690,18 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional repository to point the report at, as `owner/repo` — the fix for a report that "
+            "surfaced against the wrong codebase, so you correct it in place instead of filing a "
+            "duplicate. It replaces the report's current target and re-runs autostart, so a report "
+            "that had no repository to open a PR against can now open a draft PR. Omit the field to "
+            "leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing "
+            "under version control could change."
+        ),
+    )
     charts = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1465,6 +1712,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "adding to them, the way `summary` replaces the summary — so send every chart you want "
             "kept. Omit the field (or send null) to leave the report's existing charts untouched, and "
             "send an empty list to take them all down."
+        ),
+    )
+    metrics = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=ReportMetricWriteSerializer(),
+        max_length=MAX_REPORT_METRICS,
+        help_text=(
+            "The report's full impact-metric set. Omit or send null to preserve it; send an empty "
+            "list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only "
+            "from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. "
+            "Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. "
+            "Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted."
         ),
     )
     suggested_prompts = serializers.ListField(
@@ -1480,6 +1740,45 @@ class EditReportRequestSerializer(serializers.Serializer):
             "left them pointing at the old report."
         ),
     )
+    links = serializers.ListField(
+        required=False,
+        child=ReportLinkWriteSerializer(),
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Typed, directed links from this report to others, recording how the work relates. Use "
+            "`depends_on` when you split one finding into a stack and the second report's fix cannot "
+            "land until the first one's does, so the order is recorded rather than left to a reader "
+            "of the diffs. Additive: links join what the report already has rather than replacing "
+            "them, and only this report gets a row, so link from the side the sentence starts at. "
+            "Links of the same kind must stay acyclic and every report must be in this project."
+        ),
+    )
+    supersedes_implementation = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Set this only when your rewrite changes what the fix should be: a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason, because the report's open pull request already implements it. "
+            "Setting it true records a replacement decision for a ready report. Policy and eligibility "
+            "checks gate the replacement. The existing pull request closes only after a successful, "
+            "verified replacement. Technical failures retry automatically; policy blocks wait for a new "
+            "edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, "
+            "and only within the first four content revisions, including revisions that did not request replacement."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        """Reject a body field this serializer does not declare.
+
+        The tool definition the scout reads and this endpoint deploy separately, so a scout can send a
+        field a running backend does not know yet. DRF drops an undeclared key without a word, which
+        turns a correction the caller asked for into a call that reports success and changes nothing.
+        Failing the whole edit says so, and costs the caller a retry rather than a wrong report.
+        """
+        unknown = sorted(set(self.initial_data) - set(self.fields))
+        if unknown:
+            raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
+        return attrs
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -1488,11 +1787,31 @@ class EditReportResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
-    note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    note_appended = serializers.BooleanField(
+        help_text=(
+            "Whether the edit included a note. True for a collapsed corroboration too, where the "
+            "report's count moves and no work-log entry is written. Read `corroboration_collapsed` "
+            "to tell the two apart."
+        ),
+    )
     evidence_appended = serializers.IntegerField(
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )
+    links_appended = serializers.IntegerField(
+        help_text="How many typed report-to-report links this edit wrote; 0 if none."
+    )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    repository_set = serializers.BooleanField(
+        help_text="Whether the report's repository was replaced (true for a cleared target too)."
+    )
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The repository the report points at now, read back from the report rather than echoed "
+            "from the request; null when the report has no target. Compare it with the `repository` "
+            "you sent to confirm the correction landed."
+        ),
+    )
     charts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(
@@ -1501,12 +1820,41 @@ class EditReportResponseSerializer(serializers.Serializer):
             "report's charts down."
         ),
     )
+    metrics_set = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many impact metrics the report now shows, or null when untouched/unchanged. "
+            "0 means the edit removed every metric."
+        ),
+    )
     suggested_prompts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(
             "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
+        ),
+    )
+    is_content_revision = serializers.BooleanField(
+        help_text=(
+            "Whether this edit actually rewrote the report's title or summary. False for a note, a "
+            "reviewer change, or a re-send of the text the report already had."
+        ),
+    )
+    content_revision_count = serializers.IntegerField(
+        help_text="How many times a scout has rewritten this report's title or summary, counting this edit.",
+    )
+    supersedes_implementation = serializers.BooleanField(
+        help_text=(
+            "Whether the edit recorded that the report's pull request should be replaced. False when "
+            "you did not ask for it, when the edit changed no content, or when the report has already "
+            "been rewritten too many times."
+        ),
+    )
+    corroboration_collapsed = serializers.BooleanField(
+        help_text=(
+            "Whether your note raised the report's corroboration count instead of landing as its own "
+            "entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log."
         ),
     )
 
@@ -1583,7 +1931,7 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
 
 
 class EmitEligibilitySerializer(serializers.Serializer):
-    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+    """`inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox."""
 
     ai_processing_approved = serializers.BooleanField(
         help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
@@ -1591,17 +1939,34 @@ class EmitEligibilitySerializer(serializers.Serializer):
     source_enabled = serializers.BooleanField(
         help_text="Whether the `signals_scout` signal source is enabled for this team.",
     )
+    scout_emit_enabled = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the calling scout's own config can write, as opposed to running in dry-run "
+            "(`emit=false`), where it investigates but everything it writes is discarded. Null when the "
+            "read is not from a scout run, so no single scout's config applies."
+        ),
+    )
     can_emit = serializers.BooleanField(
         help_text=(
-            "True only when both team/org-level gates pass, so scout findings (signal and report "
-            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
-            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
-            "own dry-run `emit` toggle, which is per-config, not team-wide."
+            "True only when every gate passes, so this scout's findings and reports (both channels) "
+            "actually reach the inbox. When False, every write is dropped or refused — quick-close "
+            "instead of doing throwaway investigation. Read this one value: it accounts for the "
+            "calling scout's own dry-run posture as well as the team-wide gates, and it is the same "
+            "gate `emit-report` and `edit-report` apply at write time."
+        ),
+    )
+    blocking_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, "
+            "`ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches "
+            "the `skipped_reason` `emit-report` returns for the same block."
         ),
     )
     remediation = serializers.CharField(
         allow_null=True,
-        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
+        help_text="One-line next step to unblock writes when `can_emit` is False; null when writes can flow.",
     )
 
 
@@ -2199,9 +2564,49 @@ class ProjectProfilePayloadSerializer(serializers.Serializer):
     inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
 
 
+class ProjectProfileSummarySerializer(serializers.Serializer):
+    """The compact envelope returned ahead of the verbose `payload`.
+
+    Both sections are repeated from `payload.inventory`. They lead the response because a
+    client that truncates a long tool result keeps the prefix, and these are the two things a
+    scout has to know before it does anything: whether its output can reach the inbox at all,
+    and what is already there. Read `summary` rather than digging for the same keys inside
+    `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+    received.
+    """
+
+    emit_eligibility = EmitEligibilitySerializer(
+        allow_null=True,
+        help_text=(
+            "The delivery gate: whether scout findings can reach the inbox for this team, with a "
+            "one-line `remediation` when they cannot. Check `can_emit` before investigating "
+            "anything, because when it is False every emit is silently dropped. Null only for a stored "
+            "profile built before this section existed, which the caller should treat as unknown "
+            "rather than as permission to emit."
+        ),
+    )
+    existing_inbox_reports = ExistingInboxReportsSerializer(
+        allow_null=True,
+        help_text=(
+            "Counts of reports already in the inbox, grouped by status, which is what a new finding "
+            "would be deduped against. Null for a stored profile built before this section existed."
+        ),
+    )
+
+
 class ProjectProfileQuerySerializer(serializers.Serializer):
     """Query parameters for the `current` action on `SignalProjectProfileViewSet`."""
 
+    summary_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, respond with the cache metadata and the `summary` envelope only, and omit "
+            "`payload` entirely. Use it when you need the emit gate and the inbox counts but not "
+            "the full inventory. The full profile runs to tens of kilobytes, which a client can "
+            "truncate. Costs nothing extra: the profile is read or built the same way either way."
+        ),
+    )
     force_refresh = serializers.BooleanField(
         required=False,
         default=False,
@@ -2214,6 +2619,17 @@ class ProjectProfileQuerySerializer(serializers.Serializer):
             "one extra `build_inventory` per simultaneous request."
         ),
     )
+    run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The run whose scout's write posture `emit_eligibility` should answer for. A scout "
+            "sandbox never needs this: its token is bound to the task that dispatched the run, and "
+            "that binding is what the endpoint reads, so it wins over any value passed here. Pass it "
+            "to inspect one scout's effective eligibility from outside a run — a run id from another "
+            "project is ignored."
+        ),
+    )
 
 
 class ProjectProfileSerializer(serializers.Serializer):
@@ -2223,8 +2639,18 @@ class ProjectProfileSerializer(serializers.Serializer):
     is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
     latest cached profile or a freshly-built one if the cache was stale or the caller passed
     `force_refresh=true`.
+
+    `summary` leads the response and `payload` trails it: the inventory runs to tens of
+    kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+    gate the scout has to read before doing any work.
     """
 
+    summary = ProjectProfileSummarySerializer(
+        help_text=(
+            "Compact envelope repeating the emit gate and the inbox report counts from "
+            "`payload.inventory`. Declared first so it survives a truncated response."
+        ),
+    )
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
     computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
     expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
@@ -2232,7 +2658,8 @@ class ProjectProfileSerializer(serializers.Serializer):
         help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
     )
     payload = ProjectProfilePayloadSerializer(
-        help_text="Structured profile content. v1 has `inventory` only.",
+        required=False,
+        help_text="Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`.",
     )
 
 
@@ -2243,6 +2670,15 @@ class ProjectProfileSerializer(serializers.Serializer):
 SLACK_MEMBER_TARGET_RE = r"^[UW][A-Z0-9]{4,}\s*(\|.*)?$"
 SLACK_MEMBER_TARGET_ERROR = (
     "Expected a Slack member ID starting with U or W, e.g. `U0123ABC456` or `U0123ABC456|@name`."
+)
+
+
+_SCOUT_SLACK_THREAD_REPORTS_HELP = (
+    "When true, post a report as a thread: a short lead in the channel and the rest split "
+    "into replies at the summary's section labels, which can be Markdown headings or bold "
+    "labels. Keeps a long summary from being clipped at Slack's section limit. On by "
+    "default; set it false to post a single message, which can truncate a long summary. "
+    "It does not change how findings post."
 )
 
 
@@ -2289,13 +2725,8 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
 
     thread_reports = serializers.BooleanField(
         required=False,
-        default=False,
-        help_text=(
-            "When true, post a report as a thread: a short lead in the channel and the rest split "
-            "into replies at the summary's section labels, which can be Markdown headings or bold "
-            "labels. Keeps a long summary from being clipped at Slack's section limit. Off by "
-            "default, and it does not change how findings post."
-        ),
+        default=True,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
     )
 
     def validate_users(self, value: list[str] | None) -> list[str] | None:
@@ -2304,7 +2735,7 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         deduped: list[str] = []
         seen_ids: set[str] = set()
         for target in value:
-            member_id = target.split("|", 1)[0].strip()
+            member_id = channel_id_from_target(target)
             if not re.fullmatch(r"[UW][A-Z0-9]{4,}", member_id):
                 raise serializers.ValidationError(
                     f"{target!r} is not a Slack member target. Expected a member ID starting with U or W, "
@@ -2320,6 +2751,13 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         if attrs.get("channel") and attrs.get("users"):
             raise serializers.ValidationError("Set either `channel` or `users`, not both.")
         return attrs
+
+
+class SignalScoutSlackDestinationUpdateSerializer(SignalScoutSlackDestinationSerializer):
+    thread_reports = serializers.BooleanField(
+        required=False,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
+    )
 
 
 class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
@@ -2345,6 +2783,14 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the "
             "reference lives here so the owning product can manage the destination's lifecycle."
         ),
+    )
+
+
+class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
+    slack = SignalScoutSlackDestinationUpdateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
     )
 
 
@@ -2454,11 +2900,23 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
         ),
     )
 
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive substring filter over a scout's display name and its skill name. A "
+            "scout matches on either, so a person who knows the label and a caller who knows the "
+            "identifier both find it. Omit for the whole fleet."
+        ),
+    )
+
     def validate_tags(self, value: str) -> list[str]:
         tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})
         if not tags:
             raise serializers.ValidationError("No usable tags in the filter once normalized to lowercase slugs.")
         return tags
+
+    def validate_search(self, value: str) -> str:
+        return value.strip()
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -2481,6 +2939,18 @@ _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs "
     "only the config write. Records validate against the schema in force when the run was dispatched."
 )
+
+
+def _refuse_clearing_shipped_schema(skill_name: str) -> None:
+    """A null schema is what the canonical reconcile reads as "never seeded", so a clear on a
+    canonical scout that ships one would be undone on the next coordinator tick and the channel
+    would come back on. Send people to the two switches that stick instead."""
+    if skill_name in canonical_skill_names() and canonical_structured_output_schema_for(skill_name):
+        raise serializers.ValidationError(
+            "This scout ships its structured output schema, so clearing it does not stick. To stop it "
+            "recording, turn on the dry-run setting or disable the scout. To change what it records, "
+            "set a schema of your own instead."
+        )
 
 
 def _validate_structured_output_schema(value: dict | None) -> dict | None:
@@ -2549,6 +3019,91 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+# Matches the cap on a task's repositories: a scout's sandbox provisions through the same clone
+# path, and every extra repo is another clone on every run.
+MAX_SCOUT_REPOSITORIES = 10
+
+_REPOSITORIES_HELP = (
+    "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. "
+    "Set them for a scout that reads code, so it can search the tree and run the project's own "
+    "tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox "
+    "without a checkout. The scout's GitHub access stays read-only either way, so a repository "
+    f"listed here is never writable from a run. At most {MAX_SCOUT_REPOSITORIES}, each reachable "
+    "through the project's GitHub connection. Applies from the scout's next run."
+)
+
+
+def _scout_repositories_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=read_only,
+        required=False,
+        max_length=MAX_SCOUT_REPOSITORIES,
+        help_text=_REPOSITORIES_HELP,
+    )
+
+
+# Serializer context key a caller sets after running `assert_scout_repositories_reachable` itself,
+# so validation does not run it a second time. The config PATCH does this before it takes the row
+# lock, because the check can call GitHub.
+REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY = "scout_repositories_reachability_checked"
+
+
+def _normalize_scout_repositories(value: list[str]) -> list[str]:
+    repositories: list[str] = []
+    for repository in value:
+        normalized = repository.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError(f"'{repository}' must be in the format organization/repo.")
+        if normalized in repositories:
+            raise serializers.ValidationError(f"'{normalized}' is listed twice.")
+        repositories.append(normalized)
+    return repositories
+
+
+def assert_scout_repositories_reachable(team: Team, repositories: list[str]) -> None:
+    """Refuse any pinned repository the scout's runs could not clone.
+
+    Checked against the installation a read-only sandbox token is minted from, which is the
+    credential a scout run clones with. Anything else would accept a pin that only fails once the
+    scout is already running. A team with no reachable GitHub connection can only pin nothing.
+    May refresh the GitHub repository cache over the network, so keep it out of any transaction.
+    """
+    # Scout configs live on the canonical team and a run mints from that team's installation, so a
+    # request that came in on a child environment is checked against the parent.
+    team_id = team.parent_team_id or team.id
+    integration_id = tasks_facade.readonly_github_integration_id(team_id)
+    if integration_id is None:
+        raise serializers.ValidationError("Connect GitHub to this project before pinning repositories to a scout.")
+    inaccessible = tasks_facade.inaccessible_repositories_via_integration(team_id, integration_id, repositories)
+    if inaccessible:
+        raise serializers.ValidationError(
+            f"Not reachable through this project's GitHub connection: {', '.join(inaccessible)}. "
+            "Check the spelling, or add the repository to the project's GitHub installation."
+        )
+
+
+def validate_scout_repositories(value: list[str], context: dict, *, current: list[str] | None = None) -> list[str]:
+    """Normalize pinned repositories and check they are reachable, unless nothing changed.
+
+    A whole-config resend carries the stored list back unchanged, and a settings save or an MCP
+    update does that on every write, so an unchanged list skips the GitHub-backed check.
+    """
+    repositories = _normalize_scout_repositories(value)
+    if not repositories or context.get(REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY):
+        return repositories
+    if current is not None and repositories == [repository.lower() for repository in current]:
+        return repositories
+    get_team = context.get("get_team")
+    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+    team = get_team() if callable(get_team) else context.get("team")
+    if not isinstance(team, Team):
+        raise RuntimeError("Scout config repository validation requires team in its context")
+    assert_scout_repositories_reachable(team, repositories)
+    return repositories
+
+
 # Sorted so the help text, the error message, and the picker all name the scopes in one order.
 GRANTABLE_WRITE_SCOPES: list[str] = sorted(SCOUT_GRANTABLE_WRITE_SCOPES)
 
@@ -2598,6 +3153,39 @@ class ScoutOrigin(models.TextChoices):
     CUSTOM = "custom", "custom"
 
 
+class ScoutRole(models.TextChoices):
+    SPECIALIST = "specialist", "specialist"
+    OPERATIONAL = "operational", "operational"
+
+
+class ScoutDeprecationPhase(models.TextChoices):
+    ANNOUNCED = "announced", "announced"
+    RETIRED = "retired", "retired"
+
+
+class ScoutDeprecationSerializer(serializers.Serializer):
+    """What PostHog has said about retiring this scout, for the chip and the banner to render."""
+
+    phase = serializers.ChoiceField(
+        choices=ScoutDeprecationPhase.choices,
+        help_text=(
+            "How far the retirement has got: `announced` while the scout still runs, `retired` "
+            "once its sunset has passed. A retired scout is paused and does not run again."
+        ),
+    )
+    reason = serializers.CharField(
+        help_text="Why PostHog is retiring the scout, written to be shown to a person as-is."
+    )
+    superseded_by = serializers.CharField(
+        allow_blank=True,
+        help_text="Skill name of the scout that takes over, or blank when nothing replaces it.",
+    )
+    sunset_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the scout stops running. Null means the next fleet reconcile retires it.",
+    )
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2623,6 +3211,23 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "(seeded from `products/signals/skills/`), or `custom` for one a team hand-authored "
             "on this project. Use it to badge built-in vs custom scouts instead of a hardcoded "
             "name list. Defaults to `custom` if the skill is not currently present on the team."
+        ),
+    )
+    scout_role = serializers.SerializerMethodField(
+        help_text=(
+            "What this scout is to the harness: `specialist` for one that watches a product "
+            "surface, or `operational` for one PostHog ships to watch the self-driving system "
+            "itself. An operational scout is exempt from the inactivity sweep and from the "
+            "enabled-scout cap, and is not a scout a project should delete. Always `specialist` "
+            "for a custom scout."
+        ),
+    )
+    deprecation = serializers.SerializerMethodField(
+        help_text=(
+            "Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the "
+            "reason to show, what replaces the scout, and when it stops running. Only a canonical "
+            "scout the project has not edited is ever marked: a project's own copy keeps running "
+            "and reads as null."
         ),
     )
     owners = serializers.SerializerMethodField(
@@ -2730,6 +3335,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "about once a day; a successful retry resumes it, and so does setting `enabled=true`."
         ),
     )
+    status_changed_by = serializers.SerializerMethodField(
+        help_text=(
+            "Who last moved `status`, when a person did it through this API. Null for a system "
+            "transition such as an automatic pause, for a row whose status never changed, and for "
+            "a caller that may not read member identities. Pair it with `status` to say who turned "
+            "a scout off, instead of only when it went off."
+        ),
+    )
     status_changed_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -2738,6 +3351,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "(an `ignored` warning pauses about a week later unless someone engages with the scout's "
             "reports — opening one counts; a `no_output` warning only flags the scout); for the "
             "paused statuses it is when the scout was paused. Null if the status never changed."
+        ),
+    )
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When this config last changed: an edit through this API, or a status change the system "
+            "made such as an automatic pause. A scheduled run does not bump it — the coordinator "
+            "stamps `last_run_at` with a direct write — so this reads as when the scout was last "
+            "tuned rather than when it last ran."
         ),
     )
     auto_pause_exempt = serializers.BooleanField(
@@ -2763,6 +3385,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
+    # Writable-shaped for the same reason as `tags`: a read-only array serializes as
+    # `readonly string[]`, which a client cannot hand straight back to the patch call.
+    repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -2778,6 +3403,29 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         # the skill row is absent — a config with no skill row isn't a canonical scout.
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.origin if info else "custom"
+
+    @extend_schema_field(serializers.ChoiceField(choices=ScoutRole.choices))
+    def get_scout_role(self, obj: SignalScoutConfig) -> str:
+        # Same single-query `skill_info` map as `get_description`.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.role if info else "specialist"
+
+    @extend_schema_field(ScoutDeprecationSerializer(allow_null=True))
+    def get_deprecation(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Same single-query `skill_info` map as `get_description`. The marker is read off the
+        # project's own skill row rather than from disk, so a scout the project forked — whose row
+        # the sync stops writing — never reads as retiring.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.deprecation if info else None
+
+    @extend_schema_field(UserBasicSerializer(allow_null=True))
+    def get_status_changed_by(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Member PII, so it rides the same gate `owners` does: a scout sandbox token reads the
+        # roster through `scout-members-list`, and never learns who switched a scout off here.
+        if not self.context.get("may_read_member_identities", False):
+            return None
+        actor = obj.status_changed_by
+        return dict(UserBasicSerializer(actor).data) if actor else None
 
     @extend_schema_field(UserBasicSerializer(many=True))
     def get_owners(self, obj: SignalScoutConfig) -> list[dict[str, Any]]:
@@ -2796,6 +3444,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "description",
             "display_name",
             "scout_origin",
+            "scout_role",
+            "deprecation",
             "owners",
             "enabled",
             "status",
@@ -2808,17 +3458,20 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "network_access",
             "model",
             "mcp_gateway_server_ids",
+            "repositories",
             "write_scopes",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
+            "status_changed_by",
             "auto_pause_exempt",
             "tags",
             "source_product",
             "source_id",
             "created_at",
+            "updated_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 def _validate_run_cron_schedule(value: str) -> str:
@@ -2866,9 +3519,81 @@ def _capture_auto_pause_reverted(
         )
 
 
-class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
+class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
+    """What a scout may use, declared once for the create and the update body.
+
+    Both paths write the same config columns, so a field that differed between them would let a
+    scout be created with a capability its settings form could not show or edit.
+    """
+
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
+    tags = _scout_tags_field()
+    structured_output_schema = StructuredOutputSchemaField(
+        required=False,
+        allow_null=True,
+        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
+    )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    repositories = _scout_repositories_field()
+    write_scopes = _write_scopes_field()
+
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return _validate_scout_tags(value)
+
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
+
+    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        if (
+            value is None
+            and isinstance(self.instance, SignalScoutConfig)
+            and self.instance.structured_output_schema is not None
+        ):
+            _refuse_clearing_shipped_schema(self.instance.skill_name)
+        return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        current = self.instance.repositories if isinstance(self.instance, SignalScoutConfig) else None
+        return validate_scout_repositories(value, self.context, current=current)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
+
+
+def _display_name_field() -> serializers.CharField:
+    """The scout's label, as written. Separate from the skill name, which stays its identity."""
+    return serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        max_length=SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH,
+        help_text=(
+            "Name shown wherever people identify this scout, written however you want it — spaces, "
+            "capitalization, and acronyms are kept as typed, and two scouts may share one. It does "
+            "not change the scout's skill name, which stays its identity, so renaming a scout keeps "
+            "its schedule, run history, notes, memory, and links. At most "
+            f"{SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH} characters; blank means the scout has no "
+            "name of its own and is labelled from its skill name instead."
+        ),
+    )
+
+
+class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.ModelSerializer):
     """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
+    display_name = _display_name_field()
     enabled = serializers.BooleanField(
         required=False,
         help_text=(
@@ -2900,7 +3625,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "apart. Set null to return to the rolling interval schedule."
         ),
     )
-    output_destinations = SignalScoutOutputDestinationsSerializer(
+    output_destinations = SignalScoutOutputDestinationsUpdateSerializer(
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
     )
@@ -2922,44 +3647,23 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
-    tags = _scout_tags_field()
-    structured_output_schema = StructuredOutputSchemaField(
-        required=False,
-        allow_null=True,
-        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
-    )
-    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
-    write_scopes = _write_scopes_field()
-
-    def validate_run_cron_schedule(self, value: str | None) -> str | None:
-        return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
 
-    def validate_tags(self, value: list[str]) -> list[str]:
-        return _validate_scout_tags(value)
-
-    def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
-
-    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        return _validate_structured_output_schema(value)
-
-    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
-        return _normalize_mcp_gateway_server_ids(value)
-
-    def validate_write_scopes(self, value: list[str]) -> list[str]:
-        return _validate_write_scopes(value)
-
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        if "auto_pause_exempt" in validated_data:
+            validated_data["auto_pause_exempt_by_role"] = False
+        output_destinations = validated_data.get("output_destinations")
+        current_slack = instance.output_destinations.get("slack") if instance.output_destinations else None
+        incoming_slack = output_destinations.get("slack") if output_destinations else None
+        if (
+            isinstance(current_slack, dict)
+            and current_slack.get("thread_reports") is False
+            and isinstance(incoming_slack, dict)
+            and "thread_reports" not in incoming_slack
+        ):
+            incoming_slack["thread_reports"] = False
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
         # an emit/enabled-only save must not defer an already-overdue scheduled run.
         schedule_fields = ("run_interval_minutes", "run_cron_schedule")
@@ -3036,11 +3740,12 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",
+            "repositories",
             "write_scopes",
         ]
 
 
-class SignalScoutConfigOptionsSerializer(serializers.Serializer):
+class SignalScoutConfigOptionsSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.Serializer):
     """Schedule, enablement, and delivery options accepted while creating a scout."""
 
     enabled = serializers.BooleanField(
@@ -3092,31 +3797,6 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
-    tags = _scout_tags_field()
-    structured_output_schema = StructuredOutputSchemaField(
-        required=False,
-        allow_null=True,
-        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
-    )
-
-    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
-    write_scopes = _write_scopes_field()
-
-    def validate_run_cron_schedule(self, value: str | None) -> str | None:
-        return _validate_run_cron_schedule(value) if value is not None else None
-
-    def validate_tags(self, value: list[str]) -> list[str]:
-        return _validate_scout_tags(value)
-
-    def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context
@@ -3124,15 +3804,6 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             team = context.get("team")
             context = {**context, "project_id": getattr(team, "project_id", None)}
         return _validate_output_destinations(value, context)
-
-    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        return _validate_structured_output_schema(value)
-
-    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
-        return _normalize_mcp_gateway_server_ids(value)
-
-    def validate_write_scopes(self, value: list[str]) -> list[str]:
-        return _validate_write_scopes(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
@@ -3142,6 +3813,7 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     registered the row, the provided tunables are applied to it instead.
     """
 
+    display_name = _display_name_field()
     skill_name = serializers.CharField(
         max_length=200,
         help_text=(
@@ -3152,10 +3824,12 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     )
 
     def validate_skill_name(self, value: str) -> str:
-        # The generic skill-name contract first, like the sibling create serializer. Nothing
-        # downstream re-checks it: the model column carries no validator, `create_skill` skips the
-        # pattern, and the view's existence check only proves a row exists. It is also what keeps
-        # scout names and the `pipeline:` note audiences disjoint (see `note_targets`).
+        # The generic skill-name contract first, not the stricter contract the sibling create
+        # serializer applies: this field names a skill the project already holds, and the harness
+        # seeds the canonical scouts under names the bundled fleet also uses. Nothing downstream
+        # re-checks it: the model column carries no validator, `create_skill` skips the pattern,
+        # and the view's existence check only proves a row exists. It is also what keeps scout
+        # names and the `pipeline:` note audiences disjoint (see `note_targets`).
         value = validate_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
@@ -3165,11 +3839,17 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
 class SignalScoutCreateSerializer(serializers.Serializer):
     """Create a runnable custom scout and its config in one atomic request."""
 
+    display_name = _display_name_field()
     name = serializers.CharField(
+        required=False,
         max_length=64,
         help_text=(
-            "Unique scout name, containing only lowercase letters, numbers, and hyphens. The "
-            "`signals-scout-` prefix is optional."
+            "Optional skill name for the scout — its permanent identifier, containing only "
+            "lowercase letters, numbers, and hyphens. Omit it and one is generated from "
+            "`display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when "
+            "that name is taken. Pass it to pick the identifier yourself, or to keep a client "
+            "written before display names working unchanged. The `signals-scout-` prefix is "
+            "optional."
         ),
     )
     description = serializers.CharField(
@@ -3205,10 +3885,18 @@ class SignalScoutCreateSerializer(serializers.Serializer):
     )
 
     def validate_name(self, value: str) -> str:
-        value = validate_skill_name_value(value)
+        value = validate_new_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # One of the two has to say what the scout is called. `name` alone is the pre-display-name
+        # client; `display_name` alone is the modern one, and the slug is derived from it. The
+        # error names `display_name` because that is the field a person fills in.
+        if not attrs.get("name") and not attrs.get("display_name"):
+            raise serializers.ValidationError({"display_name": "Give the scout a name."})
+        return attrs
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
@@ -3243,6 +3931,29 @@ class SignalScoutCreateResponseSerializer(serializers.Serializer):
     config = SignalScoutConfigSerializer()
 
 
+class SignalScoutManualRunRequestSerializer(serializers.Serializer):
+    """Request body for an on-demand (`run now`) scout dispatch.
+
+    Every field is optional: a plain trigger sends no body at all.
+    """
+
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_RUN_NOTE_CHARS,
+        help_text=(
+            "Optional steering for this run only, such as 'focus on the checkout regression' or "
+            "'skip the staging traffic today'. The agent reads it alongside the scout's durable "
+            "notes and weighs it the same way: it directs attention, it never forces a finding. "
+            "Use it instead of leaving a scout note that would also steer every later scheduled "
+            "run. The note is kept on the run for history and is never read by another run. "
+            "Because the agent reads it verbatim while holding privileged tools, a run that "
+            "carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor "
+            "access to skills, the same bar as leaving a note."
+        ),
+    )
+
+
 class SignalScoutManualRunSerializer(serializers.Serializer):
     """Response for an on-demand (`run now`) scout dispatch.
 
@@ -3267,7 +3978,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
 
 class ScoutLimitsSerializer(serializers.Serializer):
-    """A team's enforced scout run caps and current usage.
+    """A team's enforced scout caps and current usage.
 
     These are the values the coordinator actually applies at dispatch (resolved per-team override →
     fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -3287,6 +3998,9 @@ class ScoutLimitsSerializer(serializers.Serializer):
     runs_remaining_today = serializers.IntegerField(
         allow_null=True,
         help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+    max_enabled_scouts = serializers.IntegerField(
+        help_text="Most scouts the project can have switched on at once. Enabling another past this is rejected.",
     )
 
 
@@ -3322,6 +4036,31 @@ class ScoutMembersQuerySerializer(serializers.Serializer):
             "large project's roster to the owner you're trying to match instead of pulling every member."
         ),
     )
+    team = serializers.CharField(
+        required=False,
+        help_text=(
+            "Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster "
+            "to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an "
+            "owners file resolves to people you can route to. Returns an error, not an empty list, when "
+            "the project has no synced team roster or the roster holds no rows for the slug."
+        ),
+    )
+
+
+class ScoutMemberTeamSerializer(serializers.Serializer):
+    """One team a member belongs to, from the project's synced team roster."""
+
+    provider = serializers.CharField(
+        help_text="Where the team is defined, for example `github`. Today every team comes from GitHub."
+    )
+    slug = serializers.CharField(help_text="The team's slug, lowercased. For example `team-desktop`.")
+    name = serializers.CharField(help_text="The team's display name. For example `Team Desktop`.")
+    is_maintainer = serializers.BooleanField(
+        help_text=(
+            "True when this member maintains the team. Prefer maintainers when you pick reviewers for a "
+            "team, and treat false as 'not known to maintain it': some rosters sync without roles."
+        )
+    )
 
 
 class ScoutMemberSerializer(serializers.Serializer):
@@ -3343,5 +4082,13 @@ class ScoutMemberSerializer(serializers.Serializer):
             "the member has no linked GitHub account, which does not stop you routing to them: pass "
             "their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only "
             "means no draft PR can be opened as that person."
+        ),
+    )
+    teams = ScoutMemberTeamSerializer(
+        many=True,
+        help_text=(
+            "The teams this member is on, from the project's synced team roster. Empty when no roster is "
+            "synced, or when the member has no linked GitHub account, since the roster is keyed on that "
+            "login. The roster is a periodic snapshot, so it can lag the live team."
         ),
     )

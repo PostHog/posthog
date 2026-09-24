@@ -63,6 +63,8 @@ from products.batch_exports.backend.temporal.utils import (
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
 
+_TransactionResult = typing.TypeVar("_TransactionResult")
+
 # Compiled regex patterns for PostgreSQL data cleaning
 NULL_UNICODE_PATTERN = re.compile(rb"(?<!\\)\\u0000")
 UNPAIRED_SURROGATE_PATTERN = re.compile(
@@ -181,6 +183,7 @@ class _PostgreSQLClientInputsProtocol(typing.Protocol):
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
 
+    data_interval_end: str
     database: str
     table_name: str
     schema: str = "public"
@@ -217,9 +220,9 @@ class PostgresInsertInputs(BatchExportInsertInputs):
 
 async def run_in_retryable_transaction(
     connection: psycopg.AsyncConnection,
-    fn: collections.abc.Callable[[], collections.abc.Awaitable[typing.Any]],
+    fn: collections.abc.Callable[[], collections.abc.Awaitable[_TransactionResult]],
     max_attempts: int = 3,
-) -> typing.Any:
+) -> _TransactionResult:
     """Run a callable inside a transaction with retry logic for serialization failures.
 
     Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
@@ -244,6 +247,9 @@ async def run_in_retryable_transaction(
             sleep_seconds = (2**attempt) * 0.1 * (random.random() + 0.5)
             LOGGER.debug("Sleeping %s seconds", sleep_seconds)
             await asyncio.sleep(sleep_seconds)
+
+    # Only reachable when the loop never ran, which means no attempt was allowed.
+    raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
 
 
 class PostgreSQLClient:
@@ -793,7 +799,7 @@ def _get_table_fields(
 ) -> Fields:
     """Extract table field definitions from model and schema."""
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        return [
+        table_fields: Fields = [
             ("uuid", "VARCHAR(200)"),
             ("event", "VARCHAR(200)"),
             ("properties", "JSONB"),
@@ -806,7 +812,10 @@ def _get_table_fields(
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
             ("person_properties", "JSONB"),
+            ("person_id", "VARCHAR(200)"),
         ]
+        # A retry can consume files staged before a new default column was added.
+        return [field for field in table_fields if field[0] in record_batch_schema.names]
     else:
         return get_postgres_fields_from_record_schema(
             record_batch_schema,
@@ -965,9 +974,18 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
                     )
             except psycopg.errors.InsufficientPrivilege:
+                if model is None or (
+                    isinstance(model, BatchExportModel) and model.name == "events" and model.schema is None
+                ):
+                    # Without introspection, do not require this column on older destination tables.
+                    table_fields = [field for field in table_fields if field[0] != "person_id"]
+                    external_logger.warning(
+                        "Skipping person_id because the destination columns could not be inspected. "
+                        "Grant SELECT permissions on the destination table to export person_id when the column exists."
+                    )
                 external_logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
-                    "will assume all columns are present. If this results in an error, please grant SELECT "
+                    "will assume all remaining columns are present. If this results in an error, please grant SELECT "
                     "permissions on this table or ensure the destination table is using the latest schema "
                     "as described in the docs: https://posthog.com/docs/cdp/batch-exports/postgres",
                     inputs.schema,

@@ -13,11 +13,9 @@ from collections.abc import Collection
 from typing import Literal
 
 import structlog
-import posthoganalytics
 from rest_framework import serializers
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -37,6 +35,7 @@ from products.signals.backend.scout_harness.suggestions import (
     ScoutSuggestionItem,
     SuggestionSettings,
     build_suggestions_prompt,
+    capture_suggestions_generated,
     fleet_context,
     mark_generation_failed,
     persist_suggestion_batch,
@@ -46,7 +45,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
 )
-from products.skills.backend.api.skill_serializers import validate_skill_name_value
+from products.skills.backend.api.skill_serializers import validate_new_skill_name_value
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
@@ -59,10 +58,11 @@ def _valid_cron(expression: str) -> bool:
 
 
 def _valid_custom_name(name: str) -> bool:
-    # Any valid skill name is a valid scout name. The producer prompt still asks for prefixed
-    # names, which is a prompt choice rather than a validity rule.
+    # The same rule the scout create API applies, so a suggestion can never fail on the click.
+    # Any name that can name a new skill is a valid scout name. The producer prompt still asks for
+    # prefixed names, which is a prompt choice rather than a validity rule.
     try:
-        validate_skill_name_value(name)
+        validate_new_skill_name_value(name)
     except serializers.ValidationError:
         return False
     # The inbox-reserved names clear the generic contract but the create serializer refuses them,
@@ -146,25 +146,17 @@ def _gate_skip_reason(team: Team) -> str | None:
 def _capture_generated(
     team: Team, *, result: SuggestionRunResult, tier: int | None, model: str | None, triggered_by: str
 ) -> None:
-    try:
-        posthoganalytics.capture(
-            event="$scout_suggestions_generated",
-            distinct_id=str(team.uuid),
-            properties={
-                "team_id": team.id,
-                "status": result.status,
-                "skip_reason": result.skip_reason,
-                "suggestion_count": result.suggestion_count,
-                "runtime_s": round(result.runtime_s, 1),
-                "task_run_id": result.task_run_id,
-                "tier": tier,
-                "model": model,
-                "triggered_by": triggered_by,
-            },
-            groups=groups(team.organization, team),
-        )
-    except Exception:
-        logger.warning("scout_suggestions: failed to capture generated event", team_id=team.id)
+    capture_suggestions_generated(
+        team,
+        status=result.status,
+        skip_reason=result.skip_reason,
+        suggestion_count=result.suggestion_count,
+        runtime_s=result.runtime_s,
+        task_run_id=result.task_run_id,
+        tier=tier,
+        model=model,
+        triggered_by=triggered_by,
+    )
 
 
 async def arun_scout_suggestions(

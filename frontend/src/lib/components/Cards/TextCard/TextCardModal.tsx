@@ -11,7 +11,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
-import { DashboardTileIdOrNew, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardTileIdOrNew, DashboardType } from '~/types'
 
 export function TextCardModal({
     isOpen,
@@ -21,7 +21,7 @@ export function TextCardModal({
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType<QueryBasedInsightModel>
+    dashboard: DashboardType
     textTileId: DashboardTileIdOrNew
 }): JSX.Element {
     const isNewTile = textTileId === null
@@ -47,7 +47,7 @@ export function TextCardModal({
             onOpenChange={(open) => !open && handleClose()}
             disablePointerDismissal={hasUnsavedInput}
             className={cn(
-                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] top-8',
+                'w-[min(100vw-3rem,72rem)] min-w-full lg:min-w-6xl max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
                 'bg-surface-primary',
                 // DialogPrimitive defaults to z above --z-popover; rich editor toolbars portal to body at
                 // --z-popover and would sit under the panel. Sit the dialog just below that layer instead.

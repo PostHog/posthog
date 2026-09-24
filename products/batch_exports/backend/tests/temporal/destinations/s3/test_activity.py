@@ -8,16 +8,19 @@ from posthog.models.integration import Integration, IntegrationError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     S3InsertInputs,
     _get_s3_integration,
     insert_into_s3_activity_from_stage,
     s3_default_fields,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    SPLIT_FILE_FORMAT_COMPRESSIONS,
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     assert_clickhouse_records_in_s3,
     run_activity,
@@ -72,9 +75,8 @@ async def test_insert_into_s3_activity_fails_without_an_integration(activity_env
     assert result.error.type == "MissingIntegrationError"
 
 
-@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client,
     bucket_name,
@@ -103,9 +105,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
-
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     prefix = str(uuid.uuid4())
 
@@ -330,9 +329,8 @@ async def test_insert_into_s3_activity_with_exclude_events(
     )
 
 
-@pytest.mark.parametrize("compression", [*COMPRESSION_EXTENSIONS.keys(), None], indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SPLIT_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 @pytest.mark.parametrize("max_file_size_mb", [None, 6])
 async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     clickhouse_client,
@@ -349,28 +347,15 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     ateam,
     s3_compatible_integration,
 ):
-    """Test that the insert_into_s3_activity_from_stage function splits up large files into
-    multiple parts based on the max file size configuration.
-
-    If max file size is set to 0 then the file should not be split up.
-
-    This test needs to generate a lot of data to ensure that the file is large enough to be split up.
-    """
-
-    if file_format == "JSONLines" and compression is not None:
-        pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
-
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
     prefix = str(uuid.uuid4())
+    events_per_batch = 1_000 if max_file_size_mb is None else 100_000
 
     events_1, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100000,
+        count=events_per_batch,
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,
@@ -382,7 +367,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100000,
+        count=events_per_batch,
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,

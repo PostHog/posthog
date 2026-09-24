@@ -31,7 +31,7 @@ vi.mock("@tanstack/react-router", () => ({
       matches: [{ fullPath: mocks.fullPath }],
       location: {
         pathname: mocks.fullPath,
-        href: mocks.fullPath,
+        href: mocks.href,
         search: {},
       },
     }),
@@ -95,6 +95,22 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
+vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
+  ChannelsFab: ({
+    channelId,
+    placement,
+  }: {
+    channelId?: string;
+    placement?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label="Create"
+      data-placement={placement}
+      data-channel-id={channelId}
+    />
+  ),
+}));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
@@ -105,6 +121,8 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
 
 it("stays above floating sidebar layers", () => {
@@ -151,8 +169,48 @@ describe("NavRail", () => {
     useActivityFilterStore.setState({ mentionsEnabled: true });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
+    useSidebarSearchStore.setState({ focusRequest: 0 });
+    useSidebarStore.setState({ open: false, width: 300 });
     rememberVisits({});
     clearKeepListForRoute();
+  });
+
+  // The rail is the one column every destination keeps, so the create button
+  // is always reachable from it.
+  describe("create button", () => {
+    it.each(["/", "/spaces", "/inbox/pulls/$reportId"])(
+      "keeps the create button directly above Search on %s",
+      (fullPath) => {
+        mocks.fullPath = fullPath;
+
+        render(<NavRail />);
+
+        const buttonLabels = screen
+          .getAllByRole("button")
+          .map((button) => button.getAttribute("aria-label"));
+        expect(buttonLabels.slice(-4)).toEqual([
+          "Create",
+          "Search",
+          "Settings",
+          "Project switcher",
+        ]);
+        expect(screen.getByLabelText("Create")).toHaveAttribute(
+          "data-placement",
+          "rail",
+        );
+      },
+    );
+
+    it("files into the space you are in", () => {
+      useCurrentChannelStore.setState({ currentChannelId: "ch-1" });
+
+      render(<NavRail />);
+
+      expect(screen.getByLabelText("Create")).toHaveAttribute(
+        "data-channel-id",
+        "ch-1",
+      );
+    });
   });
 
   it("hides Home when its feature flag is off", () => {
@@ -205,13 +263,14 @@ describe("NavRail", () => {
     ["/", "Home"],
     ["/activity", "Activity"],
     ["/inbox/pulls/$reportId", "Self-driving"],
-    ["/command-center", "Command Center"],
+    ["/command-center", "More"],
     ["/spaces", "Spaces"],
     ["/spaces/$channelId/loops", "Spaces"],
     ["/spaces/$channelId/context", "Spaces"],
     ["/spaces/$channelId/tasks/$taskId", "Spaces"],
   ])("lights %s as %s", (fullPath, label) => {
     mocks.fullPath = fullPath;
+    mocks.href = fullPath;
     render(<NavRail />);
 
     expect(screen.getByLabelText(label)).toHaveAttribute(
@@ -254,6 +313,7 @@ describe("NavRail", () => {
     it("routes to Activity from a screen that has no column for it", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox";
+      mocks.href = "/inbox";
       render(<NavRail />);
 
       await user.click(screen.getByLabelText("Activity"));
@@ -331,6 +391,7 @@ describe("NavRail", () => {
     it("keeps the list open for a visit with no space in it", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox";
+      mocks.href = "/inbox";
       useChannelPaneStore.setState({ pane: "channel" });
       rememberVisits({
         spaces: { href: "/spaces", listOpen: true },
@@ -345,6 +406,7 @@ describe("NavRail", () => {
     it("ignores a remembered visit that is not a Spaces page", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/activity";
+      mocks.href = "/activity";
       rememberVisits({
         spaces: { href: "/settings/general", listOpen: false },
       });
@@ -391,6 +453,7 @@ describe("NavRail", () => {
     it("remembers each destination separately", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/";
+      mocks.href = "/";
       rememberVisits({
         inbox: { href: "/inbox/pulls/42" },
         loops: { href: "/loops/abc" },
@@ -408,6 +471,7 @@ describe("NavRail", () => {
     it("slides Spaces back to the list without navigating", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/spaces/$channelId/loops";
+      mocks.href = "/spaces/chan-1/loops";
       useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
       rememberVisits({
         spaces: { href: "/spaces/chan-1", listOpen: false, spaceId: "chan-1" },
@@ -421,19 +485,65 @@ describe("NavRail", () => {
       expect(mocks.navigateToChannel).not.toHaveBeenCalled();
     });
 
-    // The remembered page is where you are, so restoring it would be a no-op
-    // that also refuses to take you up to the destination's index.
-    it("goes up to the index rather than restoring", async () => {
+    it("focuses the column's search instead of emptying the pane", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox/pulls/$reportId";
+      mocks.href = "/inbox/pulls/42";
       rememberVisits({ inbox: { href: "/inbox/pulls/42" } });
       render(<NavRail />);
 
       await user.click(screen.getByLabelText("Self-driving"));
 
-      expect(mocks.navigateToInbox).toHaveBeenCalledOnce();
+      expect(useSidebarSearchStore.getState().focusRequest).toBeGreaterThan(0);
+      expect(mocks.navigateToInbox).not.toHaveBeenCalled();
       expect(mocks.navigate).not.toHaveBeenCalled();
     });
+
+    it.each(["/inbox", "/inbox/triage"])(
+      "restores the sidebar without closing a report opened from %s",
+      async (source) => {
+        const user = userEvent.setup();
+        mocks.fullPath = "/reports/$reportId";
+        mocks.href = `/reports/42?from=${encodeURIComponent(source)}`;
+        rememberVisits({ inbox: { href: mocks.href } });
+        render(<NavRail />);
+
+        await user.click(screen.getByLabelText("Self-driving"));
+
+        expect(useSidebarStore.getState()).toMatchObject({
+          open: true,
+          width: 300,
+        });
+        expect(useSidebarSearchStore.getState().focusRequest).toBeGreaterThan(
+          0,
+        );
+        expect(mocks.navigateToInbox).not.toHaveBeenCalled();
+        expect(mocks.navigate).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["/inbox/triage", "/inbox/triage/", "/inbox/triage?sort=priority"])(
+      "returns from %s to the list instead of focusing a hidden sidebar",
+      async (href) => {
+        const user = userEvent.setup();
+        mocks.fullPath = "/inbox/triage";
+        mocks.href = href;
+        rememberVisits({ inbox: { href: "/reports/42?from=%2Finbox" } });
+        render(<NavRail />);
+
+        await user.click(screen.getByLabelText("Self-driving"));
+
+        expect(mocks.navigateToInbox).toHaveBeenCalledOnce();
+        expect(mocks.navigate).not.toHaveBeenCalled();
+        expect(useSidebarStore.getState()).toMatchObject({
+          open: true,
+          width: 300,
+        });
+        expect(useSidebarSearchStore.getState().focusRequest).toBeGreaterThan(
+          0,
+        );
+      },
+    );
   });
 
   it("peeks at the feed on hover while Activity is somewhere else", async () => {
@@ -450,6 +560,7 @@ describe("NavRail", () => {
   it("drops the peek once Activity is the destination", async () => {
     const user = userEvent.setup();
     mocks.fullPath = "/activity";
+    mocks.href = "/activity";
     render(<NavRail />);
 
     const bell = screen.getByLabelText("Activity");

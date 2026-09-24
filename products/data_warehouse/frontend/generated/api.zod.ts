@@ -136,6 +136,14 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Enable or disable a managed viewset by kind.
+ * PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
+ */
+export const ManagedViewsetsUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Whether the managed viewset should exist.'),
+})
+
+/**
  * Create, Read, Update and Delete Query Tab State.
  */
 export const QueryTabStateCreateBody = /* @__PURE__ */ zod.object({
@@ -522,7 +530,9 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -622,7 +632,9 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -724,7 +736,9 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -841,7 +855,9 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -982,7 +998,9 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()
@@ -1016,7 +1034,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
  * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
  * the editor explain why the incremental option is unavailable before anything is saved.
  */
-export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 65536
+export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 262144
 
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMin = 0
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMax = 2592000

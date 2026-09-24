@@ -368,8 +368,10 @@ const dashboardInsightsRun = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_insights/`,
             query: {
                 filters_override: params.filters_override,
+                max_result_chars: params.max_result_chars,
                 output_format: params.output_format,
                 refresh: params.refresh,
+                tile_ids: params.tile_ids,
                 variables_override: params.variables_override,
             },
         })
@@ -813,9 +815,11 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                exclude_generated: params.exclude_generated,
                 folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
+                pinned: params.pinned,
                 search: params.search,
             },
         })

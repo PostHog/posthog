@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
-from django.test import RequestFactory, SimpleTestCase
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from prometheus_client import REGISTRY, CollectorRegistry
@@ -24,6 +24,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.inbound_event import INBOUND_PAYLOAD_TTL, INBOUND_TOMBSTONE_TTL
 from products.conversations.backend.services.inbound_events import (
+    INBOUND_LEASE_SECONDS,
     INBOUND_MAX_ATTEMPTS,
     INBOUND_SWEEP_BATCH_SIZE,
     INBOUND_SWEEP_MAX_ROUNDS,
@@ -31,11 +32,13 @@ from products.conversations.backend.services.inbound_events import (
     claim_inbound_event,
     complete_inbound_event,
     drain_inbound_retention,
+    get_current_inbound_claim,
     persist_inbound_event,
+    renew_inbound_lease,
     schedule_inbound_retry,
     slack_events_source_id,
     slack_interactivity_source_id,
-    slack_retry_metadata,
+    slack_retry_metadata_from_values,
 )
 from products.conversations.backend.slack import TICKET_CONFIRM_ACTION_OPEN
 from products.conversations.backend.tasks.slack import (
@@ -88,17 +91,17 @@ class TestInboundEventSourceId(SimpleTestCase):
 
 
 class TestSlackRetryMetadata(SimpleTestCase):
-    def test_parses_retry_headers(self) -> None:
-        request = RequestFactory().post("/", HTTP_X_SLACK_RETRY_NUM="2", HTTP_X_SLACK_RETRY_REASON="http_timeout")
-        assert slack_retry_metadata(request) == (2, "http_timeout")
+    def test_parses_retry_values(self) -> None:
+        assert slack_retry_metadata_from_values(raw_retry_num="2", retry_reason="http_timeout") == (2, "http_timeout")
 
     def test_invalid_retry_num_is_ignored(self) -> None:
-        request = RequestFactory().post("/", HTTP_X_SLACK_RETRY_NUM="nope", HTTP_X_SLACK_RETRY_REASON="http_timeout")
-        assert slack_retry_metadata(request) == (None, "http_timeout")
+        assert slack_retry_metadata_from_values(raw_retry_num="nope", retry_reason="http_timeout") == (
+            None,
+            "http_timeout",
+        )
 
     def test_negative_retry_num_is_ignored(self) -> None:
-        request = RequestFactory().post("/", HTTP_X_SLACK_RETRY_NUM="-1")
-        assert slack_retry_metadata(request) == (None, "")
+        assert slack_retry_metadata_from_values(raw_retry_num="-1", retry_reason="") == (None, "")
 
 
 class TestWakeInboundEvent(SimpleTestCase):
@@ -202,6 +205,51 @@ class TestInboundEventProcessing(BaseTest):
         assert complete_inbound_event(second) is True
         second.event.refresh_from_db()
         assert second.event.status == ConversationInboundEvent.Status.PROCESSED
+
+    def test_renew_inbound_lease_extends_expiry(self) -> None:
+        with time_machine.travel("2026-09-11 12:00:00", tick=False):
+            row = self._create_pending()
+            claim = claim_inbound_event(str(row.id))
+            assert claim is not None
+            fencing_token = claim.event.fencing_token
+        with time_machine.travel("2026-09-11 12:10:00", tick=False):
+            assert renew_inbound_lease(claim) is True
+            claim.event.refresh_from_db()
+            assert claim.event.lease_expires_at == timezone.now() + timedelta(seconds=INBOUND_LEASE_SECONDS)
+            assert claim.event.fencing_token == fencing_token
+            assert claim.event.status == ConversationInboundEvent.Status.PROCESSING
+
+    def test_renew_inbound_lease_rejected_after_reclaim(self) -> None:
+        row = self._create_pending()
+        first = claim_inbound_event(str(row.id))
+        assert first is not None
+        ConversationInboundEvent.objects.unscoped().filter(id=row.id).update(
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+            updated_at=timezone.now(),
+        )
+        second = claim_inbound_event(str(row.id))
+        assert second is not None
+        second_expiry = second.event.lease_expires_at
+
+        assert renew_inbound_lease(first) is False
+        second.event.refresh_from_db()
+        assert second.event.lease_expires_at == second_expiry
+        assert second.event.fencing_token != first.event.fencing_token
+        assert complete_inbound_event(first) is False
+        assert complete_inbound_event(second) is True
+
+    @patch("products.conversations.backend.tasks.slack._handle_supporthog_event")
+    def test_receipt_handler_runs_inside_claim_scope(self, mock_handle: MagicMock) -> None:
+        row = self._create_pending()
+        seen: list = []
+
+        def capture(*_args: object, **_kwargs: object) -> None:
+            seen.append(get_current_inbound_claim())
+
+        mock_handle.side_effect = capture
+        process_supporthog_event_receipt(inbound_event_id=str(row.id))
+        assert seen[0] is not None
+        assert seen[0].event.id == row.id
 
     def test_complete_after_scheduled_retry_is_ignored(self) -> None:
         row = self._create_pending()

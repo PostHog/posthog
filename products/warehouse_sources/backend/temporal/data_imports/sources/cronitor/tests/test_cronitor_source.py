@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 # Only the metrics API exposes a server-side time filter (start/end); everything else is full refresh.
 _INCREMENTAL_ENDPOINTS = {"metrics"}
-_FULL_REFRESH_ENDPOINTS = {"monitors", "invocations"}
+_FULL_REFRESH_ENDPOINTS = {"monitors", "invocations", "groups", "issues", "sites", "site_errors"}
 
 
 class TestCronitorSource:

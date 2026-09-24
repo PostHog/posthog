@@ -212,6 +212,22 @@ export function failureKindDescription(kind: FailureKind): string {
     return FAILURE_KINDS[kind].description
 }
 
+/** Why a failed or ineligible scan produced no result, short enough for a table cell: the message when there is one, else the kind's description. */
+export function unsuccessfulScanReason(
+    status: ReplayObservationApi['status'],
+    errorReason: string | null | undefined
+): string | null {
+    if (!errorReason || (status !== 'failed' && status !== 'ineligible')) {
+        return null
+    }
+    if (status === 'failed') {
+        const parsed = parseFailureReason(errorReason)
+        return parsed ? parsed.message || failureKindDescription(parsed.kind) : errorReason
+    }
+    const parsed = parseIneligibleReason(errorReason)
+    return parsed ? parsed.message || ineligibleKindDescription(parsed.kind) : errorReason
+}
+
 /**
  * How to offer a retry for a given failure. An unparseable or unknown kind gets the encouraging default, since
  * the alternative is discouraging a retry we have no evidence against.
@@ -282,6 +298,15 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
 const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.7-flash': 'Gemini 3.7 Flash',
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
+}
+
+// Arms of the replay-vision-home-redesign-experiment flag. Narrows a raw flag value so control,
+// booleans, and unknown variants all degrade to the control experience instead of half-applying
+// the redesigned layout.
+export type HomeRedesignVariant = 'control' | 'test'
+
+export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | null {
+    return flagValue === 'control' || flagValue === 'test' ? flagValue : null
 }
 
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead

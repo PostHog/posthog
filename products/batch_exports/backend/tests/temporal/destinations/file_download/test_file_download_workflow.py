@@ -30,10 +30,7 @@ from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-requires_aws_credentials = pytest.mark.skipif(
-    not has_valid_credentials(),
-    reason="AWS credentials not set in environment",
-)
+requires_aws_credentials = pytest.mark.requires_vendor_credentials(check=has_valid_credentials)
 
 
 @pytest_asyncio.fixture
@@ -173,6 +170,7 @@ async def test_file_download_workflow_exports_data(
         compression=compression,
         file_format=file_format,
         sort_key="uuid",
+        legacy_parquet_extension=False,
     )
 
     # Verify BatchExportFileDownload records were created by the workflow.

@@ -1,5 +1,5 @@
 import { DateTime, Duration } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import {
@@ -27,6 +27,14 @@ import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
+type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
+
+const WORKFLOW_USAGE_KEYS = {
+    fetch: 'workflow_billable_invocations',
+    email: 'workflow_emails_sent',
+    push: 'workflow_push_sent',
+    sms: 'workflow_sms_sent',
+} as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
@@ -79,13 +87,34 @@ const counterAwaitedStepStaleResume = new Counter({
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
 })
 
+const counterAwaitedStepFinished = new Counter({
+    name: 'cdp_hogflow_awaited_step_finished',
+    help: 'A parked step stopped waiting, by how: the job completed, failed or was cancelled, or the wait timed out.',
+    labelNames: ['outcome'],
+})
+
+const histogramAwaitedStepWaitSeconds = new Histogram({
+    name: 'cdp_hogflow_awaited_step_wait_seconds',
+    help: 'How long a parked step waited before it stopped, by outcome.',
+    labelNames: ['outcome'],
+    buckets: [30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 10800],
+})
+
+const observeAwaitedStepFinished = (outcome: string, awaiting: AwaitingResume): void => {
+    counterAwaitedStepFinished.labels({ outcome }).inc()
+    if (awaiting.parkedAt) {
+        const waited = DateTime.now().diff(DateTime.fromISO(awaiting.parkedAt), 'seconds').seconds
+        histogramAwaitedStepWaitSeconds.labels({ outcome }).observe(Math.max(0, waited))
+    }
+}
+
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email' | 'push',
-        private usageReporter?: CdpUsageReporterService,
+        private hogFlowActionBillingType: HogFlowActionBillingType,
+        private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
 
@@ -158,16 +187,20 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            trackHogFlowBillableInvocation(result, {
-                invocation: functionResult.invocation,
-                billingMetricType: this.hogFlowActionBillingType,
-            })
+            // A step that does not send leaves this undefined and bills as before.
+            if (functionResult.deliveredToRecipient !== false) {
+                trackHogFlowBillableInvocation(result, {
+                    invocation: functionResult.invocation,
+                    billingMetricType: this.hogFlowActionBillingType,
+                })
 
-            // actionStepCount holds across a retry of this step but changes on a loop revisit.
-            this.usageReporter?.reportBillableInvocation({
-                teamId: invocation.teamId,
-                recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-            })
+                // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                this.usageReporter?.reportBillableInvocation({
+                    teamId: invocation.teamId,
+                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
+                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                })
+            }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
             // already in flight, so a run that entered on v2 can send its email after v3 is
@@ -204,9 +237,10 @@ export class HogFunctionHandler implements ActionHandler {
             )
         }
 
+        // A failed step keeps its variable untouched: execResult may still hold an earlier fetch response.
         return {
             nextAction: findContinueAction(invocation),
-            result: functionResult.execResult,
+            result: functionResult.error ? undefined : functionResult.execResult,
             error: functionResult.error,
         }
     }
@@ -234,6 +268,7 @@ export class HogFunctionHandler implements ActionHandler {
             deadlineAt: deadline.toISO()!,
             dispatch,
             label: awaitRequest.label,
+            parkedAt: DateTime.now().toISO()!,
         }
         result.logs.push({
             level: 'info',
@@ -256,6 +291,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
+            observeAwaitedStepFinished(resume.status, awaiting)
             const payload = capWorkflowStepResult(
                 { ...awaiting.dispatch, status: resume.status },
                 resume.result ?? {},
@@ -265,7 +301,7 @@ export class HogFunctionHandler implements ActionHandler {
             if (resume.status !== 'completed') {
                 const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
                 const outcome = resume.status === 'cancelled' ? 'was cancelled' : 'failed'
-                throw new Error(`The ${label} ${outcome}${detail}`)
+                return { error: new Error(`The ${label} ${outcome}${detail}`), result: payload }
             }
             result.logs.push({
                 level: 'info',
@@ -296,6 +332,7 @@ export class HogFunctionHandler implements ActionHandler {
         }
         const deadline = DateTime.fromISO(awaiting.deadlineAt)
         if (DateTime.now() >= deadline) {
+            observeAwaitedStepFinished('timed_out', awaiting)
             throw new Error(`Timed out waiting for the ${label} to finish`)
         }
         // Woken early with nothing (clock skew): park again.

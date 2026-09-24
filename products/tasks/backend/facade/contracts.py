@@ -15,13 +15,17 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
+
+# Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
+# without dragging this module onto the ``django.setup()`` path.
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 
 class DesktopAccessReason(StrEnum):
@@ -203,6 +207,11 @@ class TaskDetailDTO:
 
 
 @dataclass(frozen=True)
+class TaskCreateResponseDTO(TaskDetailDTO):
+    run_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ChannelDTO:
     """The HTTP representation of a task channel."""
 
@@ -378,6 +387,9 @@ class TaskLatestRunSummaryDTO:
     status: str | None
     environment: str | None
     mode: Literal["interactive", "background"]
+    pr_url: str | None = None
+    pr_state: str | None = None
+    task_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -385,7 +397,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's status, environment, and mode (or ``None`` when the task has no runs).
+    most-recent run's status, environment, mode and pull request (or ``None`` when the task has no runs).
     """
 
     id: UUID
@@ -430,6 +442,7 @@ class TaskRunResult:
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
+    run_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -578,12 +591,14 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -644,6 +659,73 @@ class TaskRunSandboxConnectionDTO:
     connection_token: str | None = None
     # Query-param name the transport token travels under (provider-specific).
     sandbox_token_param: str = "_modal_connect_token"
+
+
+SPACE_SETUP_SCOPES = (
+    "task:write",
+    "canvas:write",
+    "hog_flow:write",
+    # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
+    "person:read",
+    "group:read",
+    "integration:read",
+    "query:read",
+    "data_catalog:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "experiment:read",
+    "error_tracking:read",
+    "session_recording:read",
+    "event_definition:read",
+    "property_definition:read",
+    "project:read",
+    "organization:read",
+    "survey:read",
+)
+
+
+class SpaceSetupInProgressError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class SpaceGoalRequest:
+    """The metric a goal space is set up to move."""
+
+    statement: str
+    period: Literal["day", "week", "month"] = "week"
+    direction: Literal["at_least", "at_most"] = "at_least"
+    target: str | None = None
+    deadline: date | None = None
+    insight_short_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceFeatureRequest:
+    """The feature a feature space is set up around."""
+
+    name: str
+    description: str = ""
+    flag_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupRequest:
+    """What the space setup task should set the space up for. Exactly one of ``goal`` and
+    ``feature`` is set, matching ``kind``."""
+
+    kind: Literal["goal", "feature"]
+    goal: SpaceGoalRequest | None = None
+    feature: SpaceFeatureRequest | None = None
+    repository: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupStartedDTO:
+    """The setup task that now owns the channel's context generation marker."""
+
+    task_id: UUID
 
 
 @dataclass(frozen=True)
@@ -859,3 +941,9 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskPullRequest:
+    url: str
+    state: str

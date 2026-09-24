@@ -6,16 +6,19 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-/** Icon-only search trigger, used in the collapsed nav where there is no room for the search bar. */
 export function NavSearchButton({
     toggleCommand,
+    showShortcut = false,
 }: {
     toggleCommand: (source: CommandOpenSource) => void
+    showShortcut?: boolean
 }): JSX.Element {
     return (
         <ButtonPrimitive
-            iconOnly
-            data-attr="nav-search"
+            iconOnly={!showShortcut}
+            className={showShortcut ? 'shrink-0' : undefined}
+            aria-label="Search"
+            data-attr={showShortcut ? 'nav-search-bar' : 'nav-search'}
             tooltip={
                 <div className="flex items-center gap-2">
                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
@@ -24,10 +27,11 @@ export function NavSearchButton({
             tooltipPlacement="right"
             onClick={() => {
                 posthog.capture('nav search clicked')
-                toggleCommand('nav-search-button')
+                toggleCommand(showShortcut ? 'nav-search-bar' : 'nav-search-button')
             }}
         >
             <IconSearch className="size-4 shrink-0 text-secondary" />
+            {showShortcut && <RenderKeybind keybind={[keyBinds.search]} />}
         </ButtonPrimitive>
     )
 }

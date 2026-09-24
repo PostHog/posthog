@@ -12,7 +12,7 @@ import {
     MetricsAlertConfig,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel, UserBasicType } from '~/types'
+import { InsightModel, UserBasicType } from '~/types'
 
 import type { AlertDeliveryApi } from './generated/api.schemas'
 
@@ -113,10 +113,11 @@ export interface AlertTypeBase {
     condition: AlertCondition
     threshold: { configuration: AlertThreshold }
     enabled: boolean
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
+    schedule_start_time?: string | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean
@@ -166,6 +167,8 @@ export interface AlertType extends AlertTypeBase {
     next_check_at?: string | null
     checks_total?: number
     checks?: AlertCheck[]
+    /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
+    llm_detector_available?: boolean | null
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

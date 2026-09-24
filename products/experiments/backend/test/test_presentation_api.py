@@ -8,13 +8,24 @@ import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
+from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import (
+    ExperimentApiMetric,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
@@ -31,15 +42,18 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
+    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
@@ -47,6 +61,8 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
+from products.experiments.backend.temporal.metric_resolution import merge_saved_metric_breakdowns
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1225,6 +1241,64 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
+        )
+
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self):
+        """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
+        the saved query merged with the link-metadata breakdowns, the same dict the daily workflow files its
+        rows under, or the chart reads an empty series for a breakdown-configured saved metric."""
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Breakdown saved metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+        )
+        metadata = {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Breakdown fingerprint",
+                "feature_flag_key": "breakdown-fingerprint",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                "saved_metrics_ids": [{"id": saved_metric_response.json()["id"], "metadata": metadata}],
+            },
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
+        stamped = detail.json()["saved_metrics"][0]["query"]["fingerprint"]
+
+        experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
+        saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
+        fingerprint_args = (
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+        )
+        expected = compute_metric_fingerprint(
+            merge_saved_metric_breakdowns(saved_query, metadata),
+            *fingerprint_args,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants or [],
+        )
+        self.assertEqual(stamped, expected)
+        # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
+        # point the chart at rows that do not exist.
+        self.assertNotEqual(
+            stamped,
+            compute_metric_fingerprint(
+                saved_query,
+                *fingerprint_args,
+                only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants or [],
+            ),
         )
 
     def test_saved_metrics(self):
@@ -3313,8 +3387,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        # +1 query for survey internal flag IDs lookup
-        with self.assertNumQueries(22):
+        # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
+        with self.assertNumQueries(23):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -4638,6 +4712,217 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertIn(copy_response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def _create_experiment_to_copy(self, name: str, feature_flag_key: str) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": name, "feature_flag_key": feature_flag_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()["id"]
+
+    def test_copy_experiment_to_project_requires_experiment_access_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        AccessControl.objects.create(team=target_team, resource="experiment", access_level="none")
+        experiment_id = self._create_experiment_to_copy("Target denied", "target-denied-flag")
+
+        member = User.objects.create_and_join(self.organization, "no-target-experiments@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_refuses_denied_flag_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        target_flag = FeatureFlag.objects.create(
+            team=target_team,
+            key="target-private-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                "payloads": {"control": '{"secret": "control"}', "test": '{"secret": "test"}'},
+            },
+        )
+        AccessControl.objects.create(
+            team=target_team, resource="feature_flag", resource_id=str(target_flag.id), access_level="none"
+        )
+        experiment_id = self._create_experiment_to_copy("Flag denied", "source-only-flag")
+
+        # The flag's creator keeps access regardless of access controls, so copy as a plain member.
+        member = User.objects.create_and_join(self.organization, "no-target-flag@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id, "feature_flag_key": "target-private-flag"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertNotIn("secret", copy_response.content.decode())
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_rejects_key_not_scoped_to_target(self) -> None:
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        experiment_id = self._create_experiment_to_copy("Scoped key", "scoped-key-flag")
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-only",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_create_experiment_refuses_flag_without_editor_access(self) -> None:
+        self._enable_access_control()
+        restricted_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="restricted-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(restricted_flag.id), access_level="none"
+        )
+
+        member = User.objects.create_and_join(self.organization, "no-flag-editor@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Adopts restricted flag", "feature_flag_key": "restricted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(Experiment.objects.filter(feature_flag_id=restricted_flag.id).exists())
+
+    def test_create_experiment_refuses_new_flag_without_flag_create_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="none")
+
+        member = User.objects.create_and_join(self.organization, "no-flag-create@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Mints a new flag", "feature_flag_key": "minted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(FeatureFlag.objects.filter(key="minted-flag", team_id=self.team.id).exists())
+
+    def _restrict_flag_and_login_as_member(self, flag_key: str, email: str) -> FeatureFlag:
+        flag = FeatureFlag.objects.get(key=flag_key, team=self.team)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, email, None)
+        self.client.force_login(member)
+        return flag
+
+    @parameterized.expand(
+        [
+            ("launch", "launch/", False, False),
+            ("pause", "pause/", True, True),
+            ("resume", "resume/", True, False),
+            ("ship_variant", "ship_variant/", True, True),
+        ]
+    )
+    def test_lifecycle_action_refuses_a_flag_the_user_cannot_edit(
+        self, name: str, path_suffix: str, needs_running: bool, flag_active_before: bool
+    ) -> None:
+        self._enable_access_control()
+        flag_key = f"lifecycle-{name}-flag"
+        if needs_running:
+            experiment_id = self._create_running_experiment(name=f"Lifecycle {name}", flag_key=flag_key)["id"]
+            if name == "resume":
+                pause = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/")
+                self.assertEqual(pause.status_code, status.HTTP_200_OK, pause.content)
+        else:
+            experiment_id = self._create_experiment_to_copy(f"Lifecycle {name}", flag_key)
+
+        flag = self._restrict_flag_and_login_as_member(flag_key, f"no-flag-{name}@posthog.com")
+        self.assertEqual(flag.active, flag_active_before)
+
+        body = {"variant_key": "control"} if name == "ship_variant" else None
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/{path_suffix}",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, flag_active_before)
+
+    def test_patching_a_draft_without_touching_the_flag_needs_no_flag_access(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Rename only", "rename-only-flag")
+        self._restrict_flag_and_login_as_member("rename-only-flag", "no-flag-rename@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"name": "Renamed without flag access"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Renamed without flag access")
+
+    def test_launching_by_patching_start_date_refuses_a_flag_the_user_cannot_edit(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Patch launch", "patch-launch-flag")
+        flag = self._restrict_flag_and_login_as_member("patch-launch-flag", "no-flag-patch@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"start_date": "2026-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+        self.assertIsNone(Experiment.objects.get(id=experiment_id).start_date)
+
     def test_copy_experiment_to_project_uses_selected_target_team(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
         secondary_target_team = Team.objects.create(
@@ -5588,8 +5873,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5630,14 +5914,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_cleanup_pr_allowed_for_session_users(self, _mock_flag):
+    def test_cleanup_pr_allowed_for_session_users(self):
         exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
             "id"
         ]
 
-        # Session auth carries no scopes, and opening a cleanup PR is no longer gated on the
-        # Desktop waitlist, so both actions succeed ("end first, ship later" flow).
+        # Session auth carries no scopes, and opening a cleanup PR is not gated on the Desktop
+        # waitlist, so both actions succeed ("end first, ship later" flow).
         resp = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
             {"conclusion": "won", "open_cleanup_pr": True},
@@ -5828,14 +6111,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         [
             # (name, open_cleanup_pr, repository, expected_status)
             # Nothing persists in any of these: the value only sticks when a cleanup PR
-            # actually opens against it (team flag on + repo in the installation).
+            # actually opens against it, which needs the repo in the GitHub installation.
             ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
             ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
             ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status, _mock_flag):
+    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status):
         exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
 
         resp = self.client.post(
@@ -5848,11 +6130,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+        self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
@@ -5872,11 +6153,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_set_repository_as_team_default_requires_project_admin(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+        self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
@@ -5938,6 +6218,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Default behavior: existing groups preserved, no catch-all prepended
         self.assertEqual(flag_filters["groups"], original_groups)
+
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="variant_shipped"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        shipped_change = next(c for c in activity_log.detail["changes"] if c["field"] == "shipped_variant")
+        self.assertEqual(shipped_change["after"], "test")
 
     def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
         data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
@@ -7236,6 +7523,61 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         change_fields = [change["field"] for change in activity_log.detail["changes"]]
         self.assertIn("description", change_fields)
         self.assertNotIn("parameters", change_fields)
+
+    def test_running_time_calculation_output_drift_writes_no_activity_row(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Running time drift flag",
+            key="running-time-drift",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Running time drift",
+            feature_flag=feature_flag,
+            running_time_calculation={
+                "minimum_detectable_effect": 5,
+                "recommended_sample_size": 1000,
+                "recommended_running_time": 14,
+            },
+        )
+
+        drift_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_sample_size": 2000,
+                    "recommended_running_time": 28,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(drift_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").count(),
+            0,
+        )
+
+        input_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_sample_size": 500,
+                    "recommended_running_time": 7,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(input_response.status_code, status.HTTP_200_OK)
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment.id), activity="updated"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        change_fields = [change["field"] for change in activity_log.detail["changes"]]
+        self.assertIn("running_time_calculation", change_fields)
 
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
@@ -8851,6 +9193,265 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
 
+class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _post(self, payload: dict[str, Any], *, flag_on: bool = True, **kwargs: Any):
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **_: flag_on and key == EXPERIMENT_SETUP_CONTEXT_FLAG,
+        ):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/experiments/setup_context/", payload, format="json", **kwargs
+            )
+
+    @parameterized.expand([("flag_off", False, status.HTTP_404_NOT_FOUND), ("flag_on", True, status.HTTP_200_OK)])
+    def test_flag_gates_endpoint_for_read_scoped_personal_api_key(
+        self, _name: str, flag_on: bool, expected_status: int
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=flag_on, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == expected_status, response.content
+        if flag_on:
+            sections = response.json()
+            assert sections["target_surface"] == {"status": "skipped", "data": None}
+            assert sections["team_defaults"]["status"] == "ok"
+            assert sections["sdk_profile"]["status"] == "ok"
+
+    @parameterized.expand(
+        [
+            # Saved-metric names, events and reuse counts sit behind the saved-metric API's own scope.
+            ("without_saved_metric_scope", ["experiment:read", "query:read"]),
+            # Event counts for caller-chosen events are the same data /query/ gates behind query:read.
+            ("without_query_scope", ["experiment:read", "experiment_saved_metric:read"]),
+        ]
+    )
+    def test_rejects_key_missing_a_scope_for_data_it_would_return(self, _name: str, scopes: list[str]) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="partial", secure_value=hash_key_value(token), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=True, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == 403, response.content
+
+    @parameterized.expand(
+        [
+            (
+                "url_filter_without_pageview",
+                {"target_event": "$screen", "target_url_contains": "pricing"},
+                "target_url_contains",
+            ),
+            (
+                "metric_event_equals_target_event",
+                {"target_event": "$pageview", "metric_event": "$pageview"},
+                "metric_event",
+            ),
+            (
+                "target_properties_without_target_event",
+                {"target_properties": [{"key": "$pathname", "type": "event", "value": ["/"]}]},
+                "target_properties",
+            ),
+            (
+                "metric_properties_without_metric_event",
+                {"metric_properties": [{"key": "plan", "type": "event", "value": ["paid"]}]},
+                "metric_properties",
+            ),
+            (
+                "a_filter_type_the_query_cannot_apply",
+                {"target_event": "$pageview", "target_properties": [{"key": "id", "type": "cohort", "value": 1}]},
+                "target_properties",
+            ),
+            (
+                "an_operator_the_query_cannot_apply",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": "flag", "type": "event", "operator": "flag_evaluates_to", "value": ["true"]}
+                    ],
+                },
+                "target_properties",
+            ),
+            (
+                "more_filters_than_the_maximum",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": f"p-{index}", "type": "event", "value": ["x"]} for index in range(11)
+                    ],
+                },
+                "target_properties",
+            ),
+        ]
+    )
+    def test_rejects_input_that_cannot_produce_an_answer(
+        self, _name: str, payload: dict[str, Any], expected_attr: str
+    ) -> None:
+        response = self._post(payload)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == expected_attr
+
+    @parameterized.expand(
+        [
+            ("flag_on_for_staff_only", "staff", status.HTTP_200_OK),
+            ("flag_on_for_customer_only", "customer", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_flag_is_evaluated_for_the_impersonating_staff_user(
+        self, _name: str, flag_on_for: str, expected_status: int
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        customer = User.objects.create_and_join(self.organization, "setup-context-customer@example.com", None)
+        flag_distinct_id = str(self.user.distinct_id if flag_on_for == "staff" else customer.distinct_id)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": customer.id}),
+            data={"read_only": "true", "reason": "Setup context support ticket"},
+            format="multipart",
+        )
+        assert self.client.get("/api/users/@me/").json()["email"] == customer.email
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, *args, **_: (
+                key == EXPERIMENT_SETUP_CONTEXT_FLAG and distinct_id == flag_distinct_id
+            ),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/experiments/setup_context/", {}, format="json")
+
+        assert response.status_code == expected_status, response.content
+
+    def test_omits_experiments_the_user_cannot_access(self) -> None:
+        other_user = self._create_user("setup-context-other@posthog.com")
+        visible_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="setup-visible")
+        hidden_flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="setup-hidden")
+        visible = Experiment.objects.create(
+            team=self.team, name="Visible", created_by=self.user, feature_flag=visible_flag
+        )
+        hidden = Experiment.objects.create(
+            team=self.team, name="Hidden", created_by=other_user, feature_flag=hidden_flag
+        )
+        AccessControl.objects.create(resource="experiment", resource_id=hidden.id, team=self.team, access_level="none")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self._post({})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        listed = [experiment["id"] for experiment in response.json()["previous_experiments"]["data"]["experiments"]]
+        assert listed == [visible.id]
+
+    def test_serializes_a_context_with_every_section_populated(self) -> None:
+        # The response serializer runs outside the per-section guard, so a field it cannot render
+        # fails the whole endpoint rather than one section. Only a populated context reaches the
+        # nested serializers for the outcome, the SDK rows and the two baselines.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="setup-populated",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
+            },
+        )
+        # The result belongs to the run that starts here, so both dates come from one value.
+        started_at = timezone.now() - timedelta(days=10)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Populated",
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=started_at,
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="populated-metric",
+            query_from=started_at,
+            query_to=timezone.now(),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": 1, "sum_squares": 1},
+                "variant_results": [{"key": "test", "number_of_samples": 90, "significant": True}],
+            },
+            completed_at=timezone.now(),
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="Revenue",
+                query={"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "saved-uuid"},
+            ),
+            metadata={"type": "secondary"},
+        )
+        _create_person(team=self.team, distinct_ids=["buyer"])
+        for event in ["$pageview", "purchase"]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="buyer",
+                timestamp=timezone.now() - timedelta(days=1),
+                properties={
+                    "$lib": "web",
+                    "$is_identified": False,
+                    "$device_id": "device-1",
+                    "$pathname": "/",
+                },
+            )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="buyer",
+            timestamp=timezone.now() - timedelta(days=1),
+            properties={"$lib": "web", "$feature_flag": "setup-populated", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._post(
+            {
+                "target_event": "$pageview",
+                "target_properties": [{"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}],
+                "metric_event": "purchase",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        context = response.json()
+        assert {name: section["status"] for name, section in context.items()} == {
+            "team_defaults": "ok",
+            "sdk_profile": "ok",
+            "target_surface": "ok",
+            "candidate_metric": "ok",
+            "previous_experiments": "ok",
+            "shared_metrics": "ok",
+        }
+        assert context["sdk_profile"]["data"]["libs"][0]["lib"] == "web"
+        # The echoed filters are parsed and dumped through pydantic, so the operator reaches JSON
+        # as its value rather than as an enum the renderer cannot write.
+        assert context["target_surface"]["data"]["target_properties"] == [
+            {"key": "$pathname", "operator": "exact", "type": "event", "value": ["/"]}
+        ]
+        assert context["candidate_metric"]["data"]["funnel_baseline_stats"]["number_of_samples"] == 1
+        assert context["candidate_metric"]["data"]["mean_count_baseline_stats"]["number_of_samples"] == 1
+        assert context["previous_experiments"]["data"]["experiments"][0]["outcome"]["analyzed_exposures"] == 190
+        assert context["shared_metrics"]["data"]["metrics"][0]["name"] == "Revenue"
+
+
 class TestExperimentSerializerSuperset(unittest.TestCase):
     """Structural guard: ExperimentBasicSerializer must stay a subset of ExperimentSerializer.
 
@@ -8923,6 +9524,174 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+
+class TestExperimentApiMetricParity(unittest.TestCase):
+    """A field missing from the slim API metric schema is stripped by the generated write clients."""
+
+    INTENTIONALLY_OMITTED = {
+        # Server-computed or internal.
+        "fingerprint",
+        "response",
+        "version",
+        # Shared-metric linkage, set through the shared metric endpoints.
+        "isSharedMetric",
+        "sharedMetricId",
+        # Breakdowns are not exposed on the write schema yet.
+        "breakdownFilter",
+        "breakdownAttributionType",
+        "breakdownAttributionValue",
+    }
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        runtime_fields: set[str] = set()
+        for metric_model in (
+            ExperimentMeanMetric,
+            ExperimentFunnelMetric,
+            ExperimentRatioMetric,
+            ExperimentRetentionMetric,
+        ):
+            runtime_fields |= set(metric_model.model_fields)
+
+        api_fields = set(ExperimentApiMetric.model_fields)
+        dropped = runtime_fields - api_fields - self.INTENTIONALLY_OMITTED
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiMetric omits metric fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema, or "
+            "add them to INTENTIONALLY_OMITTED with a reason.",
+        )
+
+
+class TestExperimentTags(APILicensedTest):
+    def _create_experiment(self, name: str, flag_key: str, tags: list[str] | None = None) -> dict:
+        payload: dict[str, Any] = {"name": name, "feature_flag_key": flag_key}
+        if tags is not None:
+            payload["tags"] = tags
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_create_with_tags_persists_and_normalizes_them(self):
+        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # popped before that check, every tagged create fails with "Can't create keys: tags".
+        experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
+        assert sorted(experiment["tags"]) == ["checkout", "growth"]
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert sorted(detail["tags"]) == ["checkout", "growth"]
+
+    def test_update_replaces_tags_and_untagged_update_preserves_them(self):
+        experiment = self._create_experiment("Tagged", "tags-update-flag", tags=["one"])
+
+        # A PATCH that doesn't mention tags must not wipe them (tags=None no-op in update()).
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"description": "still tagged"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["one"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": ["two", "three"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(response.json()["tags"]) == ["three", "two"]
+
+        # tags: [] clears (None preserves, [] clears — both ride the same pop in update())
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == []
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert detail["tags"] == []
+
+    @parameterized.expand(
+        [
+            ("tags_match", 'tags=["growth"]', {"A"}),
+            ("tags_no_match", 'tags=["nonexistent"]', set()),
+            ("excluded_tags", 'excluded_tags=["growth"]', {"B", "C"}),
+            ("tags_and_excluded", 'tags=["shared"]&excluded_tags=["growth"]', {"B"}),
+        ]
+    )
+    def test_list_filters_by_tags(self, _name: str, query: str, expected_names: set[str]):
+        self._create_experiment("A", "tags-list-flag-a", tags=["growth", "shared"])
+        self._create_experiment("B", "tags-list-flag-b", tags=["shared"])
+        self._create_experiment("C", "tags-list-flag-c")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["name"] for row in response.json()["results"]} == expected_names
+
+    def test_list_includes_tags(self):
+        # ExperimentBasicSerializer takes a different (deferred) queryset path than the detail
+        # serializer; this catches the list prefetch/serialization of tags breaking independently.
+        experiment = self._create_experiment("Tagged", "tags-list-flag", tags=["growth"])
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        row = next(r for r in response.json()["results"] if r["id"] == experiment["id"])
+        assert row["tags"] == ["growth"]
+
+    def test_bulk_update_tags(self):
+        # Wiring guard for TaggedItemViewSetMixin on the experiments viewset: team-scoped queryset,
+        # per-object mutation, and missing IDs reported as skipped.
+        experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
+            {"ids": [experiment["id"], 999999], "action": "add", "tags": ["added"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
+        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
+
+    def test_bulk_update_tags_works_with_personal_api_key(self):
+        # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only
+        # regression that no session-auth test would catch.
+        experiment = self._create_experiment("PAT", "tags-pat-flag")
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["experiment:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
+            {"ids": [experiment["id"]], "action": "set", "tags": ["via-pat"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated"] == [{"id": experiment["id"], "tags": ["via-pat"]}]
+
+    def test_matching_ids_applies_list_filters(self):
+        tagged = self._create_experiment("Tagged", "tags-matching-flag-a", tags=["growth"])
+        self._create_experiment("Untagged", "tags-matching-flag-b")
+        response = self.client.get(f'/api/projects/{self.team.id}/experiments/matching_ids/?tags=["growth"]')
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"ids": [tagged["id"]], "total": 1}
+
+    def test_matching_ids_excludes_view_only_experiments(self):
+        editable = self._create_experiment("Mine", "tags-acl-flag-a")
+
+        other_user = self._create_user("other-tags-acl@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert view_only.id not in response.json()["ids"]
+        assert editable["id"] in response.json()["ids"]
 
 
 class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):

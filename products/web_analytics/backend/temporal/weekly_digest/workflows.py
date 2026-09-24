@@ -9,7 +9,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from products.web_analytics.backend.temporal.digest_common import ACTIVITY_RETRY_POLICY
+    from posthog.temporal.common.digest import ACTIVITY_RETRY_POLICY
+
     from products.web_analytics.backend.temporal.weekly_digest.activities import (
         get_org_batch_page,
         push_wa_digest_metrics_activity,
@@ -122,6 +123,7 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             "failed_batches": failed_batches,
             "emails_sent": totals.emails_sent,
             "emails_failed": totals.emails_failed,
+            "teams_failed": totals.teams_failed,
             "cumulative_duration_seconds": totals.total_duration,
         }
 

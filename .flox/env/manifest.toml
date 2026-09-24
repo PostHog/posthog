@@ -12,15 +12,13 @@ schema-version = "1.10.0"
 # does not prevent that. Deliberately left at schema-version
 # 1.10.0: the field works there, and bumping the schema would hard-gate
 # anyone below flox 1.11.0 for no added effect.
-minimum-cli-version = "1.15.0"
+minimum-cli-version = "1.16.0"
 
 # List packages you wish to install in your environment inside
 # the `[install]` section.
 [install]
 # Python - Python itself is installed on activation via `uv sync`
-# As of September 2026, the nixpkgs catalog has no uv above 0.11.25 for x86_64-darwin.
-uv = { pkg-path = "uv", pkg-group = "uv", version = "^0.12.5", systems = ["aarch64-darwin", "aarch64-linux", "x86_64-linux"] }
-uv-x86_64-darwin = { pkg-path = "uv", pkg-group = "uv-x86_64-darwin", version = "^0.11.25", systems = ["x86_64-darwin"] }
+uv = { pkg-path = "flox/uv", pkg-group = "uv", version = "^0.12.13" }
 xmlsec = { pkg-path = "xmlsec", version = "1.3.7" }
 freetds = { pkg-path = "freetds" } # For pymssql
 # Node
@@ -64,6 +62,9 @@ emscripten = { pkg-path = "emscripten", pkg-group = "emscripten", version = "4.0
 libpthread-stubs = { pkg-path = "libpthread-stubs", pkg-group = "emscripten" }
 watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery autoreload (uses pywatchman)
 trunk-io = { pkg-path = "trunk-io", version = "^1.3.4" } # Launcher for the Trunk merge queue CLI; the CLI version itself is pinned in .trunk/trunk.yaml
+# depot-cli has its own group because the toplevel group's version pins cannot resolve with it.
+# Keep its version floor current: flox puts its bin first on PATH, so an old lock shadows a newer host `depot`.
+depot-cli = { pkg-path = "depot-cli", pkg-group = "depot", version = "^2.102" }
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
@@ -214,4 +215,4 @@ tcsh = '''
 # Additional options can be set in the `[options]` section. Refer to
 # manifest.toml(5) for a list of available options.
 [options]
-systems = ["aarch64-darwin", "aarch64-linux", "x86_64-darwin", "x86_64-linux"]
+systems = ["aarch64-darwin", "aarch64-linux", "x86_64-linux"]

@@ -89,16 +89,4 @@ If tests fail with `Cannot find module 'react'` from `kea-router`, run `pnpm ins
 pnpm storybook
 ```
 
-Then navigate to **Scenes-App / BatchExports** in the sidebar. Stories: `NewS3Export`, `NewPostgresExport`, `ExistingBigQueryExport`.
-
-### Playwright E2E tests
-
-```sh
-pnpm --filter=playwright test e2e/batch-exports.spec.ts
-```
-
-Covers creating a new S3 export and validating required fields.
-
-Requires a running backend (`./bin/start`).
-
-You will also need to install Playwright using `pnpm exec playwright install`.
+Then navigate to **Scenes-App / BatchExports** in the sidebar. Stories: `NewAwsS3Export`, `NewS3CompatibleExport`, `NewPostgresExport`, `ExistingBigQueryExport`.

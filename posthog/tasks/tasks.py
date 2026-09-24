@@ -13,6 +13,7 @@ from django.utils import timezone
 
 import requests
 from celery import shared_task
+from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
 from rest_framework.exceptions import APIException
@@ -24,7 +25,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -51,6 +52,17 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "posthog_feature_flag_last_called_at_sync_chunk_failures_total",
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
+
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_retry_recoveries_total",
+    "Feature flag last_called_at sync runs that completed on a Celery retry after an earlier attempt failed",
+)
+
+# CH_TRANSIENT_ERRORS plus the desynced pooled socket, which the sync opts into here rather than in
+# the shared tuple: the driver can read that unexpected packet after ClickHouse already ran the
+# query, so a write caller retrying it would land the write twice. This task only reads from
+# ClickHouse - it writes to Postgres from the merged results - so repeating the query is safe.
+FEATURE_FLAG_SYNC_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError)
 
 
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
@@ -421,6 +433,7 @@ def _process_query_task_failure(
         # Important: Only retry for things that might be okay on the next try
         ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
+        QueryRanConcurrently,
     ),
     on_failure=_process_query_task_failure,
     retry_backoff=1,
@@ -1103,17 +1116,6 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
-@shared_task(ignore_result=True, retries=3)
-def clickhouse_send_license_usage() -> None:
-    try:
-        if not is_cloud():
-            from ee.tasks.send_license_usage import send_license_usage
-
-            send_license_usage()
-    except ImportError:
-        pass
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
@@ -1254,7 +1256,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    autoretry_for=FEATURE_FLAG_SYNC_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1327,6 +1329,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         "Seconds between checkpoint timestamp and current time",
         registry=self.metrics_registry,
     )
+
+    run_failed = False
 
     try:
         redis_client = get_client()
@@ -1445,7 +1449,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 # response is to abandon the run and let Celery retry it with backoff rather
                 # than keep querying. Swallowing one here would report a successful sync and
                 # skip the retry that recovers these runs today.
-                if isinstance(e, CH_TRANSIENT_ERRORS):
+                if isinstance(e, FEATURE_FLAG_SYNC_TRANSIENT_ERRORS):
                     raise
 
                 chunk_failures += 1
@@ -1620,13 +1624,20 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
 
     except Exception as e:
+        run_failed = True
         duration = (timezone.now() - start_time).total_seconds()
         logger.exception("Feature flag sync failed", error=e, duration_seconds=duration)
-        capture_exception(
-            e, additional_properties={"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
-        )
+        properties = {"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
+        if isinstance(e, UnknownPacketFromServerError):
+            # The driver puts the unexpected packet number and the host in the message, so every
+            # occurrence fingerprints as a new error tracking issue. Group them under one issue.
+            properties["$exception_fingerprint"] = "sync_feature_flag_last_called.UnknownPacketFromServerError"
+        capture_exception(e, additional_properties=properties)
         raise
     finally:
+        if not run_failed and (self.request.retries or 0) > 0:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER.inc()
+
         # Always release the lock
         cache.delete(LOCK_KEY)
 

@@ -3,6 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -11,7 +12,8 @@ from unittest.mock import Mock, patch, sentinel
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
 
-from posthog.clickhouse.client.connection import NodeRole, Workload
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, NodeRole, Workload
 from posthog.clickhouse.cluster import (
     TOO_MANY_MUTATIONS,
     AlterTableMutationRunner,
@@ -35,6 +37,61 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     yield get_cluster()
+
+
+@pytest.mark.parametrize(
+    "static_password, password_file_set, overrides_arg, expected_bootstrap, expect_provider",
+    [
+        pytest.param("static-fallback", True, None, "static", True, id="dual_armed_default_bootstraps_on_static"),
+        pytest.param("", True, None, "token", True, id="token_first_default_bootstraps_on_token"),
+        pytest.param("static-only", False, None, "unset", False, id="static_default_uses_password"),
+        pytest.param(
+            "static-fallback",
+            True,
+            {"user": "backups", "password": "bkp-static"},
+            "static",
+            False,
+            id="override_user_keeps_its_own_credential",
+        ),
+    ],
+)
+def test_get_cluster_keeps_the_bootstrap_off_an_expirable_token(
+    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expected_bootstrap, expect_provider
+) -> None:
+    token = "live-token"
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    creds = ClickHouseCredentials(
+        user="default",
+        password=static_password,
+        password_file=str(token_file) if password_file_set else None,
+    )
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: creds})
+
+    with (
+        patch("posthog.clickhouse.cluster.default_client") as mock_default_client,
+        patch("posthog.clickhouse.cluster.ClickhouseCluster") as mock_cluster,
+    ):
+        get_cluster(connection_overrides=overrides_arg)
+
+    bootstrap_password = mock_default_client.call_args.kwargs.get("password")
+    overrides = mock_cluster.call_args.kwargs["connection_overrides"]
+
+    if expected_bootstrap == "static":
+        assert bootstrap_password == static_password
+    elif expected_bootstrap == "token":
+        assert bootstrap_password == token
+    else:
+        assert bootstrap_password is None
+
+    if expect_provider:
+        assert overrides["credential_provider"]() == token
+    else:
+        assert "credential_provider" not in overrides
+
+    if overrides_arg is not None:
+        assert overrides["user"] == overrides_arg["user"]
+        assert overrides["password"] == overrides_arg["password"]
 
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
@@ -832,6 +889,54 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+def test_reuse_since_refuses_a_mutation_created_before_it(cluster: ClickhouseCluster) -> None:
+    # A command names the dictionaries it joins, never their contents, so the same text stands for
+    # different data on a later run. Adopting the earlier run's finished mutation reports a delete
+    # that never ran, and it is silent: the waiter sees a finished mutation and returns at once.
+    table = EVENTS_DATA_TABLE()
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT 10")).result()
+
+    sentinel_uuid = uuid.uuid1()
+
+    def build(reuse_since: datetime | None) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
+            table=table,
+            commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
+            parameters={"uuid": sentinel_uuid},
+            reuse_since=reuse_since,
+        )
+
+    wait_and_check_mutations_on_shards(cluster, cluster.map_one_host_per_shard(build(None)).result())
+
+    count_mutations = Query(
+        "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+        {"table": table},
+    )
+    before = cluster.map_all_hosts(count_mutations).result()
+
+    def last_create_time(client: Client) -> datetime:
+        [[created]] = client.execute(
+            "SELECT max(create_time) FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+            {"table": table},
+        )
+        return created
+
+    # The latest reading across hosts, so the floor sits past the mutation on every one of them.
+    newest = max(cluster.map_all_hosts(last_create_time).result().values())
+
+    # A floor predating the mutation still adopts it, which is what keeps a retry inside one run
+    # from enqueueing the same work twice.
+    cluster.map_one_host_per_shard(build(newest - timedelta(hours=1))).result()
+    adopted = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert adopted[host][0][0] == rows[0][0], "a mutation created after the floor should have been adopted"
+
+    cluster.map_one_host_per_shard(build(newest + timedelta(seconds=1))).result()
+    enqueued = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert enqueued[host][0][0] > rows[0][0], "a mutation created before the floor should not have been adopted"
 
 
 @pytest.mark.parametrize(

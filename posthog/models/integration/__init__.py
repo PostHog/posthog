@@ -80,6 +80,7 @@ from .oauth import (
     OauthConfig,
     OauthIntegration,
     posthog_connect_base_url,
+    resolve_aliased_oauth_kind,
 )
 from .postgres import (
     MISSING_CERT_PATH,
@@ -122,9 +123,9 @@ from .refresh_tracking import (
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
-    SLACK_CHANNELS_MAX_PAGES,
     SLACK_CHANNELS_PAGE_SIZE,
     SLACK_INTEGRATION_KINDS,
+    SLACK_LISTING_MAX_REQUESTS,
     SlackIntegration,
     SlackIntegrationError,
     SlackRequestSignature,
@@ -183,12 +184,13 @@ __all__ = [
     "POSTHOG_CONNECT_IDENTITY_SCOPES",
     "POSTHOG_CONNECT_GRANTABLE_SCOPES",
     "posthog_connect_base_url",
+    "resolve_aliased_oauth_kind",
     "OauthIntegration",
     "PRIVATE_CHANNEL_WITHOUT_ACCESS",
     "SlackIntegrationError",
     "SLACK_INTEGRATION_KINDS",
     "SLACK_CHANNELS_PAGE_SIZE",
-    "SLACK_CHANNELS_MAX_PAGES",
+    "SLACK_LISTING_MAX_REQUESTS",
     "SlackIntegration",
     "SlackRequestSignature",
     "sign_slack_request",

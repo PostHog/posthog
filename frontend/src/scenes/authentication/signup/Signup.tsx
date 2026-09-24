@@ -1,8 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { getCookie } from 'lib/api'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
@@ -16,12 +15,12 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
+import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
-
-import { LoginMethod } from '~/types'
 
 import { signupLogic } from './signupForm/signupLogic'
 
@@ -43,8 +42,9 @@ function SignupEmailPanel(): JSX.Element {
     const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
         useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
-    const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
+    const lastLoginMethod = useLastLoginMethod()
     const accountExists = !!signupPanelEmailManualErrors?.email
 
     if (pendingInvite) {
@@ -66,7 +66,16 @@ function SignupEmailPanel(): JSX.Element {
 
     return (
         <AuthSceneCard footer={footer}>
-            <AuthCardTitle title="Get started" sub="Make your product self-driving." />
+            <AuthCardTitle
+                title={
+                    pendingConnection ? `Create your account to connect ${pendingConnection.clientName}` : 'Get started'
+                }
+                sub={
+                    pendingConnection
+                        ? reviewAccessCopy(pendingConnection, 'Once your account is ready')
+                        : 'Make your product self-driving.'
+                }
+            />
             <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
                 <RegionField />
                 <LemonField
@@ -132,7 +141,7 @@ function SignupEmailPanel(): JSX.Element {
                         Trying to join an existing organization?
                     </button>
                     {showJoinOrg && (
-                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
                             You'll need your invite link. When a teammate invites you, we email you a personal link.
                             Didn't get one? Check spam, or ask them to resend it from their members settings.
                         </p>
@@ -246,7 +255,7 @@ function SignupAuthPanel(): JSX.Element {
                 </div>
             )}
             {passkeyRegistered ? (
-                <div className="AuthScene__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary border border-dashed rounded">
                     Passkey registered. Continue below.
                 </div>
             ) : (
@@ -469,6 +478,8 @@ function SignupProfilePanel(): JSX.Element {
 export function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { panel } = useValues(signupLogic)
+    // Mounted at the scene root so the cookie is read once, not on every panel change
+    useMountedLogic(pendingOAuthConnectionLogic)
 
     if (user) {
         return null

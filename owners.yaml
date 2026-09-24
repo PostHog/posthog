@@ -1,5 +1,18 @@
 version: 1
 owners: []
+# Team slugs below are GitHub teams in this organization.
+github_org: PostHog
+# Automation that a team can redirect or silence under `notifications:`.
+producers: [stamphog, visual_review]
+# services/mcp generate-tools reads every YAML file in a product's mcp/ directory.
+reserved_dirs: ['products/**/mcp/**']
+# A product manifest already lists its owners, so it counts as an ownership file.
+alias_files: [product.yaml]
+# frontend/ runs the Jest suites of the product frontends, so their JUnit paths start from there.
+codeowners:
+    jest_root: frontend
+    jest_root_tests: 'products/**/frontend/**'
+    jest_root_packages: products
 # Slack channel per team, declared once for the whole repo (root-only registry).
 # A team only needs an entry where the derived '#<slug>' is wrong or missing; the
 # other 22 slugs in use derive correctly and are deliberately absent.
@@ -43,6 +56,7 @@ rules:
           - tach.toml
           - CLAUDE.md
           - AGENTS.md
+          - '/.coderabbit.yaml'
           - '/.greptile/'
           # Every owners.yaml routes to devex (unanchored: matches at any depth)
           # unless a nearer file or rule claims it — ownership-policy edits must
@@ -60,13 +74,13 @@ rules:
     - match: '/bin/inject_mcp_intents.py'
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/.claude/'
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
     - match: '/bin/start-llm-gateway'
-      owners: [team-devex, team-ai-gateway]
+      owners: [team-devex, team-agent-infrastructure]
     - match: '/cli/'
       owners: team-error-tracking
     - match: '/docs/onboarding/ai-observability/'
@@ -81,6 +95,19 @@ rules:
       owners: team-ingestion
     - match: '/packages/quill/'
       owners: [platform-ux, '@sampennington']
+    # The URL surface and the inbound webhook transport: shared plumbing every product
+    # lands on, so a change here reaches further than the product that prompted it.
+    - match:
+          - '/docs/internal/url-routing.md'
+          - '/posthog/api/__init__.py'
+          - '/posthog/api/rest_router.py'
+          - '/posthog/api/routing.py'
+          - '/posthog/ee_urls.py'
+          - '/posthog/frontend_views.py'
+          - '/posthog/github/'
+          - '/posthog/ingress/'
+          - '/posthog/urls.py'
+      owners: team-devex
     - match: '/posthog/helpers/email_utils.py'
       owners: team-platform-features
     - match: '/posthog/test/activity_logging/'
@@ -105,14 +132,25 @@ rules:
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
     - match: '/services/llm-gateway/'
-      owners: team-ai-gateway
+      owners: team-agent-infrastructure
     - match:
+          - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'
           - '/tools/hogli/'
-          - '/tools/owners/'
           - '/tools/phrocs/'
       owners: team-devex
     - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform
+    # A new product, provider, domain, or top-level package shapes the monorepo layout.
+    # The rule names who owns that decision and claims none of the files inside.
+    - match:
+          - '/products/*'
+          - '/posthog/ingress/*'
+          - '/posthog/egress/*'
+          - '/tools/*'
+          - '/services/*'
+          - '/packages/*'
+          - '/cli/*'
+      additions: team-devex

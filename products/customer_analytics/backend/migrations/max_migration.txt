@@ -1,1 +1,1 @@
-0052_alter_account_team_alter_accountchannelsummary_team_and_more
+0057_team_customer_analytics_config_activity_event_default

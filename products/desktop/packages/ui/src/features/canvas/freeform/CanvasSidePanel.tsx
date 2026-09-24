@@ -13,14 +13,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import type { Task } from "@posthog/shared/domain-types";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
@@ -83,7 +82,26 @@ export function CanvasSidePanel({
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b bg-chrome pr-2 pl-3">
+      <ChromeBar
+        className="bg-chrome"
+        actions={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Minimize panel"
+                  onClick={onMinimize}
+                >
+                  <SidebarSimpleIcon size={16} />
+                </Button>
+              }
+            />
+            <TooltipContent>Minimize panel</TooltipContent>
+          </Tooltip>
+        }
+      >
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as "chat" | "comments")}
@@ -101,26 +119,11 @@ export function CanvasSidePanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon"
-                variant="default"
-                aria-label="Minimize panel"
-                onClick={onMinimize}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
-            }
-          />
-          <TooltipContent>Minimize panel</TooltipContent>
-        </Tooltip>
-      </div>
+      </ChromeBar>
 
       <div className="min-h-0 flex-1">
         {tab === "comments" && commentTaskId ? (
-          <CanvasCommentsLoader
+          <CanvasComments
             taskId={commentTaskId}
             dashboardId={dashboardId}
             name={name}
@@ -175,7 +178,7 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   return <EmbeddedSessionView task={task} />;
 }
 
-function CanvasCommentsLoader({
+function CanvasComments({
   taskId,
   dashboardId,
   name,
@@ -190,46 +193,9 @@ function CanvasCommentsLoader({
   commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
 }) {
-  const { data: task } = useQuery(taskDetailQuery(taskId));
-
-  if (!task) {
-    return <LoadingState />;
-  }
-
-  return (
-    <CanvasTaskComments
-      task={task}
-      dashboardId={dashboardId}
-      name={name}
-      displayedVersionId={displayedVersionId}
-      commentVersionLabel={commentVersionLabel}
-      onCommentOpen={onCommentOpen}
-    />
-  );
-}
-
-function CanvasTaskComments({
-  task,
-  dashboardId,
-  name,
-  displayedVersionId,
-  commentVersionLabel,
-  onCommentOpen,
-}: {
-  task: Task;
-  dashboardId: string;
-  name: string;
-  displayedVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string | null;
-  onCommentOpen: (versionId: string | null) => void;
-}) {
-  const { timeline } = useThreadConversation(task, {
-    surface: "activity_panel",
-  });
   return (
     <TaskCommentsList
-      task={task}
-      timeline={timeline}
+      taskId={taskId}
       onlySource={{
         kind: "canvas",
         name,

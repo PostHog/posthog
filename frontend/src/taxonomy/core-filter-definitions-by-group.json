@@ -353,6 +353,26 @@
             ],
             "label": "AI Evaluation Name (LLM)"
         },
+        "$ai_evaluation_numeric_result": {
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [
+                0,
+                0.75,
+                10
+            ],
+            "label": "AI evaluation numeric result",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "description": "The configured maximum score for an online evaluation.",
+            "label": "AI evaluation numeric result maximum",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "description": "The configured minimum score for an online evaluation.",
+            "label": "AI evaluation numeric result minimum",
+            "type": "Numeric"
+        },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
             "examples": [
@@ -2280,6 +2300,17 @@
             ],
             "label": "MCP model"
         },
+        "$mcp_llm_model_missing_reason": {
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": [
+                "missing",
+                "unknown",
+                "invalid",
+                "not_captured",
+                "capture_error"
+            ],
+            "label": "MCP model missing reason"
+        },
         "$mcp_llm_model_source": {
             "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
             "examples": [
@@ -2876,9 +2907,29 @@
             "type": "Numeric",
             "used_for_debug": true
         },
+        "$sdk_debug_pending_queue_size": {
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": [
+                "100"
+            ],
+            "ignored_in_assistant": true,
+            "label": "Pending queue size",
+            "system": true,
+            "used_for_debug": true
+        },
         "$sdk_debug_recording_script_not_loaded": {
             "description": "Recording script not loaded. This can be caused by ad blockers.",
             "label": "Recording script not loaded",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": [
+                "screenshot",
+                "wireframe"
+            ],
+            "label": "Replay capture mode",
+            "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_event_trigger_status": {
@@ -2889,6 +2940,18 @@
                 "trigger_matched"
             ],
             "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated"
+            ],
+            "label": "Replay flush hold reason",
             "type": "String",
             "used_for_debug": true
         },
@@ -2939,6 +3002,11 @@
             "label": "Matched recording trigger groups",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
+            "label": "Replay pending trigger conditions",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
             "examples": [
@@ -2952,6 +3020,15 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [
+                1000
+            ],
+            "label": "Replay throttle delay (ms)",
+            "type": "Numeric",
             "used_for_debug": true
         },
         "$sdk_debug_replay_trigger_groups_count": {
@@ -3614,6 +3691,23 @@
             "description": "Whether web vitals was enabled in remote config",
             "label": "Web vitals enabled server side"
         },
+        "$webview_app": {
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app.",
+            "examples": [
+                "LinkedIn",
+                "Instagram",
+                "TikTok"
+            ],
+            "label": "In-app browser"
+        },
+        "$webview_app_version": {
+            "description": "Version of the host app whose in-app browser the event came from.",
+            "examples": [
+                "309.1.0",
+                "375.0.0"
+            ],
+            "label": "In-app browser version"
+        },
         "$window_id": {
             "description": "Unique window ID for session recording disambiguation",
             "label": "Window ID",
@@ -3624,11 +3718,11 @@
             "label": "_kx"
         },
         "build": {
-            "description": "The build number for the app",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": [
                 "1"
             ],
-            "label": "App build"
+            "label": "App build (app lifecycle)"
         },
         "currency": {
             "description": "The currency code associated with the event.",
@@ -3655,6 +3749,10 @@
             "description": "Older unprefixed variant of $mcp_duration_ms. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_duration_ms for new dashboards.",
             "label": "Duration (ms, unprefixed)",
             "type": "Numeric"
+        },
+        "emits_signals": {
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+            "label": "Emits signals (Replay Vision)"
         },
         "epik": {
             "description": "Pinterest Click ID",
@@ -3830,6 +3928,14 @@
             "description": "Reddit Click ID",
             "label": "rdt_cid"
         },
+        "recording_distinct_id": {
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+            "label": "Observed distinct ID (Replay Vision)"
+        },
+        "recording_subject_email": {
+            "description": "Email of the person in the recording, captured when the scan ran.",
+            "label": "Observed subject email (Replay Vision)"
+        },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
             "examples": [
@@ -3847,6 +3953,29 @@
                 10.0
             ],
             "label": "Revenue"
+        },
+        "scanner_id": {
+            "description": "Scanner that produced the observation.",
+            "label": "Scanner ID (Replay Vision)"
+        },
+        "scanner_name": {
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+            "label": "Scanner name (Replay Vision)"
+        },
+        "scanner_type": {
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": [
+                "monitor",
+                "classifier",
+                "scorer",
+                "summarizer"
+            ],
+            "label": "Scanner type (Replay Vision)"
+        },
+        "scanner_version": {
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "label": "Scanner version (Replay Vision)",
+            "type": "Numeric"
         },
         "sccid": {
             "description": "Snapchat Click ID",
@@ -3931,11 +4060,11 @@
             "label": "UTM term"
         },
         "version": {
-            "description": "The version of the app",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": [
                 "1.0.0"
             ],
-            "label": "App version"
+            "label": "App version (app lifecycle)"
         },
         "wbraid": {
             "description": "Google Ads, app to web",
@@ -4204,6 +4333,11 @@
         "$rageclick": {
             "description": "A user has rapidly and repeatedly clicked in a single place.",
             "label": "Rageclick"
+        },
+        "$recording_observed": {
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "label": "Recording observed (Replay Vision)",
+            "primary_property": "scanner_name"
         },
         "$screen": {
             "description": "When a user loads a screen in a mobile app.",
@@ -4584,6 +4718,17 @@
                 "gpt-5.6-sol"
             ],
             "label": "MCP model"
+        },
+        "$mcp_llm_model_missing_reason": {
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": [
+                "missing",
+                "unknown",
+                "invalid",
+                "not_captured",
+                "capture_error"
+            ],
+            "label": "MCP model missing reason"
         },
         "$mcp_llm_model_source": {
             "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
@@ -5070,6 +5215,26 @@
                 "Response relevance"
             ],
             "label": "AI Evaluation Name (LLM)"
+        },
+        "$ai_evaluation_numeric_result": {
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [
+                0,
+                0.75,
+                10
+            ],
+            "label": "AI evaluation numeric result",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "description": "The configured maximum score for an online evaluation.",
+            "label": "AI evaluation numeric result maximum",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "description": "The configured minimum score for an online evaluation.",
+            "label": "AI evaluation numeric result minimum",
+            "type": "Numeric"
         },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
@@ -6329,6 +6494,14 @@
             "label": "Facebook click ID (fbc)",
             "type": "String"
         },
+        "$fbp": {
+            "description": "The Facebook browser ID that Meta's Conversions API uses to match a conversion to a browser, read from the `_fbp` cookie the Meta pixel sets.",
+            "examples": [
+                "fb.1.1735689600000.1098115397"
+            ],
+            "label": "Facebook browser ID (fbp)",
+            "type": "String"
+        },
         "$feature_flag": {
             "description": "The key of the feature flag, sent on \"Feature flag called\", \"Experiment exposure\", and \"Feature enrollment\" events. To find other events where a flag was active, use \"Active feature flags\".",
             "examples": [
@@ -7096,6 +7269,23 @@
             "description": "Google Ads, app to web Data from the first time this user was seen.",
             "label": "Initial wbraid"
         },
+        "$initial_webview_app": {
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app. Data from the first time this user was seen.",
+            "examples": [
+                "LinkedIn",
+                "Instagram",
+                "TikTok"
+            ],
+            "label": "Initial in-app browser"
+        },
+        "$initial_webview_app_version": {
+            "description": "Version of the host app whose in-app browser the event came from. Data from the first time this user was seen.",
+            "examples": [
+                "309.1.0",
+                "375.0.0"
+            ],
+            "label": "Initial in-app browser version"
+        },
         "$initialization_time": {
             "description": "The iso formatted timestamp of SDK initialization.",
             "label": "initialization time",
@@ -7422,6 +7612,17 @@
                 "gpt-5.6-sol"
             ],
             "label": "MCP model"
+        },
+        "$mcp_llm_model_missing_reason": {
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": [
+                "missing",
+                "unknown",
+                "invalid",
+                "not_captured",
+                "capture_error"
+            ],
+            "label": "MCP model missing reason"
         },
         "$mcp_llm_model_source": {
             "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
@@ -8029,9 +8230,29 @@
             "type": "Numeric",
             "used_for_debug": true
         },
+        "$sdk_debug_pending_queue_size": {
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": [
+                "100"
+            ],
+            "ignored_in_assistant": true,
+            "label": "Pending queue size",
+            "system": true,
+            "used_for_debug": true
+        },
         "$sdk_debug_recording_script_not_loaded": {
             "description": "Recording script not loaded. This can be caused by ad blockers.",
             "label": "Recording script not loaded",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": [
+                "screenshot",
+                "wireframe"
+            ],
+            "label": "Replay capture mode",
+            "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_replay_event_trigger_status": {
@@ -8042,6 +8263,18 @@
                 "trigger_matched"
             ],
             "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated"
+            ],
+            "label": "Replay flush hold reason",
             "type": "String",
             "used_for_debug": true
         },
@@ -8092,6 +8325,11 @@
             "label": "Matched recording trigger groups",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
+            "label": "Replay pending trigger conditions",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
             "examples": [
@@ -8105,6 +8343,15 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [
+                1000
+            ],
+            "label": "Replay throttle delay (ms)",
+            "type": "Numeric",
             "used_for_debug": true
         },
         "$sdk_debug_replay_trigger_groups_count": {
@@ -8742,6 +8989,23 @@
             "description": "Whether web vitals was enabled in remote config",
             "label": "Web vitals enabled server side"
         },
+        "$webview_app": {
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app. Data from the last time this user was seen.",
+            "examples": [
+                "LinkedIn",
+                "Instagram",
+                "TikTok"
+            ],
+            "label": "Latest in-app browser"
+        },
+        "$webview_app_version": {
+            "description": "Version of the host app whose in-app browser the event came from. Data from the last time this user was seen.",
+            "examples": [
+                "309.1.0",
+                "375.0.0"
+            ],
+            "label": "Latest in-app browser version"
+        },
         "$window_id": {
             "description": "Unique window ID for session recording disambiguation",
             "label": "Window ID",
@@ -8752,11 +9016,11 @@
             "label": "Latest _kx"
         },
         "build": {
-            "description": "The build number for the app",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": [
                 "1"
             ],
-            "label": "App build"
+            "label": "App build (app lifecycle)"
         },
         "currency": {
             "description": "The currency code associated with the event.",
@@ -8793,6 +9057,10 @@
             ],
             "label": "Email address",
             "type": "String"
+        },
+        "emits_signals": {
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+            "label": "Emits signals (Replay Vision)"
         },
         "epik": {
             "description": "Pinterest Click ID Data from the last time this user was seen.",
@@ -8968,6 +9236,14 @@
             "description": "Reddit Click ID Data from the last time this user was seen.",
             "label": "Latest rdt_cid"
         },
+        "recording_distinct_id": {
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+            "label": "Observed distinct ID (Replay Vision)"
+        },
+        "recording_subject_email": {
+            "description": "Email of the person in the recording, captured when the scan ran.",
+            "label": "Observed subject email (Replay Vision)"
+        },
         "referring_application": {
             "description": "The namespace of the app that made the request.",
             "examples": [
@@ -8985,6 +9261,29 @@
                 10.0
             ],
             "label": "Revenue"
+        },
+        "scanner_id": {
+            "description": "Scanner that produced the observation.",
+            "label": "Scanner ID (Replay Vision)"
+        },
+        "scanner_name": {
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+            "label": "Scanner name (Replay Vision)"
+        },
+        "scanner_type": {
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": [
+                "monitor",
+                "classifier",
+                "scorer",
+                "summarizer"
+            ],
+            "label": "Scanner type (Replay Vision)"
+        },
+        "scanner_version": {
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "label": "Scanner version (Replay Vision)",
+            "type": "Numeric"
         },
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
@@ -9069,11 +9368,11 @@
             "label": "Latest UTM term"
         },
         "version": {
-            "description": "The version of the app",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": [
                 "1.0.0"
             ],
-            "label": "App version"
+            "label": "App version (app lifecycle)"
         },
         "wbraid": {
             "description": "Google Ads, app to web Data from the last time this user was seen.",

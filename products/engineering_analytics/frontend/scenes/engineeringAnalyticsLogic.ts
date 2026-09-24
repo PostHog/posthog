@@ -70,6 +70,8 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
+    /** Runs that settled without a verdict: cancelled, skipped, neutral, action required. */
+    inconclusive: number
     /** Workflow names behind `failing`, sorted. */
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
@@ -128,8 +130,6 @@ export interface WorkflowHealthRow {
     estimatedCostUsd?: number | null
     /** Runs in the window that were a 2nd+ attempt. */
     rerunCycles?: number
-    /** Success rate over the previous equal-length window. */
-    successRatePrev?: number | null
     /** Runs on merge-queue gate branches, counted regardless of the active scope. Above zero marks a
      *  workflow the queue runs before a merge lands, so the list can rank it first. */
     mergeQueueRunCount: number
@@ -216,6 +216,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         passing: it.ci.passing,
         failing: it.ci.failing,
         pending: it.ci.pending,
+        inconclusive: it.ci.inconclusive,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
         pushHistory: it.push_history ?? [],
@@ -377,6 +378,9 @@ export interface TrunkQuarantineData {
     trunkUrl: string | null
     teams: TrunkQuarantineTeamRow[]
     tests: TrunkQuarantinedTestRow[]
+    /** True when more tests are quarantined than `limit`; `tests` and the team counts are then lower bounds. */
+    truncated: boolean
+    limit: number
 }
 
 /**
@@ -419,7 +423,6 @@ export interface engineeringAnalyticsLogicValues {
     pullRequestsLoading: boolean
     pullRequestsStatus: LoaderStatus
     quarantine: QuarantineData | null
-    quarantineLoadFailed: boolean
     quarantineLoading: boolean
     readyCount: number
     readyOnly: boolean
@@ -769,7 +772,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 billableMinutes: it.billable_minutes ?? null,
                                 estimatedCostUsd: it.estimated_cost_usd ?? null,
                                 rerunCycles: it.rerun_cycles ?? 0,
-                                successRatePrev: it.success_rate_prev ?? null,
                                 mergeQueueRunCount: it.merge_queue_run_count ?? 0,
                             })
                         )
@@ -823,6 +825,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             ttlDays: data.ttl_days,
                             repository: data.repository,
                             trunkUrl: data.trunk_url ?? null,
+                            truncated: data.truncated,
+                            limit: data.limit,
                             teams: data.teams.map(
                                 (it): TrunkQuarantineTeamRow => ({
                                     ownerTeam: it.owner_team,
@@ -929,15 +933,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCards: () => 'ok',
                     loadCardsSuccess: () => 'ok',
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
-                },
-            ],
-            // The quarantine endpoint only 400s when there's no GitHub source and no local checkout.
-            quarantineLoadFailed: [
-                false,
-                {
-                    loadQuarantine: () => false,
-                    loadQuarantineSuccess: () => false,
-                    loadQuarantineFailure: () => true,
                 },
             ],
             // Whole-row click toggles a team's slice open (controlled LemonTable expansion, like the
@@ -1268,13 +1263,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalytics()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsHealth()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTests()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsDeploys()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTeams()]: (_, s) => applyScope(s.source, s.repo),
+                '/engineering-analytics/teams/:ownerTeam': (_, s) => applyScope(s.source, s.repo),
             }
         }),
 
-        afterMount(({ actions }) => {
+        afterMount(({ actions, values }) => {
             actions.loadGithubSources()
-            actions.refresh()
+            // A scoped URL already refreshed through urlToAction, which runs before this hook.
+            if (!values.cardsLoading) {
+                actions.refresh()
+            }
         }),
     ])

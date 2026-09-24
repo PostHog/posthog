@@ -414,7 +414,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     ...formValues,
                     test_cases: formValues.test_cases.map(({ _key, ...tc }) => tc),
                 }
-                await api.create(`api/environments/${currentTeamId}/event_filter/`, payload)
+                await api.create(`api/projects/${currentTeamId}/event_filter/`, payload)
                 lemonToast.success('Event filter saved')
             },
         },
@@ -546,7 +546,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
     // Load existing config from the API on mount
     afterMount(({ actions, values }) => {
         const { currentTeamId } = values
-        api.get(`api/environments/${currentTeamId}/event_filter/`)
+        api.get(`api/projects/${currentTeamId}/event_filter/`)
             .then((data) => {
                 if (!data) {
                     return

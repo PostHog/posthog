@@ -52,6 +52,10 @@ SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 # somebody should look at it.
 SHIFT_ABSORB_MAX_ROWS = 2
 
+# The CLI uploads only .png files, so the backend decodes snapshots as PNG and nothing else.
+# Image.open without formats= tries every format Pillow can parse.
+SNAPSHOT_IMAGE_FORMATS = ("PNG",)
+
 # --- Input DTOs ---
 
 
@@ -150,6 +154,7 @@ class AddSnapshotsInput:
 
     snapshots: list[SnapshotManifestItem]
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    story_index_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -158,6 +163,7 @@ class AddSnapshotsResult:
 
     added: int
     uploads: list[UploadTarget]
+    story_index_upload: UploadTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -448,6 +454,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +464,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -496,20 +504,32 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
 # Hard cap on entries returned by the baselines overview endpoint. Above this,
 # truncate (newest by run completion) and surface `truncated: True` so the UI
 # can flag it. The whole flow is sized for this — the FE filters/sorts client-
-# side and ships ~600 KB gzipped at the cap.
-BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+# side and ships ~900 KB gzipped at the cap. Sized above the largest repo's
+# universe, so the cap is a backstop rather than a filter that hides stories.
+BASELINE_OVERVIEW_MAX_ENTRIES = 7500
 
 # Number of most-recent default-branch completed runs that feed the
 # `recent_drift_avg` smoothing window. Bounded by run count rather than time
 # so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
 # to wash out a single jittery render while staying responsive on real changes.
 BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+# Accepted variants against one current baseline at which the baseline stops describing one
+# rendering and starts describing a set. Three is the point where a reader can no longer hold what
+# "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
+VARIANT_PILEUP_MIN = 3
+
+# Rolling window for counting a snapshot's tolerations across baselines. The debt digest flags
+# `VARIANT_PILEUP_MIN` intentional tolerations in this window. The Tolerate dialog's quarantine
+# suggestion in the frontend (`lib/quarantineNudge.ts`) uses the same window and floor.
+TOLERATION_PILEUP_WINDOW_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -546,6 +566,11 @@ class BaselineEntry:
     height: int | None
     tolerate_count_30d: int
     tolerate_count_90d: int
+    # Accepted variants still recorded against the hash this baseline currently holds. Distinct
+    # from the two counts above, which measure how often somebody accepted drift in a rolling
+    # window. A baseline change drops this to zero, because a toleration is recorded against the
+    # baseline hash it was decided for and stops matching when that hash moves.
+    active_variants_current_baseline: int
     is_quarantined: bool
     last_run_at: datetime
     # Lifetime count of YAML baseline flips on master/main for this identifier.
@@ -576,6 +601,8 @@ class BaselineTotals:
     recently_tolerated: int
     frequently_tolerated: int
     currently_quarantined: int
+    # Baselines carrying at least `VARIANT_PILEUP_MIN` accepted variants of their current hash.
+    variant_pileups: int
     by_run_type: dict[str, int]
 
 
@@ -697,6 +724,9 @@ class FlakinessEntry:
     # between extending it and lifting it.
     needs_decision: bool
     quarantine: BaselineQuarantineSummary | None = None
+    # Team that owns the story file, `UNOWNED_TEAM` when no entry covers it, and None when
+    # ownership is unknown.
+    owner_team: str | None = None
 
 
 @dataclass(frozen=True)
@@ -727,5 +757,37 @@ class FlakinessOverview:
 
     entries: list[FlakinessEntry]
     totals: FlakinessTotals
+    truncated: bool
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
+class RunScope:
+    """Where a run's snapshots live: its repo and run type."""
+
+    repo_id: UUID
+    run_type: str
+
+
+@dataclass(frozen=True)
+class TolerationPileupEntry:
+    """One snapshot identity that keeps getting tolerated."""
+
+    identifier: str
+    run_type: str
+    intentional_count: int
+    automatic_count: int
+    is_quarantined: bool
+
+
+@dataclass(frozen=True)
+class TolerationPileups:
+    """Result of the toleration pile-ups endpoint, with the rule it applied."""
+
+    entries: list[TolerationPileupEntry]
+    window_days: int
+    min_tolerations: int
+    min_automatic_tolerations: int | None
+    total: int
     truncated: bool
     generated_at: datetime

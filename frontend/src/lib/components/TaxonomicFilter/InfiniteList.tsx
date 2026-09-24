@@ -543,11 +543,8 @@ export const InfiniteListRow = ({
                 data-attr="prop-filter-event-option-custom"
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Select event:</span>
+                    <span className="text-muted">Use event name:</span>
                     <span className="font-medium">{trimmedSearchQuery}</span>
-                    <LemonTag type="caution" size="small">
-                        Not seen yet
-                    </LemonTag>
                 </div>
             </LemonRow>
         )
@@ -607,6 +604,7 @@ export const InfiniteListRow = ({
             localListGroup,
             fallbackGroup: group ?? itemGroup,
         })
+        const itemTag = resolvedItemGroup.getTag?.(item)
 
         return (
             <div
@@ -638,6 +636,9 @@ export const InfiniteListRow = ({
                     isActive,
                     selectedRenameMeta: isSelected ? getSelectedItemRenameMeta(selectedItemMeta, itemValue) : null,
                 })}
+                {/* `empty:hidden` because a group's `getTag` returns an element whether or not it renders
+                    anything, and an empty `ml-auto` span would shift every row's pin icon. */}
+                {itemTag ? <span className="flex shrink-0 ml-auto pl-2 empty:hidden">{itemTag}</span> : null}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
                         {localListLabel ? `${itemGroup.name} - ${localListLabel}` : itemGroup.name}
@@ -731,8 +732,6 @@ function InfiniteListEmptyState(): JSX.Element {
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
 
-    // Without the aggregated "all" tab (e.g. the control variant, which doesn't inject SuggestedFilters),
-    // there's no single place to jump to — so surface the specific categories that do have matches.
     // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
     // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
     // don't produce a misleading "See results in …" jump.
@@ -746,8 +745,8 @@ function InfiniteListEmptyState(): JSX.Element {
               )
             : []
 
-    // Reads the Events group rather than this list's own group: in the pill variant the active tab is
-    // the aggregated one, which carries no exclusions of its own. `taxonomicGroups` holds every group
+    // Reads the Events group rather than this list's own group because the active tab can be the
+    // aggregated one, which carries no exclusions of its own. `taxonomicGroups` holds every group
     // whether or not this filter offers it, hence the gate.
     const hiddenEventSearched = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Events)
         ? hiddenEventMatchingSearch(

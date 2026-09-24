@@ -192,9 +192,10 @@ the row lists both.
 | circleci                         | HTTP                        | requests                                                        | ✅                          |
 | circleci_insights                | HTTP                        | requests                                                        | ✅                          |
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
-| cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1 request signing)                | ✅                          |
+| cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1/SHA-512 request signing)        | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
+| clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clerk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse                       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickhouse_cloud                 | HTTP                        | requests                                                        | ✅                          |
@@ -225,7 +226,7 @@ the row lists both.
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
-| dbt                              | HTTP                        | requests                                                        | ✅                          |
+| dbt                              | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | debugbear                        | HTTP                        | requests                                                        | ✅                          |
 | decagon                          | HTTP                        | requests                                                        | ✅                          |
 | deel                             | HTTP                        | requests                                                        | ✅                          |
@@ -848,6 +849,7 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
+- amplemarket
 - anodot_cost
 - anomalo
 - anvil
@@ -946,7 +948,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - classy
-- clay
 - clazar
 - cleartax
 - clevertap
@@ -961,6 +962,7 @@ doesn't conflict with concurrent PRs.
 - codecov
 - collibra
 - commission_junction
+- commslayer
 - constant_contact
 - conta_azul
 - contentsquare
@@ -1004,6 +1006,7 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - e2b
 - ebay
+- electricity_maps
 - eloqua
 - emarsys
 - embrace
@@ -1012,6 +1015,7 @@ doesn't conflict with concurrent PRs.
 - entsoe
 - eurostat
 - expensify
+- expo
 - facebook_pages
 - faros_ai
 - fastbill
@@ -1108,6 +1112,7 @@ doesn't conflict with concurrent PRs.
 - heap
 - hetzner
 - heygen
+- heyreach
 - hibob
 - high_level
 - hivebrite
@@ -1208,7 +1213,9 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
+- moengage
 - moesif
+- monaco
 - moneybird
 - mono
 - moodle
@@ -1236,6 +1243,7 @@ doesn't conflict with concurrent PRs.
 - oecd
 - onedrive
 - onehundredms
+- oneleet
 - onelogin
 - onesignal
 - open_data_dc
@@ -1280,6 +1288,7 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
+- postnord
 - practicepanther
 - preset
 - prestashop
@@ -1296,6 +1305,7 @@ doesn't conflict with concurrent PRs.
 - qonto
 - quay
 - quickbooks
+- quo
 - railz
 - raisely
 - raken
@@ -1375,6 +1385,7 @@ doesn't conflict with concurrent PRs.
 - slash
 - sleuth
 - smaily
+- smartlead
 - smartlook
 - smartrecruiters
 - smartwaiver
@@ -1396,6 +1407,7 @@ doesn't conflict with concurrent PRs.
 - strato
 - strava
 - streamlabs
+- substack
 - sumsub
 - superwall
 - surveymonkey

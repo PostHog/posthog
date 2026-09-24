@@ -3,9 +3,41 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    ScoutDeprecationApi,
     ScoutOriginEnumApi,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
+
+import { ScoutGroupKey } from '../../../utils/scoutGroups'
+
+/**
+ * What a retirement PostHog announced for this scout says, in one tag. A scout that is on its way
+ * out otherwise looks identical to a healthy one until the day it stops, and a retired one looks
+ * like a scout somebody switched off. Nothing renders for a scout PostHog still ships, or for a
+ * project's own edited copy of one, which keeps running.
+ */
+export function ScoutDeprecationBadge({ config }: { config: SignalScoutConfig }): JSX.Element | null {
+    const deprecation: ScoutDeprecationApi | null | undefined = config.deprecation
+    if (!deprecation) {
+        return null
+    }
+    const sunsetOn = deprecation.sunset_at ? dayjs(deprecation.sunset_at).format('MMMM D, YYYY') : null
+    // An announced retirement always carries a date, since a marker without one reads as retired.
+    const announced = deprecation.phase === 'announced' && sunsetOn
+    const label = announced ? `Retiring on ${sunsetOn}` : 'Retired'
+    const headline = announced
+        ? `PostHog is retiring this scout on ${sunsetOn}.`
+        : sunsetOn
+          ? `PostHog retired this scout on ${sunsetOn}.`
+          : 'PostHog retired this scout.'
+    return (
+        <Tooltip title={`${headline} ${deprecation.reason}`.trim()}>
+            <LemonTag type={announced ? 'caution' : 'danger'} size="small">
+                {label}
+            </LemonTag>
+        </Tooltip>
+    )
+}
 
 /**
  * Where the scout stands with the system writers that can pause it: the failure breaker
@@ -14,6 +46,10 @@ import type {
  * as one a person turned off. Nothing renders for a healthy scout or a user pause.
  */
 export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): JSX.Element | null {
+    if (config.pause_reason === 'retired') {
+        // The retirement badge already says this, and with the reason.
+        return null
+    }
     if (config.status === 'paused_by_system') {
         if (config.pause_reason === 'repeated_failures') {
             return (
@@ -69,6 +105,38 @@ export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): 
     return null
 }
 
+/**
+ * Why the inactivity sweep leaves this scout alone, in the terms the exemption came from: the role
+ * PostHog ships it with, or a choice someone made on this project. Nothing renders for a scout the
+ * sweep still judges. The role shows in any group, because it says what the scout is rather
+ * than how its run window went.
+ */
+export function ScoutExemptionBadge({
+    config,
+    group,
+}: {
+    config: SignalScoutConfig
+    group: ScoutGroupKey
+}): JSX.Element | null {
+    if (config.scout_role === 'operational') {
+        return (
+            <Tooltip title="Part of the self-driving system rather than this project's fleet. It checks whether shipped fixes held, so it keeps running and is never paused for being quiet.">
+                <LemonTag type="muted" size="small">
+                    Operational
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    if (config.auto_pause_exempt && group === 'watching') {
+        return (
+            <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
+                <LemonTag size="small">Quiet by design</LemonTag>
+            </Tooltip>
+        )
+    }
+    return null
+}
+
 /** Canonical (PostHog-maintained) vs Custom (team-authored) scout badge. */
 export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JSX.Element {
     return (
@@ -96,6 +164,13 @@ export function ScoutTagBadge({ tag }: { tag: string }): JSX.Element {
 
 /** Where a scout stands right now, in one tag. Used on the scout page header and its settings modal. */
 export function ScoutStatusTag({ config }: { config: SignalScoutConfig }): JSX.Element {
+    if (config.pause_reason === 'retired') {
+        return (
+            <LemonTag type="danger" size="small">
+                Retired
+            </LemonTag>
+        )
+    }
     if (config.status === 'paused_by_system') {
         return (
             <LemonTag type="danger" size="small">

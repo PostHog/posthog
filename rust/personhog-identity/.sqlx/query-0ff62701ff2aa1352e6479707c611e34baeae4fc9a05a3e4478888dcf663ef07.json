@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_sweep_backlog' */ SELECT count(*) AS \"count!\" FROM lifecycle_op WHERE completed_at IS NULL AND parked_at IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0ff62701ff2aa1352e6479707c611e34baeae4fc9a05a3e4478888dcf663ef07"
+}

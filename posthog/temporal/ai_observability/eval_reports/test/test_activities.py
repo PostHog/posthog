@@ -5,30 +5,27 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, Mock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
-    _count_eval_results_for_report,
     _count_eval_results_for_reports_with_split_retry,
     _CountEntry,
     _fetch_count_triggered_eval_report_candidate_groups,
-    _find_nth_eval_timestamp,
     _load_detector_evaluation_ids,
     _load_evaluation_target,
     _period_for_scheduled_report,
-    _update_next_delivery_date,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,
@@ -40,13 +37,12 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.graph import _compute_metrics
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
-from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
 from posthog.temporal.ai_observability.eval_reports.types import (
     PrepareReportContextInput,
     RunEvalReportAgentInput,
     StoreReportRunInput,
-    UpdateNextDeliveryDateInput,
 )
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -65,71 +61,6 @@ def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
     visitor = CollectTimestamps()
     visitor.visit(query.where)
     return sorted(visitor.timestamps)
-
-
-class TestUpdateNextDeliveryDate(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "unavailable_legacy",
-                "metrics_unavailable",
-                True,
-                None,
-                False,
-                ["next_delivery_date", "last_attempted_at"],
-            ),
-            (
-                "completed_legacy",
-                "completed",
-                True,
-                None,
-                True,
-                ["next_delivery_date", "last_attempted_at", "last_delivered_at"],
-            ),
-            (
-                "completed_cursor_only",
-                "completed",
-                False,
-                True,
-                True,
-                ["last_delivered_at"],
-            ),
-        ]
-    )
-    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
-    def test_updates_automatic_report_timing(
-        self,
-        _name: str,
-        generation_status: str,
-        record_attempt: bool,
-        advance_data_cursor: bool | None,
-        expects_delivered_advance: bool,
-        expected_update_fields: list[str],
-        get_report: MagicMock,
-    ) -> None:
-        last_delivered = timezone.now() - dt.timedelta(hours=2)
-        last_attempted = timezone.now() - dt.timedelta(hours=1)
-        period_end = timezone.now()
-        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=last_attempted)
-        get_report.return_value = report
-
-        _update_next_delivery_date(
-            UpdateNextDeliveryDateInput(
-                report_id="report-id",
-                period_end=period_end.isoformat(),
-                generation_status=generation_status,
-                record_attempt=record_attempt,
-                advance_data_cursor=advance_data_cursor,
-            )
-        )
-
-        self.assertEqual(report.last_attempted_at, period_end if record_attempt else last_attempted)
-        self.assertEqual(report.last_delivered_at, period_end if expects_delivered_advance else last_delivered)
-        if record_attempt:
-            report.set_next_delivery_date.assert_called_once_with()
-        else:
-            report.set_next_delivery_date.assert_not_called()
-        report.save.assert_called_once_with(update_fields=expected_update_fields)
 
 
 class TestEvaluationTargetLoading(BaseTest):
@@ -173,23 +104,18 @@ class TestEvaluationTargetLoading(BaseTest):
 
 
 @pytest.mark.parametrize(
-    "target,expected",
+    ("output_type", "evaluation_target", "output_config"),
     [
-        ("session", "properties.$ai_target_type = 'session_id'"),
-        ("trace", "properties.$ai_target_type = 'trace_id'"),
+        ("sentiment", "generation", {}),
+        ("boolean", "trace", {}),
+        ("numeric", "generation", {}),
+        ("numeric", "generation", None),
+        ("numeric", "generation", {"passing_rule": {"operator": "gte", "threshold": 8}}),
     ],
-)
-def test_target_event_predicate_per_target(target, expected):
-    assert target_event_predicate(target) == expected
-
-
-@pytest.mark.parametrize(
-    ("output_type", "evaluation_target"),
-    [("sentiment", "generation"), ("boolean", "trace")],
 )
 @pytest.mark.asyncio
 async def test_run_agent_activity_loads_target_and_forwards_output_type(
-    output_type: str, evaluation_target: str
+    output_type: str, evaluation_target: str, output_config: dict | None
 ) -> None:
     @asynccontextmanager
     async def noop_heartbeater():
@@ -205,6 +131,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
         evaluation_prompt="",
         evaluation_type="sentiment",
         output_type=output_type,
+        output_config=output_config or {},
         period_start="2026-07-01T00:00:00+00:00",
         period_end="2026-07-02T00:00:00+00:00",
         previous_period_start="2026-06-30T00:00:00+00:00",
@@ -229,13 +156,31 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
             "posthog.temporal.ai_observability.eval_reports.activities._load_detector_evaluation_ids",
             return_value=["detector-id"],
         ) as load_detectors,
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.activities._load_numeric_output_configs",
+            return_value={"evaluation-id": {"passing_rule": {"operator": "gte", "threshold": 7}}}
+            if output_config is not None
+            else {},
+        ),
     ):
+        if output_config is None:
+            with pytest.raises(ApplicationError) as error:
+                await run_eval_report_agent_activity(inputs)
+            assert error.value.type == "ReportNotEligible"
+            assert error.value.non_retryable
+            run_agent.assert_not_called()
+            return
         result = await run_eval_report_agent_activity(inputs)
 
     assert result.content["metrics"]["output_type"] == output_type
     assert result.content["evaluation_target"] == evaluation_target
     assert result.generation_status == "completed"
-    assert run_agent.call_args.args[0] is inputs
+    if output_type == "numeric":
+        assert run_agent.call_args.args[0].output_config == (
+            output_config or {"passing_rule": {"operator": "gte", "threshold": 7}}
+        )
+    else:
+        assert run_agent.call_args.args[0] is inputs
     assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
     assert run_agent.call_args.kwargs["detector_evaluation_ids"] == ["detector-id"]
     load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)
@@ -375,38 +320,6 @@ async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> N
     assert "$ai_report_pass_rate" not in properties
 
 
-def test_count_trigger_uses_current_output_type() -> None:
-    report = MagicMock(team_id=1, team=MagicMock(), evaluation_id="evaluation-id")
-    report.evaluation.output_type = "sentiment"
-    report.evaluation.target = "trace"
-
-    with (
-        patch("posthog.hogql.parser.parse_select", return_value=MagicMock()) as parse_select,
-        patch("posthog.hogql.query.execute_hogql_query", return_value=Mock(results=[[4]])),
-    ):
-        result = _count_eval_results_for_report(report, dt.datetime(2026, 7, 1, tzinfo=dt.UTC))
-
-    assert result == 4
-    assert "properties.$ai_evaluation_result_type = 'sentiment'" in parse_select.call_args.args[0]
-    assert "properties.$ai_target_type = 'trace_id'" in parse_select.call_args.args[0]
-
-
-def test_manual_count_window_uses_current_output_type() -> None:
-    before = dt.datetime(2026, 7, 2, tzinfo=dt.UTC)
-    expected = before - dt.timedelta(hours=2)
-
-    with (
-        patch("posthog.hogql.parser.parse_select", return_value=MagicMock()) as parse_select,
-        patch("posthog.hogql.query.execute_hogql_query", return_value=Mock(results=[[expected]])),
-        patch("posthog.models.Team.objects.get", return_value=MagicMock()),
-    ):
-        result = _find_nth_eval_timestamp(1, "evaluation-id", 100, before, output_type="sentiment")
-
-    assert result == expected
-    assert "properties.$ai_evaluation_result_type = 'sentiment'" in parse_select.call_args.args[0]
-    assert "isNull(properties.$ai_target_type)" in parse_select.call_args.args[0]
-
-
 def _prepare_sync(report_id: str, manual: bool = False):
     """Call the inner sync logic of prepare_report_context_activity directly.
 
@@ -542,15 +455,20 @@ class TestPrepareReportContext(BaseTest):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, user) -> None:
+@pytest.mark.parametrize("remove_passing_rule,manual", [(False, False), (True, False), (True, True)])
+async def test_prepare_activity_reads_current_reportability_and_polarity(
+    team, user, remove_passing_rule, manual
+) -> None:
     def _create_report() -> EvaluationReport:
         evaluation = Evaluation.objects.create(
             team=team,
             name="Detector Eval",
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "test prompt"},
-            output_type="boolean",
-            output_config={"true_is_failure": True},
+            output_type="numeric" if remove_passing_rule else "boolean",
+            output_config={"passing_rule": {"operator": "gte", "threshold": 7}}
+            if remove_passing_rule
+            else {"true_is_failure": True},
             enabled=True,
             created_by=user,
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
@@ -566,9 +484,29 @@ async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, us
 
     report = await sync_to_async(_create_report)()
 
-    context = await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id)))
-
-    assert context.true_is_failure is True
+    if remove_passing_rule:
+        await sync_to_async(Evaluation.objects.filter(id=report.evaluation_id).update)(
+            output_config={"passing_rule": None}
+        )
+    inputs = PrepareReportContextInput(report_id=str(report.id), manual=manual)
+    if remove_passing_rule:
+        next_delivery_date = report.next_delivery_date
+        with pytest.raises(ApplicationError, match="set a passing rule") as error:
+            await prepare_report_context_activity(inputs)
+        assert error.value.non_retryable
+        assert error.value.type == "ReportNotEligible"
+        await sync_to_async(report.refresh_from_db)()
+        assert report.last_delivered_at is None
+        if manual:
+            assert report.next_delivery_date == next_delivery_date
+            assert report.last_attempted_at is None
+        else:
+            assert report.next_delivery_date is not None
+            assert report.next_delivery_date > timezone.now()
+            assert report.last_attempted_at is not None
+    else:
+        context = await prepare_report_context_activity(inputs)
+        assert context.true_is_failure is True
 
 
 class TestCountTriggeredReportChecks(BaseTest):
@@ -904,6 +842,57 @@ class TestPeriodForScheduledReport(BaseTest):
         now = dt.datetime(2026, 3, 8, 18, 0, tzinfo=dt.UTC)  # 14:00 EDT, after 9am EDT fire
         period = _period_for_scheduled_report(report, now)
         self.assertEqual(period, dt.timedelta(hours=23))
+
+
+class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [("registered", True, True), ("unregistered_applicable", False, True), ("unregistered", False, False)]
+    )
+    def test_numeric_reports_classify_real_scores_and_exclude_skips(
+        self, _name: str, registered: bool, score_registered: bool
+    ) -> None:
+        if score_registered:
+            PropertyDefinition.objects.create(
+                team=self.team, name="$ai_evaluation_numeric_result", property_type="Numeric", is_numerical=True
+            )
+        if registered:
+            PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_applicable", property_type="Boolean")
+        start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
+        rows: list[dict[str, object]] = [
+            {"$ai_evaluation_numeric_result": 0},
+            {"$ai_evaluation_numeric_result": 7},
+            {"$ai_evaluation_numeric_result": 7.5},
+            {"$ai_evaluation_numeric_result": 8},
+            {"$ai_evaluation_applicable": False},
+            {"$ai_evaluation_skipped": True},
+        ]
+        for index, properties in enumerate(rows):
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id=f"numeric-{index}",
+                timestamp=start,
+                properties={
+                    "$ai_evaluation_id": "numeric-eval",
+                    "$ai_evaluation_result_type": "numeric",
+                    **properties,
+                },
+            )
+        for operator, expected in [("gte", {"pass": 3, "fail": 1, "na": 1}), ("lte", {"pass": 2, "fail": 2, "na": 1})]:
+            config = {"passing_rule": {"operator": operator, "threshold": 7}}
+            metrics = _compute_metrics(
+                self.team.id,
+                "numeric-eval",
+                start.isoformat(),
+                (start + dt.timedelta(days=1)).isoformat(),
+                (start - dt.timedelta(days=1)).isoformat(),
+                output_type="numeric",
+                output_config=config,
+            )
+            assert metrics is not None
+            self.assertEqual(metrics.total_runs, 5)
+            self.assertEqual(metrics.result_counts, expected)
+            self.assertEqual(metrics.output_config, config)
 
 
 class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):

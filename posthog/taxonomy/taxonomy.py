@@ -76,6 +76,8 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$app_version",
     "$browser",
     "$browser_version",
+    "$webview_app",
+    "$webview_app_version",
     "$device_type",
     "$current_url",
     "$pathname",
@@ -293,6 +295,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_embedding": {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
+        },
+        "$recording_observed": {
+            "label": "Recording observed (Replay Vision)",
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "primary_property": "scanner_name",
         },
         "$csp_violation": {
             "label": "CSP violation",
@@ -845,6 +852,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_pending_queue_size": {
+            "label": "Pending queue size",
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "label": "Replay flush hold reason",
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated",
+            ],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "label": "Replay capture mode",
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": ["screenshot", "wireframe"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "label": "Replay throttle delay (ms)",
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [1000],
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "label": "Replay pending trigger conditions",
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
             "used_for_debug": True,
         },
         "$last_posthog_reset": {
@@ -1619,6 +1665,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Name of the browser the user has used.",
             "examples": ["Chrome", "Firefox"],
         },
+        "$webview_app": {
+            "label": "In-app browser",
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app.",
+            "examples": ["LinkedIn", "Instagram", "TikTok"],
+        },
+        "$webview_app_version": {
+            "label": "In-app browser version",
+            "description": "Version of the host app whose in-app browser the event came from.",
+            "examples": ["309.1.0", "375.0.0"],
+        },
         "$os": {
             "label": "OS",
             "description": "The operating system of the user.",
@@ -1969,8 +2025,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["com.posthog.app"],
         },
         "version": {
-            "label": "App version",
-            "description": "The version of the app",
+            "label": "App version (app lifecycle)",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": ["1.0.0"],
         },
         "previous_version": {
@@ -1979,8 +2035,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["1.0.0"],
         },
         "build": {
-            "label": "App build",
-            "description": "The build number for the app",
+            "label": "App build (app lifecycle)",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": ["1"],
         },
         "previous_build": {
@@ -2490,6 +2546,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
         },
+        "$ai_evaluation_numeric_result": {
+            "label": "AI evaluation numeric result",
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [0, 0.75, 10],
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "label": "AI evaluation numeric result minimum",
+            "description": "The configured minimum score for an online evaluation.",
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "label": "AI evaluation numeric result maximum",
+            "description": "The configured maximum score for an online evaluation.",
+            "type": "Numeric",
+        },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",
@@ -2927,6 +2999,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
             "examples": ["client_metadata", "self_reported"],
         },
+        "$mcp_llm_model_missing_reason": {
+            "label": "MCP model missing reason",
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": ["missing", "unknown", "invalid", "not_captured", "capture_error"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -3138,6 +3215,41 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP session vendor client",
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        # Replay Vision properties, all on `$recording_observed`. This group labels a property name
+        # everywhere it appears, so only names Replay Vision owns belong here. `session_id`,
+        # `triggered_by`, `credits`, `model_used` and `provider_used` are deliberately absent:
+        # error tracking, experiments, LLM analytics and signals send their own, with different
+        # values. `scanner_*` is safe because Replay Vision's own LLM calls carry it too.
+        "scanner_id": {
+            "label": "Scanner ID (Replay Vision)",
+            "description": "Scanner that produced the observation.",
+        },
+        "scanner_name": {
+            "label": "Scanner name (Replay Vision)",
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+        },
+        "scanner_type": {
+            "label": "Scanner type (Replay Vision)",
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": ["monitor", "classifier", "scorer", "summarizer"],
+        },
+        "scanner_version": {
+            "label": "Scanner version (Replay Vision)",
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "type": "Numeric",
+        },
+        "emits_signals": {
+            "label": "Emits signals (Replay Vision)",
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+        },
+        "recording_distinct_id": {
+            "label": "Observed distinct ID (Replay Vision)",
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+        },
+        "recording_subject_email": {
+            "label": "Observed subject email (Replay Vision)",
+            "description": "Email of the person in the recording, captured when the scan ran.",
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -3625,6 +3737,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
             "type": "String",
         },
+        "$fbp": {
+            "label": "Facebook browser ID (fbp)",
+            "description": "The Facebook browser ID that Meta's Conversions API uses to match a conversion to a browser, read from the `_fbp` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.1098115397"],
+            "type": "String",
+        },
     },
     "session_properties": {
         "$session_duration": {
@@ -4087,3 +4205,20 @@ WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if name not in IGNORED_EVENT_NAMES and name != "All events"
 )
+
+
+def is_virtual_property(group: str, name: str) -> bool:
+    """Whether a property is virtual — computed at query time, never stored as a PropertyDefinition row.
+
+    Single source of truth for both taxonomy listings (read_taxonomy) and HogQL taxonomy validation
+    (execute_sql), so the two agree on which `$virt_*` names are known.
+    """
+    definition = CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}).get(name)
+    return definition is not None and definition.get("virtual") is True
+
+
+def virtual_property_names(group: str) -> frozenset[str]:
+    """Names of the group's virtual properties. See `is_virtual_property`."""
+    return frozenset(
+        name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}) if is_virtual_property(group, name)
+    )

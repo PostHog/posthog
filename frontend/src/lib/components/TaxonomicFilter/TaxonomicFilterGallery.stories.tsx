@@ -362,14 +362,13 @@ function variantKey(usage: Usage): string {
 
 const STORY_TITLE: Record<string, string> = {
     'rebuild-menu': 'rebuild menu on (only the wrapper entry points change)',
-    'legacy-pill': 'legacy · category dropdown = pill',
-    'legacy-control': 'legacy · category dropdown = control',
+    'classic-picker': 'classic picker with category dropdown',
 }
 
 /**
  * The surface a given variant actually renders on a given story. The rebuild
  * flag only swaps the two wrapper entry points, so a raw `TaxonomicFilter`
- * stays on the legacy UI even on the rebuild story — this label makes that
+ * stays on the classic picker even on the rebuild story. This label makes that
  * explicit per cell instead of letting the story title imply otherwise.
  */
 function surfaceFor(key: string, story: string): string {
@@ -379,7 +378,7 @@ function surfaceFor(key: string, story: string): string {
     if (getsRebuild && story === 'rebuild-menu') {
         return 'rebuild menu'
     }
-    return story === 'legacy-pill' ? 'legacy · pill' : 'legacy · control'
+    return 'classic picker'
 }
 
 function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): JSX.Element {
@@ -501,13 +500,12 @@ function Gallery({ variant }: { variant: string }): JSX.Element {
         <div className="p-4">
             <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery — {STORY_TITLE[variant] ?? variant}</h1>
             <p className="text-sm text-secondary mb-4 max-w-3xl">
-                The taxonomic-filter family collapses to a handful of unique presentations; most call sites just pass a
+                The taxonomic-filter family collapses to a handful of unique presentations. Most call sites just pass a
                 different <code>taxonomicGroupTypes</code> to the same one. Each cell renders one variant and lists the
-                call sites that use it (with the props that differ), so the duplication — and where it could be
-                simplified — is visible. The badge on each cell is the surface it actually renders: the rebuild flag
-                only swaps the two wrapper entry points, so raw <code>TaxonomicFilter</code> stays on the legacy UI even
-                on the rebuild story. Raw <code>TaxonomicFilter</code> has no resting state, so it reveals on "Show
-                picker".
+                call sites that use it with the props that differ. The badge on each cell is the surface it actually
+                renders. The rebuild flag only swaps the two wrapper entry points, so raw <code>TaxonomicFilter</code>{' '}
+                stays on the classic picker even on the rebuild story. Raw <code>TaxonomicFilter</code> has no resting
+                state, so it reveals on "Show picker".
             </p>
             <div className="grid grid-cols-1 xl:grid-cols-2 border-l border-t">
                 {VARIANTS.map((v) => {
@@ -579,12 +577,6 @@ export const RebuildMenu: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true } },
 }
 
-export const LegacyPill: Story = {
-    render: () => <Gallery variant="legacy-pill" />,
-    parameters: { featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' } },
-}
-
-export const LegacyControl: Story = {
-    render: () => <Gallery variant="legacy-control" />,
-    parameters: { featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'control' } },
+export const ClassicPicker: Story = {
+    render: () => <Gallery variant="classic-picker" />,
 }

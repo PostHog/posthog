@@ -62,6 +62,8 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
+    "data_catalog",
+    "data_deletion",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -192,6 +194,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "data_deletion":
+        return "data deletion requests"
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
@@ -213,6 +217,8 @@ def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
 
 
 def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    if resource == "data_deletion":
+        return "none"
     if resource in ["project"]:
         return "admin"
     if resource in ["organization"]:
@@ -414,14 +420,28 @@ class UserAccessControl:
         # object in a list response. The events carry no object id, so these repeats are
         # identical events. Report each distinct divergence once per request.
         self._reported_resolved_access_divergences: set[tuple] = set()
+        # Project-wide object-id resolutions, keyed by (resource, team, level). Each one scans the
+        # resource and preloads its access controls, and one request asks for the same set several
+        # times over. Narrowed lookups are never stored here, only whole-resource ones.
+        self._allowed_object_ids: dict[tuple[str, int, str], frozenset] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
 
         self._organization_id = organization_id
 
+    def allowed_object_ids(
+        self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
+    ) -> frozenset:
+        """Memoize one whole-resource object-id resolution for the life of this request."""
+        key = (resource, team_id, required_level)
+        if key not in self._allowed_object_ids:
+            self._allowed_object_ids[key] = resolve()
+        return self._allowed_object_ids[key]
+
     def _clear_cache(self):
         self._cache = {}
+        self._allowed_object_ids = {}
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
@@ -1534,10 +1554,13 @@ class UserAccessControl:
         explicit: bool = False,
         fallback_parent_id: Optional[str] = None,
     ) -> Optional[ResolvedAccess]:
-        """Row-based object access resolution, most specific rule first: explicit (role/member) object
-        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
-        resource-level rows, then default object rows, then the resource default. Shared by
-        `get_user_access_level` and `bulk_object_access_levels`, which read only `.access_level`.
+        """Row-based object access resolution. Explicit (role/member) object rows decide first. After
+        that, an object-level default of "none" is final and cannot be widened by a broader
+        resource-level grant, matching the list filter (`_blocked_and_allowed_object_ids`). Then
+        the fallback parent's object rows, then resource-level rows, then the parent's
+        resource-level rows, then the remaining object default rows, then the resource default.
+        Shared by `get_user_access_level` and `bulk_object_access_levels`, which read only
+        `.access_level`.
         """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
@@ -1553,6 +1576,21 @@ class UserAccessControl:
                 source_resource=resource,
                 source_resource_id=row.resource_id,
             )
+
+        # A private object (an object-level default of "none") must not be widened by a broader
+        # resource-level grant. Decide on the object's own rows before the resource rung, so the
+        # retrieve path agrees with the list filter (`_blocked_and_allowed_object_ids`), which
+        # already treats the object default as a hard block.
+        if object_access_controls:
+            object_row = self._object_rows_decision(resource, object_access_controls)
+            if object_row.access_level == NO_ACCESS_LEVEL:
+                return ResolvedAccess(
+                    access_level=cast(AccessControlLevel, NO_ACCESS_LEVEL),
+                    source="object",
+                    source_subject=self._row_subject(object_row),
+                    source_resource=resource,
+                    source_resource_id=object_row.resource_id,
+                )
 
         if parent:
             parent_rows = self._get_access_controls(
@@ -1633,6 +1671,27 @@ class UserAccessControl:
                 "object", resource, access, lambda: self.resolve_most_specific_object_access(obj)
             )
         return access.access_level if access else None
+
+    def _resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+        """The enforced access to `obj`, as `get_user_access_level` decides it, with the rule
+        that supplied it kept so a display can attribute the level."""
+        resource = model_to_resource(obj)
+        if not resource:
+            return None
+
+        if self._is_most_specific_access_control_enabled:
+            return self.resolve_most_specific_object_access(obj)
+
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        if resolved:
+            return access
+
+        object_access_controls = self._get_access_controls(
+            self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        )
+        return self._object_access_level_from_rows(
+            resource, object_access_controls, fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
 
     def bulk_object_access_levels(
         self,

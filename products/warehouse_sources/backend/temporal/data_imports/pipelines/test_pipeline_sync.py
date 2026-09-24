@@ -1,10 +1,10 @@
 import uuid
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, transaction
+from django.db import OperationalError, connections, transaction
 
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
@@ -404,12 +404,10 @@ class TestValidateSchemaAndUpdateTable:
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
 
-    # Published files at zero rows mean a resumed or redelivered run counted only its own attempt.
-    # Trusting row_count there left the data in S3 with no table to query it through.
-    @pytest.mark.parametrize("published_file_count,expect_table", [(0, False), (18, True)])
-    def test_zero_row_sync_creates_a_table_only_when_files_were_published(
-        self, team, published_file_count: int, expect_table: bool
-    ):
+    def test_zero_row_sync_creates_no_table(self, team):
+        # The publish step republishes the whole delta table every run, so files being queryable
+        # says nothing about this run writing any. A table born here has no column types to take -
+        # the run wrote no arrow batches - and registers empty, which reads as data loss.
         schema, job = self._schema_and_job(team)
         assert schema.table is None
 
@@ -424,18 +422,11 @@ class TestValidateSchemaAndUpdateTable:
                 row_count=0,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders",
-                published_file_count=published_file_count,
             )
 
         schema.refresh_from_db()
-        tables = DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False)
-        if not expect_table:
-            assert schema.table is None
-            assert not tables.exists()
-        else:
-            assert schema.table_id == tables.get().id
-            # A reported 0 must not register a table full of published files as empty.
-            assert tables.get().row_count == 150
+        assert schema.table is None
+        assert not DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).exists()
 
     def test_relinks_a_table_an_earlier_run_left_unlinked(self, team):
         # An orphan must be adopted and repointed, not left unlinked and not duplicated.
@@ -454,7 +445,6 @@ class TestValidateSchemaAndUpdateTable:
                 row_count=0,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders_v2",
-                published_file_count=18,
             )
 
         schema.refresh_from_db()
@@ -483,10 +473,9 @@ class TestValidateSchemaAndUpdateTable:
                 run_id=str(sibling_job.id),
                 team_id=team.pk,
                 schema_id=sibling.id,
-                row_count=0,
+                row_count=10,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders_v2",
-                published_file_count=18,
             )
 
         owner.refresh_from_db()
@@ -542,13 +531,16 @@ class TestSetInitialSyncComplete(BaseTest):
     wiped), and NEVER purged when the schema is already streaming (those files are live,
     unconsumed changes)."""
 
-    def _schema(self, *, sync_type: str, config: dict, initial_sync_complete: bool) -> ExternalDataSchema:
+    def _schema(
+        self, *, sync_type: str, config: dict, initial_sync_complete: bool, job_inputs: dict | None = None
+    ) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
+            job_inputs=job_inputs or {},
         )
         return ExternalDataSchema.objects.create(
             team_id=self.team.pk,
@@ -592,7 +584,7 @@ class TestSetInitialSyncComplete(BaseTest):
             calls.append(schema_id)
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.purge_buffer_prefix",
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix",
             side_effect=_record_purge,
         ):
             _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
@@ -601,3 +593,77 @@ class TestSetInitialSyncComplete(BaseTest):
         assert schema.initial_sync_complete is True
         assert (calls == [str(schema.id)]) is expects_purge
         assert schema.sync_type_config.get("cdc_mode") == expected_cdc_mode
+
+    def test_a_snapshot_the_buffer_carried_keeps_its_files_and_the_flip_clears_the_marker(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        schema = self._schema(
+            sync_type="cdc",
+            config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
+            initial_sync_complete=False,
+            job_inputs={"cdc_ingest_mode": "buffered"},
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix"
+        ) as purge:
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        purge.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert schema.sync_type_config.get("cdc_mode") == "streaming"
+        assert "cdc_snapshot_lane" not in schema.sync_type_config
+
+
+class TestSnapshotHandoverHoldsTheRowLock(NonAtomicBaseTest):
+    def test_capture_cannot_mark_the_table_while_the_hand_over_purges(self) -> None:
+        # Capture marks the table under this row lock before it writes. Were the lock released
+        # between the hand-over's marker read and its purge, capture could mark the table and write a
+        # file that the purge then deletes.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+            job_inputs={"cdc_ingest_mode": "buffered"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.users",
+            sync_type="cdc",
+            sync_type_config={"cdc_mode": "snapshot"},
+            initial_sync_complete=False,
+        )
+        row_free_during_purge: list[bool] = []
+
+        def _lock_from_another_connection(*_args, **_kwargs) -> None:
+            other = connections.create_connection("default")
+            try:
+                with other.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT 1 FROM posthog_externaldataschema WHERE id = %s FOR UPDATE NOWAIT", [str(schema.id)]
+                    )
+                    row_free_during_purge.append(cursor.fetchone() is not None)
+            except OperationalError:
+                row_free_during_purge.append(False)
+            finally:
+                other.close()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix",
+            side_effect=_lock_from_another_connection,
+        ):
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        assert row_free_during_purge == [False]
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_mode"] == "streaming"

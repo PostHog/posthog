@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads import (
     AmazonAdsResumeConfig,
     amazon_ads_source,
@@ -55,12 +53,12 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AMAZON_ADS,
+            name=ExternalDataSourceType.AMAZONADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Amazon Ads",
             caption="""Connect your Amazon Ads account to pull your advertising entity data into the PostHog Data warehouse.
 
-You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your Sponsored Products entities and daily campaign performance are synced from every profile the token can access.""",
+You need a Login with Amazon (LWA) application with Advertising API access: enter its client ID and secret plus a refresh token authorized for your advertiser account. Pick the region that matches your advertising profiles (North America, Europe, or Far East). Your portfolios, your Sponsored Products, Sponsored Brands and Sponsored Display entities, and daily Sponsored Products campaign performance are synced from every profile the token can access.""",
             iconPath="/static/services/amazon_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-ads",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -139,6 +139,7 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     /**
@@ -152,6 +153,13 @@ export interface TaxonomicFilterProps {
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
+    /**
+     * Mark every cohort row with what feature flags can do with it. Set it only where that is the
+     * question the picker is asking, which today is a feature flag's release conditions. The same
+     * cohort groups back every other picker in the app, and a row reading "No flag targeting" in an
+     * insight breakdown describes nothing the reader is choosing.
+     */
+    showCohortFlagTargeting?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
@@ -265,6 +273,8 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** A small tag after the item's name, for a per-item state a reader should see before selecting it. */
+    getTag?: (instance: any) => ReactNode
     /** Determines if an item should be disabled (unselectable) */
     getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number
@@ -436,15 +446,3 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
-
-export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
-
-export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
-
-export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
-    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
-}
-
-export function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}

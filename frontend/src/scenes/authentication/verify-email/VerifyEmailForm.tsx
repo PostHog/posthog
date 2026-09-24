@@ -2,23 +2,25 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as jackDawsonPng from '@posthog/brand/hoggies/png/jack-dawson'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
 import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogExplorer = pngHoggie(explorerPng)
+const HedgehogJackDawson = pngHoggie(jackDawsonPng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
@@ -61,7 +63,7 @@ function NotSeeingIt(): JSX.Element {
                 Not seeing it?
             </button>
             {open && (
-                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
                     <p className="m-0 mb-2.5 font-semibold text-primary">Before we resend, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (
@@ -169,6 +171,7 @@ function VerificationCodeEntry(): JSX.Element {
 
 function CheckYourInbox(): JSX.Element {
     const { uuid, user, reason, verificationEmailSent } = useValues(verifyEmailLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
 
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
@@ -204,6 +207,11 @@ function CheckYourInbox(): JSX.Element {
                     <>We sent you a 6-digit code. It's valid for 30 minutes.</>
                 )}
             </p>
+            {pendingConnection && (
+                <p className="AuthScene__sub -mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                    {reviewAccessCopy(pendingConnection, 'After you verify')}
+                </p>
+            )}
             <VerificationCodeEntry />
             <div className="mt-3">
                 <NotSeeingIt />
@@ -214,6 +222,7 @@ function CheckYourInbox(): JSX.Element {
 
 export function VerifyEmailForm(): JSX.Element {
     const { view, verificationEmailSent } = useValues(verifyEmailLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
@@ -226,10 +235,12 @@ export function VerifyEmailForm(): JSX.Element {
                     <div className="flex flex-col items-center text-center">
                         <HedgehogExplorer className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
-                            You're verified, go explore!
+                            {pendingConnection ? "You're verified" : "You're verified, go explore!"}
                         </h1>
                         <p className="AuthScene__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
-                            Email confirmed. Next up: a quick setup. Your org, your team, your first events.
+                            {pendingConnection
+                                ? `Email confirmed. Next, review what ${pendingConnection.clientName} can access.`
+                                : 'Email confirmed. Next up: a quick setup. Your org, your team, your first events.'}
                         </p>
                         <div className="AuthScene__progress mb-4 w-full h-1.5 overflow-hidden bg-[#e0e1d9] rounded-sm">
                             <div className="AuthScene__progress-fill w-full h-full bg-warning rounded-sm" />
@@ -258,7 +269,7 @@ export function VerifyEmailForm(): JSX.Element {
                     }
                 >
                     <div className="flex flex-col items-center text-center">
-                        <SleepingHog className="block w-auto mx-auto h-28" />
+                        <HedgehogJackDawson className="block w-auto mx-auto h-28" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                             We don't know who to verify
                         </h1>

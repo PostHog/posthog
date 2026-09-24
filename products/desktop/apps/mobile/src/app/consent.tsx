@@ -40,7 +40,7 @@ export default function ConsentScreen() {
 
   const acceptBeta = async (): Promise<void> => {
     if (!organization) return;
-    await getPostHogApiClient().acceptDesktopBetaTerms(organization.id);
+    await getPostHogApiClient().acceptDesktopBetaTerms();
     posthog?.capture(ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP);
     await queryClient.invalidateQueries({
       queryKey: desktopBetaTermsKeys.all(),

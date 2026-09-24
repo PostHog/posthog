@@ -11,7 +11,6 @@ from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
-from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
@@ -19,6 +18,7 @@ from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
 )
+from posthog.migration_helpers import deprecate_field
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -192,9 +192,9 @@ class ErrorTrackingExternalReference(UUIDTModel):
     )
     integration = models.ForeignKey(Integration, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: provider can be fetched through the integration model
-    provider = deprecate_field(models.TextField(null=False, blank=False))
+    provider = deprecate_field(models.TextField(null=True, blank=False))
     # DEPRECATED: ids should be placed inside the external_context json field
-    external_id = deprecate_field(models.TextField(null=False, blank=False))
+    external_id = deprecate_field(models.TextField(null=True, blank=False))
     external_context = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -222,7 +222,6 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
     team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False, related_name="+")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
-    user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
     role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -243,7 +242,15 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
+        constraints = [
+            # The included columns are what the ingestion fingerprint lookup selects, so it
+            # reads the index alone and never fetches from the heap.
+            models.UniqueConstraint(
+                fields=["team", "fingerprint"],
+                include=["id", "issue", "version"],
+                name="unique_fingerprint_for_team_covering",
+            ),
+        ]
         db_table = "posthog_errortrackingissuefingerprintv2"
 
 
@@ -428,7 +435,6 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
-    user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
     role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     order_key = models.IntegerField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
@@ -490,7 +496,6 @@ class ErrorTrackingGroupingRule(UUIDTModel):
     # in so far as we permit all of these to be null
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
-    user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
     role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
 
     # Users will probably find it convenient to be able to add a short description to grouping rules
@@ -956,6 +961,14 @@ class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
     integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
     # Channel-specific delivery settings, e.g. {"channel": "C0123", "channel_name": "#alerts"} for Slack
     config = models.JSONField(default=dict, blank=True)
+    # Delivery outcome record: visibility only, nothing auto-disables a failing
+    # destination (per the alerting RFC that stays an open question).
+    last_delivered_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    # db_default keeps inserts from pods that predate these columns valid during a
+    # rolling deploy; Django would otherwise drop the database default after backfill.
+    last_error = models.TextField(blank=True, default="", db_default="")
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -968,9 +981,9 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
 
     Maps an issue to the externally posted notification (e.g. a Slack message) so
     lifecycle updates can be delivered as replies to the original message instead
-    of new fire-and-forget notifications. The unique constraint is the concurrency
-    primitive: concurrent deliveries race on the insert and the loser reuses the
-    winner's thread.
+    of new fire-and-forget notifications. The unique constraint dedupes the row;
+    `pending_notification_id` is the send claim: concurrent deliveries serialize on
+    it so only one posts at a time, and the loser retries into the winner's thread.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
@@ -985,6 +998,10 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
     # UUIDs of recently delivered lifecycle notifications (newest last, capped by the
     # delivery activity) so Temporal retries don't duplicate notifications.
     delivered_notification_ids = models.JSONField(default=list, blank=True)
+    # Notification currently posting to this thread, with the claim time so a holder
+    # that died before saving is treated as stale instead of wedging the thread.
+    pending_notification_id = models.CharField(max_length=64, null=True, blank=True)
+    pending_claimed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

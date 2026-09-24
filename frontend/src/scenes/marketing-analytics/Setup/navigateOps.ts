@@ -12,11 +12,12 @@ import type { ApplyOp } from 'scenes/web-analytics/tabs/marketing-analytics/fron
  * New tabs throughout: the user is midway through a checklist and navigating away
  * loses their place in it.
  */
-export function runNavigateOp(op: ApplyOp): boolean {
+export function runNavigateOp(op: ApplyOp, entryPoint: string): boolean {
     if (['open_oauth', 'open_source_wizard', 'open_settings'].includes(op.op)) {
         posthog.capture('marketing analytics setup navigation opened', {
             destination: op.op,
             integration: op.kind,
+            entry_point: entryPoint,
         })
     }
     switch (op.op) {

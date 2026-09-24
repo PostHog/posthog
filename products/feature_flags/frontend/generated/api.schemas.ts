@@ -560,7 +560,7 @@ export interface FeatureFlagApi {
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
     archived?: boolean
     readonly created_by: UserBasicApi
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
@@ -616,9 +616,9 @@ export interface FeatureFlagApi {
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
      */
-    last_called_at?: string | null
+    readonly last_called_at: string | null
     _create_in_folder?: string
-    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean
     /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
     readonly is_eligible_for_experiment: boolean
@@ -1188,7 +1188,7 @@ export interface ActivityLogEntryApi {
     /** Whether the acting user was being impersonated by PostHog staff. */
     readonly was_impersonated: boolean
     /**
-     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
      * @nullable
      */
     readonly client: string | null
@@ -1206,6 +1206,87 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+/**
+ * The body every DRF exception on these actions renders as.
+ *
+ * `ErrorResponseSerializer` declares a single `error` key, which no response on this viewset
+ * produces: the project exception handler renders this envelope instead. Declaring the wrong
+ * shape reaches the generated clients and the MCP tools, where an agent reads a key that is
+ * never there.
+ */
+export interface FlagActionErrorApi {
+    /** Error class, for example `validation_error`. */
+    type: string
+    /** Machine-readable reason, for example `invalid_input`. */
+    code: string
+    /** Human-readable description of what was refused. */
+    detail: string
+    /**
+     * Request field the error belongs to, or null when it belongs to no single field.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
+ * The 400 body a soft-deleted flag produces, which differs from every other error here.
+ *
+ * Built as a plain response rather than raised, so it carries neither the `type` nor the
+ * `attr` the exception handler's envelope has.
+ */
+export interface FlagDeletedRejectionApi {
+    /** Always `false`. */
+    success: boolean
+    /** Human-readable reason, naming the restore the caller has to do before retrying. */
+    error: string
+}
+
+/**
+ * The 400 body a change matching several approval policies produces.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * policies that matched instead of the `type`/`attr` envelope.
+ */
+export interface FlagPolicyConflictApi {
+    /** Always `policy_conflict`. */
+    code: string
+    /** Human-readable reason the change could not be gated. */
+    error: string
+    /** The approval policies that matched this change. */
+    conflicting_policies: unknown
+    /** How to split the change so each policy applies on its own. */
+    guidance: string
+}
+
+export type FeatureFlagActionBadRequestApi = FlagActionErrorApi | FlagDeletedRejectionApi | FlagPolicyConflictApi
+
+/**
+ * The 409 body an approval policy produces, which differs from every other error here.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * change request it opened instead of the `type`/`attr` envelope.
+ */
+export interface FlagApprovalConflictApi {
+    /** `approval_required` when this call opened the change request, `change_request_pending` when one was already open for the same action. */
+    code: string
+    /** Always `approval_required`. */
+    status: string
+    /** Human-readable description of the policy that gated the change. */
+    detail: string
+    /** Same text as `detail`. */
+    message: string
+    /** Resource the change request targets, `feature_flag` here. */
+    resource_type: string
+    /** Id of the flag the change request targets. */
+    resource_id: string
+    /** Id of the change request that was opened. */
+    change_request_id: string
+    /** The change request that was opened, serialized in full. */
+    change_request: unknown
+    /** Who can approve the change request. */
+    required_approvers: unknown
+}
+
 export interface DependentFlagApi {
     /** Feature flag ID */
     id: number
@@ -1213,6 +1294,42 @@ export interface DependentFlagApi {
     key: string
     /** Feature flag name */
     name: string
+}
+
+export interface FeatureFlagRollOutToEveryoneRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
+    /**
+     * The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.
+     * @nullable
+     */
+    variant_key?: string | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
+export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
+    /**
+     * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
+     * @minimum 0
+     */
+    condition_index: number
+    /**
+     * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage: number
+    /**
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
+     * @minimum 0
+     * @nullable
+     */
+    version: number | null
 }
 
 export interface FeatureFlagRolloutSummaryApi {
@@ -1561,7 +1678,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
     /**
-     * Tag names to add, remove, or set.
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
      * @maxItems 100
      * @items.maxLength 255
      */

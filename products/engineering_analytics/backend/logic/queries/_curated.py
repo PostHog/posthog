@@ -28,6 +28,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -41,6 +42,7 @@ from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
+    reviews,
     team_members,
     trunk_merge_queue,
     trunk_quarantined_tests,
@@ -50,6 +52,8 @@ from products.engineering_analytics.backend.logic.views import (
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+_QUERY_PAGE_SIZE = 5000
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -69,6 +73,17 @@ class DeploySources:
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+_PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
+
+
+def push_rows_select(*, runs_source: str, run_filter: str) -> str:
+    """One row per authored commit that reached CI. Skipped workflows still prove the push."""
+    return f"""
+        SELECT pr_number, head_sha, min(coalesce(created_at, run_started_at)) AS pushed_at
+        FROM {runs_source} AS r
+        WHERE {_PUSH_RUN_PREDICATE} AND ({run_filter})
+        GROUP BY pr_number, head_sha
+    """
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -138,11 +153,17 @@ class CuratedGitHubSource:
     """
 
     def __init__(
-        self, *, team: Team, tables: GitHubTables, user_access_control: "UserAccessControl | None" = None
+        self,
+        *,
+        team: Team,
+        tables: GitHubTables,
+        user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> None:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._queries_remaining = query_limit
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
         self._trunk_quarantine_source: TrunkQuarantineSource | None = None
@@ -158,6 +179,15 @@ class CuratedGitHubSource:
         """The selected source's ``owner/name`` identity for reads outside the warehouse."""
         return self._tables.repository
 
+    @property
+    def source_id(self) -> str:
+        """The selected source, which the resolver already filtered by the caller's access.
+
+        A read outside the warehouse that needs a GitHub credential takes it from this source, so
+        it never reads with a credential of a source the caller is not allowed to use.
+        """
+        return self._tables.source_id
+
     @classmethod
     def for_team(
         cls,
@@ -166,6 +196,7 @@ class CuratedGitHubSource:
         source_id: str | None = None,
         repo: str | None = None,
         user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
@@ -173,6 +204,7 @@ class CuratedGitHubSource:
                 team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
             ),
             user_access_control=user_access_control,
+            query_limit=query_limit,
         )
 
     def pr_source(self) -> str:
@@ -240,12 +272,29 @@ class CuratedGitHubSource:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
 
-    def issue_events_source(self) -> str | None:
+    def issue_events_source(self, *, created_floor: bool = False) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced."""
+        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor, so callers
+        must register {event_created_floor} (see ``run_started_floor_constant``)."""
         if not self._tables.issue_events:
             return None
-        return f"({issue_events.build_query(self._tables.issue_events)})"
+        return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
+
+    def team_review_requests_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated team review requests ``SELECT`` subquery, or None when the issue events hold none.
+        ``created_floor`` adds the raw-string scan floor; callers must then register {event_created_floor}
+        (see run_started_floor_constant)."""
+        if not (self._tables.issue_events and self._tables.issue_events_team_requests):
+            return None
+        query = issue_events.build_team_review_requests_query(self._tables.issue_events, created_floor=created_floor)
+        return f"({query})"
+
+    def reviews_source(self) -> str | None:
+        """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
+        isn't synced."""
+        if not self._tables.reviews:
+            return None
+        return f"({reviews.build_query(self._tables.reviews)})"
 
     def deploy_sources(self) -> "DeploySources | None":
         """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
@@ -263,7 +312,7 @@ class CuratedGitHubSource:
         a constant NULL when the optional issue-events table isn't synced, so every consumer reads
         the measure the same way."""
         window = self._issue_events_window()
-        cte = self._ready_by_pr_cte()
+        cte = self.ready_by_pr_cte()
         if window is None or cte is None:
             return _READY_TO_MERGE_UNOBSERVABLE
         return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
@@ -280,8 +329,9 @@ class CuratedGitHubSource:
             end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
         )
 
-    def _ready_by_pr_cte(self) -> str | None:
-        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+    def ready_by_pr_cte(self, *, created_floor: bool = False) -> str | None:
+        """CTE: each PR's last observed draft-state transition and last ready event, or None when the
+        table isn't synced. ``created_floor`` works as in ``issue_events_source``.
 
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
@@ -289,8 +339,12 @@ class CuratedGitHubSource:
         ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
         PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
         issue-events table belongs to that one repo by table construction.
+
+        The events table and the pull requests table sync independently, so a timestamp here can run
+        ahead of what a PR's own row reports. A consumer that compares one against a PR's end must
+        bound it. ``last_ready_at`` is safe against ``merged_at`` alone, because a draft cannot merge.
         """
-        source = self.issue_events_source()
+        source = self.issue_events_source(created_floor=created_floor)
         if source is None:
             return None
         return f"""
@@ -298,7 +352,11 @@ class CuratedGitHubSource:
                 SELECT
                     pr_number,
                     argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
-                    max(created_at) AS last_transition_at
+                    max(created_at) AS last_transition_at,
+                    -- OrNull, not maxIf: a plain maxIf falls back to the epoch default when no row
+                    -- matches, and that default would pass the caller's last_ready_at IS NOT NULL
+                    -- filter as if it were a real event (see dora.py's deploys CTE for the same hazard).
+                    maxOrNullIf(created_at, event = '{issue_events.READY_FOR_REVIEW_EVENT}') AS last_ready_at
                 FROM {source} AS se
                 GROUP BY pr_number
             )
@@ -369,6 +427,11 @@ class CuratedGitHubSource:
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- Completes the partition, so an all-cancelled PR is not read as passing.
+                    countIf(
+                        s = 'completed'
+                        AND ifNull(c, '') NOT IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})
+                    ) AS inconclusive,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
                     arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows
@@ -431,7 +494,7 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0 AND NOT is_merge_queue
+                WHERE {_PUSH_RUN_PREDICATE}
                     AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
@@ -455,6 +518,46 @@ class CuratedGitHubSource:
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
+
+    def run_paged(
+        self,
+        sql: str,
+        *,
+        page_key: tuple[tuple[str, int], ...],
+        query_type: str,
+        placeholders: dict[str, ast.Expr],
+    ) -> list[tuple]:
+        """Read every row by an immutable unique key, without the per-query result cap."""
+        rows: list[tuple] = []
+        cursor: tuple[object, ...] | None = None
+        key_columns = [column for column, _index in page_key]
+        order_by = ", ".join(key_columns)
+        while True:
+            cursor_filter = ""
+            page_placeholders = placeholders
+            if cursor is not None:
+                cursor_names = [f"paged_after_{index}" for index in range(len(cursor))]
+                left = key_columns[0] if len(key_columns) == 1 else f"({', '.join(key_columns)})"
+                right = (
+                    f"{{{cursor_names[0]}}}"
+                    if len(cursor_names) == 1
+                    else f"({', '.join(f'{{{name}}}' for name in cursor_names)})"
+                )
+                cursor_filter = f"WHERE {left} > {right}"
+                page_placeholders = {
+                    **placeholders,
+                    **{name: ast.Constant(value=value) for name, value in zip(cursor_names, cursor, strict=True)},
+                }
+            response = self.run(
+                f"SELECT * FROM ({sql}) AS paged\n{cursor_filter}\nORDER BY {order_by}\nLIMIT {_QUERY_PAGE_SIZE}",
+                query_type=query_type,
+                placeholders=page_placeholders,
+            )
+            page = list(response.results or [])
+            rows.extend(page)
+            if len(page) < _QUERY_PAGE_SIZE:
+                return rows
+            cursor = tuple(page[-1][index] for _column, index in page_key)
 
     def run(
         self,
@@ -480,6 +583,10 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
+        if self._queries_remaining is not None:
+            if self._queries_remaining <= 0:
+                raise QueryWorkLimitExceededError
+            self._queries_remaining -= 1
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(

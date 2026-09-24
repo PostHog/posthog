@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,6 +8,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
     ['2026-05-25', 320, 4100, 120, 1900, false],
@@ -443,6 +447,8 @@ const CLUSTER_SNAPSHOT = {
     ],
 }
 
+const ACTIVITY_MODELS = ['claude-opus-5-5', 'gpt-5.6-sol', 'claude-sonnet-5']
+
 // [tool, intent, durationMs, client, errorMessage]
 const ACTIVITY_CALLS: [string, string | null, number | null, string, string | null][] = [
     [
@@ -586,6 +592,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
     }
 
     const results = ACTIVITY_CALLS.map(([tool, intent, durationMs, clientName, errorMessage], index) => {
+        const model = ACTIVITY_MODELS[index % ACTIVITY_MODELS.length]
         const timestamp = dayjs('2026-06-07T12:00:00Z')
             .subtract(index * 37, 'second')
             .toISOString()
@@ -599,6 +606,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 $mcp_error_message: errorMessage,
                 $mcp_intent: intent,
                 $mcp_is_error: errorMessage !== null,
+                $mcp_llm_model: model,
                 $mcp_parameters: { input: `Example input for ${tool}` },
                 $mcp_response: errorMessage ? { error: errorMessage } : { ok: true },
                 $mcp_server_name: 'example-server',
@@ -630,6 +638,9 @@ function activityEventsResponse(select: string[]): Record<string, any> {
             if (column.endsWith('-- Client')) {
                 return clientName
             }
+            if (column.endsWith('-- Model')) {
+                return model
+            }
             return null
         })
     })
@@ -651,12 +662,16 @@ const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics',
     decorators: [
+        (Story, context) =>
+            mswDecorator({
+                get: { '/api/users/@me/': { ...MOCK_DEFAULT_USER, theme_mode: context.globals.theme ?? 'light' } },
+            })(Story, context),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
-                '/api/environments/:team_id/mcp_analytics/sessions/': SESSION_LIST,
-                '/api/environments/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
+                '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
+                '/api/projects/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
                 '/api/projects/:team_id/property_definitions': ({ request }) => {
                     const isFeatureFlag = new URL(request.url).searchParams.get('is_feature_flag') === 'true'
                     return [200, isFeatureFlag ? MCP_FEATURE_FLAG_DEFINITIONS : MCP_PROPERTY_DEFINITIONS]
@@ -675,6 +690,23 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                                    { model: 'example-fast', total_calls: 3100 },
+                                    { model: 'example-balanced', total_calls: 1800 },
+                                    { model: 'example-model-d', total_calls: 500 },
+                                    { model: 'example-model-e', total_calls: 200 },
+                                    { model: 'example-model-f', total_calls: 1 },
+                                    { model: 'Other', total_calls: 179 },
+                                    { model: 'Unknown', total_calls: 600 },
+                                ],
+                            },
+                        ]
+                    }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
                     }
@@ -801,19 +833,28 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-07T12:00:00Z',
         pageUrl: urls.mcpAnalyticsDashboard(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS],
     },
 }
 export default meta
 
 type Story = StoryObj<{}>
 
-export const Dashboard: Story = {}
+export const Dashboard: Story = {
+    parameters: { testOptions: { viewportWidths: ['medium', 'wide'] } },
+}
 
-// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
+export const DashboardNarrow: Story = {
+    parameters: { layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
+}
+
 export const DashboardWithMenuBar: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+        featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
     },
 }
 
@@ -844,6 +885,6 @@ export const ToolQuality: Story = {
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }

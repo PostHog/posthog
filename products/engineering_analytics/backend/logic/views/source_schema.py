@@ -96,15 +96,34 @@ ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
     "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "issue": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # GitHub adds this object only to a team review request, so a repo where no pull request asked a team
+    # lands no such column. The source resolver checks for it.
+    "requested_team": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Contract for the ``github_reviews`` warehouse source: one row per submitted review, fanned out
+# over pull requests with the parent's number injected as ``pr_number``. ``user`` is the reviewer
+# object verbatim as JSON. Same Nullable/string discipline as above.
+REVIEWS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "pr_number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "user": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "commit_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "submitted_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
 # are GitHub user objects with the parent team's identity injected by the source fan-out
 # (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the
-# membership-based merge timing reads. Same Nullable discipline as above.
+# membership-based merge timing reads, and ``role`` (``maintainer`` / ``member``) is what the
+# roster read orders reviewers by. Same Nullable discipline as above. GitHub omits ``role`` from
+# the documented member object, so a real table can land without it and the source resolver
+# probes for it rather than assuming it (see MEMBER_ROLE_COLUMN).
 TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "role": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

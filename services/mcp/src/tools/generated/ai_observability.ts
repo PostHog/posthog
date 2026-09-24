@@ -1281,6 +1281,12 @@ const llmaEvaluationTestHog = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationTestHogSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.output_type !== undefined) {
+            body['output_type'] = params.output_type
+        }
+        if (params.output_config !== undefined) {
+            body['output_config'] = params.output_config
+        }
         if (params.source !== undefined) {
             body['source'] = params.source
         }
@@ -1477,6 +1483,7 @@ const llmaPromptGet = (): ToolBase<ReturnType<typeof LlmaPromptGetSchema>, Schem
             query: {
                 content: params.content,
                 label: params.label,
+                resolve: params.resolve,
                 version: params.version,
             },
         })
@@ -2379,7 +2386,13 @@ const llmaTraceReviewUpdate = (): ToolBase<
 
 const AssistantDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
 })
 
 const AssistantDurationRange = z.object({

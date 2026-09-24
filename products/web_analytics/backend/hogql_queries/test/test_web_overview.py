@@ -33,6 +33,8 @@ from posthog.schema import (
     WebAnalyticsSampling,
     WebOverviewQuery,
     WebOverviewQueryResponse,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -41,12 +43,13 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Element
+from posthog.models import Element, Team
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
     FirstPageviewAttributionTestMixin,
 )
@@ -570,14 +573,73 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
-    def test_conversion_goal_one_custom_event_conversion(self):
-        s1 = str(uuid7("2023-12-01"))
+    @parameterized.expand([("event", False), ("action", True)])
+    def test_goal_properties_preserve_visitors_and_deduplicate_customers(self, _name: str, use_action: bool) -> None:
+        s1, s2 = str(uuid7("2023-12-01")), str(uuid7("2023-12-02"))
         self._create_events(
             [
-                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
-            ],
-            event="custom_event",
+                ("p1", [("2023-12-01", s1, "https://example.com")]),
+                ("p2", [("2023-12-02", s2, "https://example.com")]),
+            ]
         )
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, None, {"plan": "paid"}), ("2023-12-01", s1, None, {"plan": "paid"})]),
+                ("p2", [("2023-12-02", s2, None, {"plan": "free"})]),
+            ],
+            event="customer_created",
+        )
+        properties = [EventPropertyFilter(key="plan", value="paid", operator=PropertyOperator.EXACT)]
+        goal: ActionConversionGoal | CustomEventConversionGoal
+        if use_action:
+            action = Action.objects.create(
+                team=self.team, name="Customer created", steps_json=[{"event": "customer_created"}]
+            )
+            goal = ActionConversionGoal(actionId=action.id, properties=properties)
+        else:
+            goal = CustomEventConversionGoal(customEventName="customer_created", properties=properties)
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"), properties=[], conversionGoal=goal
+        )
+        results = {
+            item.key: item.value for item in WebOverviewQueryRunner(team=self.team, query=query).calculate().results
+        }
+        assert results["visitors"] == 2
+        assert results["total conversions"] == 2
+        assert results["unique conversions"] == 1
+        assert results["conversion rate"] == 50
+        self._create_events(
+            [(f"goal_only_{i}", [("2023-12-02", str(uuid7("2023-12-02")), None, {"plan": "paid"})]) for i in range(3)],
+            event="customer_created",
+        )
+        for selected_goal, include_traffic in [(goal, True), (None, True), (goal, None)]:
+            table = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=query.dateRange,
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    conversionGoal=selected_goal,
+                    includeTrafficMetrics=include_traffic,
+                ),
+            ).calculate()
+            assert table.columns is not None
+            row = dict(zip(table.columns, table.results[0]))
+            if include_traffic:
+                assert row["context.columns.sessions"][0] == 2
+                assert row["context.columns.views"][0] == 2
+                assert row["context.columns.visitors"][0] == 2
+            else:
+                assert "context.columns.sessions" not in row
+                assert row["context.columns.visitors"][0] == 5
+            if selected_goal:
+                assert row["context.columns.unique_conversions"][0] == 4
+                assert row["context.columns.conversion_rate"][0] == (2 if include_traffic else 0.8)
+
+    def test_conversion_goal_one_custom_event_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
+        self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
         results = self._run_web_overview_query("2023-12-01", "2023-12-03", custom_event="custom_event").results
 
@@ -595,12 +657,8 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
-        self._create_events(
-            [
-                ("p1", [("2023-12-01", s1)]),
-            ],
-            event="custom_event",
-        )
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
+        self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
         action = Action.objects.create(
             team=self.team,
@@ -628,6 +686,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_autocapture_conversion(self):
         s1 = str(uuid7("2023-12-01"))
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
         self._create_events(
             [
                 ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")])]),
@@ -1123,6 +1182,45 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
+    @override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0)
+    @time_machine.travel(QUERY_TIMESTAMP, tick=False)
+    def test_conversion_goal_with_legacy_session_id(self) -> None:
+        team, _ = Team.objects.get_or_create(
+            id=2, defaults={"organization": self.organization, "project": self.team.project}
+        )
+        test_run_id = str(uuid7())
+        _create_person(team_id=team.pk, distinct_ids=[test_run_id])
+        for event in ["$pageview", "signup"]:
+            _create_event(
+                team=team,
+                event=event,
+                distinct_id=test_run_id,
+                timestamp="2025-01-10T12:00:00Z",
+                properties={
+                    "$session_id": f"legacy-{test_run_id}",
+                    "$current_url": "https://example.com/",
+                    "test_run_id": test_run_id,
+                },
+            )
+
+        response = WebOverviewQueryRunner(
+            team=team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                properties=[EventPropertyFilter(key="test_run_id", value=test_run_id, operator=PropertyOperator.EXACT)],
+                filterTestAccounts=False,
+                conversionGoal=CustomEventConversionGoal(customEventName="signup"),
+                modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1),
+            ),
+        ).calculate()
+
+        assert {item.key: item.value for item in response.results} == {
+            "visitors": 1,
+            "total conversions": 1,
+            "unique conversions": 1,
+            "conversion rate": 100,
+        }
+
     def _create_pageviews(self):
         s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
         for distinct_id, session_id, timestamps in [
@@ -1418,7 +1516,8 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         # Full-shape lock on the generated SQL, complementing the targeted
         # assertions above — any change to the rendered fast-path query shows up
         # in review as a snapshot diff.
-        assert self.generalize_sql(sql) == self.snapshot
+        generalized = self.generalize_sql(sql)
+        assert generalized == self.sql_snapshot(generalized)
 
     def test_session_id_set_executes_with_pushdown_modifier_and_tag(self):
         # The fast path only pays off if _calculate actually flips the

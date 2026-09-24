@@ -5,10 +5,11 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 :class:`UserGitHubIntegration` (user-scoped).
 """
 
+import re
 import json
 import time
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -29,6 +30,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.github.merge_queue import MergeQueueState
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
@@ -60,6 +62,11 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
+
+# GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
+# label its team configured, so a longer list is a caller mistake rather than a use we support.
+MAX_PR_LABELS = 10
+MAX_LABEL_NAME_LENGTH = 50
 
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
@@ -98,6 +105,17 @@ class GitHubCommitAuthor:
     is_bot: bool = False
 
 
+@frozen
+class GitHubAuthorLastCommit:
+    """When an account last landed a commit on a repository's default branch.
+
+    ``last_commit_at`` is None when GitHub answered and the account has no commit there. A
+    caller that could not ask GitHub at all gets no instance, so the two cases stay apart.
+    """
+
+    last_commit_at: datetime | None
+
+
 @dataclass(frozen=True)
 class GitHubCommitAttribution:
     """GitHub's own commit→account attribution, from the commits listing."""
@@ -111,7 +129,11 @@ class GitHubCommitAttribution:
 
 @frozen
 class PullRequestRef:
-    """A pull request's coordinates, parsed from its GitHub HTML URL."""
+    """A pull request or an issue's coordinates, parsed from its GitHub HTML URL.
+
+    One shape for both, because GitHub numbers issues and pull requests in one sequence per
+    repository and answers for both on the issues endpoints.
+    """
 
     owner: str
     repo: str
@@ -120,6 +142,16 @@ class PullRequestRef:
     @property
     def repository(self) -> str:
         return f"{self.owner}/{self.repo}"
+
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 class GitHubIntegrationError(Exception):
@@ -327,16 +359,22 @@ class GitHubIntegrationBase:
 
     @classmethod
     def uninstall_app_installation(cls, installation_id: str) -> bool:
+        return cls.uninstall_app_installation_status(installation_id) in ("uninstalled", "already_absent")
+
+    @classmethod
+    def uninstall_app_installation_status(
+        cls, installation_id: str
+    ) -> Literal["uninstalled", "already_absent", "skipped", "failed"]:
         """Tell GitHub to uninstall the App via ``DELETE /app/installations/{id}``.
 
         Best-effort: never raises. Treats 204 (removed) and 404 (already gone) as
-        success. Returns ``False`` on any other outcome or when the App is not configured.
+        success. The result distinguishes removal, absence, skipped requests, and failures.
         """
         if not installation_id:
-            return False
+            return "skipped"
         if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
             logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
-            return False
+            return "skipped"
 
         try:
             response = cls.client_request(f"installations/{installation_id}", method="DELETE", timeout=10)
@@ -346,7 +384,7 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 exc_info=True,
             )
-            return False
+            return "failed"
 
         if response.status_code in (204, 404):
             logger.info(
@@ -354,14 +392,14 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 status_code=response.status_code,
             )
-            return True
+            return "uninstalled" if response.status_code == 204 else "already_absent"
 
         logger.warning(
             "GitHubIntegration: uninstall_app_installation unexpected status",
             installation_id=installation_id,
             status_code=response.status_code,
         )
-        return False
+        return "failed"
 
     @classmethod
     def uninstall_if_last_reference(
@@ -770,16 +808,13 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
-        headers: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
         """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
         success/error-dict verbs built on top."""
         path = url.removeprefix("https://api.github.com")
         try:
-            return self.api_request(
-                "PATCH", path, endpoint=endpoint, json_body=json_body, headers=headers, timeout=timeout
-            )
+            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
@@ -936,6 +971,60 @@ class GitHubIntegrationBase:
             is_bot=author.get("type") == "Bot",
         )
 
+    def get_author_last_commit(self, repository: str, login: str) -> GitHubAuthorLastCommit | None:
+        """When ``login`` last committed to ``repository``'s default branch.
+
+        Returns None when GitHub could not be asked or did not answer in a readable shape, so a
+        caller can hold its behavior instead of acting on a failed probe. Rate limits raise
+        ``GitHubRateLimitError`` (from ``api_request``).
+        """
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}/commits",
+            endpoint="/repos/{owner}/{repo}/commits",
+            params={"author": login, "per_page": 1},
+        )
+        if response is None:
+            return None
+        if response.status_code != 200:
+            logger.info(
+                "GitHub API non-200 for author last-commit lookup",
+                status_code=response.status_code,
+                repository=repository,
+            )
+            return None
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: failed to parse author last-commit JSON", repository=repository, exc_info=True
+            )
+            return None
+        if not isinstance(body, list):
+            return None
+        if not body:
+            return GitHubAuthorLastCommit(last_commit_at=None)
+        commit = body[0].get("commit") if isinstance(body[0], dict) else None
+        if not isinstance(commit, dict):
+            return None
+        author = commit.get("author")
+        committer = commit.get("committer")
+        raw_date = (author.get("date") if isinstance(author, dict) else None) or (
+            committer.get("date") if isinstance(committer, dict) else None
+        )
+        if not isinstance(raw_date, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw_date)
+        except ValueError:
+            logger.warning(
+                "GitHubIntegration: unparseable author last-commit date", repository=repository, exc_info=True
+            )
+            return None
+        # Every GitHub commit date carries a zone; a naive one would break the caller's arithmetic.
+        if parsed.tzinfo is None:
+            return None
+        return GitHubAuthorLastCommit(last_commit_at=parsed)
+
     def list_commit_attributions(
         self,
         repository: str,
@@ -1015,27 +1104,40 @@ class GitHubIntegrationBase:
         return attributions
 
     @staticmethod
-    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
-        """Parse a GitHub pull request URL into a :class:`PullRequestRef`.
+    def _parse_repo_item_url(url: str, item_path: str) -> PullRequestRef | None:
+        """Parse a ``/{owner}/{repo}/{item_path}/{number}[/...]`` GitHub URL.
 
-        Returns ``None`` if the URL does not look like a GitHub PR URL.
+        Returns ``None`` when the URL is not one. Only the first four path segments are read, so a
+        caller that rebuilds an API path from the result cannot be steered by anything after them.
         """
         try:
-            parsed = urlparse(pr_url)
+            parsed = urlparse(url)
         except Exception:
             return None
         if parsed.netloc not in {"github.com", "www.github.com"}:
             return None
         parts = [p for p in parsed.path.split("/") if p]
-        # Expected path: /{owner}/{repo}/pull/{number}[/...]
-        if len(parts) < 4 or parts[2] != "pull":
+        if len(parts) < 4 or parts[2] != item_path:
             return None
-        owner, repo, _, pr_number_str = parts[:4]
+        owner, repo, _, number_str = parts[:4]
+        if not number_str.isdigit():
+            return None
         try:
-            pr_number = int(pr_number_str)
+            # ``isdigit`` is true for digits ``int`` rejects, such as a superscript.
+            number = int(number_str)
         except ValueError:
             return None
-        return PullRequestRef(owner=owner, repo=repo, number=pr_number)
+        return PullRequestRef(owner=owner, repo=repo, number=number)
+
+    @staticmethod
+    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
+        """Parse a GitHub pull request URL. Returns ``None`` when the URL is not one."""
+        return GitHubIntegrationBase._parse_repo_item_url(pr_url, "pull")
+
+    @staticmethod
+    def parse_issue_url(issue_url: str) -> PullRequestRef | None:
+        """Parse a GitHub issue URL. Returns ``None`` when the URL is not one."""
+        return GitHubIntegrationBase._parse_repo_item_url(issue_url, "issues")
 
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
@@ -1077,11 +1179,17 @@ class GitHubIntegrationBase:
             "merged": pr.get("merged", False),
             "draft": pr.get("draft", False),
             "head_branch": head.get("ref"),
+            "head_repository": (head.get("repo") or {}).get("full_name"),
             "base_branch": base.get("ref"),
             "head_sha": head.get("sha"),
             "base_sha": base.get("sha"),
             "repository": repo_path,
             "author": user.get("login"),
+            "assignees": [
+                entry["login"]
+                for entry in (pr.get("assignees") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
@@ -1092,7 +1200,6 @@ class GitHubIntegrationBase:
             "additions": pr.get("additions", 0),
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
-            "etag": response.headers.get("ETag"),
         }
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
@@ -1131,17 +1238,17 @@ class GitHubIntegrationBase:
 
         return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
 
-    def update_pull_request_body(
-        self, repository: str, pr_number: int, body: str, *, expected_etag: str | None = None
-    ) -> dict[str, Any]:
-        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo."""
+    def update_pull_request_body(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo.
+
+        GitHub rejects ``If-Match`` on this endpoint with a 400, so the write cannot be conditional.
+        """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         response = self._installation_authenticated_patch(
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
             json_body={"body": body},
-            headers={"If-Match": expected_etag} if expected_etag else None,
         )
         if response is None:
             return {"success": False, "error": "Network error updating pull request"}
@@ -1160,27 +1267,40 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         return self.close_pull_request(parsed.repository, parsed.number)
 
+    def _post_comment(self, repository: str, number: int, body: str, *, subject: str) -> dict[str, Any]:
+        """Comment through the issue-comments endpoint, which serves issues and pull requests alike.
+
+        The endpoint cannot tell the caller which of the two it wrote to, and a GET to find out
+        would cost a request per comment. So the caller names the subject, and an error says
+        "issue" or "pull request" as the caller knows it to be.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": f"Network error commenting on {subject}"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment on {subject}: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
+    def comment_on_issue(self, repository: str, issue_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on an issue. ``repository`` is ``owner/repo`` or a bare repo."""
+        return self._post_comment(repository, issue_number, body, subject="issue")
+
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
 
         PR comments use the issues endpoint (a PR is an issue for commenting purposes).
         """
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_post(
-            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json_body={"body": body},
-        )
-        if response is None:
-            return {"success": False, "error": "Network error commenting on pull request"}
-        if response.status_code != 201:
-            return {
-                "success": False,
-                "error": f"Failed to comment on pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        return {"success": True}
+        return self._post_comment(repository, pr_number, body, subject="pull request")
 
     def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
         """Post a comment on a pull request by its HTML URL."""
@@ -1228,6 +1348,180 @@ class GitHubIntegrationBase:
         ]
         return {"success": True, "assignees": assigned}
 
+    def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
+        """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        Additive only. GitHub's add-labels endpoint never removes a label, so a caller cannot clear
+        one by leaving it out of ``labels``, and adding a label the pull request already carries
+        changes nothing. A name the repository does not define yet is created first, because GitHub
+        refuses the whole call otherwise.
+
+        Labels use the issues endpoint (a PR is an issue for labelling purposes).
+        """
+        wanted = list(dict.fromkeys(name.strip() for name in labels if name and name.strip()))[:MAX_PR_LABELS]
+        if not wanted or any(len(name) > MAX_LABEL_NAME_LENGTH for name in wanted):
+            return {"success": True, "labels": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        url = f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/labels"
+        endpoint = "/repos/{owner}/{repo}/issues/{issue_number}/labels"
+
+        response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is not None and response.status_code == 422:
+            # 422 is what an undefined label name reads as, so create the names and try once more.
+            # A name that already exists costs one refused create, never a lost label.
+            for name in wanted:
+                self._create_repository_label(repo_path, name)
+            response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is None:
+            return {"success": False, "error": "Network error labelling pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to label pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            body = response.json()
+        except Exception:
+            body = []
+        applied = [entry["name"] for entry in body if isinstance(entry, dict) and entry.get("name")]
+        return {"success": True, "labels": applied}
+
+    def _create_repository_label(self, repo_path: str, name: str) -> bool:
+        """Define ``name`` as a label in the repository. Returns whether it exists afterwards.
+
+        No color is chosen, so GitHub picks one and the team can restyle the label without this
+        ever writing over their choice. A label somebody created in between answers 422, which
+        counts as existing.
+        """
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name},
+        )
+        if response is None:
+            return False
+        return response.status_code in (201, 422)
+
+    def is_assignable(self, repository: str, login: str) -> dict[str, Any]:
+        """Whether ``login`` can be assigned to issues and pull requests in ``repository``.
+
+        The add-assignees endpoint drops a login it cannot assign instead of failing, so a caller
+        that must know whether one specific person lands checks here first.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/assignees/{login}",
+            endpoint="/repos/{owner}/{repo}/assignees/{assignee}",
+        )
+        if response is None:
+            return {"success": False, "error": "Network error checking assignee"}
+        if response.status_code == 204:
+            return {"success": True, "assignable": True}
+        if response.status_code == 404:
+            return {"success": True, "assignable": False}
+        return {
+            "success": False,
+            "error": f"Failed to check assignee: {response.text}",
+            "status_code": response.status_code,
+        }
+
+    def list_pull_request_files(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """The paths of the first page of files a pull request changes, at most 100.
+
+        One page only, so a very large pull request costs one read. Callers that need every path
+        must not use this.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/files",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+            params={"per_page": 100},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error listing pull request files"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to list pull request files: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            files = response.json()
+        except Exception:
+            return {"success": False, "error": "Failed to parse pull request files JSON"}
+        paths = [
+            entry["filename"]
+            for entry in (files if isinstance(files, list) else [])
+            if isinstance(entry, dict) and isinstance(entry.get("filename"), str)
+        ]
+        return {"success": True, "paths": paths}
+
+    def was_ever_unassigned(self, repository: str, issue_number: int) -> dict[str, Any]:
+        """Whether anybody ever removed an assignee from an issue or pull request.
+
+        Reads every page of the issue events, so a failed page comes back as a failure rather than as
+        "never unassigned".
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{issue_number}/events",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/events",
+            params={"per_page": 100},
+        )
+        if not complete:
+            last = responses[-1] if responses else None
+            return {
+                "success": False,
+                "error": f"Failed to list issue events: {last.text if last is not None else 'network error'}",
+                "status_code": last.status_code if last is not None else None,
+            }
+        for response in responses:
+            try:
+                events = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse issue events JSON"}
+            if not isinstance(events, list):
+                return {"success": False, "error": "Issue events JSON is not a list"}
+            if any(isinstance(event, dict) and event.get("event") == "unassigned" for event in events):
+                return {"success": True, "unassigned": True}
+        return {"success": True, "unassigned": False}
+
+    def list_team_members(self, org: str, team_slug: str) -> dict[str, Any]:
+        """The logins of every member of a GitHub team, including members of its child teams.
+
+        Needs the app's organization members read permission. Without it GitHub answers 403, which
+        comes back as a failure.
+        """
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/orgs/{org}/teams/{team_slug}/members",
+            endpoint="/orgs/{org}/teams/{team_slug}/members",
+            params={"per_page": 100},
+        )
+        if not complete:
+            last = responses[-1] if responses else None
+            return {
+                "success": False,
+                "error": f"Failed to list team members: {last.text if last is not None else 'network error'}",
+                "status_code": last.status_code if last is not None else None,
+            }
+        logins: list[str] = []
+        for response in responses:
+            try:
+                members = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse team members JSON"}
+            logins.extend(
+                entry["login"]
+                for entry in (members if isinstance(members, list) else [])
+                if isinstance(entry, dict) and isinstance(entry.get("login"), str)
+            )
+        return {"success": True, "logins": logins}
+
     def add_pull_request_assignees_from_url(self, pr_url: str, assignees: Iterable[str]) -> dict[str, Any]:
         """Add assignees to a pull request by its HTML URL."""
         parsed = self.parse_pull_request_url(pr_url)
@@ -1248,6 +1542,15 @@ class GitHubIntegrationBase:
         head_sha = pr.get("head_sha")
         if not head_sha:
             return {"success": False, "error": "Pull request has no head commit"}
+
+        permissions = self.integration.config.get("permissions")
+        if isinstance(permissions, dict) and permissions and permissions.get("checks") not in {"read", "write"}:
+            return {
+                "success": False,
+                "error": "GitHub App is missing permission to read check runs",
+                "error_code": "github_checks_permission_missing",
+            }
+
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         checks: list[dict[str, Any]] = []
@@ -1345,6 +1648,57 @@ class GitHubIntegrationBase:
             "commit_id": raw.get("commit_id") if is_review else None,
             "reactions": [],
         }
+
+    def _get_issue_comment_pages(self, repository: str, pr_number: int) -> tuple[list[requests.Response], bool]:
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        return self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            params={"per_page": 100},
+        )
+
+    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool | None:
+        """Return None when an incomplete read cannot prove the marker is absent."""
+        responses, complete = self._get_issue_comment_pages(repository, pr_number)
+        for response in responses:
+            if response.status_code != 200:
+                return None
+            try:
+                comments = response.json()
+            except ValueError:
+                return None
+            if not isinstance(comments, list):
+                return None
+            for comment in comments:
+                if not isinstance(comment, dict) or not isinstance(comment.get("body"), str):
+                    return None
+                if marker in comment["body"]:
+                    return True
+        return False if complete else None
+
+    def get_pull_request_merge_queue_state(self, repository: str, pr_number: int) -> MergeQueueState | None:
+        """Read the Trunk merge queue state off the pull request's comments; None when Trunk does not manage it.
+
+        Raises GitHubIntegrationError on an incomplete read, because a missed Trunk comment reads as
+        "not in the queue" and lets a caller push into it.
+        """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
+        responses, complete = self._get_issue_comment_pages(repository, pr_number)
+        comments: list[Mapping[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json() if response.status_code == 200 else None
+            except ValueError:
+                page = None
+            if not isinstance(page, list):
+                raise GitHubIntegrationError(
+                    f"Could not read the comments of {repository}#{pr_number}", status_code=response.status_code
+                )
+            comments.extend(comment for comment in page if isinstance(comment, dict))
+        if not complete:
+            raise GitHubIntegrationError(f"Could not read every comment of {repository}#{pr_number}")
+        return MergeQueueState.from_comments(comments)
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a PR's conversation comments and inline review comments, merged chronologically.
@@ -1458,6 +1812,37 @@ class GitHubIntegrationBase:
             return []
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
 
+    def has_open_pull_request_with_base(self, repository: str, branch: str) -> bool:
+        """Whether an open pull request from the same repository uses ``branch`` as its base, which means pull requests are stacked on it.
+
+        Fork pull requests do not count, because anyone can open one against any branch.
+        Raises GitHubIntegrationError on a failed read, because a missed stacked pull request lets a
+        caller commit under it.
+        """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repository}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"base": branch, "state": "open", "per_page": 100},
+        )
+        for response in responses:
+            try:
+                pulls = response.json() if response.status_code == 200 else None
+            except ValueError:
+                pulls = None
+            if not isinstance(pulls, list):
+                raise GitHubIntegrationError(
+                    f"Could not list the pull requests based on {repository}:{branch}", status_code=response.status_code
+                )
+            for pull in pulls:
+                head_repo = ((pull.get("head") or {}).get("repo") or {}) if isinstance(pull, dict) else {}
+                if str(head_repo.get("full_name", "")).lower() == repository.lower():
+                    return True
+        if not complete:
+            raise GitHubIntegrationError(f"Could not list every pull request based on {repository}:{branch}")
+        return False
+
     def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
         """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.
 
@@ -1550,23 +1935,34 @@ class GitHubIntegrationBase:
             return False
         return True
 
-    def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
+    def _gh_graphql(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        *,
+        endpoint: str,
+        timeout: int = 10,
+        retry_transient: bool = True,
+    ) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
         GraphQL queries are read-only, so a POST retry on transient failures is safe —
         hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle, plus an
         extra retry loop here for GitHub's 200-with-``errors`` transient server errors that
-        the status-code retry can't catch.
+        the status-code retry can't catch. A mutation passes ``retry_transient=False``: a
+        network error can arrive after GitHub already ran the write, so a repeat is the
+        caller's decision to make, not this method's.
         """
         errors: Any = None
-        for attempt in range(self._GRAPHQL_TRANSIENT_ATTEMPTS):
+        attempts = self._GRAPHQL_TRANSIENT_ATTEMPTS if retry_transient else 1
+        for attempt in range(attempts):
             response = self.api_request(
                 "POST",
                 "/graphql",
                 endpoint=endpoint,
                 json_body={"query": query, "variables": variables},
                 timeout=timeout,
-                retry_transient=True,
+                retry_transient=retry_transient,
             )
             if response.status_code != 200:
                 raise GitHubIntegrationError(
@@ -1585,7 +1981,7 @@ class GitHubIntegrationBase:
             # No data — a hard failure. Retry GitHub's transient server errors; raise the rest.
             if not self._graphql_errors_are_transient(errors):
                 break
-            if attempt < self._GRAPHQL_TRANSIENT_ATTEMPTS - 1:
+            if attempt < attempts - 1:
                 logger.info(
                     "GitHubIntegration: retrying transient GraphQL error",
                     endpoint=endpoint,
@@ -1678,6 +2074,112 @@ class GitHubIntegrationBase:
             "updated_at": pr.get("updatedAt"),
         }
 
+    # Labels are read alongside the draft state so one round trip answers both "is there anything to
+    # do" and "is the caller allowed to do it", instead of a second call between the read and the write.
+    _PR_READY_STATE_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          id
+          isDraft
+          state
+          headRefOid
+          labels(first: 100) { nodes { name } }
+          timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 1) {
+            nodes { __typename }
+          }
+        }
+      }
+    }
+    """
+
+    _MARK_PR_READY_MUTATION = """
+    mutation($pullRequestId: ID!) {
+      markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+        pullRequest { isDraft }
+      }
+    }
+    """
+
+    def mark_pull_request_ready_for_review(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        skip_labels: Collection[str] = (),
+        expected_head_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """Take a draft pull request out of draft. ``repository`` is ``owner/repo`` or a bare repo.
+
+        GraphQL rather than REST because REST cannot do it: ``PATCH /repos/{owner}/{repo}/pulls/{n}``
+        ignores ``draft``, and ``markPullRequestReadyForReview`` is the only endpoint that undrafts.
+
+        Only ever moves a pull request that has never left the draft state it opened in. A pull
+        request somebody already marked ready, or put back into draft, keeps whatever they chose,
+        however long the caller took to get here.
+
+        Returns ``{"success": True, "changed": ...}``. ``changed`` is False when there was nothing
+        to do, with ``reason`` naming which of the guards stopped it: ``not_draft`` for a pull
+        request already ready, ``closed`` for one that is closed or merged, ``draft_state_decided``
+        for one whose draft state a person has already moved, or ``label`` when it carries one of
+        ``skip_labels`` (matched case-insensitively). A pull request GitHub would not
+        return, and a mutation it rejected, come back as ``{"success": False, "error": ...}``;
+        transport failures raise :class:`GitHubIntegrationError`, and rate limits and a denied egress
+        budget raise, as everywhere else on this client.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner, _, repo = repo_path.partition("/")
+
+        data = self._gh_graphql(
+            self._PR_READY_STATE_QUERY,
+            {"owner": owner, "repo": repo, "number": pr_number},
+            endpoint="/graphql:pullRequestReadyState",
+        )
+        pr = ((data or {}).get("repository") or {}).get("pullRequest")
+        if not pr:
+            return {"success": False, "error": f"Pull request not found: {repo_path}#{pr_number}"}
+        if pr.get("state") != "OPEN":
+            return {"success": True, "changed": False, "reason": "closed"}
+        if not pr.get("isDraft"):
+            return {"success": True, "changed": False, "reason": "not_draft"}
+        if expected_head_sha is not None and pr.get("headRefOid") != expected_head_sha:
+            return {"success": True, "changed": False, "reason": "head_changed"}
+        # Somebody already moved this pull request between draft and ready, so its current draft
+        # state is a decision rather than the state it opened in. Reading the timeline is what makes
+        # that durable: a caller that queues this work cannot otherwise tell a pull request that was
+        # always a draft from one a person put back into draft while the call waited.
+        # Count the returned nodes, never `totalCount`: GitHub ignores the `itemTypes` filter when it
+        # computes that field, so it reports every timeline item and would match any busy pull request.
+        if (pr.get("timelineItems") or {}).get("nodes") or []:
+            return {"success": True, "changed": False, "reason": "draft_state_decided"}
+
+        unwanted = {label.casefold() for label in skip_labels}
+        if unwanted:
+            names = {
+                node["name"].casefold()
+                for node in ((pr.get("labels") or {}).get("nodes") or [])
+                if isinstance(node, dict) and isinstance(node.get("name"), str)
+            }
+            if names & unwanted:
+                return {"success": True, "changed": False, "reason": "label"}
+
+        node_id = pr.get("id")
+        if not isinstance(node_id, str):
+            return {"success": False, "error": f"Pull request has no node id: {repo_path}#{pr_number}"}
+
+        # No transient retry: a network error can land after GitHub already undrafted the pull
+        # request, and a repeat would then fight a reviewer who redrafted it in between.
+        result = self._gh_graphql(
+            self._MARK_PR_READY_MUTATION,
+            {"pullRequestId": node_id},
+            endpoint="/graphql:markPullRequestReadyForReview",
+            retry_transient=False,
+        )
+        marked = ((result or {}).get("markPullRequestReadyForReview") or {}).get("pullRequest")
+        if not marked:
+            return {"success": False, "error": f"Failed to mark pull request ready: {repo_path}#{pr_number}"}
+        return {"success": True, "changed": True}
+
     # Pull requests per aliased CI-rollup query. Each alias reads one PR and the check rollup of its
     # head commit, so a batch this size stays well inside GitHub's GraphQL node limit. A longer list
     # is split across several calls, and a failure in any of them raises without the batches that
@@ -1736,9 +2238,10 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          url state isDraft mergeable headRefOid
+          url state isDraft mergeable headRefOid headRefName reviewDecision
           author { login }
           reviewThreads(first: 100) {
+            pageInfo { hasNextPage }
             nodes {
               id isResolved path
               comments(last: 1) {
@@ -1872,13 +2375,20 @@ class GitHubIntegrationBase:
         failing_checks = self._extract_failing_checks(rollup)
         if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
             failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+        mergeable = self._map_mergeable(pr.get("mergeable"))
 
         return {
             "success": True,
             "url": html_url,
             "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
             "head_sha": pr.get("headRefOid") or "",
-            "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
+            "has_conflict": mergeable is False,
+            "mergeable": mergeable is True,
+            "ci_status": self._map_ci_status((rollup or {}).get("state")),
+            "review_decision": pr.get("reviewDecision"),
+            "review_threads_complete": ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage")
+            is False,
+            "head_ref": pr.get("headRefName"),
             "author_login": author_login,
             "failing_checks": failing_checks,
             "unresolved_threads": unresolved_threads,

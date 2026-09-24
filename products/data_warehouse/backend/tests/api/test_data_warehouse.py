@@ -626,9 +626,7 @@ class TestDataWarehouseAPI(APIBaseTest):
     def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
-        # Config is auto-created by the team extension signal, but starts with no dashboards
-        config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertEqual(config.overview_dashboards.count(), 0)
+        self.assertFalse(TeamDataWarehouseConfig.objects.filter(team=self.team).exists())
 
         response = self.client.get(endpoint)
         self.assertEqual(response.status_code, 200)
@@ -785,10 +783,15 @@ class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):
 
         assert "orders" not in self._reported()
 
-    def test_a_duckgres_shadow_success_does_not_stand_in_for_the_serving_run(self):
+    def test_a_managed_warehouse_shadow_success_does_not_stand_in_for_the_serving_run(self):
         view = self._view("orders")
         self._run(view, DataModelingJob.Status.FAILED, error="Serving run failed", minutes_ago=10)
-        self._run(view, DataModelingJob.Status.COMPLETED, engine=DataModelingJobEngine.DUCKGRES, minutes_ago=1)
+        self._run(
+            view,
+            DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            minutes_ago=1,
+        )
 
         reported = self._reported()
 

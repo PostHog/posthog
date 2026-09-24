@@ -7,6 +7,10 @@ record the run as failed and retry the PRs tomorrow.
 Shape: the channel gets one lead (the model's headline, or the scope line when it wrote none) and a
 footer. The per-change lines go in a thread under it. A daily bot post competes with the channel it
 lands in, so it spends one line there and keeps the rest where a reader can open it by choice.
+
+Summaries are model-generated over contributor-authored PR text, so every summary or PR string goes
+through `escape_slack_mrkdwn`. That stops a merged PR from smuggling `<!channel>` mentions or breaking
+out of a link into the digest channel.
 """
 
 from __future__ import annotations
@@ -14,10 +18,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import structlog
-from slack_sdk.errors import SlackApiError
-from slack_sdk.web import SlackResponse
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.channels import SlackPostRefused, post_message, post_with_join
+from posthog.slack.formatting import escape_slack_mrkdwn
 
 from .digest import as_channel_paragraph
 
@@ -51,22 +55,12 @@ class DigestSlackError(Exception):
     """The digest could not be posted to Slack (integration missing, mismatched, or API failure)."""
 
 
-def _escape_mrkdwn(text: str) -> str:
-    """Neutralize Slack mrkdwn control characters in attacker-controlled text.
-
-    Model-generated summaries are written over contributor-authored PR text. Escaping
-    ``&``/``<``/``>`` stops a merged PR from smuggling ``<!channel>`` mentions or breaking out of a link
-    into the digest channel; Slack renders the escaped entities back as the literal characters.
-    """
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _link(url: str, label: str) -> str:
     # url is trusted (built from the GitHub PR URL); the label is untrusted, so escape it and drop the
     # `|` that would otherwise split the link syntax. Clipping happens inside the label rather than
     # over the finished string: the label is now the whole line, so trimming the tail off the assembled
     # link would take the closing `>` with it and leave Slack rendering raw markup instead of a link.
-    body = _clip(_escape_mrkdwn(label).replace("|", "/"), _MAX_SECTION_CHARS - len(url) - len("<|>"))
+    body = _clip(escape_slack_mrkdwn(label).replace("|", "/"), _MAX_SECTION_CHARS - len(url) - len("<|>"))
     return f"<{url}|{body}>"
 
 
@@ -127,10 +121,10 @@ def _lead_text(summary: DigestSummary) -> str:
     line is built from counts and is safe as it stands.
     """
     if summary.headline:
-        return _clip(_escape_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
+        return _clip(escape_slack_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
     change_line = _lead_change_line(summary)
     if change_line:
-        return _clip(_escape_mrkdwn(change_line), _MAX_SECTION_CHARS)
+        return _clip(escape_slack_mrkdwn(change_line), _MAX_SECTION_CHARS)
     return _scope_line(len(summary.prs), summary.considered)
 
 
@@ -173,27 +167,8 @@ def _build_fallback_text(summary: DigestSummary) -> str:
     the same sentence every morning pushes the change itself out of view.
     """
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
-    lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
+    lines = [escape_slack_mrkdwn(pr.summary) for pr in summary.prs]
     return "\n".join(lines) or "No merged PRs worth a mention."
-
-
-def _post_message(
-    slack: SlackIntegration,
-    destination: Destination,
-    blocks: list[dict],
-    text: str,
-    thread_ts: str | None = None,
-) -> SlackResponse:
-    # No unfurls: the summary text is LLM output over untrusted PR content, so a prompt-injected
-    # URL must not make Slack's unfurler fetch an attacker's server from inside the workspace.
-    return slack.client.chat_postMessage(
-        channel=destination.channel_id,
-        blocks=blocks,
-        text=text,
-        thread_ts=thread_ts,
-        unfurl_links=False,
-        unfurl_media=False,
-    )
 
 
 def post_digest_details(team_id: int, destination: Destination, summary: DigestSummary, thread_ts: str | None) -> None:
@@ -213,9 +188,9 @@ def post_digest_details(team_id: int, destination: Destination, summary: DigestS
     if integration is None:
         return
     try:
-        _post_message(
-            SlackIntegration(integration),
-            destination,
+        post_message(
+            SlackIntegration(integration, source="stamphog"),
+            destination.channel_id,
             _detail_blocks(summary),
             _build_fallback_text(summary),
             thread_ts,
@@ -224,32 +199,6 @@ def post_digest_details(team_id: int, destination: Destination, summary: DigestS
         # Every failure class, not only SlackApiError. A transport error raised here propagates into
         # the caller's failure path and undoes a digest that Slack already accepted.
         logger.warning("stamphog_digest_thread_post_failed", slack_channel_id=destination.channel_id, error=str(e))
-
-
-def _join_channel(slack: SlackIntegration, destination: Destination) -> str | None:
-    """Join the channel so the retried post lands. Returns Slack's error code when it refused.
-
-    A channel resolved by name match is one the app was never invited to, which is the normal state
-    for a destination nobody set up by hand, so joining is what saves every team a manual
-    ``/invite``. Tried
-    rather than gated on the scope: ``conversations.join`` needs ``channels:join``, and whether an
-    install granted it is not something the person who set up the digest can see or change. Slack
-    answers ``missing_scope`` in under a second, and the caller turns that into an error naming the
-    invite.
-
-    ``already_in_channel`` counts as joined: two audiences can resolve to the same channel, so
-    another worker may join between this one's failed post and its join, and treating that as a
-    refusal would fail a digest whose retry would have gone through.
-    """
-    try:
-        slack.client.conversations_join(channel=destination.channel_id)
-    except SlackApiError as e:
-        error = str(e.response.get("error") or "unknown_error")
-        if error == "already_in_channel":
-            return None
-        logger.warning("stamphog_digest_join_failed", slack_channel_id=destination.channel_id, error=error)
-        return error
-    return None
 
 
 def post_digest_lead(team_id: int, destination: Destination, summary: DigestSummary) -> str | None:
@@ -264,25 +213,14 @@ def post_digest_lead(team_id: int, destination: Destination, summary: DigestSumm
     if integration is None:
         raise DigestSlackError(f"No slack integration {destination.slack_integration_id} for team {team_id}")
 
-    slack = SlackIntegration(integration)
-    lead_blocks = _lead_blocks(summary)
-    lead_text = _lead_text(summary)
     try:
-        response = _post_message(slack, destination, lead_blocks, lead_text)
-    except SlackApiError as e:
-        if e.response.get("error") != "not_in_channel":
-            raise
-        # Retry once behind the join. A refusal names both Slack's reason and the fix: the run is what
-        # a human reads, and neither "invite the app" nor why the join failed is derivable from a
-        # raw Slack error code.
-        join_error = _join_channel(slack, destination)
-        if join_error is not None:
-            channel = destination.channel_name or destination.channel_id
-            raise DigestSlackError(
-                f"Couldn't post to #{channel}. PostHog isn't in the channel and couldn't join it: Slack said "
-                f"{join_error}. Invite the app with /invite @PostHog."
-            ) from e
-        response = _post_message(slack, destination, lead_blocks, lead_text)
-
-    ts = response.get("ts")
-    return str(ts) if ts else None
+        return post_with_join(
+            SlackIntegration(integration, source="stamphog"),
+            destination.channel_id,
+            _lead_blocks(summary),
+            _lead_text(summary),
+            channel_name=destination.channel_name,
+        )
+    except SlackPostRefused as e:
+        # The run row is what a human reads, and every digest failure it records is a DigestSlackError.
+        raise DigestSlackError(str(e)) from e

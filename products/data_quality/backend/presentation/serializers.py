@@ -5,15 +5,18 @@ per-type ``config`` shape is validated against the registry's JSON schema rather
 union: a new check type must not need a serializer change.
 """
 
+from typing import Any
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
+from rest_framework.settings import api_settings
 
 from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
-from ..facade.enums import CheckSeverity, CheckType, CreatedSource, SubjectType
+from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
@@ -22,17 +25,76 @@ class CheckConfigField(serializers.JSONField):
     """Type-specific configuration. Call /check_types/ for the JSON schema of each type."""
 
 
+class DataQualityMetricSubjectSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Metric identifier used by the nested check endpoints.")
+    name = serializers.CharField(help_text="Queryable metric name.")
+    display_name = serializers.CharField(allow_blank=True, help_text="Metric label shown in the data catalog.")
+
+
+@extend_schema_serializer(component_name="DataQualitySubjectRef")
+class DataQualitySubjectRefSerializer(serializers.Serializer):
+    """The subject a request names, wherever it names it: a body, a query string, or both."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        help_text="Kind of object: 'table', 'view', 'metric', or 'posthog_table'.",
+    )
+    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, metric, or PostHog table.")
+
+
+@extend_schema_serializer(component_name="DataQualitySubject")
+class DataQualitySubjectSerializer(serializers.Serializer):
+    """One thing a check can be authored on, whatever kind it is."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        help_text="Kind of object: 'table', 'view', 'metric', or 'posthog_table'. "
+        "Pass it back as subject_type when creating a check.",
+    )
+    id = serializers.CharField(help_text="Id of the subject. Pass it back as subject_uuid when creating a check.")
+    name = serializers.CharField(help_text="Queryable name of the subject.")
+    display_name = serializers.CharField(
+        allow_blank=True, help_text="Label shown in the data catalog. Blank for tables and views."
+    )
+    time_column = serializers.CharField(
+        allow_blank=True,
+        help_text="Column a lookback window bounds, or blank for a subject that has none.",
+    )
+    columns = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet.",
+    )
+    editable = serializers.BooleanField(
+        help_text="Whether the caller may author a check on this subject. A subject that is only readable "
+        "can still be the target of a relationships check."
+    )
+
+
+class DataQualityOutputColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Output column name available through the {metric} relation.")
+    type = serializers.CharField(allow_null=True, help_text="ClickHouse type, or null when it could not be inferred.")
+
+
+class DataQualityOutputSchemaSerializer(serializers.Serializer):
+    columns = DataQualityOutputColumnSerializer(many=True, help_text="Columns returned by the saved metric query.")
+
+
 @extend_schema_serializer(component_name="DataQualityCheck")
 class DataQualityCheckSerializer(serializers.ModelSerializer):
-    """The subject is implied by the URL (the parent saved query or table), never part of the body."""
+    """A check as it reads back, and everything an edit may change about it.
+
+    The subject is not one of those: it is writable only on ``DataQualityCheckCreate``.
+    """
 
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
         read_only=True,
-        help_text="Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).",
+        help_text="Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.",
     )
-    subject_uuid = serializers.SerializerMethodField(
-        help_text="Id of the table or view being checked -- the parent resource in the URL."
+    subject_uuid = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.",
     )
     check_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in CheckType],
@@ -152,25 +214,18 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     def get_owner(self, obj: DataQualityCheck) -> str | None:
         return obj.owner.email if obj.owner else None
 
-    @extend_schema_field(serializers.UUIDField(allow_null=True))
-    def get_subject_uuid(self, obj: DataQualityCheck) -> str | None:
-        return str(obj.subject_uuid) if obj.subject_uuid else None
-
     def validate(self, attrs: dict) -> dict:
-        def resolved(field: str) -> str:
-            return attrs.get(field) or getattr(self.instance, field, None) or ""
+        if self.instance is not None:
+            return attrs
 
-        # The subject comes from the URL: the viewset resolves the parent and passes it in context.
-        subject_type = self.context.get("subject_type") or getattr(self.instance, "subject_type", "")
-        subject_uuid = self.context.get("subject_uuid") or (self.instance.subject_uuid if self.instance else None)
         try:
             api.validate_check(
                 self.context["get_team"](),
-                str(subject_type),
-                str(subject_uuid),
-                resolved("check_type"),
-                resolved("column_name"),
-                attrs.get("config", getattr(self.instance, "config", None) or {}),
+                str(self.context.get("subject_type") or ""),
+                str(self.context.get("subject_uuid") or ""),
+                attrs.get("check_type") or "",
+                attrs.get("column_name") or "",
+                attrs.get("config") or {},
             )
         except (api.CheckConfigError, api.SubjectUnresolvableError, api.UnknownCheckTypeError) as err:
             raise serializers.ValidationError({"config": str(err)})
@@ -183,14 +238,29 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
                 team=self.context["get_team"](),
                 check=instance,
                 editor=getattr(request, "user", None) if request else None,
+                authorize=self.context.get("authorize_check_edit"),
                 **validated_data,
             )
+        except (api.CheckConfigError, api.SubjectUnresolvableError, api.UnknownCheckTypeError) as err:
+            raise serializers.ValidationError({"config": str(err)})
         except api.CheckEditConflict as conflict:
             # Rendered beside the offending fields rather than as a status code, so the editor can
             # keep the draft open and point at what to change.
+            fields = conflict.fields or (api_settings.NON_FIELD_ERRORS_KEY,)
             raise serializers.ValidationError(
-                {field: ErrorDetail(str(conflict), code=conflict.code) for field in conflict.fields}
+                {field: ErrorDetail(str(conflict), code=conflict.code) for field in fields}
             )
+
+
+@extend_schema_serializer(component_name="DataQualityCheckCreate")
+class DataQualityCheckCreateSerializer(DataQualityCheckSerializer):
+    """The create body, where the subject is named for the only time in a check's life."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        help_text="Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.",
+    )
+    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, metric, or PostHog table to check.")
 
 
 @extend_schema_serializer(component_name="DataQualityOverviewCheck")
@@ -203,14 +273,17 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     """
 
     subject_node_id = serializers.SerializerMethodField(
-        help_text="Data modeling node of the view this check audits, or null when it is on no DAG "
-        "or the subject is a table."
+        help_text="Data modeling node of the view or PostHog table this check audits, or null when it is on "
+        "no DAG or the subject is a warehouse table."
     )
     subject_source_id = serializers.SerializerMethodField(
         help_text="Warehouse source of the table this check audits, or null when the subject is a view."
     )
     subject_schema_id = serializers.SerializerMethodField(
         help_text="Warehouse source schema of the table this check audits, or null when the subject is a view."
+    )
+    subject_metric_name = serializers.SerializerMethodField(
+        help_text="Current metric name for opening its Tests tab, or null for other subjects."
     )
 
     class Meta(DataQualityCheckSerializer.Meta):
@@ -219,6 +292,7 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
             "subject_node_id",
             "subject_source_id",
             "subject_schema_id",
+            "subject_metric_name",
         ]
 
     def _location(self, obj: DataQualityCheck) -> api.SubjectLocation:
@@ -237,6 +311,58 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_subject_schema_id(self, obj: DataQualityCheck) -> str | None:
         return self._location(obj).schema_id
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_subject_metric_name(self, obj: DataQualityCheck) -> str | None:
+        return self._location(obj).metric_name
+
+
+@extend_schema_serializer(component_name="DataQualityCheckScheduleUpdate")
+class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
+    """Which subject's schedule to change, and what to change about it."""
+
+    SCHEDULE_FIELDS = ("interval", "enabled")
+
+    interval = serializers.ChoiceField(
+        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the subject run."
+    )
+    enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
+
+    @property
+    def schedule_changes(self) -> dict:
+        return {key: value for key, value in self.validated_data.items() if key in self.SCHEDULE_FIELDS}
+
+
+class DataQualityCheckScheduleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Schedule identifier.")
+    interval = serializers.ChoiceField(
+        choices=list(ScheduleInterval), read_only=True, help_text="How often the checks run."
+    )
+    enabled = serializers.BooleanField(read_only=True, help_text="Whether the schedule runs automatically.")
+    next_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Next scheduled execution time, if enabled."
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Most recent visible scheduled suite execution time."
+    )
+    last_suite_run = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Most recent visible scheduled suite."
+    )
+
+
+class DataQualitySubjectScheduleSerializer(DataQualityCheckScheduleSerializer):
+    """One subject's schedule, in the project-wide listing."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType], read_only=True, help_text="'metric' or 'posthog_table'."
+    )
+    subject_uuid = serializers.UUIDField(read_only=True, help_text="Id of the metric or PostHog table.")
+
+    def to_representation(self, instance: api.SubjectSchedule) -> dict[str, Any]:
+        row = super().to_representation(instance.schedule)
+        row["subject_type"] = str(instance.subject_type)
+        row["subject_uuid"] = str(instance.subject_uuid)
+        return row
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")
@@ -314,10 +440,10 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
     status = serializers.CharField(
         read_only=True, help_text="running, completed, failed, or empty (nothing matched the trigger)."
     )
-    trigger = serializers.CharField(read_only=True, help_text="manual, materialization, or source_sync.")
+    trigger = serializers.CharField(read_only=True, help_text="manual, materialization, source_sync, or scheduled.")
     subject_type = serializers.SerializerMethodField(
-        help_text="'table' or 'view' when the run targets exactly one subject, including a run of a "
-        "single check on that subject; null for a run spanning several subjects."
+        help_text="'table', 'view', 'metric', or 'posthog_table' when the run targets exactly one subject, "
+        "including a run of a single check on that subject; null for a run spanning several subjects."
     )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -351,8 +477,8 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
 class SubjectHealthSerializer(serializers.Serializer):
     """Per-subject rollup, the same rule the information_schema.data_quality_health table uses."""
 
-    subject_type = serializers.CharField(help_text="'table' or 'view'.")
-    subject_uuid = serializers.CharField(help_text="Id of the table or view.")
+    subject_type = serializers.CharField(help_text="'table', 'view', 'metric', or 'posthog_table'.")
+    subject_uuid = serializers.CharField(help_text="Id of the table, view, metric, or PostHog table.")
     health = serializers.CharField(
         help_text="failing (an error-severity check failed), erroring (a check could not run), "
         "warn (only warn-severity failures), healthy, or unknown (nothing has run yet)."
@@ -370,6 +496,22 @@ class DataQualityRunRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Ids of the checks to run. Omit to run every enabled check in the project.",
     )
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        required=False,
+        help_text="Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.",
+    )
+    subject_uuid = serializers.UUIDField(
+        required=False,
+        help_text="Id of the subject to run every enabled check on. Pass subject_type with it.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if bool(attrs.get("subject_type")) != bool(attrs.get("subject_uuid")):
+            raise serializers.ValidationError(
+                {"subject_uuid": "Name the subject with both subject_type and subject_uuid, or neither."}
+            )
+        return attrs
 
 
 @extend_schema_serializer(component_name="DataQualityGateConfig")

@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_a
 from unittest.mock import patch
 
 from django.apps import apps
+from django.db import DatabaseError
 from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
@@ -2994,6 +2995,132 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         self.organization.customer_trust_scores = {}
         self.organization.save()
 
+    @parameterized.expand(
+        [
+            ("midnight", True, 1500, False, False, True, False),
+            ("midnight_cron", True, 1500, False, False, True, True),
+            ("redis_only", False, 1500, False, False, True, False),
+            ("raised_limit", True, 3000, False, False, False, False),
+            ("removed_limit", True, None, False, False, False, False),
+            ("credited_refund", True, 1500, True, False, False, False),
+            ("new_period", True, 1500, False, True, False, False),
+        ]
+    )
+    @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
+    def test_quota_release_checks_prs_missing_from_billing_usage(
+        self,
+        _name: str,
+        persisted_marker: bool,
+        limit: int | None,
+        refunded: bool,
+        new_period: bool,
+        expect_limited: bool,
+        via_cron: bool,
+    ) -> None:
+        self._set_self_driving_usage(0, limit=1500)
+        assert self.organization.usage is not None
+        self.organization.usage["signals_credits"]["limit"] = limit
+        if persisted_marker:
+            self.organization.usage["signals_credits"]["quota_limited_until"] = 1782864000
+        if new_period:
+            self.organization.usage["period"] = ["2026-06-15T00:00:00Z", "2026-07-15T00:00:00Z"]
+        self.organization.save()
+
+        report = apps.get_model("signals", "SignalReport").objects.create(team=self.team)
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="Quota fixture")
+        apps.get_model("signals", "SignalReportTask").objects.create(
+            team=self.team, report=report, task=task, relationship="implementation"
+        )
+        pr_run_at = datetime.datetime(2026, 6, 14, 23, 45, tzinfo=datetime.UTC)
+        apps.get_model("tasks", "TaskRun").objects.create(
+            team=self.team,
+            task=task,
+            created_at=pr_run_at,
+            output={"pr_url": "https://github.com/example/quota-fixture/pull/1"},
+        )
+        if refunded:
+            apps.get_model("signals", "SignalReportRefund").objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=report,
+                reason="pr_incorrect",
+                billing_path="credited",
+                credits=1500,
+                pr_url="https://github.com/example/quota-fixture/pull/1",
+                pr_run_created_at=pr_run_at,
+            )
+
+        add_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: 1782864000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        if via_cron:
+            update_all_orgs_billing_quotas()
+        else:
+            update_org_billing_quotas(self.organization)
+
+        assert (
+            self.team.api_token
+            in list_limited_team_attributes(QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        ) == expect_limited
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["signals_credits"]["usage"] == 0
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 0
+
+    @parameterized.expand(
+        [
+            ("active", "2026-07-01", "2026-07-01", "2026-07-01"),
+            ("active_earlier_expiry", "2026-06-16", "2026-06-16", "2026-06-16"),
+            ("expired", "2026-06-01", "2026-06-01", None),
+            ("expired_with_active_redis", "2026-06-01", "2026-07-01", "2026-07-01"),
+            ("redis_only", None, "2026-07-01", "2026-07-01"),
+        ]
+    )
+    @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
+    def test_failed_period_recount_preserves_existing_block(
+        self, _name: str, persisted_expiry: str | None, redis_expiry: str, expected_expiry: str | None
+    ) -> None:
+        self._set_self_driving_usage(0)
+        assert self.organization.usage is not None
+        if persisted_expiry:
+            self.organization.usage["signals_credits"]["quota_limited_until"] = round(
+                datetime.datetime.fromisoformat(persisted_expiry).replace(tzinfo=datetime.UTC).timestamp()
+            )
+        self.organization.save()
+        add_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {
+                self.team.api_token: round(
+                    datetime.datetime.fromisoformat(redis_expiry).replace(tzinfo=datetime.UTC).timestamp()
+                )
+            },
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        def count_credits(organization_id: str, begin: datetime.datetime, end: datetime.datetime) -> int:
+            if begin.day == 1:
+                raise DatabaseError("Period usage unavailable")
+            return 0
+
+        with patch(
+            "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", side_effect=count_credits
+        ):
+            update_all_orgs_billing_quotas()
+
+        expected_timestamp = (
+            datetime.datetime.fromisoformat(expected_expiry).replace(tzinfo=datetime.UTC).timestamp()
+            if expected_expiry
+            else None
+        )
+        assert (
+            get_client().zscore(
+                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
+                self.team.api_token,
+            )
+            == expected_timestamp
+        )
+
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -3072,6 +3199,55 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         assert self.team.api_token in list_limited_team_attributes(
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
+
+    @parameterized.expand(
+        [
+            ("kept_when_added_after_snapshot", False, 1798761600, True),
+            ("removed_when_snapshot_org_is_under_limit", True, 1798761600, False),
+            ("expired_entry_purged", False, 1750000000, False),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_quota_cron_reconciles_limiter_instead_of_replacing_it(
+        self, _name, in_snapshot, score, expect_present, _feature_enabled, _capture
+    ) -> None:
+        # A PR that crosses the limit while the cron runs is written to Redis after the cron's
+        # snapshot, so a wholesale replace would wipe it and unblock the org until the next tick.
+        self._set_self_driving_usage(1500)
+        add_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: score},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        def snapshot(resource: QuotaResource, cache_key: QuotaLimitingCaches, use_cache: bool = True) -> list[str]:
+            if (
+                in_snapshot
+                and resource == QuotaResource.SIGNALS_CREDITS
+                and cache_key == QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            ):
+                return [self.team.api_token]
+            return []
+
+        with (
+            patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
+            patch("ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period", return_value=[]),
+            patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
+        ):
+            update_all_orgs_billing_quotas()
+
+        # The cache is off under TEST, so only this assertion catches a refactor that drops the kwarg
+        # and hands the cron the previous run's snapshot in production.
+        assert snapshot_mock.call_args_list
+        assert all(call.kwargs.get("use_cache") is False for call in snapshot_mock.call_args_list)
+
+        zset_score = get_client().zscore(
+            f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
+            self.team.api_token,
+        )
+        assert (zset_score is not None) == expect_present
 
     def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
         self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}

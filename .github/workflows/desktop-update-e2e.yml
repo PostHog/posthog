@@ -247,6 +247,11 @@ jobs:
 
             - name: Upload proof, report and logs
               if: always()
+              # Every upload here is a debugging extra: the proof tables themselves are
+              # already in the job summary. So a blip in GitHub's artifact service must
+              # not fail the run and page #alerts-devex about a broken update path when
+              # all three legs proved PASS.
+              continue-on-error: true
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-e2e-macos
@@ -269,6 +274,7 @@ jobs:
 
             - name: Upload old build (1.0.0)
               if: always()
+              continue-on-error: true
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-old-build-1.0.0
@@ -281,6 +287,7 @@ jobs:
 
             - name: Upload new build feed (2.0.0)
               if: always()
+              continue-on-error: true
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-new-build-2.0.0
@@ -314,6 +321,7 @@ jobs:
 
             - name: Upload old Forge build (v0.55.132)
               if: always()
+              continue-on-error: true
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-old-forge-build-1.0.0

@@ -1,10 +1,16 @@
+import re
+import hashlib
 from collections.abc import Sequence
-from typing import Any, cast
+from difflib import get_close_matches
+from typing import Any, Literal, Protocol, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, transaction
-from django.db.models import Case, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
-from django.http import HttpResponse
+from django.db.models import Case, Exists, Expression, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models.functions import Coalesce
+from django.http import HttpResponse, HttpResponseBase
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
 import psycopg
 import structlog
@@ -30,10 +36,12 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.git import get_git_commit_short
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
+from posthog.permissions import AccessControlPermission, is_scout_sandbox_request, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
@@ -56,7 +64,14 @@ from ..marketplace.credentials import (
     marketplace_credential_label,
     marketplace_repo_url,
 )
-from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
+from ..marketplace.packaging import (
+    SkillExport,
+    SkillImportError,
+    build_skill_zip,
+    frontmatter_document,
+    parse_skill_zip,
+    render_skill_md,
+)
 from ..models.skills import LLMSkill, LLMSkillFile
 from .community_publish_services import (
     CommunitySkillPublishError,
@@ -83,8 +98,10 @@ from .skill_serializers import (
     LLMSkillImportSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
+    LLMSkillMarkdownSerializer,
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
+    LLMSkillPublishConflictSerializer,
     LLMSkillPublishSerializer,
     LLMSkillPublishToCommunitySerializer,
     LLMSkillRenameSerializer,
@@ -96,9 +113,8 @@ from .skill_serializers import (
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
+    validate_new_skill_name_value,
     validate_skill_body_size,
-    validate_skill_file_path,
-    validate_skill_name_value,
 )
 from .skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -113,12 +129,12 @@ from .skill_services import (
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    compute_spec_problems,
     create_skill,
     create_skill_file,
     delete_skill_file,
     duplicate_skill,
     get_active_skill_queryset,
-    get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
     rename_skill,
@@ -128,8 +144,17 @@ from .skill_services import (
     resolve_skill_owners_for_names,
     resolve_versions_page,
     set_skill_owners,
+    skill_name_is_well_formed,
     skill_names_owned_by,
+    team_skills_version,
 )
+
+
+@frozen
+class SkillsListValidators:
+    version: str
+    etag: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +165,25 @@ SKILL_SEARCH_RESULT_LIMIT = 10
 SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
+SKILL_SEARCH_EXACT_NAME_BONUS = 5_000
+SKILL_SEARCH_MAX_TOKENS = 8
+SKILL_SEARCH_MIN_TOKEN_LENGTH = 2
+SKILL_SEARCH_MIN_STEM_LENGTH = 5
+SKILL_SEARCH_DERIVATIONAL_SUFFIXES = ("ations", "ation", "tions", "tion", "ings", "ing", "ed")
+SKILL_SEARCH_SIBILANT_ES_ENDINGS = ("ches", "shes", "sses", "xes", "zes")
+SkillSearchField = Literal["name", "description", "body", "path", "content"]
+SKILL_SEARCH_FIELD_LOOKUPS: dict[SkillSearchField, str] = {
+    "name": "name__icontains",
+    "description": "description__icontains",
+    "body": "body__icontains",
+    "path": "path__icontains",
+    "content": "content__icontains",
+}
+# A 404 offers a few near-miss names, not a listing: `skill-list` is still the way to browse.
+MAX_SKILL_NAME_SUGGESTIONS = 3
+SKILL_NAME_SUGGESTION_CUTOFF = 0.6
+# Ceiling on the names one miss compares against, so a large store cannot make a 404 expensive.
+MAX_SKILL_NAME_MATCH_CANDIDATES = 500
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
@@ -163,6 +207,111 @@ def _content_search_match(content: str, query: str, *, matched_field: str, path:
         "line": line,
         "excerpt": excerpt[:SKILL_SEARCH_EXCERPT_LENGTH],
     }
+
+
+def _skill_search_tokens(query: str) -> list[tuple[str, ...]]:
+    raw_tokens = list(dict.fromkeys(re.findall(r"[^\W_]+", query.lower())))
+    informative_tokens = [token for token in raw_tokens if len(token) >= SKILL_SEARCH_MIN_TOKEN_LENGTH]
+    bounded_tokens = sorted(informative_tokens, key=len, reverse=True)[:SKILL_SEARCH_MAX_TOKENS] or raw_tokens[:1]
+    return [_skill_search_variants(token) for token in bounded_tokens]
+
+
+def _skill_search_variants(token: str) -> tuple[str, ...]:
+    if len(token) < 6 or not token.isascii() or not token.isalpha():
+        return (token,)
+
+    stems: list[str] = []
+    suffix = next(
+        (
+            candidate
+            for candidate in SKILL_SEARCH_DERIVATIONAL_SUFFIXES
+            if len(token) > len(candidate) and token.endswith(candidate)
+        ),
+        None,
+    )
+    if suffix is not None:
+        stems.append(token[: -len(suffix)])
+    elif token.endswith("ies"):
+        stems.append(f"{token[:-3]}y")
+    elif token.endswith(SKILL_SEARCH_SIBILANT_ES_ENDINGS):
+        stems.append(token[:-2])
+    elif token.endswith("es"):
+        stems.extend((token[:-1], token[:-2]))
+    elif token.endswith("s") and token != "status" and not token.endswith(("is", "ss")):
+        stems.append(token[:-1])
+    else:
+        return (token,)
+
+    variants = [token]
+    for stem in stems:
+        variants.append(stem)
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            variants.append(stem[:-1])
+    return tuple(dict.fromkeys(variant for variant in variants if len(variant) >= SKILL_SEARCH_MIN_STEM_LENGTH))
+
+
+def _skill_search_variant_query(field: SkillSearchField, variants: Sequence[str]) -> Q:
+    lookup = SKILL_SEARCH_FIELD_LOOKUPS[field]
+    query = Q()
+    for variant in variants:
+        query |= Q(**{lookup: variant})
+    return query
+
+
+def _skill_search_all_tokens_query(field: SkillSearchField, tokens: Sequence[Sequence[str]]) -> Q:
+    query = Q()
+    for variants in tokens:
+        query &= _skill_search_variant_query(field, variants)
+    return query
+
+
+def _skill_search_any_token_query(field: SkillSearchField, tokens: Sequence[Sequence[str]]) -> Q:
+    query = Q()
+    for variants in tokens:
+        query |= _skill_search_variant_query(field, variants)
+    return query
+
+
+def _skill_search_field_query(field: SkillSearchField, phrase: str, tokens: Sequence[Sequence[str]]) -> Q:
+    return Q(**{SKILL_SEARCH_FIELD_LOOKUPS[field]: phrase}) | _skill_search_any_token_query(field, tokens)
+
+
+def _skill_search_field_score(
+    field: SkillSearchField, phrase: str, tokens: Sequence[Sequence[str]], weight: int
+) -> Expression:
+    phrase_score = Case(
+        When(_skill_search_field_query(field, phrase, ()), then=Value(weight * 2)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    if not tokens:
+        return phrase_score
+
+    partial_weight = max(1, weight // len(tokens) // 4)
+    partial_score: Expression = Value(0, output_field=IntegerField())
+    for variants in tokens:
+        partial_score += Case(
+            When(_skill_search_variant_query(field, variants), then=Value(partial_weight)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    token_score = Case(
+        When(_skill_search_all_tokens_query(field, tokens), then=Value(weight)),
+        default=partial_score,
+        output_field=IntegerField(),
+    )
+    return phrase_score + token_score
+
+
+class _ScoredSkill(Protocol):
+    search_score: int
+
+
+def _skill_search_match_term(content: str, phrase: str, tokens: Sequence[Sequence[str]]) -> str | None:
+    lowered = content.lower()
+    if phrase.lower() in lowered:
+        return phrase
+    return next((variant for variants in tokens for variant in variants if variant in lowered), None)
 
 
 def _is_markdown_file_query() -> Q:
@@ -345,11 +494,21 @@ class SkillBundleSustainedThrottle(_SkillUserThrottle):
 
 class SkillSearchBurstThrottle(_SkillUserThrottle):
     scope = "skills_search_burst"
-    rate = BurstRateThrottle.rate
+    rate = "60/minute"
 
 
 class SkillSearchSustainedThrottle(_SkillUserThrottle):
     scope = "skills_search_sustained"
+    rate = "600/hour"
+
+
+class SkillListBurstThrottle(_SkillUserThrottle):
+    scope = "skills_list_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillListSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_list_sustained"
     rate = SustainedRateThrottle.rate
 
 
@@ -368,6 +527,17 @@ class ZipRenderer(BaseRenderer):
         if renderer_context is not None:
             renderer_context["response"]["Content-Type"] = "application/json"
         return SafeJSONRenderer().render(data, "application/json", renderer_context)
+
+
+def _spec_problem_messages(export: SkillExport) -> list[str]:
+    """The shared packaging rules as plain messages, for the endpoints that report them as strings."""
+    return [
+        # Most rules word the message for the `spec_problems` field, which carries the path in its
+        # own column. A flat string has nowhere else to put it, so two bad files would otherwise
+        # produce the same sentence twice and the author could not tell which file to rename.
+        f"file '{problem.file_path}': {problem.message}" if problem.file_path else problem.message
+        for problem in compute_spec_problems(export.name, export.description, [f.path for f in export.files])
+    ]
 
 
 def _spec_problems_detail(lead: str, problems: list[str], next_step: str) -> str:
@@ -414,6 +584,8 @@ class LLMSkillViewSet(
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action == "search":
             return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
+        if self.action == "list":
+            return [SkillListBurstThrottle(), SkillListSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -453,9 +625,49 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _skill_not_found_response(self, skill_name: str) -> Response:
+    def _skill_not_found_response(self, skill_name: str, version: int | None = None) -> Response:
+        """A 404 that answers from the same rows `list` returns.
+
+        An agent that lists a skill and then cannot read it concludes the store is inconsistent
+        and abandons the skill, so a miss has to say which of the two lookups it is: an unknown
+        name (near-miss names the caller can actually read) or a known name at an absent version
+        (the versions it does hold).
+        """
+        visible = self._visible_skills_queryset()
+        if version is not None:
+            available_versions = list(
+                visible.filter(name=skill_name).order_by("version").values_list("version", flat=True)
+            )
+            if available_versions:
+                return Response(
+                    {
+                        "detail": (
+                            f"Skill with name '{skill_name}' has no version {version}. "
+                            f"Available versions: {', '.join(str(v) for v in available_versions)}."
+                        ),
+                        "type": "skill_version_not_found",
+                        "skill_name": skill_name,
+                        "available_versions": available_versions,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        suggestions = get_close_matches(
+            skill_name,
+            visible.filter(is_latest=True).values_list("name", flat=True)[:MAX_SKILL_NAME_MATCH_CANDIDATES],
+            n=MAX_SKILL_NAME_SUGGESTIONS,
+            cutoff=SKILL_NAME_SUGGESTION_CUTOFF,
+        )
+        detail = f"Skill with name '{skill_name}' not found."
+        if suggestions:
+            detail += " Did you mean " + ", ".join(f"'{name}'" for name in suggestions) + "?"
         return Response(
-            {"detail": f"Skill with name '{skill_name}' not found."},
+            {
+                "detail": detail,
+                "type": "skill_not_found",
+                "skill_name": skill_name,
+                "suggestions": suggestions,
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -519,14 +731,7 @@ class LLMSkillViewSet(
         return None
 
     def _is_scout_sandbox_caller(self) -> bool:
-        """Whether the request is authenticated with a Signals scout sandbox token.
-
-        The scout harness's sandbox token is the only issuer of `signal_scout_internal:*`
-        scopes, so their presence identifies a scout run. Session auth and ordinary API
-        keys never carry them.
-        """
-        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return scopes is not None and any(scope.startswith("signal_scout_internal:") for scope in scopes)
+        return is_scout_sandbox_request(self.request)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -565,12 +770,17 @@ class LLMSkillViewSet(
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
+    def _visible_skills_queryset(self) -> QuerySet[LLMSkill]:
+        """Every active skill row this caller may read. `list` and every by-name read share it, so
+        a name the list returned can never be denied by a read as if it did not exist."""
+        return self.user_access_control.filter_queryset_by_access_level(
+            get_active_skill_queryset(self.team), resource="llm_skill"
+        )
+
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
         params = self._get_list_params(request)
 
-        queryset = self.user_access_control.filter_queryset_by_access_level(
-            get_latest_skills_queryset(self.team), resource="llm_skill"
-        )
+        queryset = self._visible_skills_queryset().filter(is_latest=True)
 
         search = params.get("search", "").strip()
         if search:
@@ -602,47 +812,69 @@ class LLMSkillViewSet(
 
     def _get_search_queryset(self, query: str) -> QuerySet[LLMSkill]:
         skill_files = LLMSkillFile.objects.filter(skill_id=OuterRef("pk"))
+        tokens = _skill_search_tokens(query)
+        matching_skill_files = skill_files.filter(
+            _skill_search_field_query("path", query, tokens)
+            | (_is_markdown_file_query() & _skill_search_field_query("content", query, tokens))
+        )
+        file_path_score = Coalesce(
+            Subquery(
+                skill_files.annotate(score=_skill_search_field_score("path", query, tokens, 120))
+                .order_by("-score")
+                .values("score")[:1],
+                output_field=IntegerField(),
+            ),
+            Value(0),
+        )
+        file_content_score = Coalesce(
+            Subquery(
+                skill_files.filter(_is_markdown_file_query())
+                .annotate(score=_skill_search_field_score("content", query, tokens, 40))
+                .order_by("-score")
+                .values("score")[:1],
+                output_field=IntegerField(),
+            ),
+            Value(0),
+        )
+
         queryset = LLMSkill.objects.filter(
             team=self.team,
             deleted=False,
             is_latest=True,
             category="",
-        ).annotate(
-            search_file_path_match=Exists(skill_files.filter(path__icontains=query)),
-            search_file_content_match=Exists(skill_files.filter(_is_markdown_file_query(), content__icontains=query)),
         )
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
-        return (
-            queryset.filter(
-                Q(name__icontains=query)
-                | Q(description__icontains=query)
-                | Q(body__icontains=query)
-                | Q(search_file_path_match=True)
-                | Q(search_file_content_match=True)
-            )
-            .annotate(
-                search_rank=Case(
-                    When(name__iexact=query, then=Value(0)),
-                    When(name__icontains=query, then=Value(1)),
-                    When(description__icontains=query, then=Value(2)),
-                    When(body__icontains=query, then=Value(3)),
-                    When(search_file_path_match=True, then=Value(4)),
-                    When(search_file_content_match=True, then=Value(5)),
-                    default=Value(6),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("search_rank", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
+        queryset = queryset.filter(
+            _skill_search_field_query("name", query, tokens)
+            | _skill_search_field_query("description", query, tokens)
+            | _skill_search_field_query("body", query, tokens)
+            | Q(Exists(matching_skill_files))
         )
+
+        exact_name_score = Case(
+            When(name__iexact=query, then=Value(SKILL_SEARCH_EXACT_NAME_BONUS)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+        score = (
+            exact_name_score
+            + _skill_search_field_score("name", query, tokens, 1_000)
+            + _skill_search_field_score("description", query, tokens, 300)
+            + _skill_search_field_score("body", query, tokens, 80)
+            + file_path_score
+            + file_content_score
+        )
+        return queryset.annotate(search_score=score).order_by("-search_score", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
 
     def _get_search_matches(self, skill: LLMSkill, query: str) -> list[dict[str, Any]]:
         matches: list[dict[str, Any]] = []
-        lowered_query = query.lower()
+        tokens = _skill_search_tokens(query)
 
-        if lowered_query in skill.name.lower():
+        if _skill_search_match_term(skill.name, query, tokens) is not None:
             matches.append({"matched_field": "name", "excerpt": skill.name})
-        if lowered_query in skill.description.lower():
-            match_index = skill.description.lower().find(lowered_query)
+        description_match = _skill_search_match_term(skill.description, query, tokens)
+        if description_match is not None:
+            match_index = skill.description.lower().find(description_match.lower())
             excerpt_start = max(0, match_index - SKILL_SEARCH_EXCERPT_LENGTH // 2)
             matches.append(
                 {
@@ -650,15 +882,21 @@ class LLMSkillViewSet(
                     "excerpt": skill.description[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH],
                 }
             )
-        body_match = _content_search_match(skill.body, query, matched_field="body", path="SKILL.md")
+        body_match_term = _skill_search_match_term(skill.body, query, tokens)
+        body_match = (
+            _content_search_match(skill.body, body_match_term, matched_field="body", path="SKILL.md")
+            if body_match_term is not None
+            else None
+        )
         if body_match is not None:
             matches.append(body_match)
 
         if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
             remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
             matching_paths = (
-                skill.files.filter(path__icontains=query)
-                .order_by("path")
+                skill.files.filter(_skill_search_field_query("path", query, tokens))
+                .annotate(search_match_score=_skill_search_field_score("path", query, tokens, 120))
+                .order_by("-search_match_score", "path")
                 .values_list("path", flat=True)[:remaining_match_count]
             )
             for path in matching_paths:
@@ -666,15 +904,22 @@ class LLMSkillViewSet(
 
         if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
             remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
+            file_content_query = Q(content__icontains=query)
+            for variants in tokens:
+                file_content_query |= _skill_search_variant_query("content", variants)
             content_files = (
-                skill.files.filter(_is_markdown_file_query(), content__icontains=query)
-                .order_by("path")
+                skill.files.filter(_is_markdown_file_query(), file_content_query)
+                .annotate(search_match_score=_skill_search_field_score("content", query, tokens, 40))
+                .order_by("-search_match_score", "path")
                 .values_list("path", "content")
             )[:remaining_match_count]
             for path, content in content_files:
+                match_term = _skill_search_match_term(content, query, tokens)
+                if match_term is None:
+                    continue
                 match = _content_search_match(
                     content,
-                    query,
+                    match_term,
                     matched_field="file_content",
                     path=path,
                 )
@@ -706,14 +951,16 @@ class LLMSkillViewSet(
         query = self._get_search_query(request)
         try:
             with execute_with_timeout(SKILL_SEARCH_TIMEOUT_MS):
-                results = [
-                    {
-                        "name": skill.name,
-                        "description": skill.description,
-                        "matches": self._get_search_matches(skill, query),
-                    }
-                    for skill in self._get_search_queryset(query)
-                ]
+                results: list[dict[str, Any]] = []
+                for skill in self._get_search_queryset(query):
+                    results.append(
+                        {
+                            "name": skill.name,
+                            "description": skill.description,
+                            "score": cast(_ScoredSkill, skill).search_score,
+                            "matches": self._get_search_matches(skill, query),
+                        }
+                    )
         except OperationalError as err:
             if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
                 raise
@@ -767,7 +1014,7 @@ class LLMSkillViewSet(
                 return redirect
 
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
         # valid continuation offset even when the full body would be truncated in transit.
@@ -982,7 +1229,7 @@ class LLMSkillViewSet(
             str(version_id) if version_id else None,
         )
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         limit = cast(int, query_params["limit"])
         offset = cast(int | None, query_params.get("offset"))
@@ -1003,6 +1250,43 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
+        parameters=[LLMSkillFetchQuerySerializer],
+        responses={200: LLMSkillMarkdownSerializer},
+    )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/skill-md",
+        required_scopes=["llm_skill:read"],
+    )
+    @llma_track_latency("llma_skills_skill_md")
+    @monitor(feature=None, endpoint="llma_skills_skill_md", method="GET")
+    def skill_md(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        """The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
+
+        Both halves come from one renderer, so a digest a client takes over ``content`` still
+        describes the fields it reads from ``frontmatter``.
+        """
+        version_params = self._get_requested_version_params(request)
+        version = cast(int | None, version_params.get("version"))
+        skill = self._load_skill_with_object_access(request, skill_name, version)
+        if skill is None:
+            return self._skill_not_found_response(skill_name, version)
+
+        # SKILL.md never carries the bundled files, so don't load them just to render it.
+        export = skill.to_export()
+        payload = LLMSkillMarkdownSerializer(
+            instance={
+                "name": skill.name,
+                "version": skill.version,
+                "content": render_skill_md(export),
+                "frontmatter": frontmatter_document(export),
+            }
+        )
+        return Response(payload.data)
+
+    @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
@@ -1014,10 +1298,10 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         export = load_skill_export(skill)
-        problems = validate_for_export(export)
+        problems = _spec_problem_messages(export)
         if problems:
             return Response(
                 {
@@ -1171,12 +1455,15 @@ class LLMSkillViewSet(
         # The import path calls create_skill directly, so it must re-apply the same size/shape limits
         # the create/edit serializers enforce — otherwise a spec-valid zip could persist content
         # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
-        # validate_for_export already covers the description (non-empty, ≤ spec limit).
-        problems: list[str] = list(validate_for_export(skill_export))
-        try:
-            validate_skill_name_value(skill_export.name)
-        except serializers.ValidationError as err:
-            problems.append(f"name: {self._first_error(err)}")
+        # _spec_problem_messages already covers the description, the name shape and the file paths.
+        problems: list[str] = _spec_problem_messages(skill_export)
+        # The reserved-name and bundled-name rules are all this adds on top of the shape rules
+        # above, so calling it for a malformed name would report that defect twice.
+        if skill_name_is_well_formed(skill_export.name):
+            try:
+                validate_new_skill_name_value(skill_export.name)
+            except serializers.ValidationError as err:
+                problems.append(f"name: {self._first_error(err)}")
         try:
             validate_skill_body_size(skill_export.body)
         except serializers.ValidationError as err:
@@ -1191,18 +1478,13 @@ class LLMSkillViewSet(
         if len(skill_export.compatibility) > 500:
             problems.append("compatibility must be 500 characters or fewer")
 
-        seen_lower: set[str] = set()
         for skill_file in skill_export.files:
-            try:
-                validate_skill_file_path(skill_file.path)
-            except serializers.ValidationError as err:
-                problems.append(f"file '{skill_file.path}': {self._first_error(err)}")
+            # create_skill inserts the files with bulk_create, which runs no model validation, so a
+            # path the column cannot hold reaches Postgres as a DataError and fails the request.
+            if len(skill_file.path) > 500:
+                problems.append(f"file '{skill_file.path}': path must be 500 characters or fewer")
             if len(skill_file.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
                 problems.append(f"file '{skill_file.path}': content must be {MAX_SKILL_FILE_BYTES} bytes or fewer")
-            lowered = skill_file.path.lower()
-            if lowered in seen_lower:
-                problems.append(f"file '{skill_file.path}': collides with another file (case-insensitive)")
-            seen_lower.add(lowered)
         return problems
 
     @staticmethod
@@ -1240,6 +1522,7 @@ class LLMSkillViewSet(
         }
 
     @extend_schema(responses={200: LLMSkillMarketplaceCommandSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="marketplace/install-command")
     @llma_track_latency("llma_skills_marketplace_command")
     @monitor(feature=None, endpoint="llma_skills_marketplace_command", method="GET")
@@ -1466,7 +1749,11 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(renamed_skill))
 
-    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @extend_schema(
+        request=LLMSkillPublishToCommunitySerializer,
+        responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
+    )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,
@@ -1486,6 +1773,17 @@ class LLMSkillViewSet(
 
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+
+        if (
+            skill.id != payload.validated_data["expected_skill_id"]
+            or skill.version != payload.validated_data["expected_version"]
+        ):
+            return Response(
+                {
+                    "detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
         supplied_tags = payload.validated_data.get("tags")
@@ -1580,7 +1878,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")
@@ -1737,6 +2035,7 @@ class LLMSkillViewSet(
         return Response(self._serialize_skill(published_skill))
 
     @extend_schema(request=LLMSkillFileRenameSerializer, responses={200: LLMSkillSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,
@@ -1815,10 +2114,30 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(published_skill))
 
-    @extend_schema(parameters=[LLMSkillListQuerySerializer])
+    @extend_schema(
+        parameters=[LLMSkillListQuerySerializer],
+        responses={
+            200: LLMSkillListSerializer,
+            304: OpenApiResponse(
+                description="Not modified. The client sent an If-None-Match that matches the current list."
+            ),
+        },
+    )
     @llma_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
+        version = team_skills_version(self.team)
+        list_response = self._list_response(request)
+        validators = self._list_validators(request, list_response, version)
+        # Validate and apply access rules before a conditional response can reuse a cached body.
+        response = get_conditional_response(request._request, etag=validators.etag) or list_response
+        response["ETag"] = validators.etag
+        response["X-Skills-Version"] = validators.version
+        patch_cache_control(response, private=True, no_cache=True)
+        patch_vary_headers(response, ["Authorization", "Cookie"])
+        return response
+
+    def _list_response(self, request: Request) -> Response:
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -1832,12 +2151,39 @@ class LLMSkillViewSet(
         data = serializer.data
         return Response({"count": len(data), "results": data})
 
+    def _list_validators(self, request: Request, response: Response, version: str) -> SkillsListValidators:
+        seed = urlencode(
+            [
+                ("rev", get_git_commit_short() or ""),
+                ("user", request.user.pk),
+                *sorted(request.query_params.lists()),
+            ],
+            doseq=True,
+        )
+        body = SafeJSONRenderer().render(response.data)
+        # A weak ETag identifies the data across renderer formatting and content encodings.
+        return SkillsListValidators(
+            version=version,
+            etag='W/"' + hashlib.sha256(seed.encode() + b"\0" + body).hexdigest() + '"',
+        )
+
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.
     def _list_context_with_owners(self, skills: Sequence[LLMSkill]) -> dict[str, Any]:
-        """Serializer context carrying a name→owners map, so the list serializes owners in one query."""
-        owners_by_skill_name = resolve_skill_owners_for_names(self.team, [skill.name for skill in skills])
-        return {**self.get_serializer_context(), "owners_by_skill_name": owners_by_skill_name}
+        """Serializer context carrying the per-page owners and bundled-file paths, one query each.
+
+        The list drops the file manifest but still reports `spec_problems`, which the paths decide.
+        """
+        file_paths_by_skill_id: dict[Any, list[str]] = {}
+        for skill_id, path in (
+            LLMSkillFile.objects.filter(skill__in=skills).order_by("path").values_list("skill_id", "path")
+        ):
+            file_paths_by_skill_id.setdefault(skill_id, []).append(path)
+        return {
+            **self.get_serializer_context(),
+            "owners_by_skill_name": resolve_skill_owners_for_names(self.team, [skill.name for skill in skills]),
+            "file_paths_by_skill_id": file_paths_by_skill_id,
+        }
 
     # Explicit response schema: the request serializer (`LLMSkillCreateSerializer`) exposes `owners`
     # write-only as a UUID list, but the view returns `_serialize_skill` (`LLMSkillSerializer`) with

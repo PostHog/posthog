@@ -1,8 +1,9 @@
 """The models a task agent run may use, and what each one supports.
 
-This module is the single definition of the run triple — runtime adapter, model, and
-reasoning effort — together with the model each adapter falls back to when a run pins
-none. Every surface that offers or validates a selection derives from here:
+This module is the single definition of how a run is configured: which harness runs it,
+which runtime adapter, model, and reasoning effort it uses, the model each adapter falls
+back to when a run pins none, and what each model costs relative to the rest. Every
+surface that offers or validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
@@ -25,6 +26,9 @@ from dataclasses import dataclass
 CLAUDE = "claude"
 CODEX = "codex"
 
+ACP = "acp"
+PI = "pi"
+
 ANTHROPIC = "anthropic"
 OPENAI = "openai"
 
@@ -46,12 +50,56 @@ ULTRACODE = "ultracode"
 # this, so a new tier reaches both projections by being added here and nowhere else.
 REASONING_EFFORTS: tuple[str, ...] = (LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRACODE)
 
+# What a picker calls each tier. Sentence case, like every other label in the product.
+REASONING_EFFORT_LABELS: dict[str, str] = {
+    LOW: "Low",
+    MEDIUM: "Medium",
+    HIGH: "High",
+    XHIGH: "Extra high",
+    MAX: "Max",
+    ULTRACODE: "Ultracode",
+}
+
 _STANDARD = (LOW, MEDIUM, HIGH)
 _THROUGH_MAX = (*_STANDARD, XHIGH, MAX)
 _EXTENDED = (*_THROUGH_MAX, ULTRACODE)
 # The GLM family exposes two thinking depths rather than the full ladder.
 _GLM = (HIGH, MAX)
 _NO_EFFORT: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ModelCost:
+    """List price in US dollars per million tokens, not the negotiated rate PostHog pays.
+
+    A picker states a comparison between models, and a negotiated rate would make it one
+    nobody outside PostHog could check.
+    """
+
+    input_per_mtok: float
+    output_per_mtok: float
+
+
+@dataclass(frozen=True)
+class RuntimeOption:
+    """One entry a harness picker shows.
+
+    The harness and the runtime adapter are not the same choice. The harness says which agent
+    program runs the task; the adapter says which vendor protocol ACP speaks, and Pi has none,
+    so ``runtime_adapter`` is ``None`` there. A picker shows one flat list, so this is where
+    the two choices become one set of entries, once, instead of in each picker.
+    """
+
+    runtime: str
+    runtime_adapter: str | None
+    label: str
+
+
+RUNTIME_OPTIONS: tuple[RuntimeOption, ...] = (
+    RuntimeOption(ACP, CLAUDE, "Claude Code"),
+    RuntimeOption(ACP, CODEX, "Codex"),
+    RuntimeOption(PI, None, "Pi"),
+)
 
 
 @dataclass(frozen=True)
@@ -71,6 +119,22 @@ class CatalogModel:
     checked in and the desktop app auto-updates into it, so it is readable by anyone and can
     be stale. Whether a run may actually use the model stays a server question, answered by
     ``get_model_access_error`` on every write path.
+
+    ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
+    it with no cost rather than a guessed one.
+
+    ``supports_1m_context`` and ``supports_fast_mode`` are the two run options a model either
+    takes or rejects. A surface offers the toggle only where the model answers yes, and drops
+    the option from the request everywhere else, so a model that never learns it here runs at
+    the default context window with fast mode off.
+
+    ``retired`` marks a model no picker offers any more, while a session already pinned to it
+    still starts and still resolves its name, cost and efforts. Superseded models stay listed
+    here for that reason rather than being deleted.
+
+    Both gates fail closed, so clear ``access_flag`` when the rollout reaches everyone. A flag
+    left behind keeps the model away from every caller the flag service cannot answer for, and
+    from every surface that reads flags before they load.
     """
 
     id: str
@@ -78,40 +142,103 @@ class CatalogModel:
     reasoning_efforts: tuple[str, ...]
     label: str | None = None
     access_flag: str | None = None
+    cost: ModelCost | None = None
+    supports_1m_context: bool = False
+    supports_fast_mode: bool = False
+    retired: bool = False
 
+
+# Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
+# theirs; the models PostHog serves through Cloudflare, Baseten and Modal are quoted at what
+# the gateway bills, pinned in
+# `services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`.
+_GLM_COST = ModelCost(1.4, 4.4)
+_GLM_FLASH_COST = ModelCost(0.15, 0.5)
+_KIMI_COST = ModelCost(3, 15)
+_DEEPSEEK_COST = ModelCost(0.13, 0.26)
+_OPUS_COST = ModelCost(5, 25)
+_OPUS_5_5_COST = ModelCost(4, 20)
+_FABLE_COST = ModelCost(10, 50)
+_SONNET_COST = ModelCost(2, 10)
+_SONNET_4_COST = ModelCost(3, 15)
+_GPT_PRO_COST = ModelCost(5, 30)
+_GPT_MID_COST = ModelCost(2.5, 15)
+_GPT_LIGHT_COST = ModelCost(1, 6)
+_GPT_FRONTIER_COST = ModelCost(10, 50)
+_GPT_6_SOL_COST = ModelCost(2, 10)
+_GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", access_flag="posthog-code-glm-model"),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", access_flag="posthog-code-glm-53-model"),
-    CatalogModel(
-        "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", access_flag="posthog-code-glm-53-flash-model"
-    ),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3"),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
+    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
-        access_flag="posthog-code-deepseek-model",
+        cost=_DEEPSEEK_COST,
     ),
-    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD),
-    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX),
-    CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED),
-    CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED),
-    CatalogModel("claude-opus-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED),
-    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD),
+    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, retired=True),
+    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, retired=True),
+    CatalogModel(
+        "claude-opus-4-7",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+        retired=True,
+    ),
+    CatalogModel(
+        "claude-opus-4-8",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+    ),
+    CatalogModel(
+        "claude-opus-5",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+    ),
+    CatalogModel(
+        "claude-opus-5-5",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_5_5_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+    ),
+    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
+    CatalogModel(
+        "claude-sonnet-4-6",
+        CLAUDE,
+        _STANDARD,
+        cost=_SONNET_4_COST,
+        supports_1m_context=True,
+        retired=True,
+    ),
+    # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
+    # anyone can check it against.
     CatalogModel("gpt-5", CODEX, _STANDARD),
-    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH)),
-    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX),
-    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX),
-    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX),
-    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX),
+    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH), cost=_GPT_PRO_COST),
+    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX, cost=_GPT_PRO_COST),
+    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),
+    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
+    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
+    CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
+    CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships
@@ -120,6 +247,8 @@ MODELS: tuple[CatalogModel, ...] = (
 # to answer for those too. The longest matching prefix wins, so declaration order is free.
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
+    (CODEX, "gpt-6-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
 )
@@ -140,7 +269,42 @@ DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class CapabilityNotch:
+    """One stop on a picker's Faster → Smarter slider: a model and the depth it runs at.
+
+    The rungs are a curated ordering over two dimensions, chosen so each is worth its extra
+    cost over the one below, rather than anything derivable from the rest of the catalog.
+    """
+
+    model: str
+    effort: str
+
+
+# Cheapest first. A consumer filters these against what the gateway serves before rendering,
+# so a rung naming a retired model drops out instead of becoming a stop that fails on send.
+CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
+    CLAUDE: (
+        CapabilityNotch("claude-sonnet-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-opus-5-5", MEDIUM),
+        CapabilityNotch("claude-opus-5-5", XHIGH),
+        CapabilityNotch("claude-fable-5-1", MAX),
+    ),
+    CODEX: (
+        CapabilityNotch("gpt-6-luna", LOW),
+        CapabilityNotch("gpt-6-sol", LOW),
+        CapabilityNotch("gpt-6-sol", MEDIUM),
+        CapabilityNotch("gpt-6-sol", HIGH),
+        CapabilityNotch("gpt-6-sol", XHIGH),
+        CapabilityNotch("gpt-6-astra", MAX),
+    ),
+}
+
+
 RUNTIME_ADAPTERS: tuple[str, ...] = tuple(PROVIDER_BY_RUNTIME_ADAPTER)
+
+RUNTIMES: tuple[str, ...] = tuple(dict.fromkeys(option.runtime for option in RUNTIME_OPTIONS))
 
 # The catalog keyed the two ways it gets read. Built once from MODELS, which stays the
 # only place a model is written down.
@@ -201,6 +365,29 @@ def access_flag_for_model(model_id: str) -> str | None:
     return model.access_flag if model else None
 
 
+def is_offered_model(model_id: str) -> bool:
+    """Whether a picker may offer this model.
+
+    The catalog is the offer list, so a model it does not name is not offered however the
+    gateway answers. A retired model stays here to keep a pinned session running and to name
+    and price it, which is a different question from whether a person may choose it now.
+    """
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model is not None and not model.retired
+
+
+def supports_1m_context(model_id: str) -> bool:
+    """Whether this model runs with the 1M-token context window, ``False`` for one the catalog omits."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.supports_1m_context if model else False
+
+
+def supports_fast_mode(model_id: str) -> bool:
+    """Whether this model runs in fast mode, ``False`` for one the catalog omits."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.supports_fast_mode if model else False
+
+
 def label_for_model(model_id: str) -> str | None:
     """The name this catalog pins for a model id, or ``None`` to let the caller derive one."""
     model = _MODEL_BY_ID.get(normalize_model_id(model_id))
@@ -248,6 +435,74 @@ def display_name_for_model(model_id: str) -> str:
     return (model.label if model else None) or format_model_id(normalized)
 
 
+# A mid-range anchor, so both the cheap end and the expensive end read as a useful ratio.
+COST_BASELINE_MODEL = "claude-sonnet-5"
+
+# Past this divergence between the input and output ratios, one number stops describing both
+# and the multiplier is marked approximate rather than dropped.
+_COST_RATIO_TOLERANCE = 0.1
+
+
+def cost_for_model(model_id: str) -> ModelCost | None:
+    """What this model lists at, or ``None`` when no public rate covers it."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.cost if model else None
+
+
+def _baseline_cost() -> ModelCost:
+    baseline = cost_for_model(COST_BASELINE_MODEL)
+    if baseline is None:
+        raise RuntimeError(f"the cost baseline {COST_BASELINE_MODEL!r} must carry a cost")
+    return baseline
+
+
+def cost_multiplier_for(model_id: str) -> tuple[float, bool] | None:
+    """This model's per-token cost relative to the baseline, and whether it is approximate.
+
+    Input and output rarely scale together, so one multiplier is the mean of both ratios.
+    """
+    cost = cost_for_model(model_id)
+    if cost is None:
+        return None
+    baseline = _baseline_cost()
+    input_ratio = cost.input_per_mtok / baseline.input_per_mtok
+    output_ratio = cost.output_per_mtok / baseline.output_per_mtok
+    spread = abs(input_ratio - output_ratio) / max(input_ratio, output_ratio)
+    return (input_ratio + output_ratio) / 2, spread > _COST_RATIO_TOLERANCE
+
+
+def _format_multiplier(multiplier: float) -> str:
+    """Round to the precision that stays meaningful at this magnitude: `5×`, `1.5×`, `0.06×`."""
+    if multiplier >= 10:
+        return str(round(multiplier))
+    if multiplier >= 0.95:
+        one_decimal = round(multiplier, 1)
+        return str(int(one_decimal)) if one_decimal.is_integer() else f"{one_decimal:.1f}"
+    return str(round(multiplier, 2))
+
+
+def cost_multiplier_label(model_id: str) -> str | None:
+    """The multiplier a picker shows beside a model, `2.5×` or `≈0.55×`, or ``None``.
+
+    Resolved here so the web composer, the Slack picker and the desktop app cannot quote one
+    model differently.
+    """
+    resolved = cost_multiplier_for(model_id)
+    if resolved is None:
+        return None
+    multiplier, approximate = resolved
+    return f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
+
+
+def format_cost_rates(cost: ModelCost) -> str:
+    """The rates behind a multiplier, for a tooltip: `Input $2 · Output $10 per 1M tokens`."""
+
+    def money(amount: float) -> str:
+        return f"${amount:.0f}" if float(amount).is_integer() else f"${amount:.2f}"
+
+    return f"Input {money(cost.input_per_mtok)} · Output {money(cost.output_per_mtok)} per 1M tokens"
+
+
 def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:
     """The efforts this model may run at, empty when it takes no effort at all.
 
@@ -272,17 +527,27 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
 
 __all__ = [
     "ANTHROPIC",
+    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
     "CLAUDE",
     "CODEX",
+    "COST_BASELINE_MODEL",
     "DEFAULT_MODEL_BY_RUNTIME_ADAPTER",
     "FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER",
     "MODELS",
     "OPENAI",
     "PROVIDER_BY_RUNTIME_ADAPTER",
     "REASONING_EFFORTS",
+    "REASONING_EFFORT_LABELS",
     "access_flag_for_model",
     "RUNTIME_ADAPTERS",
+    "CapabilityNotch",
     "CatalogModel",
+    "ModelCost",
+    "cost_for_model",
+    "cost_multiplier_for",
+    "cost_multiplier_label",
+    "format_cost_rates",
+    "is_offered_model",
     "label_for_model",
     "models_for_runtime_adapter",
     "normalize_model_id",
@@ -291,4 +556,6 @@ __all__ = [
     "reasoning_efforts_for",
     "runtime_adapter_for_model",
     "serves_model",
+    "supports_1m_context",
+    "supports_fast_mode",
 ]

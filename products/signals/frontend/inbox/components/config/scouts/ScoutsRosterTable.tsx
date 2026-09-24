@@ -9,8 +9,10 @@ import { urls } from 'scenes/urls'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { compareScoutsByName, SCOUT_GROUP_LABEL, SCOUT_GROUP_ORDER, ScoutRosterRow } from '../../../utils/scoutGroups'
 import { showsScoutOwnership } from '../../../utils/scoutOwners'
+import { runStripEmptyLabel, SCOUT_ROSTER_WINDOW_DAYS } from '../../../utils/scoutRunsWindow'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
+import { scoutCostColumns } from './ScoutCostCell'
 import { ScoutNameCell } from './ScoutNameCell'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutOwnersCell } from './ScoutOwnersCell'
@@ -30,8 +32,16 @@ import { ScoutStatusDot } from './ScoutStatusDot'
  * nothing to say about a canonical one.
  */
 export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Element {
-    const { rosterScouts, rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts, expensiveRunCostThreshold } =
-        useValues(scoutFleetLogic)
+    const {
+        rosterScouts,
+        rollups,
+        updatingScoutIds,
+        scoutRunsLoadedOnce,
+        scoutRunsCoverFleet,
+        scoutRunCosts,
+        scoutCostRollups,
+        expensiveRunCostThreshold,
+    } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
 
     if (rosterScouts.length === 0) {
@@ -41,6 +51,9 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
     // Only a custom scout can carry an owner, so a fleet of canonical scouts would get a header over
     // a column of blanks. It keeps the exact column set and widths it had before owners existed.
     const showOwners = !compact && rosterScouts.some((row) => showsScoutOwnership(row.config))
+    // The cost response covers the whole team, so it can hold spend for a scout the filters hide
+    // and for one whose config is gone. Ask the visible rows instead of counting the rollups.
+    const showCosts = !compact && rosterScouts.some((row) => scoutCostRollups.has(row.config.skill_name))
     const width = compact
         ? { scout: '40%', status: '26%', cadence: '12%', nextRun: '12%', runs: '20%', enabled: '14%' }
         : showOwners
@@ -128,6 +141,10 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                         </span>
                     ),
                 },
+                // Cost sits before the run strip, and drops out of the compact layout with the
+                // other detail columns. Absent for everyone but staff, and while no scout on the
+                // roster has a priced run in the window.
+                ...(showCosts ? scoutCostColumns(scoutCostRollups, SCOUT_ROSTER_WINDOW_DAYS) : []),
                 {
                     // "Recent runs" doesn't fit the compact column, and a right-aligned header clips
                     // from its left — it would read as "ent runs".
@@ -149,11 +166,15 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                             )
                         }
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        return scoutRunsLoadedOnce ? (
-                            <span className="text-xs text-muted">No runs yet</span>
-                        ) : (
-                            <span className="text-xs text-muted">…</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the row says so.
+                        return (
+                            <span className="text-xs text-muted">
+                                {runStripEmptyLabel({
+                                    loadedOnce: scoutRunsLoadedOnce,
+                                    coversFleet: scoutRunsCoverFleet,
+                                })}
+                            </span>
                         )
                     },
                 },

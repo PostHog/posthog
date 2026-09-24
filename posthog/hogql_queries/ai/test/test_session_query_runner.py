@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, SessionQuery
@@ -59,6 +61,12 @@ def _select_queries_without_metadata(queries: list[str]) -> list[str]:
 
 
 class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
+    def test_evaluation_reads_do_not_share_a_cache_key_with_plain_reads(self) -> None:
+        query = SessionQuery(sessionId="session-a", dateRange=DateRange(date_from="-1d", date_to="now"))
+        plain = SessionQueryRunner(team=self.team, query=query)
+        evaluation = SessionQueryRunner(team=self.team, query=query, for_evaluation=True)
+        self.assertNotEqual(evaluation.get_cache_key(), plain.get_cache_key())
+
     def test_reads_complete_trace_when_only_root_has_session_id(self) -> None:
         bulk_create_ai_events(
             [
@@ -419,7 +427,10 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         trace = response.results[0]
         self.assertEqual(trace.id, "trace-date-from")
         self.assertEqual(trace.aiSessionId, "session-date-from")
-        self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("$ai_output_choices", trace.events[0].properties)
+        else:
+            self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
         self.assertEqual(trace.inputTokens, 5)
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)

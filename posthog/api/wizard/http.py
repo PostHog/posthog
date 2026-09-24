@@ -46,7 +46,11 @@ from posthog.storage.gateway_credential_cache import (
     oauth_credential_authorized,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_trusted_client_ip
 
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -159,7 +163,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
     def gateway_token(self, request: Request) -> Response:
         """Mint a scoped gateway token for a wizard run.
 
-        The CLI uses the returned phe_ (pinned product=wizard / obo=<customer org>,
+        The CLI uses the returned phe_ (pinned product=wizard / obo=<customer team id>,
         capped, expiring) as its gateway bearer and re-calls near expiry. There is
         no other gateway: every refusal ends the run, with the body's `detail`
         shown to the user and its `code` naming the outcome.
@@ -254,6 +258,20 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(team.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_gateway_token",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="wizard_gateway_token")
+
         # A kill switch, not a rollout gate: only a literal False refuses. With the
         # legacy product off there is no second path, so reading an outage as "not
         # rolled out" turns a flag-service blip into a global wizard outage.
@@ -300,7 +318,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse("throttled", e, user=user)
         try:
             minted = mint_wizard_gateway_token(
-                obo=str(team.organization_id),
+                obo=str(team.id),
                 user=distinct_id,
                 product=product,
                 cap_usd=override.cap_usd,
@@ -322,7 +340,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "expires_at": minted["expires_at"],
                 "cap_usd": minted.get("cap_usd"),
                 "gateway_url": wizard_gateway_base_url(),
-                # Keeps a team breakdown beside the org-level obo attribution.
+                # The CLI stamps this on each generation as `team_id`.
                 "team_id": team.id,
             },
             status=status.HTTP_201_CREATED,
@@ -423,6 +441,20 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # No outcome label: `cloud_run` already counts every PermissionDenied as
             # permission_denied.
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(project.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_cloud_run",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="wizard_cloud_run")
 
         self._reserve_cloud_run_attempt(user.id)
 

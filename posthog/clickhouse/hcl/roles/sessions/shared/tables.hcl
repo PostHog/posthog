@@ -1,12 +1,5 @@
 database "posthog" {
   table "raw_sessions" {
-    override = true
-    order_by     = ["team_id", "toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))", "cityHash64(session_id_v7)", "session_id_v7"]
-    partition_by = "toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))"
-    sample_by    = "cityHash64(session_id_v7)"
-    settings = {
-      index_granularity = "8192"
-    }
     column "team_id" {
       type = "Int64"
     }
@@ -162,6 +155,13 @@ database "posthog" {
     }
     column "initial__kx" {
       type = "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
+    }
+    override = true
+    order_by     = ["team_id", "toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))", "cityHash64(session_id_v7)", "session_id_v7"]
+    partition_by = "toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))"
+    sample_by    = "cityHash64(session_id_v7)"
+    settings = {
+      index_granularity = "8192"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/sessions/noshard/posthog.raw_sessions"
@@ -412,6 +412,9 @@ database "posthog" {
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
+    }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
@@ -437,6 +440,11 @@ database "posthog" {
     }
     index "flag_keys_bloom_filter" {
       expr        = "flag_keys"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
       type        = "bloom_filter()"
       granularity = 1
     }

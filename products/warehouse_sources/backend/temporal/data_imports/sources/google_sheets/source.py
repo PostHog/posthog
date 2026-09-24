@@ -5,15 +5,13 @@ from django.conf import settings
 import gspread
 from google.auth import exceptions as google_auth_exceptions
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -169,7 +167,13 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 "for example https://docs.google.com/spreadsheets/d/<id>/edit.",
             )
         except gspread.SpreadsheetNotFound:
-            return False, "Spreadsheet not found at URL provided"
+            # The Sheets API answers an unshared sheet with a 404, the same as a deleted one, so
+            # sharing is at least as likely as a wrong URL. Mirror the sync-time message.
+            return (
+                False,
+                "PostHog couldn't find a sheet at that URL. Check the URL, and share the sheet with our service "
+                f"account ({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer.",
+            )
         except PermissionError:
             return (
                 False,
@@ -216,7 +220,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
+            name=ExternalDataSourceType.GOOGLESHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["gsheet", "gsheets", "spreadsheet", "google sheet"],
             label="Google Sheets",

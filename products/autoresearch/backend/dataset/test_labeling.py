@@ -21,6 +21,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
+    PREDICTION_EVENT_NAME,
     _build_labeled_users_cte,
     _build_population_conditions,
     _build_population_kind_conditions,
@@ -54,6 +55,9 @@ class TestStripSqlComments(BaseTest):
             ("backslash_quote_inside_string", "SELECT 'it\\'s -- fine' AS x FROM t"),
             ("block_comment_markers_inside_string", "SELECT '/* not a comment */' AS x FROM t"),
             ("double_dash_inside_backtick_identifier", "SELECT `weird--name` FROM t"),
+            # An unbalanced quote runs to the end of the text. Stripping the rest as a comment
+            # would replace the parse error the author needs to see with a different one.
+            ("unterminated_string_literal", "SELECT 'oops -- x"),
         ]
     )
     def test_preserves_literals(self, _name: str, sql: str) -> None:
@@ -111,6 +115,9 @@ class TestPopulationFilterCompilation(SimpleTestCase):
             ("missing_key", [{"type": "person", "operator": "is_set"}]),
             ("missing_type", [{"key": "plan", "operator": "exact", "value": "pro"}]),
             ("non_numeric_threshold", [{"key": "price", "type": "event", "operator": "gt", "value": "cheap"}]),
+            # An operator the operator tables cannot hash must still take the ValueError path.
+            ("list_operator", [{"key": "plan", "type": "person", "operator": ["exact"], "value": "pro"}]),
+            ("dict_operator", [{"key": "plan", "type": "person", "operator": {"op": "exact"}, "value": "pro"}]),
         ]
     )
     def test_uncompilable_filter_raises_instead_of_widening(self, _name: str, properties: list[dict[str, Any]]) -> None:
@@ -135,6 +142,18 @@ class TestPopulationFilterCompilation(SimpleTestCase):
                 {"pop_0_0": "%pro%", "pop_0_1": "%enterprise%"},
             ),
             (
+                "exact_list_is_an_in_clause",
+                {"operator": "exact", "value": ["pro", "enterprise"]},
+                "person.properties[{pop_k_0}] IN ({pop_0_0}, {pop_0_1})",
+                {"pop_0_0": "pro", "pop_0_1": "enterprise"},
+            ),
+            (
+                "is_not_list_is_a_not_in_clause",
+                {"operator": "is_not", "value": ["pro", "enterprise"]},
+                "person.properties[{pop_k_0}] NOT IN ({pop_0_0}, {pop_0_1})",
+                {"pop_0_0": "pro", "pop_0_1": "enterprise"},
+            ),
+            (
                 "string_threshold_is_bound_as_a_number",
                 {"operator": "gte", "value": "13"},
                 "toFloat64OrNull(person.properties[{pop_k_0}]) >= {pop_0}",
@@ -149,17 +168,27 @@ class TestPopulationFilterCompilation(SimpleTestCase):
         self.assertEqual(parts, [expected_part])
         self.assertEqual({k: v for k, v in values.items() if k != "pop_k_0"}, expected_values)
 
-    def test_empty_allowlist_matches_nobody(self) -> None:
-        parts, _values = _build_population_conditions(
-            [{"key": "plan", "type": "person", "operator": "exact", "value": []}]
-        )
-        self.assertEqual(parts, ["1 = 0"])
+    def test_hostile_key_is_bound_not_interpolated(self) -> None:
+        # Keys are bound as HogQL values, so a hostile key must never reach the SQL text.
+        hostile_key = "'; DROP TABLE users; --"
+        parts, values = _build_population_conditions([{"key": hostile_key, "type": "person", "operator": "is_set"}])
+        self.assertEqual(len(parts), 1)
+        self.assertNotIn(hostile_key, parts[0])
+        self.assertEqual(values["pop_k_0"], hostile_key)
 
-    def test_empty_denylist_excludes_nobody(self) -> None:
+    @parameterized.expand(
+        [
+            ("empty_allowlist_matches_nobody", "exact", ["1 = 0"]),
+            ("empty_denylist_excludes_nobody", "is_not", []),
+            ("empty_substring_allowlist_matches_nobody", "icontains", ["1 = 0"]),
+            ("empty_substring_denylist_excludes_nobody", "not_icontains", []),
+        ]
+    )
+    def test_empty_value_list(self, _name: str, operator: str, expected_parts: list[str]) -> None:
         parts, _values = _build_population_conditions(
-            [{"key": "plan", "type": "person", "operator": "is_not", "value": []}]
+            [{"key": "plan", "type": "person", "operator": operator, "value": []}]
         )
-        self.assertEqual(parts, [])
+        self.assertEqual(parts, expected_parts)
 
 
 class TestPopulationKindCompilation(SimpleTestCase):
@@ -229,6 +258,41 @@ class TestPopulationKindCompilation(SimpleTestCase):
         )
         self.assertIn("person_id IN (SELECT DISTINCT person_id FROM events", sql)
         self.assertEqual(values["popk_days"], 30)
+
+    @parameterized.expand(
+        [
+            (
+                "inference_anchors",
+                lambda: build_inference_anchors_sql(lookback_days=90, inference_population={})[0],
+            ),
+            (
+                "eligible_count",
+                lambda: build_eligible_count_sql(horizon_days=7, lookback_days=90, training_population={})[0],
+            ),
+            (
+                "labeler_user_window",
+                lambda: build_random_t0_labeler_sql(
+                    target_event="x", horizon_days=7, lookback_days=90, training_population={}
+                )[0],
+            ),
+            (
+                "labeler_labeled_users_aggregate",
+                lambda: build_random_t0_labeler_sql(
+                    target_event="x", horizon_days=7, lookback_days=90, training_population={}
+                )[0].split("labeled_users AS")[1],
+            ),
+            (
+                "kind_membership_subquery",
+                lambda: build_inference_anchors_sql(
+                    lookback_days=90, inference_population={"kind": "performed_event_within_days", "days": 30}
+                )[0],
+            ),
+        ]
+    )
+    def test_activity_scans_exclude_the_prediction_event(self, _name: str, build) -> None:
+        # Every live cadence writes one autoresearch_prediction per scored person; a scan that
+        # counted it kept a person eligible forever on nothing but their own predictions.
+        self.assertIn(f"event != '{PREDICTION_EVENT_NAME}'", build())
 
     def test_inference_backfill_anchors_kind_windows_at_cutoff(self) -> None:
         sql, _values = build_inference_anchors_sql(

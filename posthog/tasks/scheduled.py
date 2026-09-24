@@ -46,7 +46,6 @@ from posthog.tasks.tasks import (
     clickhouse_mutation_count,
     clickhouse_part_count,
     clickhouse_row_count,
-    clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
     fail_stuck_video_exports,
@@ -75,12 +74,20 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
-from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.ai_training.backend.facade.api import privacy_enabled
+from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
+from products.approvals.backend.tasks import (
+    expire_old_change_requests,
+    sync_experiment_approval_policies,
+    validate_pending_change_requests,
+)
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
-from products.conversations.backend.tasks.slack import sweep_inbound_events
+from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
+from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -101,12 +108,14 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
+from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
+    sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -118,6 +127,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
@@ -126,8 +136,12 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
-from products.visual_review.backend.facade.tasks import sweep_visual_review_retention
-from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
+from products.visual_review.backend.facade.tasks import (
+    send_visual_review_debt_digests,
+    sweep_visual_review_artifacts,
+    sweep_visual_review_runs,
+)
+from products.warehouse_sources.backend.facade.tasks import sweep_stalled_schema_schedules, sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
@@ -137,6 +151,7 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
+from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -246,6 +261,8 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if privacy_enabled():
+        sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:
@@ -385,6 +402,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=2 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_implementation_dispatches.s(),
+        name="recover pending signals implementation starts",
+        expires_seconds=5 * 60,
+    )
+
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
     sender.add_periodic_task(
         crontab(hour="*", minute="25"),
@@ -447,6 +472,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=10 * 60,
     )
 
+    # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
+    # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
+    # breaching workflow can send between runs, and the detection windows are 1h and 24h anyway.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="35"),
+        sweep_workflow_email_deliverability.s(),
+        name="sweep workflow email deliverability",
+        expires_seconds=30 * 60,
+    )
+
     # Flags cache sync - hourly
     sender.add_periodic_task(
         crontab(hour="*", minute="15"),
@@ -501,6 +537,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="15"),
         sweep_abandoned_media_uploads_task.s(),
         name="sweep abandoned media uploads",
+    )
+
+    # Desktop feedback attachments are private diagnostic data with a fixed retention period.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="20"),
+        sweep_expired_desktop_feedback_media_task.s(),
+        name="sweep expired desktop feedback media",
     )
 
     # Team metadata cache verification - hourly at minute 20
@@ -674,6 +717,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sweep_stopped_schema_syncs.s(),
         name="sweep stopped schema syncs",
+    )
+
+    # The mirror of the sweep above: schemas that should be syncing but get no runs at all.
+    # A schedule paused out of band produces no job row and no error, so this sweep is the
+    # only thing that reports it.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="40"),
+        sweep_stalled_schema_schedules.s(),
+        name="sweep stalled schema schedules",
     )
 
     # Background net for tables created while nobody visits the warehouse status page. Each
@@ -870,17 +922,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.EE_AVAILABLE:
-        sender.add_periodic_task(
-            # The minute differs between installations so that they do not all call
-            # license.posthog.com in the same minute past midnight.
-            crontab(hour="0", minute=instance_spread_minute("send license usage", 40)),
-            clickhouse_send_license_usage.s(),
-        )
-        sender.add_periodic_task(
-            crontab(hour="4", minute=instance_spread_minute("send license usage retry", 40)),
-            clickhouse_send_license_usage.s(),
-        )  # again a few hours later just to make sure
-
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
@@ -963,6 +1004,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
+        crontab(hour="2", minute="17"),
+        cleanup_widget_snapshots.s(),
+        name="remove unreferenced notebook widget snapshots",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",
@@ -978,6 +1026,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="5"),
         expire_old_change_requests.s(),
         name="expire old change requests",
+    )
+
+    # TODO(experiment-approval-policies): temporary. See products/approvals/backend/experiment_policy_sync.py.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="15"),
+        sync_experiment_approval_policies.s(),
+        name="sync experiment approval policies",
     )
 
     # Deactivate endpoint materializations that haven't been used in 30+ days
@@ -1016,6 +1072,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         sweep_inbound_events.s(),
         name="sweep conversation inbound events",
+    )
+
+    # Re-drive due Slack outbound delivery parts. Celery on_commit is only a wake-up hint.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_delivery_parts.s(),
+        name="sweep conversation delivery parts",
     )
 
     # Pull ambient messages from MS Teams shared channels (which never push them
@@ -1066,8 +1130,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="2", minute="23"),
-        sweep_visual_review_retention.s(),
-        name="sweep visual review retention",
+        sweep_visual_review_runs.s(),
+        name="sweep visual review runs",
+    )
+
+    # An hour after the run sweep, which frees most of the artifacts this sweep deletes.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="23"),
+        sweep_visual_review_artifacts.s(),
+        name="sweep visual review artifacts",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(day_of_week="mon", hour="7", minute="30"),
+        send_visual_review_debt_digests.s(),
+        name="send visual review debt digests",
+        expires_seconds=60 * 60,
     )
 
     sender.add_periodic_task(
@@ -1083,10 +1163,29 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="stamphog daily merged-pr digests",
     )
 
+    # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="7", minute="30"),
+        run_aeo_citation_checks_task.s(),
+        name="AEO citation checks",
+        # Well under the daily interval, so a backed-up queue drops the stale dispatch
+        # instead of fanning out a second day's checks and paying for them twice.
+        expires_seconds=60 * 60,
+    )
+
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,
     # probe stale servers, recompute rankings. Flag-gated inside the task.
     sender.add_periodic_task(
         MCP_REGISTRY_SYNC_CRONTAB,
         run_mcp_registry_sync.s(),
         name="mcp registry daily sync",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        schedule_task_digests.s(),
+        name="schedule customer task digests",
+        expires_seconds=300,
     )

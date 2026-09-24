@@ -21,7 +21,10 @@ import { attachedContextLogic } from './attachedContextLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
+import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistence'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
+
+const GENERIC_FAILURE = 'Failed to start a new run. Please try again.'
 
 // Minimal kea stub for the shared sandbox stream logic — gives the test full control over the busy gate
 // (`isThinking`) and `currentRunStatus`, and lets us fire `markTurnComplete` and observe `pushHumanMessage`
@@ -40,11 +43,12 @@ jest.mock('./runStreamLogic', () => {
             pushConversationCleared: true,
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
-            markTurnComplete: true,
+            markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
             setCurrentMode: (mode: string) => ({ mode }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
+            setStubReady: (ready: boolean) => ({ ready }),
             setStubClearSupported: (supported: boolean) => ({ supported }),
             ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
             markPermissionRequestResolved: (requestId: string) => ({ requestId }),
@@ -60,6 +64,8 @@ jest.mock('./runStreamLogic', () => {
             bootstrapRun: true,
         }),
         reducers({
+            runOpening: [false, {}],
+            runStarted: [true, { setStubReady: (_: boolean, { ready }: { ready: boolean }) => ready }],
             currentRunStatus: [
                 'in_progress',
                 {
@@ -192,6 +198,7 @@ describe('runInteractionLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        localStorage.clear()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({ jsonrpc: '2.0', result: { queued: true } })
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
@@ -217,6 +224,163 @@ describe('runInteractionLogic', () => {
         stream?.unmount()
         project?.unmount()
         toolEvents?.unmount()
+    })
+
+    it('restores queued text and the latest page-exit draft without sending on readiness or turn completion', async () => {
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'queued first' })
+        logic.actions.submitComposerForm()
+        logic.actions.setComposerFormValues({ draft: 'queued second' })
+        logic.actions.submitComposerForm()
+        runInteractionLogic({
+            ...logic.props,
+            flushDraft: () => logic.actions.setComposerFormValues({ draft: 'last keystroke' }),
+        })
+        window.dispatchEvent(new Event('pagehide'))
+        logic.unmount()
+        logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
+        logic.mount()
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('queued first\n\nqueued second\n\nlast keystroke')
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(logic.values.draftRecovery).toBe('restored')
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+            ...userMessageCommand('queued first\n\nqueued second\n\nlast keystroke')
+        )
+        expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()).toBeNull()
+    })
+
+    it('does not prewarm a recovered terminal draft or copy it into another user or project', async () => {
+        const key = taskDraftStorageKey('user-1', 997, TASK_ID)
+        new TaskDraftPersistence(key).save({ runId: RUN_ID, draft: 'saved draft', queuedText: '', recovery: null })
+        setStatus('completed')
+        await expectLogic(logic, () => logic.actions.enableTaskDraftPersistence('user-1', 997)).toFinishAllListeners()
+        expect(logic.values.composerForm.draft).toBe('saved draft')
+        expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+        logic.actions.setComposerFormValues({ draft: 'edited after recovery' })
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        expect(logic.values.composerForm.draft).toBe('edited after recovery')
+        logic.actions.enableTaskDraftPersistence('user-2', 997)
+        expect(logic.values.composerForm.draft).toBe('')
+        logic.actions.enableTaskDraftPersistence('user-1', 998)
+        expect(logic.values.composerForm.draft).toBe('')
+        expect(new TaskDraftPersistence(key).restore()?.draft).toBe('edited after recovery')
+    })
+
+    it('keeps startup input and settings through attachment and sends the queue after the first turn', async () => {
+        const pending = runInteractionLogic({ taskId: '', runId: '', streamKey: RUN_ID, interactionKey: 'creation' })
+        const unmount = pending.mount()
+        const other = runInteractionLogic({
+            taskId: '',
+            runId: '',
+            streamKey: 'other-draft',
+            interactionKey: 'other-draft',
+        })
+        const unmountOther = other.mount()
+        const setReady = (ready: boolean): void =>
+            (stream.actions as unknown as { setStubReady: (ready: boolean) => void }).setStubReady(ready)
+        try {
+            pending.actions.enableTaskDraftPersistence('user-1', 997)
+            other.actions.setComposerFormValues({ draft: 'another task follow-up' })
+            other.actions.submitComposerForm()
+            setStatus(null)
+            setReady(false)
+            pending.actions.setEffort('low')
+            pending.actions.setMode('plan')
+            pending.actions.setComposerFormValues({ draft: 'first follow-up' })
+            pending.actions.submitComposerForm()
+            pending.actions.setComposerFormValues({ draft: 'second follow-up' })
+            pending.actions.submitComposerForm()
+            pending.actions.setComposerFormValues({ draft: 'unfinished draft' })
+            pending.actions.handleEscape()
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+            expect(pending.values.queuedMessages).toEqual([
+                { id: expect.any(String), content: 'first follow-up' },
+                { id: expect.any(String), content: 'second follow-up' },
+            ])
+
+            pending.actions.hydrateTaskDraft(TASK_ID)
+            expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()?.draft).toBe(
+                'first follow-up\n\nsecond follow-up\n\nunfinished draft'
+            )
+
+            const attached = runInteractionLogic({ ...pending.props, taskId: TASK_ID, runId: RUN_ID })
+            expect(attached).toBe(pending)
+            expect(new TaskDraftPersistence(taskDraftStorageKey('user-1', 997, TASK_ID)).restore()?.draft).toBe(
+                'first follow-up\n\nsecond follow-up\n\nunfinished draft'
+            )
+            expect(attached.values.draftRecovery).toBeNull()
+            setStatus('queued')
+            attached.actions.steerQueue()
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            setThinking(true)
+            setReady(true)
+            stream.actions.setCurrentMode('default')
+            expect(attached.values.composerForm.draft).toBe('unfinished draft')
+            expect(attached.values.effortOverride).toBe('low')
+            expect(attached.values.selectedMode).toBe('plan')
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+            setThinking(false)
+            await expectLogic(attached, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+            expect(attached.values.queuedMessages).toEqual([])
+            expect(attached.values.composerForm.draft).toBe('unfinished draft')
+            const messages = (tasksRunsCommandCreate as jest.Mock).mock.calls.filter(
+                (call) => call[3].method === 'user_message'
+            )
+            expect(messages).toEqual([userMessageCommand('first follow-up\n\nsecond follow-up')])
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'set_config_option',
+                params: { configId: 'mode', value: 'plan' },
+            })
+            expect(attached.values.selectedMode).toBe('plan')
+            stream.actions.setCurrentMode('auto')
+            expect(attached.values.selectedMode).toBe('auto')
+            expect(other.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'another task follow-up' }])
+        } finally {
+            unmountOther()
+            unmount()
+        }
+    })
+
+    it('holds the queue after Stop until the user explicitly steers it', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('keep this follow-up')
+        logic.actions.requestCancellation()
+        setThinking(false)
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages[0].content).toBe('keep this follow-up')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('drains a follow-up queued after a Stop that had nothing staged', async () => {
+        setThinking(true)
+        logic.actions.requestCancellation()
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'follow-up after the stop' })
+        logic.actions.submitComposerForm()
+        expect(logic.values.queuedMessages[0].content).toBe('follow-up after the stop')
+
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('follow-up after the stop'))
     })
 
     it('adopts the startup draft once and clears it after sending', async () => {
@@ -279,7 +443,7 @@ describe('runInteractionLogic', () => {
         }).toFinishAllListeners()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('unsent draft')
-        expect(logic.values.queuedMessages).toEqual([{ id: 'queued', content: 'saved message' }])
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'saved message' }])
     })
 
     it('sends immediately and echoes the message when the agent is idle', async () => {
@@ -429,14 +593,17 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
-    it('concatenates follow-ups into a single staged message and flushes it when the turn completes', async () => {
+    it('stages each follow-up on its own row and flushes them as one message when the turn completes', async () => {
         setThinking(true)
         logic.actions.setComposerFormValues({ draft: 'first' })
         logic.actions.submitComposerForm()
         logic.actions.setComposerFormValues({ draft: 'second' })
         logic.actions.submitComposerForm()
-        // A second follow-up concatenates onto the first rather than fanning out into a separate message.
-        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+        // Each follow-up keeps its own row, so the user can edit or drop one without rewriting the other.
+        expect(logic.values.queuedMessages).toEqual([
+            { id: expect.any(String), content: 'first' },
+            { id: expect.any(String), content: 'second' },
+        ])
 
         // Turn completes → drain. The flush itself sends while idle.
         setThinking(false)
@@ -447,6 +614,21 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('first\n\nsecond'))
         expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('keeps a staged follow-up queued when history replays an older turn completion', async () => {
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        logic.actions.submitComposerForm()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
+
+        setThinking(false)
+        await expectLogic(logic, () => {
+            stream.actions.markTurnComplete(true)
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
     it.each(['approval first', 'turn first'])('holds ordinary delivery until both gates clear: %s', async (order) => {
@@ -572,7 +754,7 @@ describe('runInteractionLogic', () => {
         logic.actions.steerQueue()
         await expectLogic(logic, () => complete(response)).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
-        expect(logic.values.queuedMessages[0].content).toBe('first\n\nsecond')
+        expect(logic.values.queuedMessages.map((message) => message.content)).toEqual(['first', 'second'])
         expect(logic.values.composerForm.draft).toBe('unsent draft')
         expect(logic.values.steerPending).toBe(false)
         expect(lemonToast.error).toHaveBeenCalled()
@@ -653,6 +835,106 @@ describe('runInteractionLogic', () => {
         await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
         expect(tasksRunsCommandCreate).toHaveBeenLastCalledWith(...userMessageCommand('new follow-up'))
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('sends a message held by a stop together with the next one the user submits', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('first follow-up')
+        logic.actions.requestCancellation()
+        expect(logic.values.queueHeld).toBe(true)
+
+        // The stop lands and the turn ends, so the run is idle again when the user types.
+        setThinking(false)
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
+        logic.actions.setComposerFormValues({ draft: 'are you there?' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenLastCalledWith(
+            ...userMessageCommand('first follow-up\n\nare you there?')
+        )
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(logic.values.queueHeld).toBe(false)
+    })
+
+    it('holds an unconfirmed send as its own rows until the user asks for it again', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        setThinking(true)
+        logic.actions.enqueueMessage('first')
+        logic.actions.enqueueMessage('second')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+
+        // The send may have reached the agent, so the rows come back as they were rather than as one blob.
+        expect(logic.values.queuedMessages.map((message) => message.content)).toEqual(['first', 'second'])
+        expect(logic.values.queueHeld).toBe(true)
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+
+        // Typing more must not re-deliver them: only an explicit send may repeat an unconfirmed message.
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'third' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('carries staged rows into the run a terminal send starts', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('staged while running')
+        setStatus('completed')
+        stream.actions.handleTerminalStatus({ status: 'completed' })
+
+        logic.actions.setComposerFormValues({ draft: 'and now this' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'staged while running\n\nand now this' }),
+            expect.anything()
+        )
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('waits for an open row editor before a terminal send carries the rows', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('half-written')
+        setStatus('completed')
+        stream.actions.handleTerminalStatus({ status: 'completed' })
+        logic.actions.setQueueEditing(true)
+
+        logic.actions.setComposerFormValues({ draft: 'and now this' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        // Sending would have carried the row as it stood before the edit the user is still typing.
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'half-written' }])
+
+        logic.actions.setQueueEditing(false)
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'half-written\n\nand now this' }),
+            expect.anything()
+        )
+    })
+
+    it('waits for an open row editor before draining on turn completion', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('half-written')
+        logic.actions.setQueueEditing(true)
+
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        // Closing the editor drains on its own: no turn completion is coming, so nothing else would.
+        await expectLogic(logic, () => logic.actions.setQueueEditing(false)).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('half-written'))
         expect(logic.values.queuedMessages).toEqual([])
     })
 
@@ -756,36 +1038,80 @@ describe('runInteractionLogic', () => {
             expect(logic.values.composerForm.draft).toBe('continue from here\n\nand check the tests')
             expect(logic.values.startingRun).toBe(false)
             expect(onRunStarted).not.toHaveBeenCalled()
-            expect(lemonToast.error).toHaveBeenCalledWith('Failed to start a new run. Please try again.')
+            expect(lemonToast.error).toHaveBeenCalledWith(GENERIC_FAILURE)
         }
     )
 
-    it('warms the resumed run while composing and consumes it before submit', async () => {
-        jest.useFakeTimers()
-        setStatus('cancelled')
-        logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
-        jest.advanceTimersByTime(300)
-        jest.useRealTimers()
-
-        await expectLogic(logic).toFinishAllListeners()
-        expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
-            resume_from_run_id: RUN_ID,
-            runtime_adapter: 'claude',
-            model: 'claude-sonnet-5',
-            reasoning_effort: 'high',
-            initial_permission_mode: 'auto',
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.submitComposerForm()
-        }).toFinishAllListeners()
-
-        expect(tasksRunCreate).toHaveBeenCalledWith(
-            '997',
-            TASK_ID,
-            expect.objectContaining({ resume_from_run_id: RUN_ID }),
-            expect.objectContaining({ signal: expect.any(AbortSignal) })
+    it.each([
+        ['submitted', false],
+        ['unmounted', false],
+        ['unmounted', true],
+        ['failed', false],
+        ['failed', true],
+    ] as const)('protects the submitted warm when %s (warm pending: %s)', async (outcome, warmPending) => {
+        let resolveWarm!: () => void
+        let resolveRun!: () => void
+        let rejectRun!: () => void
+        ;(tasksWarmResumeCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveWarm = () => resolve({ task_id: TASK_ID, run_id: 'warm-run' })
+            })
         )
+        ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve, reject) => {
+                resolveRun = () => resolve({ latest_run: { id: 'warm-run' } })
+                rejectRun = () => reject(new Error('Connection lost'))
+            })
+        )
+        jest.useFakeTimers()
+        try {
+            setStatus('cancelled')
+            logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
+            await jest.advanceTimersByTimeAsync(300)
+            if (!warmPending) {
+                resolveWarm()
+                await jest.advanceTimersByTimeAsync(0)
+            }
+            expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
+                resume_from_run_id: RUN_ID,
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-5',
+                reasoning_effort: 'high',
+                initial_permission_mode: 'auto',
+            })
+
+            logic.actions.submitComposerForm()
+            expect(tasksRunCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                expect.objectContaining({ resume_from_run_id: RUN_ID }),
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            )
+            expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+
+            if (outcome === 'failed') {
+                rejectRun()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.composerForm.draft).toBe('continue from the checkpoint')
+            }
+            if (outcome !== 'submitted') {
+                logic.unmount()
+            }
+            resolveRun()
+            resolveWarm()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+            if (outcome === 'submitted') {
+                expect(onRunStarted).toHaveBeenCalledWith('warm-run', expect.anything())
+            } else {
+                expect(onRunStarted).not.toHaveBeenCalled()
+            }
+        } finally {
+            resolveRun()
+            resolveWarm()
+            jest.useRealTimers()
+        }
     })
 
     it('records the boundary instead of starting a run when /clear is sent to a terminal run', async () => {
@@ -846,11 +1172,23 @@ describe('runInteractionLogic', () => {
     })
 
     test.each([
-        [new Error('boom'), 'Failed to start a new run. Please try again.'],
+        [new Error('boom'), GENERIC_FAILURE],
         [
             new ApiError('starting', 503, undefined, { code: 'warm_run_activation_unavailable' }),
             "Couldn't start this run yet. Please try again.",
         ],
+        [
+            new ApiError('starting', 400, undefined, {
+                detail: 'A resumed run must use its previous base branch. Omit branch to resume.',
+            }),
+            'A resumed run must use its previous base branch. Omit branch to resume.',
+        ],
+        [
+            new ApiError('starting', 402, undefined, { error: 'Your organization is over its usage limit.' }),
+            'Your organization is over its usage limit.',
+        ],
+        [new ApiError('starting', 500, undefined, { detail: 'A server error occurred.' }), GENERIC_FAILURE],
+        [new ApiError('starting', 503, undefined, null), GENERIC_FAILURE],
     ])('keeps the draft and unsent context when starting a run fails with %s', async (error, message) => {
         let rejectSend!: (error: unknown) => void
         ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
@@ -978,11 +1316,20 @@ describe('runInteractionLogic', () => {
         }
     )
 
-    it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {
-        attachedContextLogic().actions.registerContext('scene', [
+    it.each(['global', 'runner'])('wraps and deduplicates %s context while echoing raw text', async (scope) => {
+        const contextItems = [
             { type: 'insight', key: 'sig', label: 'Signups' },
             { type: 'text', value: 'always resend me' },
-        ])
+        ]
+        attachedContextLogic().actions.registerContext(
+            'scene',
+            scope === 'global' ? contextItems : [{ type: 'text', value: 'unrelated scene context' }]
+        )
+        if (scope === 'runner') {
+            logic.unmount()
+            logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted, contextItems })
+            logic.mount()
+        }
         setThinking(false)
 
         logic.actions.setComposerFormValues({ draft: 'why the drop?' })
@@ -996,6 +1343,7 @@ describe('runInteractionLogic', () => {
         // The wire content carries the invisible context block; the echoed human message stays raw.
         expect(firstSend.params.content).toContain('<posthog_untrusted_context>')
         expect(firstSend.params.content).toContain('- insight sig ("Signups")')
+        expect(firstSend.params.content).not.toContain('unrelated scene context')
         expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
         await expectLogic(stream).toDispatchActions([
             (action) =>
@@ -1133,6 +1481,8 @@ describe('runInteractionLogic', () => {
     })
 
     it('keeps text typed into the composer during an in-flight draft send instead of clobbering it on success', async () => {
+        logic.actions.enableTaskDraftPersistence('user-1', 997)
+        const key = taskDraftStorageKey('user-1', 997, TASK_ID)
         let resolveSend: () => void = () => {}
         ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
             new Promise((resolve) => {
@@ -1150,6 +1500,11 @@ describe('runInteractionLogic', () => {
         // The user keeps typing while the send is in flight.
         logic.actions.setComposerFormValues({ draft: 'next thought' })
 
+        expect(new TaskDraftPersistence(key).restore()).toEqual({
+            draft: 'ship it\n\nnext thought',
+            recovery: 'unconfirmed',
+        })
+
         await expectLogic(logic, () => {
             resolveSend()
         }).toFinishAllListeners()
@@ -1157,6 +1512,7 @@ describe('runInteractionLogic', () => {
         // Success leaves the composer alone — the newly typed text survives rather than being wiped.
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('ship it'))
         expect(logic.values.composerForm.draft).toBe('next thought')
+        expect(new TaskDraftPersistence(key).restore()).toEqual({ draft: 'next thought', recovery: 'restored' })
     })
 
     it('restores a failed draft send ahead of text typed during the send, preserving order', async () => {
@@ -1283,7 +1639,10 @@ describe('runInteractionLogic', () => {
 
         // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
         expect(lemonToast.error).toHaveBeenCalled()
-        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+        expect(logic.values.queuedMessages).toEqual([
+            { id: expect.any(String), content: 'first' },
+            { id: expect.any(String), content: 'second' },
+        ])
     })
 
     // The tasks run backend has no server-side consent check, so a follow-up (or a fresh-run send on a
@@ -1352,4 +1711,109 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.queuedMessages).toEqual([])
     })
+    it('changing mode after a lost response preserves the first submitted warm', async () => {
+        let finishWarm!: () => void
+        ;(tasksWarmResumeCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishWarm = () => resolve({ task_id: TASK_ID, run_id: 'warm-run' })
+            })
+        )
+        ;(tasksRunCreate as jest.Mock)
+            .mockRejectedValueOnce(new Error('Connection lost'))
+            .mockResolvedValueOnce({ latest_run: { id: 'retry-run' } })
+        jest.useFakeTimers()
+        try {
+            setStatus('completed')
+            logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
+            await jest.advanceTimersByTimeAsync(300)
+            expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
+            logic.actions.submitComposerForm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.startingRun).toBe(false)
+            expect(logic.values.composerForm.draft).toBe('continue from the checkpoint')
+            logic.actions.setMode('plan')
+            logic.actions.submitComposerForm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+            expect(tasksRunCreate).toHaveBeenLastCalledWith(
+                '997',
+                TASK_ID,
+                expect.objectContaining({ initial_permission_mode: 'plan' }),
+                expect.anything()
+            )
+            expect(onRunStarted).toHaveBeenCalledWith('retry-run', expect.anything())
+            finishWarm()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+        } finally {
+            finishWarm()
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([false, true])(
+        'preserves a submitted warm across composers (warm response ready: %s)',
+        async (warmReady) => {
+            let finishWarm!: () => void
+            let finishFirstRun!: () => void
+            let finishSecondRun!: () => void
+            ;(tasksWarmResumeCreate as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    finishWarm = () => resolve({ task_id: TASK_ID, run_id: 'warm-run' })
+                })
+            )
+            ;(tasksRunCreate as jest.Mock)
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        finishFirstRun = () => resolve({ latest_run: { id: 'warm-run' } })
+                    })
+                )
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        finishSecondRun = () => resolve({ latest_run: { id: 'cold-run' } })
+                    })
+                )
+            logic.unmount()
+            logic = runInteractionLogic({
+                taskId: TASK_ID,
+                runId: RUN_ID,
+                interactionKey: 'optimistic-panel',
+                streamKey: 'panel-stream',
+            })
+            logic.mount()
+            const panelStream = runStreamLogic({ streamKey: 'panel-stream' })
+            ;(panelStream.actions as any).setStubStatus('cancelled')
+            const second = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID })
+            second.mount()
+            jest.useFakeTimers()
+            try {
+                setStatus('cancelled')
+                logic.actions.setComposerFormValues({ draft: 'first composer' })
+                await jest.advanceTimersByTimeAsync(300)
+                expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
+                if (warmReady) {
+                    finishWarm()
+                    await jest.advanceTimersByTimeAsync(0)
+                }
+                logic.actions.submitComposerForm()
+                second.actions.setMode('plan')
+                second.actions.setComposerFormValues({ draft: 'second composer' })
+                second.actions.submitComposerForm()
+                expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+                finishSecondRun()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.startingRun).toBe(true)
+                finishWarm()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(tasksRunsCancelCreate).not.toHaveBeenCalled()
+            } finally {
+                finishFirstRun()
+                finishSecondRun()
+                finishWarm()
+                await jest.advanceTimersByTimeAsync(0)
+                second.unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
 })

@@ -448,3 +448,62 @@ def _activity_error() -> ActivityError:
         activity_id="1",
         retry_state=None,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route_elsewhere", [False, True])
+async def test_render_runs_on_the_requested_queue(route_elsewhere: bool):
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    requested_queue = "other-rasterization-task-queue" if route_elsewhere else None
+    expected_queue = requested_queue or settings.RASTERIZATION_TASK_QUEUE
+    rendered_on: list[str] = []
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(session_id="s", team_id=7, s3_bucket="b", s3_key_prefix="p"),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="rasterize-recording")
+    async def render_mocked(_inputs: dict) -> dict:
+        rendered_on.append(activity.info().task_queue)
+        return {"s3_uri": "s3://bucket/key", "video_duration_s": 1.0, "playback_speed": 1.0}
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_noop(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="clear_stuck_counter_activity")
+    async def clear_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                activities=[build_mocked, finalize_noop, clear_noop],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            # Both queues carry a render worker, so a mis-routed render still completes and the
+            # assertion below names the wrong queue instead of hanging forever.
+            Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
+            Worker(env.client, task_queue="other-rasterization-task-queue", activities=[render_mocked]),
+        ):
+            await env.client.execute_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(exported_asset_id=42, task_queue=requested_queue),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                search_attributes=_search_attributes(),
+            )
+
+    assert rendered_on == [expected_queue]

@@ -477,6 +477,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                         count: stabilityBase.filter((e) => e._stability.includes(k as keyof typeof STABILITY_KEYS))
                             .length,
                     })),
+                    team: [],
                 }
             },
         ],
@@ -486,6 +487,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                 type: new Set(filters.typeKeys),
                 area: new Set(filters.areas),
                 stability: new Set(filters.stability),
+                team: new Set<string>(),
             }),
         ],
         thumbnailBasePath: [

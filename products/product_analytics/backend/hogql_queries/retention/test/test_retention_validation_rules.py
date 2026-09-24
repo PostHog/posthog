@@ -4,12 +4,26 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import AggregationType, BreakdownFilter, EntityType, RetentionFilter, RetentionQuery, TimeWindowMode
+from posthog.schema import (
+    AggregationType,
+    BreakdownFilter,
+    DateRange,
+    EntityType,
+    RetentionFilter,
+    RetentionPeriod,
+    RetentionQuery,
+    TimeWindowMode,
+)
 
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
+from products.product_analytics.backend.hogql_queries.retention.retention_query_runner import RetentionQueryRunner
 from products.product_analytics.backend.hogql_queries.retention.retention_validation_rules import (
+    MAX_RETENTION_CELLS,
+    MAX_RETENTION_COHORTS,
+    MAX_RETENTION_INTERVALS,
+    MAX_RETENTION_RESPONSE_CELLS,
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
@@ -22,6 +36,9 @@ class TestRetentionValidationRules(BaseTest):
     def _context(self, query: RetentionQuery) -> QueryValidationContext:
         runner = MagicMock(query=query, team=self.team, user=None)
         return QueryValidationContext(query=query, team=self.team, user=None, runner=runner)
+
+    def _runner(self, query: RetentionQuery) -> RetentionQueryRunner:
+        return RetentionQueryRunner(query=query, team=self.team)
 
     def _data_warehouse_entity(self) -> dict[str, str]:
         return {
@@ -261,3 +278,123 @@ class TestRetentionValidationRules(BaseTest):
         self.assertEqual(
             context.exception.get_codes(), ["retention_custom_aggregation_target_requires_data_warehouse_entities"]
         )
+
+    @parameterized.expand(
+        [
+            ("default_intervals", None, None, None, None, None),
+            ("intervals_at_limit", MAX_RETENTION_INTERVALS, None, None, None, None),
+            (
+                "intervals_over_limit",
+                MAX_RETENTION_INTERVALS + 1,
+                None,
+                None,
+                None,
+                f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals.",
+            ),
+            (
+                "intervals_far_over_limit",
+                10_000_000,
+                None,
+                None,
+                None,
+                f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals.",
+            ),
+            ("brackets_within_limit", 7, [1, 3, 5], None, None, None),
+            (
+                "brackets_sum_over_limit",
+                7,
+                [1, 10_000_000],
+                None,
+                None,
+                f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals.",
+            ),
+            (
+                "brackets_count_over_limit",
+                7,
+                [0] * (MAX_RETENTION_INTERVALS + 1),
+                None,
+                None,
+                f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals.",
+            ),
+            ("two_years_of_daily_cohorts", None, None, "-2y", RetentionPeriod.DAY, None),
+            (
+                "a_decade_of_hourly_cohorts",
+                None,
+                None,
+                "-10y",
+                RetentionPeriod.HOUR,
+                f"Retention supports up to {MAX_RETENTION_COHORTS:,} cohorts.",
+            ),
+            ("two_years_of_daily_cohorts_at_the_interval_limit", 100, None, "-2y", RetentionPeriod.DAY, None),
+            (
+                "five_years_of_daily_cohorts_at_the_interval_limit",
+                100,
+                None,
+                "-5y",
+                RetentionPeriod.DAY,
+                f"Retention supports up to {MAX_RETENTION_CELLS:,} cells",
+            ),
+        ]
+    )
+    def test_disallow_excessive_intervals(
+        self,
+        _name: str,
+        total_intervals: int | None,
+        custom_brackets: list[float] | None,
+        date_from: str | None,
+        period: RetentionPeriod | None,
+        expected_message: str | None,
+    ) -> None:
+        query = RetentionQuery(
+            dateRange=DateRange(date_from=date_from) if date_from else None,
+            retentionFilter=RetentionFilter(
+                period=period,
+                totalIntervals=total_intervals,
+                retentionCustomBrackets=custom_brackets,
+            ),
+        )
+        # Through the runner, so the rule reads a real date range and its place in `validators()` is covered.
+        runner = self._runner(query)
+
+        if expected_message is None:
+            runner.validate()
+            return
+
+        with self.assertRaises(ValidationError) as error:
+            runner.validate()
+
+        self.assertIn(expected_message, str(error.exception))
+        self.assertEqual(error.exception.get_codes(), ["retention_too_many_intervals"])
+
+    @parameterized.expand(
+        [
+            ("server_chosen_breakdown_limit", None, None),
+            ("explicit_breakdown_limit", 100, None),
+            (
+                "explicit_breakdown_limit_over_limit",
+                10_000_000,
+                f"Retention supports up to {MAX_RETENTION_RESPONSE_CELLS:,} cells across a breakdown",
+            ),
+        ]
+    )
+    def test_disallow_excessive_breakdown_matrices(
+        self, _name: str, breakdown_limit: int | None, expected_message: str | None
+    ) -> None:
+        query = RetentionQuery(
+            dateRange=DateRange(date_from="-90d"),
+            retentionFilter=RetentionFilter(period=RetentionPeriod.WEEK),
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser", breakdown_type="event", breakdown_limit=breakdown_limit
+            ),
+        )
+        runner = self._runner(query)
+
+        if expected_message is None:
+            runner.validate()
+            return
+
+        with self.assertRaises(ValidationError) as error:
+            runner.validate()
+
+        self.assertIn(expected_message, str(error.exception))
+        self.assertEqual(error.exception.get_codes(), ["retention_too_many_intervals"])

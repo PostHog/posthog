@@ -2,8 +2,12 @@ import re
 import html
 import json
 import uuid
+import hashlib
 from collections.abc import Iterator
 from typing import Any
+
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 
 from posthog.dataclasses import frozen
 
@@ -73,6 +77,7 @@ _MARKDOWN_ESCAPED_COMPONENT_START_REGEX = re.compile(r"^\\<[A-Z][A-Za-z0-9]*(\s|
 _MARKDOWN_INLINE_ESCAPABLE_CHARACTERS = frozenset("\\`*_~[]()<>#+-.|!")
 _MAX_MARKDOWN_COMPONENT_LINES = 1_000
 _MAX_MARKDOWN_COMPONENT_CHARACTERS = 256 * 1024
+_validate_notebook_embed_src = URLValidator(schemes=["http", "https"])
 
 
 @frozen
@@ -181,6 +186,12 @@ def _filter_supported_markdown_component_for_sharing(tag_name: str, raw: str) ->
     for prop_name, expected_type in supported_props.items():
         value = props.get(prop_name)
         if _is_markdown_component_prop_type(value, expected_type):
+            if tag_name == "Embed" and prop_name == "src" and isinstance(value, str):
+                value = value.strip()
+                try:
+                    _validate_notebook_embed_src(value)
+                except ValidationError:
+                    continue
             filtered_props[prop_name] = value
 
     return _serialize_markdown_component(tag_name, filtered_props)
@@ -342,6 +353,253 @@ def iter_markdown_query_nodes(content: Any) -> Iterator[tuple[str, dict[str, Any
             else _create_stable_markdown_node_id(fingerprint, occurrence)
         )
         yield node_id, query
+
+
+@frozen
+class MarkdownBlock:
+    """One addressable span of a markdown notebook, in document order.
+
+    Blocks never overlap and never include the blank lines between them, so replacing the
+    span `[start, end)` keeps the separators that group cells into cards.
+    """
+
+    kind: str
+    tag_name: str | None
+    node_id: str
+    explicit_node_id: str | None
+    source: str
+    start: int
+    end: int
+
+
+def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> Iterator[MarkdownBlock]:
+    """Walk every block of a markdown notebook, prose included.
+
+    A block whose document carries an anchor above it takes that stored id, which survives an
+    edit to the block. A block without one falls back to an id derived from its own content, so
+    the id changes when the block changes and a caller must resolve it against the read it edits.
+
+    `max_prose_blocks` bounds how many prose blocks this builds. A save accepts a body up to
+    `DATA_UPLOAD_MAX_MEMORY_SIZE`, and a body of that size holds millions of one-character
+    blocks, so an unbounded walk lets one request allocate for minutes. The walk continues past
+    the cap without building the extra prose, because component tags carry the cells that run
+    and must stay addressable wherever they sit in the document.
+    """
+    lines = _split_markdown_lines(markdown)
+    occurrences: dict[str, int] = {}
+    line_index = 0
+    prose_built = 0
+    pending_anchor_id: str | None = None
+    # An anchor names one block. A second copy of one reaches the document through a three-way
+    # markdown merge, and two blocks under one id leave neither addressable, because every cell
+    # tool refuses an id that names more than one. The first keeps it; the rest fall back to a
+    # derived id. `ensureUniqueNodeIds` does the same in the editor.
+    claimed_anchor_ids: set[str] = set()
+
+    def claim_anchor_id() -> str | None:
+        nonlocal pending_anchor_id
+        anchor_id = pending_anchor_id
+        pending_anchor_id = None
+        if anchor_id is None or anchor_id in claimed_anchor_ids:
+            return None
+        claimed_anchor_ids.add(anchor_id)
+        return anchor_id
+
+    # Two counters over one walk: code points to slice the document Python holds, UTF-16 units
+    # to report, because the caller slices in UTF-16. Each advances once per character.
+    code_points = 0
+    utf16 = 0
+
+    def prose_budget_left() -> bool:
+        return max_prose_blocks is None or prose_built < max_prose_blocks
+
+    def span_code_points(start_line: int, end_line: int) -> int:
+        """Width of lines `[start_line, end_line)`, each with the terminator that closes it."""
+        width = 0
+        for index in range(start_line, end_line):
+            width += len(lines[index])
+            width += _markdown_terminator_width(markdown, code_points + width)
+        return width
+
+    def block_source(start_line: int, end_line: int) -> str:
+        # The last line of a document often has no terminator, so one looked up from the end of
+        # the span would be a character of the block itself.
+        width = span_code_points(start_line, end_line - 1) + len(lines[end_line - 1])
+        return markdown[code_points : code_points + width]
+
+    def consume(start_line: int, end_line: int) -> None:
+        nonlocal code_points, utf16
+        width = span_code_points(start_line, end_line)
+        utf16 += _utf16_length(markdown[code_points : code_points + width])
+        code_points += width
+
+    while line_index < len(lines):
+        if not lines[line_index].strip():
+            # An anchor names only the block on the line below it. Text removed from under an
+            # anchor leaves the anchor behind, and carried over a blank line it would hand the id
+            # to the next block, so an edit by that id would reach a block its caller never read.
+            pending_anchor_id = None
+            consume(line_index, line_index + 1)
+            line_index += 1
+            continue
+
+        # Read before the fence and tag scans, so an anchor never becomes a block of its own and
+        # its span never joins the block it names. A fenced block is consumed whole below, so an
+        # anchor written as an example inside one is never seen here.
+        anchor_match = _MARKDOWN_NODE_ANCHOR_REGEX.match(lines[line_index].strip())
+        if anchor_match:
+            pending_anchor_id = anchor_match.group(1)
+            consume(line_index, line_index + 1)
+            line_index += 1
+            continue
+
+        if lines[line_index].strip().startswith("```"):
+            end_line_index = _get_markdown_code_block_end(lines, line_index)
+            if prose_budget_left():
+                prose_built += 1
+                yield _build_markdown_prose_block(
+                    block_source(line_index, end_line_index), utf16, occurrences, claim_anchor_id()
+                )
+            pending_anchor_id = None
+            consume(line_index, end_line_index)
+            line_index = end_line_index
+            continue
+
+        component = (
+            _read_markdown_component_block(lines, line_index)
+            if _opens_markdown_component_block(lines, line_index)
+            else None
+        )
+        if component is not None:
+            tag_name, raw, next_line_index = component
+            yield _build_markdown_component_block(
+                tag_name, raw, block_source(line_index, next_line_index), utf16, occurrences, claim_anchor_id()
+            )
+            consume(line_index, next_line_index)
+            line_index = next_line_index
+            continue
+
+        end_line_index = line_index + 1
+        while end_line_index < len(lines) and _continues_markdown_prose_block(lines, end_line_index):
+            end_line_index += 1
+        if prose_budget_left():
+            prose_built += 1
+            yield _build_markdown_prose_block(
+                block_source(line_index, end_line_index), utf16, occurrences, claim_anchor_id()
+            )
+        pending_anchor_id = None
+        consume(line_index, end_line_index)
+        line_index = end_line_index
+
+
+def _continues_markdown_prose_block(lines: list[str], line_index: int) -> bool:
+    stripped = lines[line_index].strip()
+    if not stripped or stripped.startswith("```"):
+        return False
+    # An anchor names the block below it. Absorbed into the paragraph above, it would sit inside
+    # that block's reported source, and a caller slicing the span back would not match it.
+    if _MARKDOWN_NODE_ANCHOR_REGEX.match(stripped):
+        return False
+    return not _opens_markdown_component_block(lines, line_index)
+
+
+def _opens_markdown_component_block(lines: list[str], line_index: int) -> bool:
+    """Whether a component block starts at this line.
+
+    The `<` test runs first because it settles every prose line with one string comparison. The
+    regex scan behind it costs enough to dominate the walk of a large document when every line
+    pays it.
+    """
+    stripped = lines[line_index].lstrip()
+    if not stripped.startswith("<") and not stripped.startswith("\\<"):
+        return False
+    return _read_markdown_component_block(lines, line_index) is not None
+
+
+_MARKDOWN_NODE_ANCHOR_REGEX = re.compile(r"^<!--ph:(phb-[A-Za-z0-9._-]{1,124})-->$")
+"""A block id the document stores, written on its own line above the block it names.
+
+Mirrors `NODE_ANCHOR_REGEX` in frontend/src/lib/components/MarkdownNotebook/markdown.ts,
+prefix included. A wider pattern here would read an authorial `<!--ph:note-->` as an anchor
+that the editor reads as a comment, and the two layers would disagree on the block list.
+
+A paragraph has no attribute to carry an id, so a comment is the only place one fits, and it
+renders nowhere.
+"""
+
+_MARKDOWN_LINE_SPLIT_REGEX = re.compile(r"\r\n|\r|\n")
+
+
+def _split_markdown_lines(markdown: str) -> list[str]:
+    """Lines, split on the terminators `_iter_markdown_component_blocks` collapses before it splits.
+
+    A walk that split on `\n` alone would read different block boundaries than the component
+    walker, so a tag after a lone `\r` would be prose here and a live cell there.
+
+    Only the lines are materialized, matching what the component walker already allocates. A
+    terminator's width comes from `_markdown_terminator_width` at the offset the walk holds,
+    because a second list of that length costs as much again on a document of millions of lines.
+    """
+    return _MARKDOWN_LINE_SPLIT_REGEX.split(markdown)
+
+
+def _markdown_terminator_width(markdown: str, offset: int) -> int:
+    if offset >= len(markdown):
+        return 0
+    return 2 if markdown.startswith("\r\n", offset) else 1
+
+
+def _utf16_length(text: str) -> int:
+    """Length in UTF-16 code units, the unit the collaboration protocol and JavaScript both use.
+
+    Python counts code points, so an astral character is one here and two there. Reporting code
+    points would put every offset after an emoji two apart from where a JavaScript caller slices.
+    """
+    return len(text) + sum(1 for character in text if ord(character) > 0xFFFF)
+
+
+def _build_markdown_prose_block(
+    source: str, start: int, occurrences: dict[str, int], anchor_id: str | None = None
+) -> MarkdownBlock:
+    occurrence = occurrences.get(source, 0)
+    occurrences[source] = occurrence + 1
+    return MarkdownBlock(
+        kind="prose",
+        tag_name=None,
+        node_id=anchor_id or _create_stable_markdown_prose_id(source, occurrence),
+        explicit_node_id=anchor_id,
+        source=source,
+        start=start,
+        end=start + _utf16_length(source),
+    )
+
+
+def _build_markdown_component_block(
+    tag_name: str,
+    raw: str,
+    source: str,
+    start: int,
+    occurrences: dict[str, int],
+    anchor_id: str | None = None,
+) -> MarkdownBlock:
+    props = _parse_markdown_component_props(raw)
+    fingerprint = _get_markdown_component_fingerprint(tag_name, props)
+    occurrence = occurrences.get(fingerprint, 0)
+    occurrences[fingerprint] = occurrence + 1
+    explicit_node_id = props.get("nodeId")
+    explicit_node_id = explicit_node_id if isinstance(explicit_node_id, str) and explicit_node_id else None
+    # The tag's own prop wins over an anchor above it: a cell added over MCP carries its id
+    # there, and the editor writes no anchor for a tag that already has one.
+    explicit_node_id = explicit_node_id or anchor_id
+    return MarkdownBlock(
+        kind="component",
+        tag_name=tag_name,
+        node_id=explicit_node_id or _create_stable_markdown_node_id(fingerprint, occurrence),
+        explicit_node_id=explicit_node_id,
+        source=source,
+        start=start,
+        end=start + _utf16_length(source),
+    )
 
 
 def _get_markdown_notebook_markdown(content: Any) -> str | None:
@@ -714,6 +972,17 @@ def _sort_markdown_component_prop_value(value: Any) -> Any:
 
 def _create_stable_markdown_node_id(fingerprint: str, occurrence: int) -> str:
     return f"mdn-{_hash_markdown_node_id_seed(fingerprint)}-{occurrence}"
+
+
+def _create_stable_markdown_prose_id(source: str, occurrence: int) -> str:
+    # A separate prefix from `mdn-` keeps prose ids and component ids in disjoint spaces, so a
+    # caller can route an id to the right lookup without inspecting the document.
+    #
+    # This does not reuse `_hash_markdown_node_id_seed`, whose 32 bits mirror the frontend's own
+    # hash for component ids. Two prose blocks that collide there share an id, and an edit meant
+    # for one lands on the other, so prose takes a width where a collision cannot be constructed.
+    digest = hashlib.blake2b(source.encode("utf-8"), digest_size=8).digest()
+    return f"mdp-{_to_base36(int.from_bytes(digest, 'big'))}-{occurrence}"
 
 
 def _hash_markdown_node_id_seed(value: str) -> str:

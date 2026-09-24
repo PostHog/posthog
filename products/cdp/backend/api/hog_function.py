@@ -27,11 +27,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
 from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -790,8 +790,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return {**draft, "inputs": inputs}
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
-        request = self.context["request"]
-        validated_data["created_by"] = request.user
+        # An in-process caller has no request to take the acting user from, so it passes
+        # `created_by` to `save()` instead.
+        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
 
         template_id = validated_data.get("template_id")
         if template_id:

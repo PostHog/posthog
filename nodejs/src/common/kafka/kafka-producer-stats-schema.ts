@@ -13,6 +13,7 @@ import { z } from 'zod'
  */
 
 const brokerStatsSchema = z.object({
+    nodeid: z.number().optional(),
     state: z.string().optional(),
 })
 

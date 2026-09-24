@@ -15,6 +15,7 @@ A scanner with `emits_signals` also pushes one signal per finding into the Signa
 **Observation** — one application of a scanner to a session, unique per (scanner, session).
 Created in `pending` when triggered (by the scanner's schedule, the `/observe/` and `/bulk_observe/` actions, or a retry of a failed observation), transitions to `running` while `ApplyScannerWorkflow` executes (rasterize the recording to video → upload to Gemini → multi-turn scan), and lands in `succeeded` (result persisted under `scanner_result.model_output`, then a `$recording_observed` event plus embeddings/tags emitted fail-soft), `failed` (with a `kind:message` `error_reason`), or `ineligible` (the session doesn't qualify — too short, too idle, no recording).
 Each observation snapshots the full scanner state (`scanner_snapshot`) that produced it, so subsequent edits to the scanner don't retro-mutate history.
+The snapshot's `verify_positives` mode (default `off`) makes a monitor re-draw its core step over the cached video when the first pass says `yes`. Replay Vision optimizes for precision over recall, so a `yes` stands only when the second draw agrees; a dissent replaces it with the dissenting verdict and reasoning, and no third draw breaks the tie. `shadow` records the draws under `scanner_result.verification` but serves the first pass; `enforce` serves the settled verdict. A draw that fails, or that would run past the activity's timeout, leaves the first pass in place, so verification only ever tightens a scan.
 Rows stranded in `pending`/`running` by a dead workflow are failed as `orphaned` by a reaper on the reconciler tick.
 Teams rate observations thumbs up/down, and those ratings drive the scanner's quality view and its AI prompt suggestions.
 A finding can also be turned into a PostHog Task once (the observation remembers the task it minted).
@@ -36,18 +37,16 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scanners | (none)  | The team's scanner roster plus the team-wide vision metrics.              |
 | Usage    | `usage` | Credit spend over time for the org, bucketed daily/weekly/monthly/yearly. |
 
-**Scanner** (`/replay-vision/<scanner-id>`), seven tabs switched through `?tab=`. Overview is the default and writes no param.
+**Scanner** (`/replay-vision/<scanner-id>`), six tabs switched through `?tab=`. Overview is the default and writes no param.
 
-| Tab           | `?tab=`         | What it shows                                                                                                               |
-| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Overview      | `overview`      | At-a-glance panels: impact, verdict mix, top fixed and freeform tags, score distribution. Leads with the scout digest card. |
-| Observations  | `observations`  | The scanner's observations, filterable by status, verdict, tags, and date.                                                  |
-| On-demand     | `on-demand`     | Scan now: by session ID, or by picking from recent recordings.                                                              |
-| Backfills     | `backfills`     | The scanner's historical backfills: create one over a past window, watch progress, pause/resume.                            |
-| Configuration | `configuration` | Read-only view of the scanner's current config.                                                                             |
-| Calibration   | `calibration`   | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.         |
-| Scouts        | `scouts`        | The scanner's signals scouts, including its daily digest.                                                                   |
-| Alerts        | `alerts`        | The scanner's alerts on the shared alerts platform.                                                                         |
+| Tab          | `?tab=`        | What it shows                                                                                                                                             |
+| ------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview     | `overview`     | Scanner status, findings (verdict mix, top tags, score distribution), the scout digest, a configuration summary, and self-driving results.                |
+| Observations | `observations` | The scanner's observations, filterable by status, verdict, tags, and date.                                                                                |
+| Run          | `run`          | Scan one recording, a batch of recordings, or backfill a date range. Old `on-demand` and `backfills` links open here, and `configuration` opens Overview. |
+| Calibration  | `calibration`  | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.                                       |
+| Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
+| Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
 **Scanner editor** (`/replay-vision/<scanner-id>/<step>`) is a stepper rather than tabs: Template, Configure, Scan conditions (`triggers`), Self-driving.
 Observations have their own scene under `/replay-vision/observations/…`.

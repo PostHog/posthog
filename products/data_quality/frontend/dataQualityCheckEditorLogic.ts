@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -6,7 +6,7 @@ import { loaders } from 'kea-loaders'
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -16,15 +16,19 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 
-import type {
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaViewTable,
-} from '../../../frontend/src/queries/schema/schema-general'
 import { DataQualitySubjectRef, checksApi } from './checksApi'
-import type { DataQualityCheckApi, DataQualityCheckTypeApi } from './generated/api.schemas'
+import type {
+    DataQualityCheckApi,
+    DataQualityCheckTypeApi,
+    DataQualityOutputColumnApi,
+    DataQualityOutputSchemaApi,
+    DataQualitySubjectApi,
+} from './generated/api.schemas'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
 
 const CHECK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/
+
+export const METRIC_CHECK_QUERY_TEMPLATE = 'SELECT *\nFROM {metric}\nWHERE <failure condition>'
 
 /** Stable code the API returns when another active check already asserts the same thing. */
 const DUPLICATE_DEFINITION_CODE = 'duplicate_definition'
@@ -46,6 +50,8 @@ export interface CheckFormValues {
     rowCountMax: number | null
     maxAgeMinutes: number | null
     customSql: string
+    lookbackHours: number | null
+    toLookbackHours: number | null
 }
 
 export const EMPTY_CHECK_FORM: CheckFormValues = {
@@ -63,6 +69,8 @@ export const EMPTY_CHECK_FORM: CheckFormValues = {
     rowCountMax: null,
     maxAgeMinutes: null,
     customSql: '',
+    lookbackHours: null,
+    toLookbackHours: null,
 }
 
 /** A warehouse table or view a relationships check can point at. */
@@ -71,6 +79,14 @@ export interface RelationshipSubject {
     name: string
     type: SubjectTypeEnumApi
     fields: string[]
+    outputSchema: DataQualityOutputColumnApi[]
+    timeColumn: string | null
+}
+
+export interface SelectableSubject {
+    id: string
+    name: string
+    type: SubjectTypeEnumApi
 }
 
 export interface CustomSqlPreview {
@@ -91,6 +107,11 @@ export interface DataQualityCheckEditorLogicProps {
     onClosed?: () => void
 }
 
+/** A cleared number input reads as NaN, which means no window rather than a window of no length. */
+function isWindow(hours: number | null): hours is number {
+    return hours !== null && Number.isFinite(hours)
+}
+
 function formToConfig(form: CheckFormValues): Record<string, unknown> {
     switch (form.checkType) {
         case CheckTypeEnumApi.AcceptedValues:
@@ -100,6 +121,7 @@ function formToConfig(form: CheckFormValues): Record<string, unknown> {
                 to_subject_type: form.toSubjectType,
                 to_subject_uuid: form.toSubjectUuid,
                 to_column: form.toColumn,
+                ...(isWindow(form.toLookbackHours) ? { to_lookback_hours: form.toLookbackHours } : {}),
             }
         case CheckTypeEnumApi.RowCount: {
             const min = form.rowCountMin ?? null
@@ -117,16 +139,17 @@ function formToConfig(form: CheckFormValues): Record<string, unknown> {
 
 /** Only the selected type's configuration, so switching type cannot leave stale values behind. */
 function definitionPayload(form: CheckFormValues, requiresColumn: boolean): CheckDefinitionPayload {
+    const windowed = isWindow(form.lookbackHours) && form.checkType !== CheckTypeEnumApi.CustomSql
     return {
         check_type: form.checkType,
         column_name: requiresColumn ? form.columnName : '',
-        config: formToConfig(form),
+        config: { ...formToConfig(form), ...(windowed ? { lookback_hours: form.lookbackHours } : {}) },
     }
 }
 
 type CheckDefinitionPayload = Pick<CheckCreatePayload, 'check_type' | 'column_name' | 'config'>
 type CheckCreatePayload = Parameters<typeof checksApi.create>[1]
-type CheckEditPayload = Parameters<typeof checksApi.partialUpdate>[2]
+type CheckEditPayload = Parameters<typeof checksApi.partialUpdate>[1]
 
 export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolean): CheckCreatePayload {
     return {
@@ -138,9 +161,31 @@ export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolea
     }
 }
 
-export function checkEditPayload(form: CheckFormValues, requiresColumn: boolean): CheckEditPayload {
+/** An unset config value is a missing key here and an explicit null as stored, so neither is compared. */
+function withoutUnset(config: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== null && value !== undefined))
+}
+
+/** Whether the form asserts something other than what the stored check already asserts. */
+function assertionChanged(definition: CheckDefinitionPayload, check: DataQualityCheckApi): boolean {
+    return (
+        definition.check_type !== check.check_type ||
+        definition.column_name !== (check.column_name ?? '') ||
+        !objectsEqual(withoutUnset(definition.config ?? {}), withoutUnset(check.config ?? {}))
+    )
+}
+
+export function checkEditPayload(
+    form: CheckFormValues,
+    requiresColumn: boolean,
+    editingCheck: DataQualityCheckApi
+): CheckEditPayload {
+    const definition = definitionPayload(form, requiresColumn)
     return {
-        ...definitionPayload(form, requiresColumn),
+        // The backend revalidates the definition whenever the request carries one, and a subject that
+        // stopped supporting its check fails that. Send it only when the assertion actually changed,
+        // so renaming a check or lowering its severity stays possible.
+        ...(assertionChanged(definition, editingCheck) ? definition : {}),
         severity: form.severity,
         // Sent even when blank, unlike create: an edit is how metadata gets cleared.
         name: form.name,
@@ -167,7 +212,16 @@ export function checkToForm(check: DataQualityCheckApi): CheckFormValues {
         rowCountMax: (config.max as number) ?? null,
         maxAgeMinutes: (config.max_age_minutes as number) ?? null,
         customSql: (config.query as string) ?? '',
+        lookbackHours: (config.lookback_hours as number) ?? null,
+        toLookbackHours: (config.to_lookback_hours as number) ?? null,
     }
+}
+
+function lookbackHoursError(hours: number | null): string | undefined {
+    if (!isWindow(hours)) {
+        return undefined
+    }
+    return Number.isInteger(hours) && hours >= 1 ? undefined : 'Set a whole number of hours, at least one.'
 }
 
 /** Which form field a config-level server error belongs beside, per check type. */
@@ -231,11 +285,8 @@ function generalErrorMessage(error: unknown): string {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataQualityCheckEditorLogicValues {
-    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
-    databaseLoadError: string | null // databaseTableListLogic
-    databaseLoading: boolean // databaseTableListLogic
-    views: DatabaseSchemaViewTable[] // databaseTableListLogic
     availableColumns: string[]
+    availableOutputSchema: DataQualityOutputColumnApi[]
     checkForm: CheckFormValues
     checkFormAllErrors: Record<string, any>
     checkFormChanged: boolean
@@ -245,6 +296,9 @@ export interface dataQualityCheckEditorLogicValues {
     checkFormTouched: boolean
     checkFormTouches: Record<string, boolean>
     checkFormValidationErrors: DeepPartialMap<CheckFormValues, ValidationErrorType>
+    checkSubjects: DataQualitySubjectApi[]
+    checkSubjectsError: string | null
+    checkSubjectsLoading: boolean
     checkTypeByName: {
         [k: string]: DataQualityCheckTypeApi
     }
@@ -263,35 +317,49 @@ export interface dataQualityCheckEditorLogicValues {
     editingCheck: DataQualityCheckApi | null
     isCheckFormSubmitting: boolean
     isCheckFormValid: boolean
+    isMetricSubject: boolean
     isOpen: boolean
-    needsWarehouseCatalog: boolean
+    metricOutputSchema: DataQualityOutputSchemaApi | null
+    metricOutputSchemaError: string | null
+    metricOutputSchemaLoading: boolean
+    needsSubjectCatalog: boolean
     openedWithoutSubject: boolean
     relationshipSubjects: RelationshipSubject[]
+    relationshipTargetTimeColumn: string | null
     requiresColumn: boolean
+    selectableSubjects: SelectableSubject[]
     serverError: string | null
     showCheckFormErrors: boolean
     subject: DataQualitySubjectRef | null
+    subjectCatalogRequested: boolean
     subjectColumns: string[]
-    warehouseCatalogRequested: boolean
+    subjectOutputSchema: DataQualityOutputColumnApi[]
+    subjectTimeColumn: string | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataQualityCheckEditorLogicActions {
-    loadDatabase: (
-        args_0?:
-            | {
-                  force?: boolean
-                  shallow?: boolean
-              }
-            | undefined
-    ) => {
-        force?: boolean
-        shallow?: boolean
-    } // databaseTableListLogic
     closeEditor: () => {
         value: true
     }
-    loadCheckTypes: () => any
+    loadCheckSubjects: () => any
+    loadCheckSubjectsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCheckSubjectsSuccess: (
+        checkSubjects: DataQualitySubjectApi[],
+        payload?: any
+    ) => {
+        checkSubjects: DataQualitySubjectApi[]
+        payload?: any
+    }
+    loadCheckTypes: () => {
+        value: true
+    }
     loadCheckTypesFailure: (
         error: string,
         errorObject?: any
@@ -301,21 +369,39 @@ export interface dataQualityCheckEditorLogicActions {
     }
     loadCheckTypesSuccess: (
         checkTypes: DataQualityCheckTypeApi[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         checkTypes: DataQualityCheckTypeApi[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
-    loadWarehouseCatalog: () => {
-        value: true
+    loadMetricOutputSchema: (_: any) => any
+    loadMetricOutputSchemaFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMetricOutputSchemaSuccess: (
+        metricOutputSchema: DataQualityOutputSchemaApi | null,
+        payload?: any
+    ) => {
+        metricOutputSchema: DataQualityOutputSchemaApi | null
+        payload?: any
     }
     openEditor: (
         check: DataQualityCheckApi | null,
         subject: DataQualitySubjectRef | null,
-        columns?: string[]
+        columns?: string[],
+        outputSchema?: DataQualityOutputColumnApi[]
     ) => {
         check: DataQualityCheckApi | null
         columns: string[]
+        outputSchema: DataQualityOutputColumnApi[]
         subject: DataQualitySubjectRef | null
     }
     requestClose: () => {
@@ -333,10 +419,10 @@ export interface dataQualityCheckEditorLogicActions {
         errorObject?: any
     }
     runCustomSqlPreviewSuccess: (
-        customSqlPreview: CustomSqlPreview,
+        customSqlPreview: CustomSqlPreview | null,
         payload?: any
     ) => {
-        customSqlPreview: CustomSqlPreview
+        customSqlPreview: CustomSqlPreview | null
         payload?: any
     }
     setCheckFormManualErrors: (errors: Record<string, any>) => {
@@ -389,28 +475,38 @@ export interface dataQualityCheckEditorLogicActions {
 export interface dataQualityCheckEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        isMetricSubject: (subject: DataQualitySubjectRef | null) => boolean
         checkTypeByName: (checkTypes: DataQualityCheckTypeApi[]) => {
             [k: string]: DataQualityCheckTypeApi
         }
-        relationshipSubjects: (
-            views: DatabaseSchemaViewTable[],
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
-        ) => RelationshipSubject[]
-        availableColumns: (
-            subjectColumns: string[],
+        relationshipSubjects: (checkSubjects: DataQualitySubjectApi[]) => RelationshipSubject[]
+        selectableSubjects: (checkSubjects: DataQualitySubjectApi[]) => SelectableSubject[]
+        subjectTimeColumn: (
             subject: DataQualitySubjectRef | null,
-            relationshipSubjects: RelationshipSubject[]
-        ) => string[]
+            checkSubjects: DataQualitySubjectApi[]
+        ) => string | null
+        availableOutputSchema: (
+            subjectColumns: string[],
+            subjectOutputSchema: DataQualityOutputColumnApi[],
+            subject: DataQualitySubjectRef | null,
+            relationshipSubjects: RelationshipSubject[],
+            metricOutputSchema: DataQualityOutputSchemaApi | null
+        ) => DataQualityOutputColumnApi[]
+        availableColumns: (availableOutputSchema: DataQualityOutputColumnApi[]) => string[]
         customSqlSourceQuery: (checkForm: CheckFormValues) => HogQLQuery
         customSqlPreviewStale: (customSqlPreview: CustomSqlPreview | null, checkForm: CheckFormValues) => boolean
         customSqlPreviewVerdict: (customSqlPreview: CustomSqlPreview | null) => 'fail' | 'pass' | null
+        relationshipTargetTimeColumn: (
+            checkForm: CheckFormValues,
+            relationshipSubjects: RelationshipSubject[]
+        ) => string | null
         requiresColumn: (
             checkForm: CheckFormValues,
             checkTypeByName: {
                 [k: string]: DataQualityCheckTypeApi
             }
         ) => boolean
-        needsWarehouseCatalog: (
+        needsSubjectCatalog: (
             checkForm: CheckFormValues,
             requiresColumn: boolean,
             subjectColumns: string[],
@@ -437,19 +533,18 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
     props({} as DataQualityCheckEditorLogicProps),
     key((props: DataQualityCheckEditorLogicProps) => props.surface),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityCheckEditorLogic', key]),
-    connect(() => ({
-        actions: [databaseTableListLogic, ['loadDatabase']],
-        values: [databaseTableListLogic, ['views', 'dataWarehouseTables', 'databaseLoading', 'databaseLoadError']],
-    })),
     actions({
+        loadCheckTypes: true,
         openEditor: (
             check: DataQualityCheckApi | null,
             subject: DataQualitySubjectRef | null,
-            columns: string[] = []
+            columns: string[] = [],
+            outputSchema: DataQualityOutputColumnApi[] = []
         ) => ({
             check,
             subject,
             columns,
+            outputSchema,
         }),
         setSubject: (subject: DataQualitySubjectRef) => ({ subject }),
         requestClose: true,
@@ -457,20 +552,51 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         setServerError: (serverError: string | null) => ({ serverError }),
         setCustomSqlEditorError: (error: string | null) => ({ error }),
         setCustomSqlValidationLoading: (loading: boolean) => ({ loading }),
-        loadWarehouseCatalog: true,
     }),
     loaders(({ values }) => ({
+        checkSubjects: [
+            [] as DataQualitySubjectApi[],
+            {
+                loadCheckSubjects: async () => checksApi.subjects(),
+            },
+        ],
+        metricOutputSchema: [
+            null as DataQualityOutputSchemaApi | null,
+            {
+                loadMetricOutputSchema: async (_, breakpoint): Promise<DataQualityOutputSchemaApi | null> => {
+                    const subject = values.subject
+                    if (subject?.subjectType !== SubjectTypeEnumApi.Metric) {
+                        return null
+                    }
+                    const schema = await checksApi.outputSchema(subject)
+                    breakpoint()
+                    return values.subject === subject ? schema : null
+                },
+            },
+        ],
         checkTypes: [
             [] as DataQualityCheckTypeApi[],
             {
-                loadCheckTypes: async () =>
-                    values.subject ? await checksApi.checkTypes(values.subject) : values.checkTypes,
+                loadCheckTypes: async (_, breakpoint) => {
+                    let checkTypes: DataQualityCheckTypeApi[]
+                    try {
+                        checkTypes = values.subject ? await checksApi.checkTypes(values.subject) : []
+                    } catch (error) {
+                        // A subject change starts a second request. Drop a superseded one so its late
+                        // failure cannot report the catalog as unavailable while the newer one runs.
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
+                    return checkTypes
+                },
             },
         ],
         customSqlPreview: [
             null as CustomSqlPreview | null,
             {
-                runCustomSqlPreview: async (_, breakpoint): Promise<CustomSqlPreview> => {
+                runCustomSqlPreview: async (_, breakpoint): Promise<CustomSqlPreview | null> => {
+                    const subject = values.subject
                     const sql = values.checkForm.customSql.trim()
                     // Force a fresh calculation: the scheduled check run always reads current data, so the
                     // preview must not serve a cached result that could report a different verdict.
@@ -485,10 +611,16 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         // Cmd+Enter can start a second preview while one is in flight. Drop a superseded
                         // request so its late failure cannot replace the newer result with a stale error.
                         breakpoint()
+                        if (values.subject !== subject) {
+                            return null
+                        }
                         throw error
                     }
                     // Same guard on the success path: a superseded result must not overwrite the newer one.
                     breakpoint()
+                    if (values.subject !== subject) {
+                        return null
+                    }
                     return {
                         sql,
                         columns: response.columns ?? [],
@@ -536,17 +668,52 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 openEditor: (_, { columns }) => columns,
             },
         ],
+        subjectOutputSchema: [
+            [] as DataQualityOutputColumnApi[],
+            {
+                openEditor: (_, { outputSchema }) => outputSchema,
+            },
+        ],
         // Keep the full catalog available across modal opens, while avoiding refetches on type switches.
-        warehouseCatalogRequested: [
+        subjectCatalogRequested: [
             false,
             {
-                loadWarehouseCatalog: () => true,
+                loadCheckSubjects: () => true,
+                loadCheckSubjectsFailure: () => false,
+                closeEditor: () => false,
             },
         ],
         checkTypes: [
             [] as DataQualityCheckTypeApi[],
             {
+                openEditor: () => [],
                 setSubject: () => [],
+            },
+        ],
+        metricOutputSchema: [
+            null as DataQualityOutputSchemaApi | null,
+            {
+                openEditor: () => null,
+                setSubject: () => null,
+            },
+        ],
+        checkSubjectsError: [
+            null as string | null,
+            {
+                loadCheckSubjects: () => null,
+                loadCheckSubjectsSuccess: () => null,
+                loadCheckSubjectsFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                openEditor: () => null,
+            },
+        ],
+        metricOutputSchemaError: [
+            null as string | null,
+            {
+                loadMetricOutputSchema: () => null,
+                loadMetricOutputSchemaSuccess: () => null,
+                loadMetricOutputSchemaFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                openEditor: () => null,
+                setSubject: () => null,
             },
         ],
         serverError: [
@@ -608,50 +775,90 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         ],
     })),
     selectors({
+        isMetricSubject: [
+            (s) => [s.subject],
+            (subject: DataQualitySubjectRef | null): boolean => subject?.subjectType === 'metric',
+        ],
         checkTypeByName: [
             (s) => [s.checkTypes],
             (checkTypes: DataQualityCheckTypeApi[]) =>
                 Object.fromEntries(checkTypes.map((checkType) => [checkType.check_type, checkType])),
         ],
         relationshipSubjects: [
-            (s) => [s.views, s.dataWarehouseTables],
-            (views: any[], dataWarehouseTables: any[]): RelationshipSubject[] =>
-                // Only warehouse subjects carry the uuid a relationships check references;
-                // PostHog-native and system tables have no check subject to point at.
-                [
-                    ...views.map((view) => ({ ...view, type: SubjectTypeEnumApi.View })),
-                    ...dataWarehouseTables.map((table) => ({ ...table, type: SubjectTypeEnumApi.Table })),
-                ]
-                    .filter((subject) => !!subject.id)
+            (s) => [s.checkSubjects],
+            (checkSubjects: DataQualitySubjectApi[]): RelationshipSubject[] =>
+                checkSubjects
+                    .filter((subject) => subject.subject_type !== SubjectTypeEnumApi.Metric)
                     .map((subject) => ({
                         id: subject.id,
                         name: subject.name,
-                        type: subject.type,
-                        fields: Object.keys(subject.fields ?? {}),
+                        type: subject.subject_type,
+                        fields: Object.keys(subject.columns ?? {}),
+                        outputSchema: Object.entries(subject.columns ?? {}).map(([name, type]) => ({ name, type })),
+                        timeColumn: subject.time_column || null,
                     })),
         ],
-        availableColumns: [
-            (s) => [s.subjectColumns, s.subject, s.relationshipSubjects],
+        selectableSubjects: [
+            (s) => [s.checkSubjects],
+            (checkSubjects: DataQualitySubjectApi[]): SelectableSubject[] =>
+                checkSubjects
+                    .filter((subject) => subject.editable)
+                    .map((subject) => ({
+                        id: subject.id,
+                        name: subject.display_name || subject.name,
+                        type: subject.subject_type,
+                    })),
+        ],
+        subjectTimeColumn: [
+            (s) => [s.subject, s.checkSubjects],
+            (subject: DataQualitySubjectRef | null, checkSubjects: DataQualitySubjectApi[]): string | null =>
+                checkSubjects.find(
+                    (candidate) => candidate.id === subject?.subjectId && candidate.subject_type === subject.subjectType
+                )?.time_column || null,
+        ],
+        availableOutputSchema: [
+            (s) => [s.subjectColumns, s.subjectOutputSchema, s.subject, s.relationshipSubjects, s.metricOutputSchema],
             (
                 subjectColumns: string[],
+                subjectOutputSchema: DataQualityOutputColumnApi[],
                 subject: DataQualitySubjectRef | null,
-                relationshipSubjects: RelationshipSubject[]
-            ) =>
-                subjectColumns.length
-                    ? subjectColumns
-                    : (relationshipSubjects.find((candidate) => candidate.id === subject?.subjectId)?.fields ?? []),
+                relationshipSubjects: RelationshipSubject[],
+                metricOutputSchema: DataQualityOutputSchemaApi | null
+            ): DataQualityOutputColumnApi[] => {
+                if (subject?.subjectType === SubjectTypeEnumApi.Metric) {
+                    return metricOutputSchema?.columns ?? []
+                }
+                if (subjectOutputSchema.length) {
+                    return subjectOutputSchema
+                }
+                const catalogSubject = relationshipSubjects.find(
+                    (candidate) => candidate.id === subject?.subjectId && candidate.type === subject?.subjectType
+                )
+                return catalogSubject?.outputSchema ?? subjectColumns.map((name) => ({ name, type: null }))
+            },
+        ],
+        availableColumns: [
+            (s) => [s.availableOutputSchema],
+            (availableOutputSchema: DataQualityOutputColumnApi[]) => availableOutputSchema.map(({ name }) => name),
         ],
     }),
     forms(({ props, values, actions, cache }) => ({
         checkForm: {
             defaults: EMPTY_CHECK_FORM,
             errors: [
-                (s: any) => [s.checkForm, s.checkTypeByName, s.customSqlEditorError, s.customSqlValidationLoading],
+                (s: any) => [
+                    s.checkForm,
+                    s.checkTypeByName,
+                    s.customSqlEditorError,
+                    s.customSqlValidationLoading,
+                    s.isMetricSubject,
+                ],
                 (
                     form: CheckFormValues,
                     checkTypeByName: Record<string, DataQualityCheckTypeApi>,
                     customSqlEditorError: string | null,
-                    customSqlValidationLoading: boolean
+                    customSqlValidationLoading: boolean,
+                    isMetricSubject: boolean
                 ) => ({
                     name:
                         form.name && !CHECK_NAME_PATTERN.test(form.name)
@@ -688,13 +895,25 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         form.checkType === CheckTypeEnumApi.Freshness && (form.maxAgeMinutes ?? 0) < 1
                             ? 'Set an age of at least one minute.'
                             : undefined,
+                    // Gated on what the payload builders actually send, so nothing reaches the
+                    // request unvalidated and no message lands on a field the form drops.
+                    lookbackHours:
+                        form.checkType !== CheckTypeEnumApi.CustomSql
+                            ? lookbackHoursError(form.lookbackHours)
+                            : undefined,
+                    toLookbackHours:
+                        form.checkType === CheckTypeEnumApi.Relationships
+                            ? lookbackHoursError(form.toLookbackHours)
+                            : undefined,
                     customSql:
                         form.checkType === CheckTypeEnumApi.CustomSql
                             ? !form.customSql.trim()
                                 ? 'Write the query that selects the failing rows.'
-                                : customSqlValidationLoading
+                                : !isMetricSubject && customSqlValidationLoading
                                   ? 'Checking query...'
-                                  : (customSqlEditorError ?? undefined)
+                                  : !isMetricSubject
+                                    ? (customSqlEditorError ?? undefined)
+                                    : undefined
                             : undefined,
                 }),
             ],
@@ -714,9 +933,8 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 try {
                     const saved = editing
                         ? await checksApi.partialUpdate(
-                              values.subject,
                               editing.id,
-                              checkEditPayload(form, values.requiresColumn)
+                              checkEditPayload(form, values.requiresColumn, editing)
                           )
                         : await checksApi.create(values.subject, checkCreatePayload(form, values.requiresColumn))
                     // Defaults come from the saved row before closing, so a clean form never trips
@@ -756,12 +974,17 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
             (customSqlPreview: CustomSqlPreview | null) =>
                 customSqlPreview ? (customSqlPreview.rowCount === 0 ? 'pass' : 'fail') : null,
         ],
+        relationshipTargetTimeColumn: [
+            (s) => [s.checkForm, s.relationshipSubjects],
+            (checkForm: CheckFormValues, relationshipSubjects: RelationshipSubject[]): string | null =>
+                relationshipSubjects.find((candidate) => candidate.id === checkForm.toSubjectUuid)?.timeColumn ?? null,
+        ],
         requiresColumn: [
             (s) => [s.checkForm, s.checkTypeByName],
             (checkForm: CheckFormValues, checkTypeByName: Record<string, DataQualityCheckTypeApi>) =>
                 !!checkTypeByName[checkForm.checkType]?.requires_column,
         ],
-        needsWarehouseCatalog: [
+        needsSubjectCatalog: [
             (s) => [s.checkForm, s.requiresColumn, s.subjectColumns, s.subject],
             (
                 checkForm: CheckFormValues,
@@ -769,44 +992,70 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 subjectColumns: string[],
                 subject: DataQualitySubjectRef | null
             ) =>
-                // Relationships needs every subject to point at; anything else only needs the
-                // catalog when the surface that opened the editor could not supply the columns.
+                // Relationships needs every subject to point at. A PostHog table needs the
+                // catalog for its time column, which no surface supplies and which the lookback
+                // window reads. Anything else only needs the catalog when the surface that
+                // opened the editor could not supply the columns.
                 subject === null ||
                 checkForm.checkType === CheckTypeEnumApi.Relationships ||
+                subject.subjectType === SubjectTypeEnumApi.PosthogTable ||
                 (requiresColumn && !subjectColumns.length),
         ],
     }),
     listeners(({ props, values, actions }) => {
-        const ensureWarehouseCatalog = (): void => {
-            if (values.warehouseCatalogRequested || !values.needsWarehouseCatalog) {
+        const ensureSubjectCatalog = (): void => {
+            if (values.subjectCatalogRequested || !values.needsSubjectCatalog) {
                 return
             }
-            actions.loadWarehouseCatalog()
+            actions.loadCheckSubjects()
         }
 
         return {
-            openEditor: ({ check }) => {
-                actions.resetCheckForm(check ? checkToForm(check) : EMPTY_CHECK_FORM)
-                if (!values.checkTypes.length) {
-                    actions.loadCheckTypes()
-                }
-                ensureWarehouseCatalog()
-            },
-            setSubject: () => {
+            openEditor: ({ check, subject }) => {
+                actions.resetCheckForm(
+                    check
+                        ? checkToForm(check)
+                        : subject?.subjectType === 'metric'
+                          ? {
+                                ...EMPTY_CHECK_FORM,
+                                checkType: CheckTypeEnumApi.CustomSql,
+                                customSql: METRIC_CHECK_QUERY_TEMPLATE,
+                            }
+                          : EMPTY_CHECK_FORM
+                )
                 actions.loadCheckTypes()
-                if (values.checkForm.columnName) {
-                    actions.setCheckFormValues({ columnName: '' })
+                if (subject?.subjectType === SubjectTypeEnumApi.Metric) {
+                    actions.loadMetricOutputSchema(undefined)
+                }
+                ensureSubjectCatalog()
+            },
+            setSubject: ({ subject }) => {
+                actions.resetCheckForm(
+                    subject.subjectType === SubjectTypeEnumApi.Metric
+                        ? {
+                              ...EMPTY_CHECK_FORM,
+                              checkType: CheckTypeEnumApi.CustomSql,
+                              customSql: METRIC_CHECK_QUERY_TEMPLATE,
+                          }
+                        : EMPTY_CHECK_FORM
+                )
+                actions.loadCheckTypes()
+                if (subject.subjectType === SubjectTypeEnumApi.Metric) {
+                    actions.loadMetricOutputSchema(undefined)
                 }
                 actions.setServerError(null)
                 actions.setCheckFormManualErrors({})
             },
+            // Opening the editor clears the check-type catalog, so the column requirement is
+            // unknown while the first request runs. Ask again once it arrives, or a check that
+            // needs a column has no column to pick until the person edits the form.
+            loadCheckTypesSuccess: () => {
+                ensureSubjectCatalog()
+            },
             setCheckFormValues: () => {
                 if (values.isOpen) {
-                    ensureWarehouseCatalog()
+                    ensureSubjectCatalog()
                 }
-            },
-            loadWarehouseCatalog: () => {
-                actions.loadDatabase()
             },
             requestClose: () => {
                 if (!values.checkFormChanged) {

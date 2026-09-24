@@ -1,8 +1,11 @@
 import os
+import array
 import socket
 import threading
 from collections.abc import AsyncIterable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import BaseTest
@@ -240,6 +243,8 @@ class TestBuildQuery:
                 ClickHouseColumn(name="ip", data_type="Nullable(IPv4)", nullable=True),
                 ClickHouseColumn(name="tags", data_type="Array(String)", nullable=False),
                 ClickHouseColumn(name="status", data_type="LowCardinality(Enum8('a' = 1))", nullable=False),
+                ClickHouseColumn(name="payload", data_type="JSON(a UInt32)", nullable=False),
+                ClickHouseColumn(name="value", data_type="Dynamic(max_types=8)", nullable=False),
             ],
             should_use_incremental_field=False,
             incremental_field=None,
@@ -249,6 +254,8 @@ class TestBuildQuery:
         assert "toString(`ip`) AS `ip`" in query
         assert "toString(`tags`) AS `tags`" in query
         assert "toString(`status`) AS `status`" in query
+        assert "toString(`payload`) AS `payload`" in query
+        assert "toString(`value`) AS `value`" in query
 
     def test_full_refresh_with_row_filters_binds_values_as_params(self):
         query, params = _build_query(
@@ -651,9 +658,12 @@ class TestClickHouseSourceNonRetryableErrors:
             "Could not resolve the ClickHouse host",
             "Connection refused",
             "certificate verify failed",
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404",
+            "HTTP driver received HTTP status 404 (for url https://example.ngrok-free.dev:443)",
+            # A bare 400 (no "Received ClickHouse exception" wording) means a proxy/tunnel in
+            # front of ClickHouse rejected the request, not the server itself — same cause as 404.
+            "HTTP driver received HTTP status 400 (for url https://example.ngrok-free.dev:443)",
             # MEMORY_LIMIT_EXCEEDED (code 241) — server-wide OvercommitTracker kill
-            "HTTPDriver for https://host:8443 received ClickHouse error code 241\n Code: 241. "
+            "Received ClickHouse exception, code: 241 (for url https://host:8443)\n Code: 241. "
             "DB::Exception: (total) memory limit exceeded: would use 108.01 GiB, maximum: 108.00 GiB. "
             "OvercommitTracker decision: Query was selected to stop by OvercommitTracker "
             "(while reading column properties). (MEMORY_LIMIT_EXCEEDED)",
@@ -662,7 +672,7 @@ class TestClickHouseSourceNonRetryableErrors:
             "(attempt to allocate chunk of 4.60 MiB), maximum: 3.73 GiB. (MEMORY_LIMIT_EXCEEDED)",
             # NOT_ENOUGH_SPACE (code 243) — source server couldn't reserve disk for a
             # temporary file (filesystem cache full while buffering query output to disk).
-            "HTTPDriver for https://host:8443 received ClickHouse error code 243\n Code: 243. "
+            "Received ClickHouse exception, code: 243 (for url https://host:8443)\n Code: 243. "
             "DB::Exception: Failed to reserve 1048576 bytes for temporary file: reason cannot evict "
             "enough space: While executing BufferingToFileSink. (NOT_ENOUGH_SPACE)",
             # Source table no longer exists at sync time — dropped/renamed, or a materialized
@@ -671,7 +681,7 @@ class TestClickHouseSourceNonRetryableErrors:
             "Table default.some_dropped_table not found or has no columns",
             # UNKNOWN_TYPE (code 50) — a column type ClickHouse can't serialize to Arrow,
             # e.g. an AggregateFunction state column on an aggregating materialized view.
-            "HTTPDriver for https://host:8443 received ClickHouse error code 50\n Code: 50. "
+            "Received ClickHouse exception, code: 50 (for url https://host:8443)\n Code: 50. "
             "DB::Exception: The type 'AggregateFunction(uniq, String)' of a column 'profile_id' "
             "is not supported for conversion into Arrow data format: While executing Arrow. (UNKNOWN_TYPE)",
             # SSH tunnel to the customer's bastion couldn't be brought up — the import path only
@@ -694,10 +704,10 @@ class TestClickHouseSourceNonRetryableErrors:
             "Code: 999. DB::Exception: Keeper exception",  # transient zookeeper-style errors
             "Code: 209. DB::Exception: Socket timeout",
             # Transient gateway errors must stay retryable — only 404 is permanent.
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            "HTTP driver received HTTP status 502 (for url https://example.ngrok-free.dev:443)",
+            "HTTP driver received HTTP status 503 (for url https://example.ngrok-free.dev:443)",
             # 429 Too Many Requests is a rate-limit ("retry later"), not a permanent error.
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
+            "HTTP driver received HTTP status 429 (for url https://example.ngrok-free.dev:443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -716,13 +726,10 @@ class TestClickHouseSourceRetryableErrors:
         [
             # The exact wrapped message that reached error tracking: a bare HTTP 502
             # from clickhouse-connect's HTTPDriver (no proxy CONNECT tunnel involved).
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 504",
-            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
-            "Tunnel connection failed: 502 Bad gateway",
-            "Tunnel connection failed: 503 Service Unavailable",
-            "Tunnel connection failed: 504 Gateway Timeout",
+            "HTTP driver received HTTP status 502 (for url https://example.ngrok-free.dev:443)",
+            "HTTP driver received HTTP status 503 (for url https://example.ngrok-free.dev:443)",
+            "HTTP driver received HTTP status 504 (for url https://example.ngrok-free.dev:443)",
+            "HTTP driver received HTTP status 429 (for url https://example.ngrok-free.dev:443)",
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             # The source dropped the connection mid-stream while reading Arrow batches
@@ -730,20 +737,18 @@ class TestClickHouseSourceRetryableErrors:
             "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
             "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
             "IncompleteRead(12345 bytes read, 67 more expected))",
+            # pyarrow's own IPC reader detects the same kind of mid-stream connection drop,
+            # one layer above urllib3, and raises OSError instead. Byte counts vary.
+            "Expected to be able to read 5226856 bytes for message body, got 5056408",
             # The server accepted the connection but never answered within our timeout —
             # typically ClickHouse Cloud still cold-resuming past our allowance.
             "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
             "(read timeout=120) executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
             # The source server was already at its concurrent-query limit when the
             # client-construction probe ran; the exact wrapped message reached error tracking.
-            "HTTPDriver for https://play.clickhouse.com:8443 received ClickHouse error code 202\n "
+            "Received ClickHouse exception, code: 202 (for url https://play.clickhouse.com:8443)\n "
             "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
             "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
-            # The exact wrapped message that reached error tracking: our own egress proxy was
-            # unreachable past all of `_get_client`'s in-process connect retries.
-            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
-            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
-            "executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -757,18 +762,7 @@ class TestClickHouseSourceRetryableErrors:
         # A 404 is a deterministic failure (already asserted non-retryable above) — it must not
         # also be misclassified as a benign retryable error, or `_handle_import_error` would log
         # it at `warning` and mask the real cause.
-        error_msg = "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404"
-        retryable = source.get_retryable_errors()
-        assert not any(pattern in error_msg for pattern in retryable)
-
-    def test_proxy_auth_failure_is_not_classified_as_retryable(self, source):
-        # A 407 wraps the same "Cannot connect to proxy." prefix as the TCP-connect timeout above,
-        # but it's a deterministic proxy-auth misconfiguration, not a transient blip.
-        error_msg = (
-            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
-            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection "
-            "failed: 407 Proxy Authentication Required')))"
-        )
+        error_msg = "HTTP driver received HTTP status 404 (for url https://example.ngrok-free.dev:443)"
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
@@ -793,7 +787,7 @@ class TestIsTransientConnectDrop:
             "Tunnel connection failed: 504 Gateway Timeout",
             # HTTP 429 rate-limit at connect time — clickhouse-connect doesn't
             # retry the client-construction probe, so we retry it in-process.
-            "HTTPDriver for https://host:8443 returned response code 429",
+            "HTTP driver received HTTP status 429 (for url https://host:8443)",
             # The exact wrapped message that reached error tracking: urllib3 couldn't open a
             # TCP connection to our own egress proxy before ever attempting a CONNECT tunnel.
             "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
@@ -810,7 +804,7 @@ class TestIsTransientConnectDrop:
             "certificate verify failed",
             "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
             "Code: 516. DB::Exception: Authentication failed",
-            "HTTPDriver for https://host:8443 returned response code 404",
+            "HTTP driver received HTTP status 404 (for url https://host:8443)",
             # A proxy 407 is a deterministic auth-config failure, not a transient gateway blip.
             "Tunnel connection failed: 407 Proxy Authentication Required",
             # A 407 reaches us wrapped in the same "Cannot connect to proxy." prefix as the TCP-connect
@@ -827,8 +821,8 @@ class TestIsRateLimited:
     @pytest.mark.parametrize(
         "message",
         [
-            "HTTPDriver for https://host:8443 returned response code 429",
-            "Error ... HTTPDriver for https://host:443 returned response code 429 executing HTTP request",
+            "HTTP driver received HTTP status 429 (for url https://host:8443)",
+            "Error ... HTTP driver received HTTP status 429 (for url https://host:443) executing HTTP request",
         ],
     )
     def test_matches_429(self, message):
@@ -838,8 +832,8 @@ class TestIsRateLimited:
         "message",
         [
             # Other response codes have their own handling and must not match 429.
-            "HTTPDriver for https://host:8443 returned response code 404",
-            "HTTPDriver for https://host:8443 returned response code 502",
+            "HTTP driver received HTTP status 404 (for url https://host:8443)",
+            "HTTP driver received HTTP status 502 (for url https://host:8443)",
             "Code: 516. DB::Exception: Authentication failed",
         ],
     )
@@ -853,7 +847,7 @@ class TestIsTooManyQueries:
         [
             "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
             "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)",
-            "HTTPDriver for https://host:8443 received ClickHouse error code 202\n "
+            "Received ClickHouse exception, code: 202 (for url https://host:8443)\n "
             "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 100, "
             "maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
         ],
@@ -865,7 +859,7 @@ class TestIsTooManyQueries:
         "message",
         [
             "Code: 241. DB::Exception: Memory limit exceeded",
-            "HTTPDriver for https://host:8443 returned response code 429",
+            "HTTP driver received HTTP status 429 (for url https://host:8443)",
             "Code: 516. DB::Exception: Authentication failed",
         ],
     )
@@ -895,7 +889,7 @@ class TestGetClientTransientRetry:
         # clickhouse-connect raises OperationalError for a 429 exhausted at the
         # client-construction probe (which runs with retries=0). We retry it.
         client = MagicMock()
-        rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
+        rate_limited = OperationalError("HTTP driver received HTTP status 429 (for url https://host:8443)")
         with (
             patch.object(ch_module.time, "sleep"),
             patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
@@ -917,7 +911,7 @@ class TestGetClientTransientRetry:
         # A 429 backs off exponentially (base 2) to give the rate limit room to
         # clear, unlike a connect drop which just re-dials on a short linear wait.
         client = MagicMock()
-        rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
+        rate_limited = OperationalError("HTTP driver received HTTP status 429 (for url https://host:8443)")
         with (
             patch.object(ch_module.time, "sleep") as mock_sleep,
             patch.object(ch_module, "get_client", side_effect=[rate_limited, rate_limited, client]) as mock_get_client,
@@ -1013,7 +1007,9 @@ class TestGetClientSessionSettings:
 class TestTranslateError:
     def test_matches_substring_inside_long_error(self):
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
-        assert ClickHouseSource._translate_error(msg) == "Invalid user or password"
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "rejected the username or password" in translated
 
     def test_unknown_database_names_the_field_to_fix(self):
         # A wrong database name is the common cause, so the message must point at that field
@@ -1027,10 +1023,19 @@ class TestTranslateError:
     def test_404_maps_to_wrong_interface_message(self):
         # A wrong port/proxy answers with 404; the message must name that cause
         # rather than fall through to the generic "check your details".
-        msg = "HTTPDriver for https://host:8443 returned response code 404"
+        msg = "HTTP driver received HTTP status 404 (for url https://host:8443)"
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
         assert "404" in translated
+
+    def test_400_maps_to_wrong_interface_message(self):
+        # A proxy/tunnel in front of ClickHouse rejecting the request (no ClickHouse error
+        # header) answers with a bare 400; the message must name that cause rather than
+        # fall through to the generic "check your details".
+        msg = "HTTP driver received HTTP status 400 (for url https://host:8443)"
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "400" in translated
 
     def test_non_clickhouse_response_maps_to_actionable_message(self):
         # The wrapped probe error must surface the actionable "not serving ClickHouse"
@@ -1041,13 +1046,13 @@ class TestTranslateError:
     def test_transient_gateway_responses_ask_to_retry(self, code):
         # A busy/waking server (survived connect retries) must not be reported as
         # bad credentials — it should tell the user to retry.
-        msg = f"HTTPDriver for https://host:8443 returned response code {code}"
+        msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
 
     @pytest.mark.parametrize("code", ["301", "302", "307", "308"])
     def test_redirect_responses_name_the_redirect(self, code):
         # Proxy-bypassing connections don't follow redirects, so the 3xx reaches the user.
-        msg = f"HTTPDriver for https://host:8443 returned response code {code}"
+        msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _REDIRECTED
 
     def test_certificate_hostname_mismatch_names_the_certificate_not_the_toggles(self):
@@ -1198,7 +1203,7 @@ class TestSourceClassValidateCredentials:
                     valid, msg = source.validate_credentials(config, team_id=1)
 
         assert valid is False
-        assert msg == "Invalid user or password"
+        assert msg is not None and "rejected the username or password" in msg
 
     def test_url_in_host_field_returns_actionable_message_without_reflecting_input(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
@@ -1277,11 +1282,11 @@ class TestHasDuplicatePrimaryKeys:
         "error_msg",
         [
             # max_memory_usage cap (code 241)
-            "HTTPDriver received ClickHouse error code 241\n Code: 241. DB::Exception: Query memory limit "
+            "Received ClickHouse exception, code: 241\n Code: 241. DB::Exception: Query memory limit "
             "exceeded: would use 958.14 MiB, maximum: 953.67 MiB: While executing AggregatingInOrderTransform. "
             "(MEMORY_LIMIT_EXCEEDED)\n",
             # max_execution_time cap (code 159)
-            "HTTPDriver received ClickHouse error code 159\n Code: 159. DB::Exception: Timeout exceeded: "
+            "Received ClickHouse exception, code: 159\n Code: 159. DB::Exception: Timeout exceeded: "
             "elapsed 53343.4 ms, maximum: 30000 ms. (TIMEOUT_EXCEEDED)\n",
         ],
     )
@@ -1408,10 +1413,14 @@ class TestGetPartitionSettings:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "HTTPDriver for https://example.invalid:443 returned response code 429",
-            "HTTPDriver for https://example.invalid:443 returned response code 502",
-            "HTTPDriver for https://example.invalid:443 returned response code 503",
-            "HTTPDriver for https://example.invalid:443 returned response code 504",
+            "HTTP driver received HTTP status 429 (for url https://example.invalid:443)",
+            "HTTP driver received HTTP status 502 (for url https://example.invalid:443)",
+            "HTTP driver received HTTP status 503 (for url https://example.invalid:443)",
+            "HTTP driver received HTTP status 504 (for url https://example.invalid:443)",
+            "Error ('Cannot connect to proxy.', TimeoutError('timed out')) executing HTTP request attempt 1 "
+            "(https://example.invalid:443)",
+            "Error Tunnel connection failed: 429 Too Many Requests executing HTTP request attempt 1 "
+            "(https://example.invalid:443)",
         ],
     )
     def test_transient_http_response_not_captured(self, error_msg):
@@ -1447,7 +1456,7 @@ class TestGetRowsBatching:
         cm.__exit__.return_value = False
         return cm
 
-    def _run_get_rows(self, blocks):
+    def _run_get_rows(self, blocks, stream_client=None, columns=None):
         """Invoke `clickhouse_source(...).items()` against a stream of `blocks`."""
         from contextlib import contextmanager
 
@@ -1457,9 +1466,12 @@ class TestGetRowsBatching:
         mock_client = MagicMock()
         mock_table = MagicMock()
         mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        if columns is not None:
+            mock_table.columns = columns
 
-        stream_client = MagicMock()
-        stream_client.query_arrow_stream.return_value = self._stream_context(blocks)
+        if stream_client is None:
+            stream_client = MagicMock()
+            stream_client.query_arrow_stream.return_value = self._stream_context(blocks)
 
         @contextmanager
         def fake_tunnel():
@@ -1522,6 +1534,69 @@ class TestGetRowsBatching:
 
     def test_empty_stream_yields_nothing(self):
         assert self._run_get_rows([]) == []
+
+    @parameterized.expand(
+        [
+            ("http_403", "HTTP driver received HTTP status 403, server response: invalid format ArrowStream"),
+            ("unknown_format", "Code: 73. DB::Exception: Unknown format ArrowStream. (UNKNOWN_FORMAT)"),
+        ]
+    )
+    def test_reads_native_blocks_when_host_rejects_arrow(self, _name, error_msg):
+        columns = [
+            ClickHouseColumn("id", "UInt64", False),
+            ClickHouseColumn("created_at", "DateTime('UTC')", False),
+            ClickHouseColumn("label", "Nullable(String)", True),
+            ClickHouseColumn("location", "Point", False),
+            ClickHouseColumn("exact_at", "Nullable(DateTime64(9, 'UTC'))", True),
+            ClickHouseColumn("tenth_at", "DateTime64(1)", False),
+        ]
+        new_york = ZoneInfo("America/New_York")
+        native_blocks = [
+            [
+                array.array("Q", [1, 2]),
+                [datetime(2026, 1, 1, 12, tzinfo=UTC), datetime(2026, 1, 1, 7, tzinfo=new_york)],
+                ["a", None],
+                [(1.5, 2.5), (0.0, 0.0)],
+                [1767268800123456789, None],
+                [17672688001, 17672688002],
+            ],
+            [array.array("Q", [3]), [datetime(2026, 1, 2, tzinfo=UTC)], ["c"], [(3.0, 4.0)], [1], [0]],
+        ]
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = ClickHouseError(error_msg)
+        stream_client.query_column_block_stream.return_value = self._stream_context(native_blocks)
+
+        yielded = self._run_get_rows([], stream_client=stream_client, columns=columns)
+
+        assert stream_client.query_column_block_stream.call_args.kwargs["column_formats"] == {
+            "exact_at": "int",
+            "tenth_at": "int",
+        }
+        assert len(yielded) == 1
+        assert yielded[0].schema == pa.schema([column.to_arrow_field() for column in columns])
+        assert yielded[0].column("exact_at").cast(pa.int64()).to_pylist() == [1767268800123456789, None, 1]
+        assert yielded[0].column("tenth_at").cast(pa.int64()).to_pylist() == [1767268800100, 1767268800200, 0]
+        assert yielded[0].drop_columns(["exact_at", "tenth_at"]).to_pydict() == {
+            "id": [1, 2, 3],
+            "created_at": [
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+                datetime(2026, 1, 2, tzinfo=UTC),
+            ],
+            "label": ["a", None, "c"],
+            "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
+        }
+
+    def test_other_query_errors_do_not_fall_back_to_native(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = ClickHouseError(
+            "Code: 60. DB::Exception: Unknown table expression identifier. (UNKNOWN_TABLE)"
+        )
+
+        with pytest.raises(ClickHouseError, match="UNKNOWN_TABLE"):
+            self._run_get_rows([], stream_client=stream_client)
+
+        stream_client.query_column_block_stream.assert_not_called()
 
 
 class TestClickHouseReconcileSchemaMetadata(BaseTest):

@@ -19,10 +19,37 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  appendBenjaminGuidance,
+  appendSte100Guidance,
+  BENJAMIN_UPSTREAM_COMMIT,
+  isBenjaminEnabled,
+} from "@posthog/harness/extensions/benjamin";
+import { resolveGithubToken } from "@posthog/harness/extensions/local-tools";
+import {
+  compilePostHogExecPermissionRegex,
+  DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
+  extractPostHogSubTool,
+  isPostHogExecDescriptor,
+  matchesPostHogExecPermission,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
+import { appendRtkGuidanceForCodex } from "@posthog/harness/extensions/rtk";
+import {
+  buildStoreSkillsInstructions,
+  syncStoreSkills,
+} from "@posthog/harness/extensions/skills-store";
+import {
+  buildAttachedSkillsPrompt,
+  buildCompactionContinuationPrompt,
+  buildInstalledSkillPrompt,
+  CloudTaskPrompt,
+  parseLocalSkillInvocation,
+} from "@posthog/harness/extensions/task-system-prompt";
+import {
   type AcpMcpServer,
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  IDLE_RESUME_STOP_REASON,
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
   type McpServerConnection,
@@ -33,12 +60,6 @@ import {
   sleepWithBackoff,
   toAcpMcpServers,
 } from "@posthog/shared";
-import {
-  buildPosthogPropertiesHeaderLines,
-  buildPosthogPropertiesHeaderRecord,
-  buildPosthogScopedPropertyHeaderLines,
-  buildPosthogScopedPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
@@ -54,11 +75,6 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
-import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
-import {
-  appendBenjaminGuidance,
-  isBenjaminEnabled,
-} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -66,6 +82,7 @@ import {
 } from "../adapters/claude/session/jsonl-hydration";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
+import type { ChatgptAuthTokens } from "../adapters/codex-app-server/spawn";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
@@ -75,27 +92,12 @@ import {
   isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
-import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
-import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
-import {
-  SIGNED_COMMIT_QUALIFIED_TOOL_NAME,
-  SIGNED_MERGE_QUALIFIED_TOOL_NAME,
-  SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
-} from "../adapters/signed-commit-shared";
-import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
-import { PostHogAPIClient } from "../posthog-api";
-import {
-  compilePostHogExecPermissionRegex,
-  DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
-  extractPostHogSubTool,
-  isPostHogExecDescriptor,
-  matchesPostHogExecPermission,
-} from "../posthog-exec-permission";
+import { CodexSubscriptionTokenError, PostHogAPIClient } from "../posthog-api";
 import {
   findPrUrls,
   type OwnedBranch,
@@ -121,8 +123,6 @@ import type {
 import { resourceLink } from "../utils/acp-content";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
-import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -131,8 +131,17 @@ import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import {
+  CodexSubscriptionTokenClient,
+  codexSubscriptionRefreshFailureMessage,
+} from "./codex-subscription-token";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  buildGatewayEnv,
+  codexAuthFromGatewayEnv,
+  type GatewayEnvInput,
+} from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
@@ -147,7 +156,6 @@ import {
   jsonRpcRequestSchema,
   validateCommandParams,
 } from "./schemas";
-import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -215,6 +223,7 @@ export function systemPromptAppendText(
 export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
+  interactionOrigin?: string | null,
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -224,6 +233,7 @@ export function buildCloudSessionSystemPrompt(
     .join("\n\n");
   const combinedPrompt = appendRichOutputPrompt(
     prependProductEngineerPrompt(prompt),
+    interactionOrigin,
   );
 
   return typeof userPrompt === "string"
@@ -233,6 +243,47 @@ export function buildCloudSessionSystemPrompt(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function describeFatalError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (!(error instanceof RequestError)) return error.message;
+  const data: unknown = error.data;
+  const details =
+    typeof data === "object" && data !== null && "details" in data
+      ? data.details
+      : data;
+  if (typeof details === "string") {
+    return details && details !== error.message
+      ? `${error.message}: ${details}`
+      : error.message;
+  }
+  if (
+    details == null ||
+    (typeof details === "object" && Object.keys(details).length === 0)
+  ) {
+    return error.message;
+  }
+  try {
+    return `${error.message}: ${JSON.stringify(details)}`;
+  } catch {
+    return error.message;
+  }
+}
+
+function budgetSnapshotFromUsageUpdate(
+  message: unknown,
+): Record<string, unknown> | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { method, params } = message as {
+    method?: unknown;
+    params?: { budget?: unknown };
+  };
+  if (method !== POSTHOG_NOTIFICATIONS.USAGE_UPDATE) return undefined;
+  const budget = params?.budget;
+  return typeof budget === "object" && budget !== null
+    ? (budget as Record<string, unknown>)
+    : undefined;
 }
 
 export function isTurnCompleteNotification(message: unknown): boolean {
@@ -289,6 +340,21 @@ export interface PreparedInitialTaskMessage {
   taskRun: TaskRun;
   action: "wait" | "idle" | "resume" | "initial";
 }
+
+export const CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "This run could not get a ChatGPT token. Open Desktop, go to Settings > Harness, and connect your ChatGPT account again. Then start the task again.";
+
+/** How a run that cannot get its plan credential reports the failure, per adapter. */
+const SUBSCRIPTION_TOKEN_FAILURE = {
+  claude: {
+    phase: "credential_relay",
+    message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+  },
+  codex: {
+    phase: "subscription_token",
+    message: CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+  },
+} as const;
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -401,18 +467,6 @@ function buildMissingAttachmentNotice(count: number): string {
   );
 }
 
-/**
- * The codex session's LLM auth, from the resolved gateway env. Codex must never
- * read the raw run credential: on the Go-gateway path the bearer is the per-run
- * scoped token (see configureEnvironment).
- */
-export function codexAuthFromGatewayEnv(env: GatewayEnv): {
-  apiBaseUrl: string;
-  apiKey: string;
-} {
-  return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
-}
-
 interface PrAttribution {
   createdAt: string | null;
   author: string | null;
@@ -486,6 +540,7 @@ export class AgentServer {
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
+  private stampedRunTraceId: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
@@ -558,6 +613,7 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private codexTokenClient: CodexSubscriptionTokenClient | null = null;
   private readonly credentialRelay = new CredentialRelay({
     emitEvent: (event) => this.broadcastEvent(event),
   });
@@ -1107,6 +1163,12 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
+      // An abort during initialization leaves the root span open with no session
+      // to carry it, and the caller exits the process as soon as this returns.
+      await withTimeout(
+        this.initializingTelemetry?.shutdown() ?? Promise.resolve(),
+        5_000,
+      );
     } finally {
       this.server?.close();
       this.server = null;
@@ -1122,15 +1184,18 @@ export class AgentServer {
    * the multi-hour inactivity timeout. Best-effort and self-contained so it can
    * run from a process-level handler with no session context.
    */
+  private get agentVersion(): string {
+    return this.config.version ?? packageJson.version;
+  }
+
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
     const errorMessage = redactSecrets(
-      error instanceof CredentialRelayError
-        ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
-        : error instanceof Error
-          ? error.message
-          : String(error),
+      error instanceof CredentialRelayError ||
+        error instanceof CodexSubscriptionTokenError
+        ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
+        : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
@@ -1141,6 +1206,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          state: { agent_version: this.agentVersion },
         },
       );
     } catch (updateError) {
@@ -1187,11 +1253,48 @@ export class AgentServer {
     }
   }
 
-  private async reportClaudeSubscriptionTokenMissing(
+  private subscriptionAdapter(): "claude" | "codex" {
+    return this.getRuntimeAdapter() === "codex" ? "codex" : "claude";
+  }
+
+  private async refreshCodexSubscriptionTokens(): Promise<ChatgptAuthTokens> {
+    try {
+      return await this.codexSubscriptionTokens().refresh();
+    } catch (error) {
+      const code =
+        error instanceof CodexSubscriptionTokenError ? error.code : "unknown";
+      this.logger.warn("ChatGPT token refresh failed", { code });
+      throw new Error(codexSubscriptionRefreshFailureMessage(error));
+    }
+  }
+
+  private codexSubscriptionTokens(): CodexSubscriptionTokenClient {
+    if (!this.codexTokenClient) {
+      if (!this.config.codexRunToken) {
+        throw new CodexSubscriptionTokenError(
+          "forbidden",
+          0,
+          "This run has no ChatGPT run token.",
+        );
+      }
+      this.codexTokenClient = new CodexSubscriptionTokenClient({
+        posthogAPI: this.posthogAPI,
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        runToken: this.config.codexRunToken,
+        logger: this.logger.child("CodexSubscriptionToken"),
+      });
+    }
+    return this.codexTokenClient;
+  }
+
+  private async reportSubscriptionTokenMissing(
+    adapter: "claude" | "codex",
     reason: string,
   ): Promise<void> {
-    this.initializationFailureCode = "claude_credential_unavailable";
-    this.logger.warn("claude_credential_unavailable");
+    const failure = SUBSCRIPTION_TOKEN_FAILURE[adapter];
+    this.initializationFailureCode = `${adapter}_credential_unavailable`;
+    this.logger.warn(this.initializationFailureCode);
     try {
       this.broadcastEvent({
         type: "notification",
@@ -1201,9 +1304,9 @@ export class AgentServer {
           method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
           params: {
             runtimeAdapter: this.getRuntimeAdapter(),
-            initializationPhase: "credential_relay",
+            initializationPhase: failure.phase,
             reason,
-            message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+            message: failure.message,
           },
         },
       });
@@ -1363,6 +1466,7 @@ export class AgentServer {
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
             ...(messageId ? { messageId } : {}),
+            budgetSteerMode: this.budgetSteerMode(),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -1426,9 +1530,7 @@ export class AgentServer {
                 {
                   sessionId: commandSession.acpSessionId,
                   prompt: [
-                    hiddenTextBlock(
-                      "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
-                    ),
+                    hiddenTextBlock(buildCompactionContinuationPrompt()),
                   ],
                 },
                 false,
@@ -1536,7 +1638,7 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          const turnTraceId = this.promptResultTraceId(result);
+          const turnTraceId = this.turnTraceId(result);
           this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
@@ -1814,8 +1916,11 @@ export class AgentServer {
     } catch (error) {
       if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
-      if (error instanceof CredentialRelayError) {
-        this.initializationFailureCode = "claude_credential_unavailable";
+      if (
+        error instanceof CredentialRelayError ||
+        error instanceof CodexSubscriptionTokenError
+      ) {
+        this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
       }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
@@ -1839,9 +1944,9 @@ export class AgentServer {
           },
         },
       });
-      await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.initializingTelemetry?.shutdown();
       await this.cleanupInitializingConnection();
       this.initializingConnection = null;
       this.initializingTelemetry = undefined;
@@ -1951,13 +2056,24 @@ export class AgentServer {
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
+    this.lastBudgetSnapshot = undefined;
+    this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
 
+    const telemetry = this.createRunTelemetry(
+      payload,
+      deviceInfo,
+      runtimeAdapter,
+    );
+    this.initializingTelemetry = telemetry;
+
     const gatewayEnv = this.configureEnvironment({
+      runSpanContext: telemetry?.getRunSpanContext(),
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
@@ -1980,6 +2096,11 @@ export class AgentServer {
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
     });
+
+    // Only that stamped header makes the run id a trace the generations land
+    // in. Unconditional so a re-init on this instance drops a stale run's id.
+    this.stampedRunTraceId =
+      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
@@ -2059,13 +2180,6 @@ export class AgentServer {
       userAgent: `posthog/cloud.hog.dev; version: ${this.config.version ?? packageJson.version}`,
     });
 
-    const telemetry = this.createRunTelemetry(
-      payload,
-      deviceInfo,
-      runtimeAdapter,
-    );
-    this.initializingTelemetry = telemetry;
-
     const logWriter = new SessionLogWriter({
       posthogAPI,
       logger: new Logger({ debug: true, prefix: "[SessionLogWriter]" }),
@@ -2085,7 +2199,28 @@ export class AgentServer {
         if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
-        await this.reportClaudeSubscriptionTokenMissing(reason);
+        await this.reportSubscriptionTokenMissing("claude", reason);
+        throw error;
+      }
+    }
+
+    let codexSubscriptionTokens: ChatgptAuthTokens | null = null;
+    if (
+      this.config.codexModelAccess === "own-subscription" &&
+      runtimeAdapter === "codex"
+    ) {
+      try {
+        codexSubscriptionTokens = await this.codexSubscriptionTokens().get();
+      } catch (error) {
+        if (this.shutdownController.signal.aborted) throw error;
+        const reason =
+          error instanceof CodexSubscriptionTokenError
+            ? error.code
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn("ChatGPT token request failed", { reason });
+        await this.reportSubscriptionTokenMissing("codex", reason);
         throw error;
       }
     }
@@ -2100,6 +2235,7 @@ export class AgentServer {
       eventIdSource: this.nextEventId,
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
+      stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
@@ -2113,7 +2249,10 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              ...codexAuthFromGatewayEnv(gatewayEnv),
+              // Routing a plan run through the gateway would bill us as well.
+              ...(codexSubscriptionTokens
+                ? {}
+                : codexAuthFromGatewayEnv(gatewayEnv)),
               // Bundled-binary hint for the native codex CLI: the codex
               // binary itself, or any file in its directory. Set in the
               // sandbox image (POSTHOG_CODEX_BINARY_PATH); when unset the
@@ -2132,7 +2271,13 @@ export class AgentServer {
                   : undefined,
               serviceTier: this.config.serviceTier,
               developerInstructions: codexInstructions,
-              httpHeaders: gatewayEnv.openaiCustomHeaders,
+              httpHeaders: codexSubscriptionTokens
+                ? undefined
+                : gatewayEnv.openaiCustomHeaders,
+              chatgptAuthTokens: codexSubscriptionTokens ?? undefined,
+              refreshChatgptAuthTokens: codexSubscriptionTokens
+                ? () => this.refreshCodexSubscriptionTokens()
+                : undefined,
             }
           : undefined,
       onStructuredOutput: async (output) => {
@@ -2203,6 +2348,7 @@ export class AgentServer {
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
+      budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
@@ -2419,9 +2565,12 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
-        ...(isBenjaminEnabled() && {
-          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
-        }),
+        state: {
+          agent_version: this.agentVersion,
+          ...(isBenjaminEnabled() && {
+            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+          }),
+        },
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -2915,7 +3064,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -3013,7 +3162,7 @@ export class AgentServer {
       warm: this.nativeResume?.warm,
     });
 
-    this.broadcastTurnComplete("end_turn");
+    this.broadcastTurnComplete(IDLE_RESUME_STOP_REASON);
     await this.session.logWriter.flushAll();
   }
 
@@ -3311,7 +3460,7 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      const turnTraceId = this.promptResultTraceId(result);
+      const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
@@ -3711,7 +3860,7 @@ export class AgentServer {
       textBlockIndex === -1 ? null : contentBlocks[textBlockIndex];
     const invocation =
       textBlock?.type === "text"
-        ? this.parseLocalSkillInvocation(textBlock.text)
+        ? parseLocalSkillInvocation(textBlock.text)
         : null;
 
     if (invocation) {
@@ -3729,7 +3878,7 @@ export class AgentServer {
       if (installedSkill) {
         return {
           skillName: invocation.skillName,
-          context: this.buildInstalledSkillPrompt(
+          context: buildInstalledSkillPrompt(
             installedSkill,
             invocation.args,
             this.getCoInstalledSkillBundles(runId, invocation.skillName),
@@ -3745,20 +3894,19 @@ export class AgentServer {
       )
       .map((block) => block.text)
       .join("\n");
-    return this.buildAttachedSkillsPromptContext(runId, artifacts, messageText);
+    const context = this.buildAttachedSkillsPromptContext(
+      runId,
+      artifacts,
+      messageText,
+    );
+    return context ? { context } : null;
   }
 
-  /**
-   * Fallback for messages that install skill bundles without being a bare
-   * `/skill` invocation: a running session can't discover mid-session
-   * installs, so skills named in the message get their definition inlined
-   * and the rest are listed with their paths.
-   */
   private buildAttachedSkillsPromptContext(
     runId: string,
     artifacts: TaskRunArtifact[],
     messageText: string,
-  ): LocalSkillPromptContext | null {
+  ): string | null {
     const installed = artifacts
       .filter(
         (artifact) =>
@@ -3777,48 +3925,10 @@ export class AgentServer {
         ),
       )
       .filter((skill): skill is InstalledSkillBundle => !!skill);
-    if (installed.length === 0) {
-      return null;
-    }
 
-    const mentioned = installed.filter((skill) => {
-      // token-boundary match so "/foo" never matches inside "/foobar"
-      const escaped = skill.skillName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(
-        `(^|[\\s(\`"'\\[])/${escaped}(?![A-Za-z0-9_/-])`,
-        "m",
-      ).test(messageText);
-    });
-    const unmentioned = installed.filter((skill) => !mentioned.includes(skill));
-
-    const sections: string[] = [
-      "The user's message references local skills that are now installed for this run. Apply a skill's instructions when the message calls for it.",
-    ];
-    for (const skill of mentioned) {
-      sections.push(
-        "",
-        `--- BEGIN LOCAL SKILL ${skill.skillName} ---`,
-        skill.skillDefinition.trim(),
-        `--- END LOCAL SKILL ${skill.skillName} ---`,
-        `Installed skill path: ${skill.skillRoot}`,
-      );
-    }
-    if (unmentioned.length > 0) {
-      sections.push(
-        "",
-        "Other local skills installed for this run (read a skill's SKILL.md from its path when referenced):",
-        ...unmentioned.map(
-          (skill) => `- /${skill.skillName}: ${skill.skillRoot}`,
-        ),
-      );
-    }
-    return { context: sections.join("\n") };
+    return buildAttachedSkillsPrompt(installed, messageText);
   }
 
-  /**
-   * Other skills already installed for this run (auto-bundled dependencies,
-   * skills from earlier messages), listed so the model can find them by path.
-   */
   private getCoInstalledSkillBundles(
     runId: string,
     invokedSkillName: string,
@@ -3831,50 +3941,6 @@ export class AgentServer {
       )
       .map(([, skill]) => skill)
       .sort((a, b) => a.skillName.localeCompare(b.skillName));
-  }
-
-  private parseLocalSkillInvocation(
-    textValue: string,
-  ): { skillName: string; args?: string } | null {
-    const trimmed = textValue.trim();
-    const match = trimmed.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
-    if (!match?.[1]) {
-      return null;
-    }
-
-    return {
-      skillName: match[1],
-      ...(match[2]?.trim() ? { args: match[2].trim() } : {}),
-    };
-  }
-
-  private buildInstalledSkillPrompt(
-    skill: InstalledSkillBundle,
-    args: string | undefined,
-    coInstalledSkills: InstalledSkillBundle[] = [],
-  ): string {
-    return [
-      `The user invoked the local skill "/${skill.skillName}". Apply these skill instructions for this turn.`,
-      "",
-      `--- BEGIN LOCAL SKILL ${skill.skillName} ---`,
-      skill.skillDefinition.trim(),
-      `--- END LOCAL SKILL ${skill.skillName} ---`,
-      "",
-      `Installed skill path: ${skill.skillRoot}`,
-      ...(coInstalledSkills.length > 0
-        ? [
-            "",
-            "Other local skills installed for this run (when the skill above references one of these, read its SKILL.md from the listed path):",
-            ...coInstalledSkills.map(
-              (coInstalled) =>
-                `- /${coInstalled.skillName}: ${coInstalled.skillRoot}`,
-            ),
-          ]
-        : []),
-      "",
-      "User request:",
-      args?.trim() || `Run /${skill.skillName}.`,
-    ].join("\n");
   }
 
   private getInstalledSkillBundleInfoKey(
@@ -4240,6 +4306,7 @@ export class AgentServer {
     const sessionPrompt = buildCloudSessionSystemPrompt(
       cloudAppend,
       userPrompt,
+      this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
     );
     return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
@@ -4317,6 +4384,10 @@ export class AgentServer {
       (this.isAutomatedOrigin() || this.config.autoPublish === true) &&
       this.config.createPr !== false
     );
+  }
+
+  private budgetSteerMode(): "publish" | "wrap_up" {
+    return this.shouldAutoPublishCloudChanges() ? "publish" : "wrap_up";
   }
 
   /**
@@ -4449,17 +4520,6 @@ export class AgentServer {
     ].join("\n");
   }
 
-  private buildExistingPrCheckoutInstruction(prUrl: string): string {
-    return `Continue working on the existing PR branch. If it is not already checked out, check it out with \`gh pr checkout ${prUrl}\`. Do not check it out again when it is already active.`;
-  }
-
-  /**
-   * Fire-and-overlap: starts the best-effort PR-branch checkout so it runs
-   * concurrently with the rest of session setup, returning the promise (or
-   * null when there is nothing to check out). Only runs when auto-publishing,
-   * matching the system-prompt fallback's gate: a review-first run must not
-   * silently check out a branch the prompt told the agent to leave alone.
-   */
   private buildExistingPrCheckoutPromise(
     prUrl: string | null,
   ): Promise<ExistingPrCheckoutResult> | null {
@@ -4475,11 +4535,6 @@ export class AgentServer {
     });
   }
 
-  /**
-   * Consume a pre-checkout result without throwing — a transient `gh` failure
-   * must fall back to the agent's own checkout (via the system-prompt
-   * instruction), never abort session start.
-   */
   private logExistingPrCheckoutResult(
     prUrl: string | null,
     result: ExistingPrCheckoutResult,
@@ -4501,107 +4556,27 @@ export class AgentServer {
     }
   }
 
+  private getCloudTaskPrompt(): CloudTaskPrompt {
+    return new CloudTaskPrompt({
+      apiUrl: this.config.apiUrl,
+      baseBranch: this.config.baseBranch,
+      createPr: this.config.createPr,
+      hasGithubToken: Boolean(resolveGithubToken()),
+      isAutomatedOrigin: this.isAutomatedOrigin(),
+      isSlack: this.isSlackReplyContext(),
+      projectId: this.config.projectId,
+      repositoryAttached: Boolean(this.config.repositoryPath),
+      shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
+      slackArtifactDelivery: this.slackArtifactDelivery,
+      slackChartDelivery: this.slackChartDelivery,
+      storeSkillsInstalledCount: this.storeSkillsInstalledCount,
+      taskId: this.config.taskId,
+      taskRepositories: this.taskRepositories,
+    });
+  }
+
   private buildDetectedPrContext(prUrl: string): string {
-    if (!this.shouldAutoPublishCloudChanges()) {
-      return (
-        `An open pull request already exists: ${prUrl}\n` +
-        `Use that PR as context if it is helpful, but stop with local changes ready for review.\n` +
-        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks.`
-      );
-    }
-
-    return (
-      `IMPORTANT — OVERRIDE PREVIOUS INSTRUCTIONS ABOUT CREATING BRANCHES/PRs.\n` +
-      `You already have an open pull request: ${prUrl}\n` +
-      `Unless the user explicitly asks for a new branch or separate PR, you MUST:\n` +
-      `1. ${this.buildExistingPrCheckoutInstruction(prUrl)}\n` +
-      `2. Make changes, commit, and push to that branch\n` +
-      `By default, do not create a new branch, close the existing PR, or create a new PR — continue on the existing PR. If the user explicitly asks you to create a new branch or a separate PR, follow their instruction instead.`
-    );
-  }
-
-  /**
-   * How this run may hand a deliverable to the Slack thread it is answering in.
-   *
-   * The offer has to match what delivery will actually accept: naming an adapter the
-   * workspace cannot use gets the request rejected server-side after the agent has already
-   * promised the user a canvas or a spreadsheet. The backend resolves that capability from
-   * the workspace's feature flags and Slack scopes when the task starts and hands it to us
-   * on the run state, so the wording lives here and the gating stays there.
-   */
-  private buildSlackDeliveryInstructions(): string {
-    if (this.slackArtifactDelivery === null) {
-      return "";
-    }
-
-    if (this.slackArtifactDelivery === "none") {
-      return `
-## Delivering to Slack
-- You do not have artifact delivery in this workspace: you cannot create or share artifacts (files, canvases, documents) from this run, so do not attempt to. Deliver results as plain text in your reply.
-- Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.`;
-    }
-
-    const endpoint = `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/`;
-    const preamble = `
-## Delivering to Slack
-- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
-- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
-- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
-
-    // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
-    // url, so they work wherever the workspace can post at all.
-    const chartBullets = this.slackChartDelivery
-      ? `
-- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary. Do not wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
-- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to \`${endpoint}chart/\` with \`$POSTHOG_PERSONAL_API_KEY\` and body \`{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}\`, or \`{"name": "<chart title>", "insight_id": <numeric insight id>}\` for a saved insight. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds).
-- The chart renders directly under your answer text with its name as the title, so do not restate the title or announce the chart ("Here's a chart of…"). Spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. Each chart is delivered with an "Open in PostHog" button, so do not paste the response \`url\` into your answer unless the user explicitly asks for a link. Do not download, view, or re-upload the image yourself.
-- Report a chart failure rather than retrying blindly: a 400 carries the reason in \`error\`, or in \`detail\` when the request body itself was rejected, and a 429 means the project's chart render limit is saturated, so answer without the chart.
-- SQL results cannot be charted yet, because the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.`
-      : "";
-
-    if (this.slackArtifactDelivery === "message") {
-      const chartException = this.slackChartDelivery
-        ? " Chart images are the one exception: deliver them through the dedicated chart endpoint below, never through the generic living-artifacts endpoint."
-        : "";
-      const unsupportedDeliverable = this.slackChartDelivery
-        ? "- If a deliverable cannot be expressed as a Slack message or a chart image (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."
-        : "- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.";
-      return `${preamble}
-- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.${chartException}
-- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
-${unsupportedDeliverable}`;
-    }
-
-    return `${preamble}
-- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
-- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
-- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
-- If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
-  }
-
-  private buildGithubAccessInstructions(hasGithubToken: boolean): string {
-    if (hasGithubToken) {
-      return `
-## GitHub access
-You have GitHub access in this session.`;
-    }
-
-    const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
-    return `
-## GitHub access
-You do not have GitHub access in this session.
-- You can read repository content that is already in the workspace.
-- You can clone an exact public repository. Do not call \`list_repos\` without GitHub access.
-- Codebase analysis and code review require readable repository content.
-- Code changes also require publishing access.
-- If the required access is unavailable, do not replace the requested code work with generic guidance or PostHog data analysis.
-- Tell the user to connect GitHub at ${settingsUrl}.
-- The connection applies to a new task, not this task.
-- Write the access explanation first.
-- Then call \`show_actions\` with one \`compose\` action.
-- Use the label \`Try again in a new task\` and prefill the original repository request.
-- Include the exact \`owner/repo\` in the action when you know it.
-- Do not guess file contents. Do not start a change that you cannot deliver.`;
+    return this.getCloudTaskPrompt().buildDetectedPrContext(prUrl);
   }
 
   private buildCloudSystemPrompt(
@@ -4609,304 +4584,11 @@ You do not have GitHub access in this session.
     slackThreadUrl?: string | null,
     inboxReportUrl?: string | null,
   ): string {
-    const taskId = this.config.taskId;
-    const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
-    const isSlack = this.isSlackReplyContext();
-    // Every instruction in this section runs through `gh`, so a sandbox holding no
-    // GitHub token cannot act on any of it. An empty token is an explicit logout.
-    const hasGithubToken = Boolean(resolveGithubToken());
-    const githubIdentityInstructions = hasGithubToken
-      ? `
-# Whose GitHub account you are using
-\`gh\` is authenticated as the person you are working for, so let GitHub resolve who that is. To put them on an issue or pull request, self-assign:
-  \`gh issue create --assignee "@me"\`, \`gh pr create --assignee "@me"\`, \`gh issue edit <number> --add-assignee "@me"\`
-To \`@\`-mention them in a body or a comment, read their handle with \`gh api user --jq .login\`. Read it once per reply rather than reusing one from an earlier reply, because a different person can take over between replies and \`gh\` follows that change.
-If the command fails, or returns a name ending in \`[bot]\`, you are acting as the PostHog app rather than as a person: ask them for their GitHub login instead of assigning or mentioning anyone.
-`
-      : "";
-    const slackIdentityInstructions = isSlack
-      ? `
-# Identity
-You are the PostHog Slack app, PostHog's agent for helping users with their product data and coding tasks from Slack. When introducing yourself or referring to yourself in messages to the user, identify as "PostHog Slack app". Do NOT refer to yourself as Claude, an Anthropic assistant, or any underlying model name.
-
-# Response Style
-You are replying in a Slack thread. Slack readers want short, skimmable answers — be concise by default.
-- Answer simple questions in a single sentence. Keep everything else brief — a few sentences at most.
-- Lead with the answer or the outcome. Skip preamble, restating the question, and sign-offs.
-- Prefer plain prose. Treat bullet lists as the exception, not the norm, and avoid headers and tables unless they genuinely make a complex answer clearer.
-- Do not narrate your thinking or list every step you took; report what matters and the result.
-- This is a default, not a hard rule. If the user (or their saved memory) asks for more depth or a specific format, follow that instead.
-
-# PostHog products first
-PostHog is a product suite, not just analytics — session replay, feature flags, experiments, surveys, error tracking, logs, data warehouse, CDP, messaging, and customer support all ship as PostHog products.
-- When someone asks how to set up, enable, configure, or use a capability, assume they mean PostHog's version of it and answer about that.
-- Search our docs with the \`docs-search\` tool before you answer, and ground the answer in what it returns rather than in what you remember. The product changes faster than your training data.
-- Never send the user to a third-party product for something PostHog does. If you are unsure whether we cover it, search the docs before concluding we don't — and if we genuinely don't, say so plainly instead of recommending a competitor. Pointing at a third party we integrate with, as a source or destination, is fine.
-- When a request could mean either a PostHog feature or something in the user's own codebase, ask which they mean instead of guessing.
-
-# Mentioning users
-To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears in the message context — copy it verbatim, including the \`U…\` ID. Do NOT construct a mention token from a name, and do NOT substitute the display name (or any other string) for the \`U…\` ID — \`<@Jane|Jane Doe>\` is not a valid mention; only the form with the real ID like \`<@U01ABCDEF23|Jane Doe>\` is. If the person you want to refer to has no \`<@U…|displayname>\` token anywhere in the thread context, write their name as plain text instead of inventing one. These \`<@U…>\` tokens are Slack-only: never carry one — or a name or handle derived from it — into a GitHub PR, commit message, or review request as an \`@\`-mention. A Slack display name or handle is NOT a GitHub username; see the pull-request instructions below.
-
-# Suggesting code changes
-You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
-`
-      : "";
-    const identityInstructions = `${slackIdentityInstructions}${githubIdentityInstructions}`;
-    const signedCommitInstructions = `
-## Committing (signed commits required)
-Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.
-To commit: stage your changes with \`git add\`, then call the \`git_signed_commit\` tool (full
-name \`${SIGNED_COMMIT_QUALIFIED_TOOL_NAME}\`) with a \`message\` (and optional \`body\`/\`paths\`).
-It creates a GitHub-signed ("Verified") commit on the branch and keeps your local checkout in
-sync. To start a new branch, pass \`branch\` (prefixed with \`posthog/\`) — the tool creates
-it on the remote for you.
-
-## Updating from the base branch
-To bring the base branch into your PR branch, call the \`git_signed_merge\` tool (full name
-\`${SIGNED_MERGE_QUALIFIED_TOOL_NAME}\`) — it creates a Verified two-parent merge commit
-server-side (like GitHub's "Update branch" button). NEVER run \`git merge\` followed by
-\`git_signed_commit\`: a merge in progress is refused, because the commit API would linearize
-the merge and dump every base-branch change into your PR. If \`git_signed_merge\` reports a
-conflict, fix it with a rebase instead: \`git rebase origin/<base>\`, resolve, \`git rebase
---continue\`, then call \`git_signed_rewrite\`.
-
-## Rewriting / force-pushing (rebases, conflict fixes)
-\`git push --force\` is also blocked. To update a branch after a local rebase or conflict
-resolution, rebase locally with normal \`git\` (resolve conflicts and finish with
-\`git rebase --continue\`, NOT \`git commit\`), then call the \`git_signed_rewrite\` tool (full
-name \`${SIGNED_REWRITE_QUALIFIED_TOOL_NAME}\`). It republishes the branch's commits as Verified
-and atomically force-updates the remote branch. This is how you fix conflicts on an existing PR.
-Histories containing merge commits are refused — rebase (which flattens merges) first.
-If a signed-git tool refuses with a "merge in progress" or "leak" error, follow its recovery
-instructions instead of retrying the same call.
-
-## Re-committing to a branch with an open PR
-Before committing again to a branch that already has an open PR, fetch it first. The remote
-branch can advance between your commits — CI automation often auto-commits regenerated
-artifacts (codegen, lockfiles, formatting) onto open PR branches, and collaborators can push
-too. Committing from a stale local checkout silently reverts those commits, so
-\`git_signed_commit\` refuses when the remote branch is ahead of your checkout. If it does, or
-before your next commit, update your checkout — stash any uncommitted work across the update so
-you don't lose it: \`git stash --include-untracked\`, \`git fetch origin <branch>\`,
-\`git reset --hard origin/<branch>\`, \`git stash pop\` (resolve any conflicts), then re-stage
-and commit. A soft/mixed reset would keep your stale files and re-commit the revert, so the
-hard reset is the safe one here — your work is held in the stash.
-
-## Attribution
-Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
-commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
-we want:
-  Generated-By: PostHog Desktop
-  Task-Id: ${taskId}`;
-
-    // A stack is several PRs, so this would contradict the review-first modes.
-    const stackInstructions = shouldAutoCreatePr
-      ? `
-## Stacked pull requests
-Stack only when the layers are independently reviewable (schema, then backend, then UI) or the
-user asked for a stack. Keep stacks shallow — 2 to 4 layers. One PR remains the default.
-Do NOT use the \`gh stack\` CLI: its publishing commands (\`submit\`, \`sync\`, \`push\`, \`link\`)
-all run \`git push\`, which is blocked here. Build the stack this way instead:
-1. Commit the bottom layer with \`git_signed_commit\`, passing \`branch\`, then open its pull
-   request based on the base branch.
-2. For each layer above, commit with \`git_signed_commit\` and a new \`branch\` — your checkout
-   already sits on the layer below, so the branch starts there — then open its pull request
-   based on the branch of the layer below (\`--base <that branch>\`).
-3. Link them with the \`gh_stack\` tool (full name \`${GH_STACK_QUALIFIED_TOOL_NAME}\`),
-   operation "create", passing \`pull_requests\` bottom to top. Every layer must target the
-   branch of the one below it, or the link is refused.
-When a lower layer changes, restack the layers above it bottom-first. For each layer: check
-that layer out, \`git rebase <its parent branch>\`, then republish it with
-\`git_signed_rewrite\` passing \`onto\` = the parent branch. Check the layer out every time —
-\`git_signed_rewrite\` replays whatever your local HEAD points at and uses \`branch\` only to
-pick which remote ref moves, so rewriting from the wrong checkout publishes the wrong history
-to that layer.`
-      : "";
-
-    const prLinkInstructions = `
-## Referencing pull requests
-When you mention a pull request in any reply or summary, always hyperlink it to its full URL
-(e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain
-text, so readers can open it directly.`;
-
-    const shellEfficiencyInstructions = `
-## Shell efficiency
-Optimize for the fewest shell round trips.
-- Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
-- Emit all independent tool calls in the same response.
-- Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.`;
-
-    const artifactInstructions = `
-## Delivering non-code files (artifacts)
-When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
-
-    // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}`;
-
-    const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
-    const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
-    const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread, or one you read from \`gh api user --jq .login\`, which authenticates as the person you are working for. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
-    // Slack- and inbox-originated PRs are attributed to PostHog, not the
-    // PostHog Desktop app — they come from the Slack app / Self-driving
-    // inbox, which users know as "PostHog".
-    const createdWith = this.isAutomatedOrigin()
-      ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
-    const prFooter = slackThreadUrl
-      ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
-      : inboxReportUrl
-        ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
-        : `*${createdWith}*`;
-    const repositoryWorkspaceInstructions =
-      this.taskRepositories.length > 1
-        ? `The task workspace contains these repositories:
-${this.taskRepositories.map((repository) => `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`).join("\n")}
-
-Apply the repository workflow below separately in every repository you change. Keep branches, commits, diffs, and pull requests repository-specific.`
-        : "";
-
-    if (prUrl) {
-      if (!shouldAutoCreatePr) {
-        return `${identityInstructions}
-# Cloud Task Execution
-
-This task already has an open pull request: ${prUrl}
-
-Do the requested work, but stop with local changes ready for review.
-
-Important:
-- Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
-- Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${commonInstructions}
-`;
-      }
-
-      return `${identityInstructions}
-# Cloud Task Execution
-
-This task already has an open pull request: ${prUrl}
-
-After completing the requested changes:
-1. ${this.buildExistingPrCheckoutInstruction(prUrl)}
-2. Stage your changes with \`git add\`, then call the \`git_signed_commit\` tool with a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). This commits to the existing PR branch.
-   - If the branch is behind its base, call the \`git_signed_merge\` tool first — it merges the base in server-side with a Verified merge commit. Only if it reports a conflict: fetch and rebase locally (\`git fetch origin <base>\`, \`git rebase origin/<base>\`, resolve, \`git rebase --continue\`), then call the \`git_signed_rewrite\` tool to force-update this same PR branch.
-3. For every PR review comment or review thread you addressed, treat the thread as done only after BOTH of these:
-   - Reply on the thread with a short note describing what changed (reference the commit SHA when useful) using \`gh api -X POST /repos/{owner}/{repo}/pulls/{n}/comments/{id}/replies -f body='...'\`.
-   - Resolve the thread via the \`resolveReviewThread\` GraphQL mutation: \`gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id="<thread-node-id>"\`.
-   List unresolved threads first with \`gh api graphql -f query='{repository(owner:"<owner>",name:"<repo>"){pullRequest(number:<n>){reviewThreads(first:100){nodes{id isResolved comments(first:1){nodes{body}}}}}}}'\` so you can resolve each one you fixed.
-
-Important:
-- Do NOT create a new branch or a new pull request unless the user explicitly asks.
-- Do NOT push fixes for review comments without replying to and resolving each related thread.
-${commonInstructions}
-`;
-    }
-
-    if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
-      const repositoryInstructions = `
-When the task requires a GitHub repository:
-- If the repository is not specified, call \`list_repos\` and use the task context to choose it. If multiple repositories remain plausible, ask the user.
-- Call \`clone_repo\` with the chosen \`owner/repo\` and optional branch. It creates a shallow clone under \`/tmp/workspace/repos/<owner>/<repo>\` and returns the path.
-- Work from inside the returned path for all code changes.
-- The clone starts with one commit. If older history is genuinely needed, fetch it in bounded steps with \`git fetch --deepen=50 origin <branch>\`, then \`git fetch --deepen=200 origin <branch>\`. Use \`git fetch --unshallow\` only when the task explicitly requires full history, such as a long-range blame or bisect.
-`;
-      const publishInstructions =
-        this.config.createPr === false
-          ? `
-When the user asks for code changes:
-- You may make local edits in a repository cloned with \`clone_repo\`
-- Do NOT create branches, commits, push changes, or open pull requests in this run`
-          : shouldAutoCreatePr
-            ? `
-When the user asks for code changes in a GitHub repository:
-- After completing code changes in a cloned repository, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone without waiting to be asked. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
-- Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
-${whyContextInstruction.trimStart()}
-${publicRepoSafetyInstruction.trimStart()}
-${prMentionSafetyInstruction.trimStart()}
-- End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
-            : `
-When the user explicitly asks for code changes in a GitHub repository:
-- If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
-- Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
-${whyContextInstruction.trimStart()}
-${publicRepoSafetyInstruction.trimStart()}
-${prMentionSafetyInstruction.trimStart()}
-- End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Do NOT create branches, commits, push changes, or open pull requests unless the user explicitly asks for that`;
-
-      return `${identityInstructions}
-# Cloud Task Execution — No Repository Mode
-
-You are a helpful assistant with access to PostHog via MCP tools. You can help with both code tasks and data/analytics questions.
-
-When the user asks about analytics, data, metrics, events, funnels, dashboards, feature flags, experiments, or anything PostHog-related:
-- Use the canonical \`posthog:exec\` tool to query data, search insights, and provide real answers
-- Follow its built-in instructions to discover and invoke inner tools
-- Do NOT tell the user to check an external analytics platform — you ARE the analytics platform
-- For a named business or telemetry metric, inspect the complete governed catalog with \`posthog:metric-list\`, inspect a candidate with \`posthog:metric-describe\`, then run an approved match with \`posthog:data-catalog-metric-run\` before a typed domain tool or raw query
-- Inner tools include \`posthog:read-data-schema\`, \`posthog:execute-sql\`, \`posthog:insight-query\`, and the typed query tools
-
-When the user asks for code changes or software engineering tasks:
-- Choose and clone a repository only when the task requires one. For questions and analysis, answer without cloning when possible.
-${repositoryInstructions}${publishInstructions}
-
-Important:
-- Prefer using MCP tools to answer questions with real data over giving generic advice.
-${commonInstructions}
-`;
-    }
-
-    if (!shouldAutoCreatePr) {
-      return `${identityInstructions}
-# Cloud Task Execution
-
-${repositoryWorkspaceInstructions}
-
-Do the requested work, but stop with local changes ready for review.
-
-Important:
-- Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.
-- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
-${whyContextInstruction.trimStart()}
-${publicRepoSafetyInstruction.trimStart()}
-${prMentionSafetyInstruction.trimStart()}
-- End the PR description with a horizontal rule followed by this footer line: ${prFooter}
-- Always create the PR as a draft.
-${commonInstructions}
-`;
-    }
-
-    return `${identityInstructions}
-# Cloud Task Execution
-
-${repositoryWorkspaceInstructions}
-
-If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
-
-Otherwise, after completing the requested changes:
-1. Pick a new branch name prefixed with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`)
-2. Stage your changes with \`git add\`, then call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). The tool creates the branch on the remote and a signed commit on it.
-3. Before opening the PR, prepare the body:
-   - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
-${whyContextInstruction}
-${publicRepoSafetyInstruction}
-${prMentionSafetyInstruction}
-   - Check the repo for a PR template at \`.github/pull_request_template.md\` (also try \`.github/PULL_REQUEST_TEMPLATE.md\`, \`docs/pull_request_template.md\`, and root variants). If one exists, use its exact section headings as the PR body — do NOT fall back to a generic Summary/Test plan format.
-   - If no repo-level template exists, check the org's \`.github\` repo via \`gh api /repos/<owner>/.github/contents/.github/pull_request_template.md\` (and other common paths) and use that as a fallback.
-   - Search for matching open issues with \`gh issue list --state open --search '<keywords>'\` (derive keywords from the branch name, commits, and changed files; \`gh issue view <n>\` to confirm relevance). For every issue this PR would resolve, include a \`Closes #<n>\` line in the body so GitHub auto-links and auto-closes it on merge. For issues that are related but not fully resolved, use \`Refs #<n>\` instead.
-4. Create a draft pull request using \`gh pr create --draft${this.config.baseBranch ? ` --base ${this.config.baseBranch}` : ""}\` with a descriptive title and the body prepared above. Add the following footer at the end of the PR description:
-\`\`\`
----
-${prFooter}
-\`\`\`
-
-Important:
-- Always create the PR as a draft. Do not ask for confirmation.
-${commonInstructions}
-`;
+    return this.getCloudTaskPrompt().buildCloudSystemPrompt(
+      prUrl,
+      slackThreadUrl,
+      inboxReportUrl,
+    );
   }
 
   private async getCurrentGitBranch(): Promise<string | null> {
@@ -5038,6 +4720,7 @@ ${commonInstructions}
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
@@ -5090,142 +4773,9 @@ ${commonInstructions}
     );
   }
 
-  private configureEnvironment({
-    isInternal = false,
-    originProduct,
-    signalReportId,
-    aiStage,
-    aiAgentName,
-    taskId,
-    taskRunId,
-    taskUserId,
-    taskTitle,
-    taskOriginKey,
-    repositories,
-    runtimeAdapter,
-    sandboxEnvironmentId,
-    snapshotKind,
-    prewarmed,
-    executionEnvironment,
-  }: {
-    isInternal?: boolean;
-    originProduct?: Task["origin_product"] | null;
-    signalReportId?: string | null;
-    aiStage?: string | null;
-    aiAgentName?: string | null;
-    taskId?: string | null;
-    taskRunId?: string | null;
-    taskUserId?: number | null;
-    taskTitle?: string | null;
-    taskOriginKey?: string | null;
-    repositories?: string[];
-    runtimeAdapter?: string | null;
-    sandboxEnvironmentId?: string | null;
-    snapshotKind?: string | null;
-    prewarmed?: boolean | null;
-    executionEnvironment?: "local" | "cloud";
-  } = {}): GatewayEnv {
+  private configureEnvironment(input: GatewayEnvInput = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
-    const product = resolveGatewayProduct({ isInternal, originProduct });
-    // Go-gateway runs authenticate with the per-run scoped token minted by the
-    // worker (pinned product + on-behalf-of team, per-run spend cap), not the
-    // run's per-team OAuth token, whose team has no gateway wallet. A routed
-    // product with no token therefore stays on the Python gateway. The worker's env values
-    // win, because the token is pinned to the product they name.
-    const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
-    let target = resolveGatewayTarget({
-      product,
-      aiStage,
-      posthogHost: apiUrl,
-    });
-    if (target.isAiGateway && !gatewayToken) {
-      this.logger.warn(
-        `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
-      );
-      target = resolveGatewayTarget({
-        product,
-        aiStage,
-        posthogHost: apiUrl,
-        env: { ...process.env, AI_GATEWAY_URL: undefined },
-      });
-    }
-    const {
-      baseUrl: gatewayUrl,
-      isAiGateway,
-      aiProduct,
-      aiStage: resolvedStage,
-    } = target;
-    const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
-    const openaiBaseUrl = gatewayUrl.endsWith("/v1")
-      ? gatewayUrl
-      : `${gatewayUrl}/v1`;
-    // Forward task metadata as `x-posthog-property-*` headers so the gateway
-    // lifts them onto the $ai_generation event. The Claude path routes these
-    // through the Anthropic SDK's ANTHROPIC_CUSTOM_HEADERS env var; the codex
-    // path sets them as `model_providers.posthog.http_headers` instead, so we
-    // also expose the record form below.
-    const gatewayProperties = {
-      task_origin_product: originProduct,
-      task_internal: isInternal,
-      signal_report_id: signalReportId,
-      ai_stage: resolvedStage,
-      // The team-scoped agent name; `ai_stage` stays a bounded fleet-wide tag.
-      ai_agent_name: aiAgentName,
-      task_id: taskId,
-      task_run_id: taskRunId,
-      task_user_id: taskUserId,
-      task_title: taskTitle,
-      task_origin_key: taskOriginKey,
-      task_repositories: repositories?.length
-        ? JSON.stringify(repositories)
-        : null,
-      task_runtime_adapter: runtimeAdapter,
-      task_sandbox_environment_id: sandboxEnvironmentId,
-      task_snapshot_kind: snapshotKind,
-      task_prewarmed: prewarmed,
-      task_execution_environment: executionEnvironment ?? "cloud",
-    };
-    // The Claude path appends the project scope in buildEnvironment from
-    // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
-    // carries the same scope.
-    let customHeaders: string;
-    let openaiCustomHeaders: Record<string, string>;
-    if (isAiGateway) {
-      // The Go gateway reads one X-PostHog-Properties JSON blob and ignores
-      // per-property headers, and it has no product route, so `ai_product`
-      // has to travel in the blob or the spend lands unattributed. `team_id`
-      // is included for both adapters because the Go gateway does not read
-      // the Python gateway's project-scope header.
-      const properties = {
-        ...gatewayProperties,
-        ai_product: aiProduct,
-        team_id: projectId,
-      };
-      customHeaders = buildPosthogPropertiesHeaderLines(properties);
-      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
-      // The Go gateway writes this into the OpenAI body's `service_tier`, which
-      // is the only way a Codex run reaches the flex or priority queue: Codex
-      // itself omits a tier its model catalogue does not advertise. Codex-only,
-      // so it rides the OpenAI record; the Claude path has no tier concept.
-      if (this.config.serviceTier) {
-        openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
-      }
-    } else {
-      customHeaders = buildPosthogScopedPropertyHeaderLines(
-        gatewayProperties,
-        projectId,
-      );
-      // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
-      // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
-        {
-          ...gatewayProperties,
-          team_id: projectId,
-          $ai_session_id: taskId,
-        },
-        projectId,
-      );
-    }
+    const gatewayEnv = buildGatewayEnv(this.config, input, this.logger);
 
     // Server-level constants that don't vary per task — safe to keep in
     // process.env so spawned tools (PostHog MCP, workspace-server, etc.) can
@@ -5241,15 +4791,7 @@ ${commonInstructions}
     // Task-specific gateway config is returned rather than written to
     // process.env so that concurrent sessions do not clobber each other's
     // gateway URL, auth token, or custom headers.
-    return {
-      anthropicBaseUrl: gatewayUrl,
-      anthropicAuthToken: llmBearer,
-      openaiBaseUrl,
-      openaiApiKey: llmBearer,
-      anthropicCustomHeaders: customHeaders,
-      openaiCustomHeaders,
-      posthogProjectId: String(projectId),
-    };
+    return gatewayEnv;
   }
 
   private buildSlackQuestionRelayResponse(
@@ -5858,6 +5400,7 @@ ${commonInstructions}
     try {
       await this.session.logWriter.flush(this.session.payload.run_id, {
         coalesce: true,
+        retry: true,
       });
     } catch (error) {
       this.logger.error("Failed to flush session logs", error);
@@ -5909,6 +5452,9 @@ ${commonInstructions}
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = null;
+    this.lastBudgetSnapshot = undefined;
+    this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     this.session = null;
   }
 
@@ -5956,10 +5502,53 @@ ${commonInstructions}
       payload.task_id,
       payload.run_id,
       this.logger,
+      this.lastBudgetSnapshot && { budget_guard: this.lastBudgetSnapshot },
     );
   }
 
+  private lastBudgetSnapshot: Record<string, unknown> | undefined;
+  private lastPersistedBudgetKey: string | undefined;
+  private budgetPersistInFlightKey: string | undefined;
+
+  private persistBudgetSnapshotIfChanged(
+    budget: Record<string, unknown>,
+  ): void {
+    const payload = this.session?.payload;
+    if (!payload) return;
+    const key = JSON.stringify([payload.run_id, budget.stage, budget.steers]);
+    if (
+      key === this.lastPersistedBudgetKey ||
+      key === this.budgetPersistInFlightKey
+    ) {
+      return;
+    }
+    this.budgetPersistInFlightKey = key;
+    this.posthogAPI
+      .updateTaskRun(
+        payload.task_id,
+        payload.run_id,
+        { state: { budget_guard: budget } },
+        AbortSignal.timeout(30_000),
+      )
+      .then(() => {
+        this.lastPersistedBudgetKey = key;
+      })
+      .catch((error: unknown) => {
+        this.logger.debug("Failed to persist the budget snapshot", { error });
+      })
+      .finally(() => {
+        if (this.budgetPersistInFlightKey === key) {
+          this.budgetPersistInFlightKey = undefined;
+        }
+      });
+  }
+
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    const budget = budgetSnapshotFromUsageUpdate(message);
+    if (budget) {
+      this.lastBudgetSnapshot = budget;
+      this.persistBudgetSnapshotIfChanged(budget);
+    }
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;
@@ -5979,11 +5568,12 @@ ${commonInstructions}
     this.broadcastEvent(event);
   }
 
-  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
-  private promptResultTraceId(result: PromptResponse): string | null {
+  /** The turn's gateway trace id: the one the Claude adapter reports via
+   * `PromptResponse._meta`, else the run id the codex headers stamped. */
+  private turnTraceId(result: PromptResponse): string | null {
     const traceId = (result._meta as { traceId?: unknown } | undefined)
       ?.traceId;
-    return typeof traceId === "string" ? traceId : null;
+    return typeof traceId === "string" ? traceId : this.stampedRunTraceId;
   }
 
   private broadcastTurnComplete(
@@ -6037,7 +5627,7 @@ ${commonInstructions}
       this.session?.sseController ?? this.initializingSseController;
     if (controller) {
       this.sendSseEvent(controller, event);
-    } else {
+    } else if (!this.eventStreamSender) {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of
       // `this.session` assignment) or before its SSE controller attaches.

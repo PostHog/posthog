@@ -11,7 +11,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
-import type { Adapter } from "@posthog/shared";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
+import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
@@ -28,7 +31,6 @@ import {
 } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
-import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
@@ -297,6 +299,12 @@ function getNextTestPort(): number {
   return port;
 }
 
+function circularData(): Record<string, unknown> {
+  const data: Record<string, unknown> = { reason: "loop" };
+  data.self = data;
+  return data;
+}
+
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
@@ -415,11 +423,165 @@ async function startInitialTaskMessage(
   await startup.sendInitialTaskMessage(payload, prepared);
 }
 
+it("links gateway requests to the run span exported after session shutdown", async () => {
+  const spans: { name: string; traceId: string; spanId: string }[] = [];
+  const logExport = vi
+    .spyOn(OTLPLogExporter.prototype, "export")
+    .mockImplementation((_logs, done) => done({ code: 0 }));
+  const spanExport = vi
+    .spyOn(OTLPTraceExporter.prototype, "export")
+    .mockImplementation((batch, done) => {
+      spans.push(
+        ...batch.map((span) => ({ name: span.name, ...span.spanContext() })),
+      );
+      done({ code: 0 });
+    });
+  const mswServer = setupServer(
+    ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
+    http.get("https://gateway.us.posthog.com/*", () =>
+      HttpResponse.json({ data: [] }),
+    ),
+  );
+  const directory = await mkdtemp(join(tmpdir(), "agent-telemetry-"));
+  const server = new AgentServer({
+    port: getNextTestPort(),
+    jwtPublicKey: TEST_PUBLIC_KEY,
+    repositoryPath: directory,
+    apiUrl: "http://localhost:8000",
+    apiKey: "test-api-key",
+    projectId: 1,
+    mode: "interactive",
+    taskId: "test-task-id",
+    runId: "test-run-id",
+    resolveRtkSavings: async () => null,
+    otelLogsUrl: "http://otel.example.com/v1/logs",
+    otelLogsToken: "phc_test_key",
+    otelTracesUrl: "http://otel.example.com/v1/traces",
+  });
+  mswServer.listen({ onUnhandledRequest: "error" });
+  try {
+    vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
+    for (const key of [
+      "LLM_GATEWAY_URL",
+      "AI_GATEWAY_URL",
+      "POSTHOG_API_KEY",
+      "POSTHOG_API_URL",
+      "POSTHOG_API_HOST",
+      "POSTHOG_AUTH_HEADER",
+      "POSTHOG_PROJECT_ID",
+    ]) {
+      vi.stubEnv(key, undefined);
+    }
+    mockedClaudeSdk.query.mockClear();
+    await server.start();
+
+    const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+      options: { env: Record<string, string> };
+    };
+    const headers = request.options.env.ANTHROPIC_CUSTOM_HEADERS;
+    const traceId = headers.match(
+      /^x-posthog-property-task_run_trace_id: ([0-9a-f]{32})$/m,
+    )?.[1];
+    const spanId = headers.match(
+      /^x-posthog-property-task_run_span_id: ([0-9a-f]{16})$/m,
+    )?.[1];
+    expect(traceId).toBeDefined();
+    expect(spanId).toBeDefined();
+
+    await server.stop();
+
+    expect(spans.filter((span) => span.name === "task_run")).toEqual([
+      expect.objectContaining({ traceId, spanId }),
+    ]);
+  } finally {
+    try {
+      await server.stop();
+    } finally {
+      mswServer.close();
+      logExport.mockRestore();
+      spanExport.mockRestore();
+      vi.unstubAllEnvs();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+}, 30000);
+
+it.each([false, true])(
+  "shuts down initialization telemetry (aborted: %s)",
+  async (aborted) => {
+    const append = vi.fn();
+    const shutdown = vi.fn(async () => {});
+    const testServer = new AgentServer({
+      port: 0,
+      jwtPublicKey: TEST_PUBLIC_KEY,
+      apiUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      projectId: 1,
+      mode: "interactive",
+      taskId: "test-task-id",
+      runId: "test-run-id",
+      runtimeAdapter: "codex",
+      model: "gpt-5.2-codex",
+    }) as unknown as {
+      shutdownController: AbortController;
+      initializingTelemetry: {
+        append: typeof append;
+        shutdown: typeof shutdown;
+      };
+      _doInitializeSession(
+        payload: JwtPayload,
+        controller: null,
+      ): Promise<void>;
+      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
+    };
+    testServer._doInitializeSession = vi.fn(async () => {
+      testServer.initializingTelemetry = { append, shutdown };
+      if (aborted) testServer.shutdownController.abort();
+      throw new Error("SECRET provider response");
+    });
+    const payload = {
+      task_id: "test-task-id",
+      run_id: "test-run-id",
+      team_id: 1,
+      user_id: 1,
+      distinct_id: "test-distinct-id",
+      mode: "interactive" as const,
+    };
+
+    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
+      "SECRET provider response",
+    );
+
+    if (aborted) {
+      expect(append).not.toHaveBeenCalled();
+    } else {
+      expect(append).toHaveBeenCalledWith(
+        "test-run-id",
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
+            params: expect.objectContaining({
+              runtimeAdapter: "codex",
+              initializationPhase: "session_setup",
+              requestedModel: "gpt-5.2-codex",
+              errorType: "error",
+            }),
+          }),
+        }),
+      );
+    }
+    expect(JSON.stringify(append.mock.calls)).not.toContain("SECRET");
+    expect(shutdown).toHaveBeenCalledOnce();
+    expect(testServer.initializingTelemetry).toBeUndefined();
+  },
+);
+
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
   let mswServer: SetupServerApi;
   let appendLogCalls: unknown[][];
+  let updateTaskRunCalls: unknown[];
   let port: number;
 
   // msw patches fetch process-wide. A second listen() on an already-patched
@@ -429,6 +591,7 @@ describe("AgentServer HTTP Mode", () => {
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
         onAppendLog: (entries) => appendLogCalls.push(entries),
+        onUpdateTaskRun: (body) => updateTaskRunCalls.push(body),
       }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
@@ -441,6 +604,7 @@ describe("AgentServer HTTP Mode", () => {
   beforeEach(async () => {
     repo = await createTestRepo("agent-server-http");
     appendLogCalls = [];
+    updateTaskRunCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
   }, 30_000);
@@ -489,58 +653,6 @@ describe("AgentServer HTTP Mode", () => {
       TEST_PRIVATE_KEY,
     );
   };
-
-  it("exports safe telemetry when session initialization fails", async () => {
-    const append = vi.fn();
-    const shutdown = vi.fn(async () => {});
-    const testServer = createServer({
-      runtimeAdapter: "codex",
-      model: "gpt-5.2-codex",
-    }) as unknown as {
-      initializingTelemetry: {
-        append: typeof append;
-        shutdown: typeof shutdown;
-      };
-      _doInitializeSession(
-        payload: JwtPayload,
-        controller: null,
-      ): Promise<void>;
-      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
-    };
-    testServer._doInitializeSession = vi.fn(async () => {
-      testServer.initializingTelemetry = { append, shutdown };
-      throw new Error("SECRET provider response");
-    });
-    const payload = {
-      task_id: "test-task-id",
-      run_id: "test-run-id",
-      team_id: 1,
-      user_id: 1,
-      distinct_id: "test-distinct-id",
-      mode: "interactive" as const,
-    };
-
-    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
-      "SECRET provider response",
-    );
-
-    expect(append).toHaveBeenCalledWith(
-      "test-run-id",
-      expect.objectContaining({
-        notification: expect.objectContaining({
-          method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
-          params: expect.objectContaining({
-            runtimeAdapter: "codex",
-            initializationPhase: "session_setup",
-            requestedModel: "gpt-5.2-codex",
-            errorType: "error",
-          }),
-        }),
-      }),
-    );
-    expect(JSON.stringify(append.mock.calls)).not.toContain("SECRET");
-    expect(shutdown).toHaveBeenCalledOnce();
-  });
 
   it("replays ACP notifications emitted before cloud session assignment", () => {
     const testServer = createServer() as unknown as {
@@ -986,6 +1098,7 @@ describe("AgentServer HTTP Mode", () => {
           {
             status: "failed",
             error_message: `agent_error: ${expected}`,
+            state: { agent_version: expect.any(String) },
           },
         );
       },
@@ -1127,6 +1240,7 @@ describe("AgentServer HTTP Mode", () => {
         {
           status: "failed",
           error_message: "agent_error: old run failed",
+          state: { agent_version: expect.any(String) },
         },
       );
     });
@@ -1331,6 +1445,13 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
+    function usageUpdateWithBudget(budget: Record<string, unknown>) {
+      return {
+        method: POSTHOG_NOTIFICATIONS.USAGE_UPDATE,
+        params: { sessionId: "s", usage: {}, budget },
+      };
+    }
+
     function createUsageTestServer() {
       const testServer = new AgentServer({
         port,
@@ -1346,6 +1467,7 @@ describe("AgentServer HTTP Mode", () => {
         session: { payload: JwtPayload } | null;
         posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
         recordTurnUsage(usage: unknown): void;
+        handleAcpTransportMessage(message: unknown): void;
       };
       testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
       testServer.session = {
@@ -1423,14 +1545,26 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
-    it("resets run usage on session cleanup so a later run starts from zero", async () => {
+    it("resets run usage and the budget snapshot on session cleanup so a later run starts from zero", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
         outputTokens: 50,
         totalTokens: 150,
       };
+      testServer.handleAcpTransportMessage(
+        usageUpdateWithBudget({ stage: "critical", steers: [] }),
+      );
       testServer.recordTurnUsage(turnUsage);
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          state: expect.objectContaining({
+            budget_guard: { stage: "critical", steers: [] },
+          }),
+        }),
+      );
 
       const cleanupServer = stubSessionCleanup(testServer);
       await cleanupServer.cleanupSession();
@@ -1463,6 +1597,32 @@ describe("AgentServer HTTP Mode", () => {
             },
           },
         },
+      );
+    });
+
+    it("retries a budget snapshot whose write failed, and skips one that landed", async () => {
+      const testServer = createUsageTestServer();
+      testServer.posthogAPI.updateTaskRun
+        .mockRejectedValueOnce(new Error("503"))
+        .mockResolvedValue({});
+      const budget = { stage: "warn", steers: [{ stage: "warn" }] };
+
+      const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      await settled();
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await settled();
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      testServer.handleAcpTransportMessage(usageUpdateWithBudget(budget));
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenLastCalledWith(
+        "task-1",
+        "run-1",
+        { state: { budget_guard: budget } },
+        expect.any(AbortSignal),
       );
     });
 
@@ -1627,6 +1787,38 @@ describe("AgentServer HTTP Mode", () => {
       };
       return testServer;
     }
+
+    it.each([
+      [
+        "ACP internal error details",
+        RequestError.internalError({ details: "Session setup timed out" }),
+        "Agent server crashed: Internal error: Session setup timed out",
+      ],
+      [
+        "ACP internal error without details",
+        RequestError.internalError({}),
+        "Agent server crashed: Internal error",
+      ],
+      [
+        "ACP internal error with circular data",
+        RequestError.internalError(circularData()),
+        "Agent server crashed: Internal error",
+      ],
+      ["plain error", new Error("boom"), "Agent server crashed: boom"],
+    ])("reports %s on a fatal crash", async (_name, error, expected) => {
+      const testServer = createFailureTestServer() as unknown as {
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        reportFatalError(error: unknown): Promise<void>;
+      };
+
+      await testServer.reportFatalError(error);
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        expect.objectContaining({ status: "failed", error_message: expected }),
+      );
+    });
 
     const interactivePayload: JwtPayload = {
       run_id: "run-1",
@@ -2544,27 +2736,32 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
-    it("enqueues and buffers events raised before a session is assigned", () => {
-      // Regression: an MCP relay request can fire the instant the client
-      // subprocess starts, ahead of session assignment. broadcastEvent must
-      // not silently drop it.
-      const testServer = exposeBroadcastEvent(createServer());
-      testServer.eventStreamSender = {
-        enqueue: vi.fn(),
-        stop: vi.fn(async () => {}),
-      };
-      testServer.session = null;
+    it.each([null, { sseController: null }])(
+      "enqueues events without retaining an SSE replay buffer for session %j",
+      (session) => {
+        // Regression: an MCP relay request can fire the instant the client
+        // subprocess starts, ahead of session assignment. broadcastEvent must
+        // not silently drop it.
+        const testServer = exposeBroadcastEvent(createServer());
+        testServer.eventStreamSender = {
+          enqueue: vi.fn(),
+          stop: vi.fn(async () => {}),
+        };
+        testServer.session = session;
 
-      const event = {
-        type: "mcp_request",
-        requestId: "req-1",
-        server: "slack",
-      };
-      testServer.broadcastEvent(event);
+        const event = {
+          type: "mcp_request",
+          requestId: "req-1",
+          server: "slack",
+        };
+        testServer.broadcastEvent(event);
 
-      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
-      expect(testServer.pendingEvents).toEqual([event]);
-    });
+        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+          event,
+        );
+        expect(testServer.pendingEvents).toEqual([]);
+      },
+    );
 
     it("buffers events with no event stream sender configured and no session", () => {
       const testServer = exposeBroadcastEvent(createServer());
@@ -2578,6 +2775,27 @@ describe("AgentServer HTTP Mode", () => {
       expect(() => testServer.broadcastEvent(event)).not.toThrow();
 
       expect(testServer.pendingEvents).toEqual([event]);
+    });
+
+    it("delivers events to an attached SSE controller with event ingest enabled", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      const controller = { send: vi.fn(), close: vi.fn() };
+      testServer.session = { sseController: controller };
+      const event = {
+        type: "mcp_request",
+        requestId: "req-1",
+        server: "slack",
+      };
+
+      testServer.broadcastEvent(event);
+
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
+      expect(controller.send).toHaveBeenCalledWith(event);
+      expect(testServer.pendingEvents).toEqual([]);
     });
 
     it("redacts authorization headers before an event leaves the sandbox", () => {
@@ -2610,7 +2828,7 @@ describe("AgentServer HTTP Mode", () => {
       const serialized = JSON.stringify(broadcast);
       expect(serialized).not.toContain("mcp-secret");
       expect(serialized).toContain("x-posthog-mcp-consumer");
-      expect(testServer.pendingEvents).toEqual([broadcast]);
+      expect(testServer.pendingEvents).toEqual([]);
     });
   });
 
@@ -4884,6 +5102,34 @@ describe("AgentServer HTTP Mode", () => {
       );
     }, 30000);
 
+    it.each([
+      ["a configured version", "9.9.9", "9.9.9"],
+      ["the package version", undefined, undefined],
+    ])(
+      "stamps %s on the in_progress run update",
+      async (_label, version, expected) => {
+        await createServer({ version }).start();
+
+        await vi.waitFor(
+          () => {
+            const inProgress = updateTaskRunCalls.find(
+              (body) => (body as { status?: string }).status === "in_progress",
+            ) as { state?: { agent_version?: unknown } } | undefined;
+            expect(inProgress).toBeDefined();
+            const agentVersion = inProgress?.state?.agent_version;
+            if (expected === undefined) {
+              expect(typeof agentVersion).toBe("string");
+              expect((agentVersion as string).length).toBeGreaterThan(0);
+            } else {
+              expect(agentVersion).toBe(expected);
+            }
+          },
+          { timeout: 15000, interval: 100 },
+        );
+      },
+      30000,
+    );
+
     it("emits a completed _posthog/progress for the agent step after session initialization", async () => {
       await createServer().start();
 
@@ -5618,6 +5864,10 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("idle same-run resume", () => {
+      type TurnCompleteEvent = {
+        notification?: { method?: string; params?: { stopReason?: string } };
+      };
+
       const idlePayload: JwtPayload = {
         task_id: "test-task-id",
         run_id: "test-run-id",
@@ -5632,7 +5882,7 @@ describe("AgentServer HTTP Mode", () => {
         resumeKind: "native" | "summary" = "native",
       ): Promise<{
         prompt: ReturnType<typeof vi.fn>;
-        turnCompleteEvents: () => unknown[];
+        turnCompleteEvents: () => TurnCompleteEvent[];
         sendInitialTaskMessage: () => Promise<void>;
       }> => {
         const s = createServer();
@@ -5676,11 +5926,13 @@ describe("AgentServer HTTP Mode", () => {
         return {
           prompt,
           turnCompleteEvents: () =>
-            broadcastEvent.mock.calls.filter(
-              ([event]) =>
-                (event as { notification?: { method?: string } }).notification
-                  ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-            ),
+            broadcastEvent.mock.calls
+              .map(([event]) => event as TurnCompleteEvent)
+              .filter(
+                (event) =>
+                  event.notification?.method ===
+                  POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+              ),
           sendInitialTaskMessage: () =>
             startInitialTaskMessage(s, idlePayload, null),
         };
@@ -5700,6 +5952,9 @@ describe("AgentServer HTTP Mode", () => {
 
           expect(prompt).not.toHaveBeenCalled();
           expect(turnCompleteEvents()).toHaveLength(1);
+          expect(
+            turnCompleteEvents()[0]?.notification?.params?.stopReason,
+          ).toBe(IDLE_RESUME_STOP_REASON);
           const response = await fetch(`http://localhost:${port}/command`, {
             method: "POST",
             headers: {
@@ -6730,6 +6985,7 @@ describe("AgentServer HTTP Mode", () => {
         "If the user explicitly asks you to open a pull request",
       );
       expect(prompt).not.toContain("No Repository Mode");
+      expect(prompt).not.toContain("## Summarizing a question you answered");
     });
 
     it("returns review-first prompt for existing PRs on non-Slack runs", () => {
@@ -6767,6 +7023,7 @@ describe("AgentServer HTTP Mode", () => {
         "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("gh issue list --search");
       expect(prompt).toContain("Closes #<n>");
     });
@@ -6785,6 +7042,7 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
+          "## Summarizing a question you answered",
           "call `list_repos`",
           "Call `clone_repo`",
           "It creates a shallow clone",
@@ -6794,11 +7052,14 @@ describe("AgentServer HTTP Mode", () => {
           "open a draft pull request",
           "unless the user explicitly asks",
           ".github/pull_request_template.md",
+          ".github/PULL_REQUEST_TEMPLATE/*.md",
           "gh issue list --search",
           "Closes #<n>",
           "Generated-By: PostHog Desktop",
           "Task-Id: test-task-id",
           "canonical `posthog:exec` tool",
+          "`posthog:business-knowledge-documents-search`",
+          "whatever else the question is about",
           "`posthog:read-data-schema`",
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
@@ -6823,10 +7084,13 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined, createPr: false },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
+          "## Summarizing a question you answered",
           "Call `clone_repo`",
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",
           "canonical `posthog:exec` tool",
+          "`posthog:business-knowledge-documents-search`",
+          "whatever else the question is about",
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
           "`posthog:data-catalog-metric-run`",
@@ -6871,6 +7135,7 @@ describe("AgentServer HTTP Mode", () => {
       );
       // PR template detection (repo first, org `.github` fallback)
       expect(prompt).toContain(".github/pull_request_template.md");
+      expect(prompt).toContain(".github/PULL_REQUEST_TEMPLATE/*.md");
       expect(prompt).toContain("org's `.github` repo");
       // Related-issue linking
       expect(prompt).toContain("gh issue list --state open --search");
