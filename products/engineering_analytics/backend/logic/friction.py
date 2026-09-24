@@ -300,13 +300,17 @@ _TEAM_MEMBERS_SELECT = """
 
 
 def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFriction] | None:
-    """The view's rows for the curated source's repository, or None when the team has no friction view."""
-    placeholders: dict[str, ast.Expr] = {}
-    repo_filter = "1 = 1"
+    """The view's rows for the curated source's repository, or None when the team has no friction view.
+
+    The view unions every GitHub source of the team, so the read keeps to the one source the caller is
+    authorized for. A legacy single-repo source has no repository name, so the source id is the filter
+    that always holds."""
+    placeholders: dict[str, ast.Expr] = {"source_id": ast.Constant(value=curated.source_id)}
+    repo_filter = "source_id = {source_id}"
     if "/" in curated.repository:
         owner, name = curated.repository.split("/", 1)
-        repo_filter = "repo_owner = {repo_owner} AND repo_name = {repo_name}"
-        placeholders = {"repo_owner": ast.Constant(value=owner), "repo_name": ast.Constant(value=name)}
+        repo_filter += " AND repo_owner = {repo_owner} AND repo_name = {repo_name}"
+        placeholders |= {"repo_owner": ast.Constant(value=owner), "repo_name": ast.Constant(value=name)}
     try:
         rows = curated.run_paged(
             _FRICTION_SELECT.replace("__REPO__", repo_filter),

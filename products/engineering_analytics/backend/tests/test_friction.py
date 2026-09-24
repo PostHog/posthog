@@ -78,15 +78,18 @@ class _Curated:
     """The slice of CuratedGitHubSource the friction read uses."""
 
     repository = "PostHog/posthog"
+    source_id = "0192f000-0000-7000-8000-000000000001"
 
     def __init__(self, rows: list[tuple] | None, members: list[str] | None) -> None:
         self._rows = rows
         self._members = members
+        self.friction_placeholders: dict[str, Any] = {}
 
     def members_source(self) -> str | None:
         return None if self._members is None else "(SELECT 1)"
 
     def run_paged(self, sql: str, **kwargs: Any) -> list[tuple]:
+        self.friction_placeholders = kwargs["placeholders"]
         if self._rows is None:
             raise QueryError("Unknown table `engineering_analytics_pr_friction`.")
         return self._rows
@@ -134,3 +137,5 @@ class TestFrictionScore(SimpleTestCase):
 
         assert friction.available is available
         assert [(item.author, item.rank) for item in friction.items] == expected
+        # The view unions every source of the team, so the read must keep to its own.
+        assert curated.friction_placeholders["source_id"].value == curated.source_id
