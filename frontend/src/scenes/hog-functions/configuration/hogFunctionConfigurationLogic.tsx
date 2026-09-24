@@ -719,7 +719,7 @@ export interface hogFunctionConfigurationLogicMeta {
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
         hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
@@ -752,7 +752,8 @@ export interface hogFunctionConfigurationLogicMeta {
             currentProject: ProjectType | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
             contextId: HogFunctionConfigurationContextId,
-            survey: Survey | null
+            survey: Survey | null,
+            logicProps: HogFunctionConfigurationLogicProps
         ) => CyclotronJobInvocationGlobals
         sampleGlobalsWithInputs: (
             sampleGlobals: CyclotronJobInvocationGlobals | null,
