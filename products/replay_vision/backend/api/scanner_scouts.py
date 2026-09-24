@@ -32,6 +32,14 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
         # Scout suggestions are a Signals surface; a scanner scout never comes from one, so the
         # field would only be accepted here to be ignored.
         fields.pop("suggestion_id", None)
+        # `create_scout_for_source` takes an explicit name and no label, so there is no slug to derive.
+        fields.pop("display_name", None)
+        fields["name"].required = True
+        fields["name"].help_text = (
+            "Skill name for the scout, its permanent identifier: lowercase letters, numbers, and hyphens, "
+            "at most 64 characters. Creating again with a name that already exists applies the supplied "
+            "config to that scout instead of creating a second one."
+        )
         return fields
 
 

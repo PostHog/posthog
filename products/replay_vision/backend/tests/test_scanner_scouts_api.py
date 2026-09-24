@@ -161,6 +161,16 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         )
         assert response.status_code == 400, response.json()
 
+    def test_a_scout_without_a_name_is_rejected_as_bad_input(self) -> None:
+        # Unlike the generic endpoint this route cannot derive a name from a display name, so a
+        # missing name must be a 400 rather than a KeyError further down.
+        payload = self._payload(display_name="Daily digest")
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "name"
+
     def test_a_scout_that_already_exists_without_an_owner_is_not_adopted(self) -> None:
         # Reusing a name tunes the existing config, and the reports route serves a scanner's reports
         # on the strength of the recorded owner — so adopting an unowned scout would surface every
