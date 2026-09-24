@@ -417,6 +417,7 @@ describe('webAnalyticsLogic conversion goal tiles', () => {
         jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
         jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
         jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
         featureFlagLogic.mount()
         logic = webAnalyticsLogic()
         logic.mount()
@@ -437,7 +438,7 @@ describe('webAnalyticsLogic conversion goal tiles', () => {
         logic.actions.setConversionGoal({ actionId: 42 })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(withoutGoal).toBeDefined()
+        expect(withoutGoal).toBeTruthy()
         expect(errorTrackingFilterGroup()).toEqual(withoutGoal)
     })
 })
