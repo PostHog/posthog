@@ -447,6 +447,8 @@ const CLUSTER_SNAPSHOT = {
     ],
 }
 
+const ACTIVITY_MODELS = ['claude-opus-5-5', 'gpt-5.6-sol', 'claude-sonnet-5']
+
 // [tool, intent, durationMs, client, errorMessage]
 const ACTIVITY_CALLS: [string, string | null, number | null, string, string | null][] = [
     [
@@ -590,6 +592,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
     }
 
     const results = ACTIVITY_CALLS.map(([tool, intent, durationMs, clientName, errorMessage], index) => {
+        const model = ACTIVITY_MODELS[index % ACTIVITY_MODELS.length]
         const timestamp = dayjs('2026-06-07T12:00:00Z')
             .subtract(index * 37, 'second')
             .toISOString()
@@ -603,6 +606,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 $mcp_error_message: errorMessage,
                 $mcp_intent: intent,
                 $mcp_is_error: errorMessage !== null,
+                $mcp_llm_model: model,
                 $mcp_parameters: { input: `Example input for ${tool}` },
                 $mcp_response: errorMessage ? { error: errorMessage } : { ok: true },
                 $mcp_server_name: 'example-server',
@@ -634,6 +638,9 @@ function activityEventsResponse(select: string[]): Record<string, any> {
             if (column.endsWith('-- Client')) {
                 return clientName
             }
+            if (column.endsWith('-- Model')) {
+                return model
+            }
             return null
         })
     })
@@ -663,8 +670,8 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
-                '/api/environments/:team_id/mcp_analytics/sessions/': SESSION_LIST,
-                '/api/environments/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
+                '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
+                '/api/projects/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
                 '/api/projects/:team_id/property_definitions': ({ request }) => {
                     const isFeatureFlag = new URL(request.url).searchParams.get('is_feature_flag') === 'true'
                     return [200, isFeatureFlag ? MCP_FEATURE_FLAG_DEFINITIONS : MCP_PROPERTY_DEFINITIONS]

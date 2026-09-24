@@ -151,6 +151,14 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
+            # An AI detector calls a model, and only the AI worker holds the provider
+            # credentials, so that check evaluates on the AI queue.
+            evaluate_task_queue = (
+                settings.MAX_AI_TASK_QUEUE
+                if prepare_result.uses_llm_detector
+                and temporalio.workflow.patched("alerts-evaluate-ai-detector-on-ai-queue")
+                else None
+            )
             try:
                 evaluation = await temporalio.workflow.execute_activity(
                     evaluate_alert,
@@ -159,6 +167,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         uses_llm_detector=prepare_result.uses_llm_detector,
                         team_id=inputs.team_id,
                     ),
+                    task_queue=evaluate_task_queue,
                     start_to_close_timeout=timeouts.evaluate_start_to_close,
                     schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     heartbeat_timeout=timeouts.heartbeat_timeout,
@@ -254,11 +263,15 @@ class CheckAlertWorkflow(PostHogWorkflow):
         cause = unwrap_temporal_cause(evaluation_error)
         message = cause.message if cause is not None else str(evaluation_error)
         message = truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS)
+        # Temporal rebuilds a remote failure as a bare ApplicationError with the original class
+        # name on `type`, which is all the activity needs to pick the owner-facing reason.
+        error_type = cause.type if cause is not None else type(evaluation_error).__name__
         recorded = await temporalio.workflow.execute_activity(
             record_failed_evaluation,
             RecordFailedEvaluationActivityInputs(
                 alert_id=inputs.alert_id,
                 error_message=message,
+                error_type=error_type,
                 evaluation_fingerprint=evaluation_fingerprint,
                 team_id=inputs.team_id,
             ),

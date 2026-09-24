@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -7,8 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONLinkPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -64,9 +68,7 @@ def _strip_sensitive_fields(sensitive_fields: frozenset[str]) -> Callable[[dict[
     return _strip
 
 
-def digitalocean_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> Resource:
-    endpoint_config = DIGITALOCEAN_ENDPOINTS[endpoint]
-
+def _client_config(api_key: str, endpoint_config: DigitalOceanEndpointConfig) -> ClientConfig:
     client_config: ClientConfig = {
         "base_url": DIGITALOCEAN_BASE_URL,
         "auth": {
@@ -75,22 +77,65 @@ def digitalocean_source(api_key: str, endpoint: str, team_id: int, job_id: str) 
         },
         "paginator": _paginator(),
     }
-    # Endpoints that return secrets (e.g. `databases`) must not have their raw responses
-    # captured into HTTP samples, which happens before resource maps run. Opt them out of
-    # sample capture while keeping the request metered, logged, and token-redacted.
-    if endpoint_config.sensitive_fields:
+    # Sample capture records the raw response before resource maps run, so an endpoint whose
+    # response holds secrets (e.g. `databases`) or billing identity (e.g. `invoice_summaries`)
+    # must opt out. The request stays metered, logged, and token-redacted.
+    if endpoint_config.sensitive_fields or not endpoint_config.captures_http_samples:
         client_config["session"] = make_tracked_session(redact_values=(api_key,), capture=False)
+    return client_config
 
-    config: RESTAPIConfig = {
-        "client": client_config,
-        "resource_defaults": {
-            "write_disposition": "replace",
-        },
-        "resources": [get_resource(endpoint_config)],
-    }
 
-    # No incremental support, so `db_incremental_field_last_value` is always None.
-    resource = rest_api_resource(config, team_id, job_id, None)
+def _fanout_resource(
+    endpoint_config: DigitalOceanEndpointConfig, client_config: ClientConfig, endpoint: str, team_id: int, job_id: str
+) -> Resource:
+    fanout = endpoint_config.fanout
+    assert fanout is not None
+    parent_config = DIGITALOCEAN_ENDPOINTS[fanout.parent_name]
+
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=DIGITALOCEAN_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": parent_config.data_selector},
+            # The child paginator is always explicit: the REST framework defaults a path that
+            # ends in its resolved id to a single unpaginated entity, which would sync only the
+            # first page of a large invoice's line items.
+            child_endpoint_extra={
+                "data_selector": endpoint_config.data_selector,
+                "paginator": _paginator() if endpoint_config.paginated else SinglePagePaginator(),
+            },
+            # `per_page` is declared per resource on the fan-out config instead, because the
+            # summary endpoint returns a single object and takes no page-size param.
+            page_size_param=None,
+        ),
+    )
+
+
+def digitalocean_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> Resource:
+    endpoint_config = DIGITALOCEAN_ENDPOINTS[endpoint]
+    client_config = _client_config(api_key, endpoint_config)
+
+    if endpoint_config.fanout is not None:
+        resource = _fanout_resource(endpoint_config, client_config, endpoint, team_id, job_id)
+    else:
+        config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {
+                "write_disposition": "replace",
+            },
+            "resources": [get_resource(endpoint_config)],
+        }
+
+        # No incremental support, so `db_incremental_field_last_value` is always None.
+        resource = rest_api_resource(config, team_id, job_id, None)
+
     if endpoint_config.sensitive_fields:
         resource.add_map(_strip_sensitive_fields(endpoint_config.sensitive_fields))
     return resource

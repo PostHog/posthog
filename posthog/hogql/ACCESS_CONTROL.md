@@ -208,7 +208,8 @@ It restricts one distinctly named key per property class, walks the catalog, and
 The expected mapping is written out in the test rather than derived from `RESTRICTABLE_JSON_BLOB_COLUMNS`, so it holds the invariant in both directions: a table added to the catalog without a branch arrives masking nothing, and a column dropped from that set leaves its blob out of the walk entirely.
 Because each class restricts its own key, a table dispatched as the wrong class, or a group blob dispatched to the wrong group index, comes back carrying another class's key instead of passing on a non-empty result.
 
-The exemptions are not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
+The exemptions are name collisions: `accounts.properties` and `pg_embeddings.properties` do not contain event, person, or group properties.
+`ai_events.properties` uses the same event-property rules as `events.properties`.
 Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
 
 ### Typed columns that mirror a property
@@ -217,7 +218,11 @@ Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It d
 Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`; `flag_evaluations` exposes `flag_key`, `response`, `session_id`, `request_id`, and `$group_0`..`$group_4`.
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
-`flag_evaluations`' mirror columns are masked, through `_FLAG_EVALUATIONS_MIRRORED_COLUMNS` in `posthog/hogql/restricted_properties.py`, consulted via `mirrored_property_for_column()` from `ClickHousePropertyResolver.visit_field` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
+One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
+The same rule applies when a filter or an aggregate reads the column.
+Nested keys in an allowed AI payload are not separate event properties: a restriction on the event property `content` does not restrict `input.content`.
 That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.
 Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_property_for_column` dispatches to) rather than a print-time patch.
 
@@ -226,14 +231,33 @@ Covering `events`' remaining mirror columns, or a future catalog table's, means 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
 There is the asymmetry with the warehouse access control, which bypasses entirely for shared links rather than applying a default; that may be aligned later.
 
+### AI previews and summaries
+
+AI evaluation and tagger previews read event properties with the requesting user's permissions, including properties available to Hog scripts.
+Background trace and session evaluations skip with `property_access_restricted` when project-default rules deny any event property.
+They skip before reading content or running a Hog or LLM judge, because grading masked data can change the verdict.
+Hog scripts can read arbitrary event properties, so this check covers all event-property denials, not only input and output.
+Person/group restrictions and member-only rules do not trigger this skip.
+Generation evaluations keep using the original Kafka event payload.
+
+Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
+When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.
+For client-supplied events, omitted lookup dates use a window from one day before to one day after the event's `timestamp`.
+Explicit `date_from` and `date_to` values take precedence; events without a valid timestamp keep the default lookup dates.
+A refetch that finds no matching event or trace returns 404 without generating a summary from the supplied data.
+
 ## Query cache partitioning
+
+`products.access_control.backend.facade.property_access` defines the shared restriction ordering and fingerprint.
+Query, experiment-session, and summary caches use that ordering while preserving their existing serialized keys.
 
 **The critical invariant:** if a query reads access-controlled tables, its cache key must include the user's restrictions.
 Otherwise a denied user gets served an allowed user's cached rows.
 
 The cache key is derived from `get_cache_payload()`:
 
-- `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, when the user has property restrictions.
+- `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, and a property-enforcement version when the user has property restrictions.
+  Bump that version when tightening enforcement so a cached result cannot bypass the new masking rules.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
 Two things keep cache hit rates high:

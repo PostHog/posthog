@@ -3939,7 +3939,7 @@ export interface FileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3982,7 +3982,7 @@ export interface PatchedFileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -4605,6 +4605,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4716,6 +4721,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -5353,6 +5363,10 @@ export type ExportsListParams = {
 }
 
 export type FileSystemListParams = {
+    /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean
     /**
      * Number of results to return per page.
      */

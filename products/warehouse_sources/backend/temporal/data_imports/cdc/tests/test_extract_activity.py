@@ -113,6 +113,7 @@ def _make_schema(
     schema.partition_count = partition_count
     schema.partition_size = partition_size
     schema.save = MagicMock()
+    type(schema).cdc_halted = ExternalDataSchema.cdc_halted
     return schema
 
 
@@ -151,10 +152,23 @@ def _fake_complete_schema_run(schema, *, last_synced_at):
     return True
 
 
+def _fake_mark_schema_running_unless_halted(schema):
+    """Stand-in for mark_schema_running_unless_halted on the in-memory mock schema. The real
+    conditional update is covered by tests/test_models.py::TestMarkSchemaRunningUnlessHalted."""
+    if schema.cdc_halted:
+        return False
+    schema.status = ExternalDataSchema.Status.RUNNING
+    return True
+
+
 @pytest.fixture(autouse=True)
 def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
     with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_schema_running_unless_halted",
+            side_effect=_fake_mark_schema_running_unless_halted,
+        ),
         patch.object(
             CDCExtractActivity,
             "_update_schema_sync_type_config",
@@ -435,22 +449,6 @@ class TestBackpressureGuard:
 
         mark_running.assert_not_called()
         assert act.reader is None
-
-
-class TestMarkSchemasRunning:
-    def test_skips_activity_log_to_avoid_stale_pooled_connection(self):
-        # A previous attempt may have left the pooler connection stale; the extra
-        # _get_before_update SELECT that activity logging would run raises OperationalError
-        # ("the connection is closed") on it, failing the run before extraction even starts.
-        source = _make_source()
-        act = _make_extract_activity(source)
-        schema = _make_schema("users", source=source)
-        act.cdc_schemas = [schema]
-
-        act._mark_schemas_running()
-
-        assert schema.status == ExternalDataSchema.Status.RUNNING
-        schema.save.assert_called_once_with(update_fields=["status", "updated_at"], skip_activity_log=True)
 
 
 class TestFlushDeferredRuns:
@@ -1053,7 +1051,6 @@ class TestCDCExtractActivity:
         mock_reader.close.assert_called_once()
 
         # Schema marked completed even with no changes
-        schema.save.assert_called()
         assert schema.status == "Completed"
         assert schema.latest_error is None
         assert schema.last_synced_at is not None
@@ -1460,6 +1457,8 @@ class TestCDCExtractActivity:
         assert schema.initial_sync_complete is False
         mock_reader.confirm_position.assert_called_once_with("0/500")
 
+    # The decoder reports a truncated table qualified, even when the schema is stored bare.
+    @parameterized.expand([("bare", "users"), ("qualified_as_the_decoder_reports_it", "public.users")])
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.unpause_external_data_schedule",
         create=True,
@@ -1474,6 +1473,8 @@ class TestCDCExtractActivity:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_truncate_sets_snapshot_mode(
         self,
+        _name,
+        truncated_name,
         mock_close_conns,
         MockJob,
         MockSourceModel,
@@ -1502,8 +1503,7 @@ class TestCDCExtractActivity:
             events,
         )
 
-        # Simulate a truncate for the "users" table
-        mock_reader.truncated_tables = ["users"]
+        mock_reader.truncated_tables = [truncated_name]
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
@@ -3256,6 +3256,19 @@ class TestSuccessRepaintGuards:
         # A successful run proves extraction resumed; the stale pause marker must not keep the
         # digest email reporting "paused, action required".
         assert "cdc_extraction_paused" not in recovered.sync_type_config
+
+    def test_a_buffered_schema_clears_its_pause_marker_but_keeps_the_consumers_status(self):
+        source = _make_source()
+        buffered = _make_schema("buffered_table", source=source)
+        buffered.status = ExternalDataSchema.Status.FAILED
+        buffered.sync_type_config["cdc_extraction_paused"] = {"reason": "transaction_too_large"}
+        act = self._activity_with(buffered)
+        act._buffered_table_names = {"buffered_table"}
+
+        act._finalize_success()
+
+        assert "cdc_extraction_paused" not in buffered.sync_type_config
+        assert buffered.status == ExternalDataSchema.Status.FAILED
 
 
 class TestCDCBoundedReadLoop:

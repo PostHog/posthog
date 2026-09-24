@@ -2,6 +2,8 @@ import pytest
 import time_machine
 from posthog.test.base import _create_event, _create_person
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import (
@@ -18,6 +20,7 @@ from posthog.models.web_preaggregated.sql import (
     get_web_bounces_insert_columns,
     get_web_stats_insert_columns,
 )
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL
 
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
     WebAnalyticsPreAggregatedTestBase,
@@ -239,24 +242,25 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
                 },
             )
 
-    def test_insert_queries_can_execute(self, date_start: str = "2024-01-01", date_end: str = "2024-01-02"):
-        bounces_insert = WEB_BOUNCES_INSERT_SQL(
-            date_start=date_start,
-            date_end=date_end,
-            team_ids=[self.team.pk],
-            table_name="web_pre_aggregated_bounces",
-        )
-        stats_insert = WEB_STATS_INSERT_SQL(
-            date_start=date_start,
-            date_end=date_end,
-            team_ids=[self.team.pk],
-            table_name="web_pre_aggregated_stats",
-        )
+    @parameterized.expand([("explicit_team_ids", True), ("team_selection_table", False)])
+    def test_insert_queries_aggregate_the_selected_team(self, _name: str, pass_team_ids: bool):
+        if pass_team_ids:
+            team_ids: list[int] | None = [self.team.pk]
+        else:
+            team_ids = None
+            sync_execute(WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL([self.team.pk]))
 
-        # Basic smoke test - ensures both insert queries execute without errors
-        sync_execute(stats_insert)
-        sync_execute(bounces_insert)
-        assert True
+        for table_name, sql_builder in [
+            ("web_pre_aggregated_stats", WEB_STATS_INSERT_SQL),
+            ("web_pre_aggregated_bounces", WEB_BOUNCES_INSERT_SQL),
+        ]:
+            sync_execute(
+                sql_builder(date_start="2024-01-01", date_end="2024-01-02", team_ids=team_ids, table_name=table_name)
+            )
+            [(row_count,)] = sync_execute(
+                f"SELECT count() FROM {table_name} WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+            )
+            assert row_count > 0, table_name
 
     def test_insert_queries_contain_all_columns_for_stats(self):
         stats_insert = WEB_STATS_INSERT_SQL(
@@ -303,13 +307,18 @@ class TestCentralizedFilters:
         assert "person_distinct_id_overrides.team_id IN(123, 456, 789)" == filters["person_distinct_id_overrides"]
         assert "e.team_id IN(123, 456, 789)" == filters["events"]
 
-    def test_get_team_filters_without_team_ids_uses_dictionary(self):
-        filters = get_team_filters(None)
+    @pytest.mark.parametrize("team_ids", [None, []])
+    def test_get_team_filters_without_team_ids_uses_team_selection_table(self, team_ids):
+        filters = get_team_filters(team_ids)
 
-        assert "dictHas(" in filters["raw_sessions"]
-        assert "dictHas(" in filters["person_distinct_id_overrides"]
-        assert "dictHas(" in filters["events"]
-        assert "raw_sessions.team_id)" in filters["raw_sessions"]
+        for key, column in [
+            ("raw_sessions", "raw_sessions.team_id"),
+            ("person_distinct_id_overrides", "person_distinct_id_overrides.team_id"),
+            ("events", "e.team_id"),
+        ]:
+            assert filters[key].startswith(f"{column} GLOBAL IN (")
+            assert "web_pre_aggregated_teams" in filters[key]
+            assert "dictHas" not in filters[key]
 
     @pytest.mark.parametrize(
         "granularity,expected_session_start,expected_event_start",

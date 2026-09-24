@@ -5,6 +5,12 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import (
+    OperationalError as DjangoOperationalError,
+    ProgrammingError,
+)
+
+import psycopg
 import botocore.exceptions
 import deltalake.exceptions
 from parameterized import parameterized
@@ -13,10 +19,13 @@ from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
+    _INTERNAL_DB_MAX_ATTEMPTS,
     NonRetryableException,
     S3OperationError,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
+    retry_internal_db_operation,
+    with_internal_db_retries,
 )
 
 # An S3 throttling response, in the two shapes it reaches these helpers in: translated by s3fs into
@@ -245,6 +254,12 @@ class TestPrepareS3FilesForQuerying:
             # translates every back-off response code to, so a store whose wording the message
             # needles don't match is still retried rather than failing the sync.
             ("throttled", OSError(errno.EBUSY, "Reduce your request rate for this prefix.")),
+            # AWS omits the error code from a HeadObject response body, so s3fs's _cp_file (which
+            # HEADs the destination) raises the same bare PermissionError for a brief
+            # credential-resolution race as it does for a genuine denial. Regression: this used to
+            # fail the whole sync on the first attempt instead of retrying, unlike the identical
+            # ambiguity _purge_s3_prefix already retries.
+            ("credential_resolution_race", PermissionError("Forbidden")),
         ]
     )
     async def test_retries_transient_s3_error_during_copy(self, name: str, transient_error: OSError):
@@ -400,6 +415,31 @@ async def test_delete_folder_swallows_transient_s3_connection_error(mock_capture
 
 @pytest.mark.asyncio
 @patch(f"{_UTIL_MODULE}.capture_exception")
+async def test_delete_folder_swallows_s3_clock_skew_error(mock_capture_exception: MagicMock) -> None:
+    # S3 rejects a signed request whose clock has drifted too far from its own with
+    # RequestTimeTooSkewed, which s3fs maps onto the same generic PermissionError as a real access
+    # denial. The worker's own clock resyncs and the identical delete succeeds later, so this must
+    # not mint an error-tracking issue any more than a connection blip would.
+    s3 = _mock_s3()
+    s3._rm = AsyncMock(
+        side_effect=PermissionError("The difference between the request time and the current time is too large.")
+    )
+
+    with _mock_s3_context(s3):
+        await prepare_s3_files_for_querying(
+            folder_path="job",
+            table_name="events",
+            file_uris=[],
+            use_timestamped_folders=False,
+            delete_existing=True,
+        )
+
+    s3._rm.assert_awaited_once()
+    mock_capture_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch(f"{_UTIL_MODULE}.capture_exception")
 async def test_delete_folder_still_captures_non_transient_error(mock_capture_exception: MagicMock) -> None:
     # A genuine cleanup failure (not a network blip) must still be reported.
     s3 = _mock_s3()
@@ -493,3 +533,119 @@ async def test_delete_folder_treats_an_already_deleted_folder_as_done(mock_captu
 
     s3._rm.assert_awaited_once()
     mock_capture_exception.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        (
+            "dns_name_not_known",
+            DjangoOperationalError("connection failed: [Errno -2] Name or service not known"),
+            True,
+        ),
+        (
+            "dns_temporary_failure",
+            DjangoOperationalError("connection failed: [Errno -3] Temporary failure in name resolution"),
+            True,
+        ),
+        (
+            "dns_no_address_for_hostname",
+            DjangoOperationalError("[Errno -5] No address associated with hostname"),
+            True,
+        ),
+        (
+            "unwrapped_psycopg_dns_failure",
+            psycopg.OperationalError("[Errno -2] Name or service not known"),
+            True,
+        ),
+        (
+            "connection_refused",
+            DjangoOperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: Connection refused'
+            ),
+            True,
+        ),
+        (
+            "dropped_backend_connection",
+            DjangoOperationalError("server closed the connection unexpectedly"),
+            True,
+        ),
+        (
+            "rejected_password",
+            DjangoOperationalError('connection failed: FATAL:  password authentication failed for user "fake_user"'),
+            False,
+        ),
+        (
+            "missing_column",
+            ProgrammingError('column "invented_column" does not exist'),
+            False,
+        ),
+    ]
+)
+@patch("time.sleep")
+@patch(f"{_UTIL_MODULE}.close_stale_db_connections")
+def test_retry_internal_db_operation_only_retries_transient_failures(
+    _name: str,
+    error: Exception,
+    is_transient: bool,
+    mock_close_connections: MagicMock,
+    mock_sleep: MagicMock,
+) -> None:
+    # Reaching our own database can fail because the host stops resolving for a moment, or
+    # refuses the connection while infrastructure moves, and a later attempt gets past it. A
+    # rejected password and a missing column arrive through the same psycopg classes and never
+    # get better, so they have to fail on the first attempt instead of holding the activity open
+    # for the whole backoff budget.
+    attempts = 0
+
+    def operation() -> None:
+        nonlocal attempts
+        attempts += 1
+        raise error
+
+    with pytest.raises(type(error)):
+        retry_internal_db_operation(operation)
+
+    assert attempts == (_INTERNAL_DB_MAX_ATTEMPTS if is_transient else 1)
+
+
+@patch("time.sleep")
+@patch(f"{_UTIL_MODULE}.close_stale_db_connections")
+def test_retry_internal_db_operation_returns_the_result_of_a_later_attempt(
+    mock_close_connections: MagicMock, mock_sleep: MagicMock
+) -> None:
+    # A blip that clears has to leave nothing behind for error tracking, which means the result
+    # comes back from the attempt that succeeded. The broken connection is evicted first, so the
+    # next attempt reconnects instead of reusing it.
+    attempts = 0
+
+    def operation() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise DjangoOperationalError("connection failed: [Errno -2] Name or service not known")
+        return "resolved"
+
+    assert retry_internal_db_operation(operation) == "resolved"
+    assert attempts == 3
+    assert mock_close_connections.call_count == 2
+
+
+@patch("time.sleep")
+@patch(f"{_UTIL_MODULE}.close_stale_db_connections")
+def test_with_internal_db_retries_retries_with_the_original_arguments(
+    mock_close_connections: MagicMock, mock_sleep: MagicMock
+) -> None:
+    # Activities whose whole body is database work use the decorator form, so the retried attempt
+    # has to run with the activity's own inputs rather than with none.
+    attempts = 0
+
+    @with_internal_db_retries
+    def activity_body(team_id: int) -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise DjangoOperationalError("connection failed: [Errno -2] Name or service not known")
+        return team_id
+
+    assert activity_body(team_id=1234) == 1234
+    assert attempts == 2

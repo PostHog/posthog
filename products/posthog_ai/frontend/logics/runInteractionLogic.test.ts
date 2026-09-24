@@ -301,7 +301,8 @@ describe('runInteractionLogic', () => {
             expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
             expect(pending.values.queuedMessages).toEqual([
-                { id: 'queued', content: 'first follow-up\n\nsecond follow-up' },
+                { id: expect.any(String), content: 'first follow-up' },
+                { id: expect.any(String), content: 'second follow-up' },
             ])
 
             pending.actions.hydrateTaskDraft(TASK_ID)
@@ -342,7 +343,7 @@ describe('runInteractionLogic', () => {
             expect(attached.values.selectedMode).toBe('plan')
             stream.actions.setCurrentMode('auto')
             expect(attached.values.selectedMode).toBe('auto')
-            expect(other.values.queuedMessages).toEqual([{ id: 'queued', content: 'another task follow-up' }])
+            expect(other.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'another task follow-up' }])
         } finally {
             unmountOther()
             unmount()
@@ -440,7 +441,7 @@ describe('runInteractionLogic', () => {
         }).toFinishAllListeners()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('unsent draft')
-        expect(logic.values.queuedMessages).toEqual([{ id: 'queued', content: 'saved message' }])
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'saved message' }])
     })
 
     it('sends immediately and echoes the message when the agent is idle', async () => {
@@ -590,14 +591,17 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
-    it('concatenates follow-ups into a single staged message and flushes it when the turn completes', async () => {
+    it('stages each follow-up on its own row and flushes them as one message when the turn completes', async () => {
         setThinking(true)
         logic.actions.setComposerFormValues({ draft: 'first' })
         logic.actions.submitComposerForm()
         logic.actions.setComposerFormValues({ draft: 'second' })
         logic.actions.submitComposerForm()
-        // A second follow-up concatenates onto the first rather than fanning out into a separate message.
-        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+        // Each follow-up keeps its own row, so the user can edit or drop one without rewriting the other.
+        expect(logic.values.queuedMessages).toEqual([
+            { id: expect.any(String), content: 'first' },
+            { id: expect.any(String), content: 'second' },
+        ])
 
         // Turn completes → drain. The flush itself sends while idle.
         setThinking(false)
@@ -748,7 +752,7 @@ describe('runInteractionLogic', () => {
         logic.actions.steerQueue()
         await expectLogic(logic, () => complete(response)).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
-        expect(logic.values.queuedMessages[0].content).toBe('first\n\nsecond')
+        expect(logic.values.queuedMessages.map((message) => message.content)).toEqual(['first', 'second'])
         expect(logic.values.composerForm.draft).toBe('unsent draft')
         expect(logic.values.steerPending).toBe(false)
         expect(lemonToast.error).toHaveBeenCalled()
@@ -829,6 +833,106 @@ describe('runInteractionLogic', () => {
         await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
         expect(tasksRunsCommandCreate).toHaveBeenLastCalledWith(...userMessageCommand('new follow-up'))
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('sends a message held by a stop together with the next one the user submits', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('first follow-up')
+        logic.actions.requestCancellation()
+        expect(logic.values.queueHeld).toBe(true)
+
+        // The stop lands and the turn ends, so the run is idle again when the user types.
+        setThinking(false)
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
+        logic.actions.setComposerFormValues({ draft: 'are you there?' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenLastCalledWith(
+            ...userMessageCommand('first follow-up\n\nare you there?')
+        )
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(logic.values.queueHeld).toBe(false)
+    })
+
+    it('holds an unconfirmed send as its own rows until the user asks for it again', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        setThinking(true)
+        logic.actions.enqueueMessage('first')
+        logic.actions.enqueueMessage('second')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+
+        // The send may have reached the agent, so the rows come back as they were rather than as one blob.
+        expect(logic.values.queuedMessages.map((message) => message.content)).toEqual(['first', 'second'])
+        expect(logic.values.queueHeld).toBe(true)
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+
+        // Typing more must not re-deliver them: only an explicit send may repeat an unconfirmed message.
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'third' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('carries staged rows into the run a terminal send starts', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('staged while running')
+        setStatus('completed')
+        stream.actions.handleTerminalStatus({ status: 'completed' })
+
+        logic.actions.setComposerFormValues({ draft: 'and now this' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'staged while running\n\nand now this' }),
+            expect.anything()
+        )
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('waits for an open row editor before a terminal send carries the rows', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('half-written')
+        setStatus('completed')
+        stream.actions.handleTerminalStatus({ status: 'completed' })
+        logic.actions.setQueueEditing(true)
+
+        logic.actions.setComposerFormValues({ draft: 'and now this' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        // Sending would have carried the row as it stood before the edit the user is still typing.
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'half-written' }])
+
+        logic.actions.setQueueEditing(false)
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'half-written\n\nand now this' }),
+            expect.anything()
+        )
+    })
+
+    it('waits for an open row editor before draining on turn completion', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('half-written')
+        logic.actions.setQueueEditing(true)
+
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        // Closing the editor drains on its own: no turn completion is coming, so nothing else would.
+        await expectLogic(logic, () => logic.actions.setQueueEditing(false)).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('half-written'))
         expect(logic.values.queuedMessages).toEqual([])
     })
 
@@ -1521,7 +1625,10 @@ describe('runInteractionLogic', () => {
 
         // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
         expect(lemonToast.error).toHaveBeenCalled()
-        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+        expect(logic.values.queuedMessages).toEqual([
+            { id: expect.any(String), content: 'first' },
+            { id: expect.any(String), content: 'second' },
+        ])
     })
 
     // The tasks run backend has no server-side consent check, so a follow-up (or a fresh-run send on a

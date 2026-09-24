@@ -42,6 +42,44 @@ The chat history filters for PostHog AI, Slack, and Desktop show tasks created b
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.
 
+### Stream recovery
+
+The shared agent thread reconnects automatically after temporary network failures.
+It keeps displayed output while it restores saved history, including output saved during the interruption.
+A connection failure does not mark the run as failed: only the run's authoritative status can do that.
+
+Recovery opens the stream before reading history and buffers incoming frames until reconciliation finishes.
+Shared `event_id` and `first_event_id` values reconcile live events with saved, coalesced messages.
+Coalesced text replaces only text events in its range, preserving interleaved task notifications.
+Saved user messages replace their optimistic copies, and a retained follow-up keeps its turn active when saved history lags.
+Older logs without these IDs use the existing content multiset comparison, which cannot identify every overlap.
+Late Django backlog frames also match their saved log position and payload, without suppressing repeated live output.
+Output that was never persisted or mirrored cannot be reconstructed.
+The resume cursor advances only with retained output; a cursor in session storage does not prove that history is complete.
+Django backlog cursors retain their source run ID so reconnecting after a run marker does not duplicate output.
+
+Stream recovery allows 10 attempts with a 2-second exponential backoff capped at 30 seconds, plus a cumulative cap of 30 reconnects per recovery session.
+Status probes after a drop participate in that budget, including failed probes.
+Bootstrap status, final status, and history reads each allow three attempts.
+Proxy authentication permits five token remints before requiring manual recovery.
+Metadata, token, and handshake requests time out after 30 seconds; history reads and streams without data or keepalives time out after 60 seconds.
+Network failures, timeouts, HTTP 408, 429, 5xx, and retryable stream error frames retry automatically.
+After token refresh handling, HTTP 401, 403, and 406 require Retry; HTTP 404 and other permanent errors stop automatic recovery.
+
+When attempts run out, the thread shows Retry beside the connection error.
+Recovery stays paused until Retry, including when the browser comes online or the tab becomes visible.
+Retry resets the budgets and reads the same run's status and history without submitting messages, commands, or another run.
+Read-only viewers refresh run metadata and saved history without opening a live stream.
+Once a stream ends, Retry can refresh status and history but cannot reopen the stream.
+The thinking indicator stops at stream end, and a history error stays visible even if the final run status is known.
+
+`sandbox_stream_disconnected` records final recovery failures, with `recovery_phase`, `run_status`, `http_status`, and attempt counts.
+`sandbox_stream_recovered` records successful recovery after history reconciliation, with the phase, run status, attempt counts, and elapsed time.
+Neither event includes transcript contents or proxy tokens.
+
+After deployment, verify recovery with `tasks-stream-via-proxy` both enabled and disabled: interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
+Also exhaust retries and verify that Retry works for both an active run and an ended run with an unreadable history snapshot.
+
 ```text
 Your product code
     │
@@ -90,20 +128,21 @@ task = Task.create_and_run(
 
 ### Parameters
 
-| Parameter                | Required | Description                                                                |
-| ------------------------ | -------- | -------------------------------------------------------------------------- |
-| `team`                   | Yes      | The team this task belongs to                                              |
-| `title`                  | Yes      | Human-readable task title                                                  |
-| `description`            | Yes      | Detailed description of what the agent should do                           |
-| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
-| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key |
-| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
-| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                    |
-| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                     |
-| `mode`                   | No       | Execution mode (default: `"background"`)                                   |
-| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                       |
-| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
-| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)     |
+| Parameter                | Required | Description                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`                   | Yes      | The team this task belongs to                                                                                                                                                                                                                                                                                                                                              |
+| `title`                  | Yes      | Human-readable task title                                                                                                                                                                                                                                                                                                                                                  |
+| `description`            | Yes      | Detailed description of what the agent should do                                                                                                                                                                                                                                                                                                                           |
+| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)                                                                                                                                                                                                                                                                                                         |
+| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key                                                                                                                                                                                                                                                                                                 |
+| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)                                                                                                                                                                                                                                                                                                              |
+| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                                                                                                                                                                                                                                                                                                                    |
+| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                                                                                                                                                                                                                                                                                                                     |
+| `mode`                   | No       | Execution mode (default: `"background"`)                                                                                                                                                                                                                                                                                                                                   |
+| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                                                                                                                                                                                                                                                                                                                       |
+| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)                                                                                                                                                                                                                                                                                                       |
+| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)                                                                                                                                                                                                                                                                                                     |
+| `sandbox_template`       | No       | Image the sandbox boots from, as a `SandboxTemplate` value (default: `"default_base"`). `"autoresearch_base"` adds pandas, numpy, scikit-learn and pyarrow, and runs on Modal and Docker only (a non-default template keeps the run off hogland). `"vm_base"` cannot be requested; VM routing selects it server-side. Later runs of the task keep the first run's template |
 
 ### Adding a new origin product
 
@@ -630,6 +669,7 @@ These tests consume the published sandbox image, not the agent source in the che
 The image pins the agent version in `Dockerfile.sandbox-base`.
 An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
 That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
+Before the pull request is approved, the bump workflow runs one Claude turn and one Codex turn from that image through the production Go ai-gateway, on the agent's default models and efforts.
 Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?
