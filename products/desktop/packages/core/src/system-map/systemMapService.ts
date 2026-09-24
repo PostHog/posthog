@@ -5,12 +5,20 @@ import { z } from "zod";
 import { SYSTEM_MAP_PROMPT } from "./prompt";
 import {
   type SystemMap,
+  type SystemMapReference,
   systemMapOutputSchema,
+  systemMapReferenceSchema,
   systemMapSchema,
 } from "./schemas";
 
 export const SYSTEM_MAP_AGENT = Symbol.for("posthog.core.systemMap.agent");
 export const SYSTEM_MAP_SERVICE = Symbol.for("posthog.core.systemMap.service");
+export const SYSTEM_MAP_STORAGE = Symbol.for("posthog.core.systemMap.storage");
+
+export interface SystemMapStorage {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+}
 export interface SystemMapAgent {
   start: {
     mutate(input: {
@@ -36,18 +44,30 @@ export interface SystemMapAgent {
   cancel: { mutate(input: { sessionId: string }): Promise<unknown> };
 }
 
-export interface SystemMapRequest {
+export interface SystemMapScope {
   repoPath: string;
   apiHost: string;
   projectId: number;
+  userId: string;
+}
+
+export interface SystemMapRequest extends SystemMapScope {
   signal: AbortSignal;
 }
 
-export interface SystemMapResult {
+export interface SystemMapResult extends SystemMapReference {
   map: SystemMap;
-  taskId: string;
-  runId: string;
-  analyzedAt: string;
+  saveError?: string;
+}
+
+export function systemMapKey(scope: SystemMapScope): readonly string[] {
+  return [
+    "system-map-v1",
+    scope.apiHost,
+    scope.userId,
+    String(scope.projectId),
+    scope.repoPath,
+  ];
 }
 
 function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -83,7 +103,21 @@ export class SystemMapService {
   constructor(
     @inject(SYSTEM_MAP_AGENT) private readonly agent: SystemMapAgent,
     @inject(ROOT_LOGGER) private readonly logger: RootLogger,
+    @inject(SYSTEM_MAP_STORAGE) private readonly storage: SystemMapStorage,
   ) {}
+
+  async restore(
+    client: PostHogAPIClient,
+    scope: SystemMapScope,
+  ): Promise<SystemMapResult | null> {
+    const stored = await this.storage.getItem(
+      JSON.stringify(systemMapKey(scope)),
+    );
+    if (stored === null) return null;
+    const reference = systemMapReferenceSchema.parse(JSON.parse(stored));
+    const run = await client.getTaskRun(reference.taskId, reference.runId);
+    return { ...reference, map: systemMapSchema.parse(run.output) };
+  }
 
   async analyze(
     client: PostHogAPIClient,
@@ -195,12 +229,27 @@ export class SystemMapService {
         signal.throwIfAborted();
         const result = systemMapSchema.safeParse(latest.output);
         if (result.success) {
-          return {
-            map: result.data,
+          const reference: SystemMapReference = {
             taskId: task.id,
             runId: run.id,
             analyzedAt: new Date().toISOString(),
           };
+          try {
+            const storageKey = JSON.stringify(systemMapKey(request));
+            const value = JSON.stringify(reference);
+            await this.storage.setItem(storageKey, value);
+            if ((await this.storage.getItem(storageKey)) !== value)
+              throw new Error("System map reference was not saved");
+          } catch {
+            this.logger.warn("Could not save system map reference");
+            return {
+              ...reference,
+              map: result.data,
+              saveError:
+                "This map could not be saved for next time. Keep this view open and check available disk space.",
+            };
+          }
+          return { ...reference, map: result.data };
         }
         if (latest.status === "completed")
           throw new Error(

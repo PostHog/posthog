@@ -120,8 +120,10 @@ import {
 import {
   SYSTEM_MAP_AGENT,
   SYSTEM_MAP_SERVICE,
+  SYSTEM_MAP_STORAGE,
   type SystemMapAgent,
   type SystemMapService,
+  type SystemMapStorage,
 } from "@posthog/core/system-map/systemMapService";
 import {
   TASK_CREATION_EFFECTS,
@@ -311,6 +313,7 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
 export interface RendererBindings {
   [SYSTEM_MAP_AGENT]: SystemMapAgent;
   [SYSTEM_MAP_SERVICE]: SystemMapService;
+  [SYSTEM_MAP_STORAGE]: SystemMapStorage;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;

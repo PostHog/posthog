@@ -322,7 +322,11 @@ Select a component to see its public operations and whether each operation reads
 Connection assumptions have source evidence but remain unchecked. The map does not prove that these conditions hold.
 Analysis uses AI credits, stops after ten minutes, and can be canceled.
 Changing the repository, leaving the view, or switching the authenticated project cancels an active analysis.
-The map is a snapshot held while the view is open. Analyze again after code changes.
+Desktop saves the last successful scan's task ID, run ID, and timestamp in its local encrypted store, scoped to the cloud host, user, project, and repository path.
+Reopening the same repository loads and validates the saved run's output through the existing Tasks API. This requires sign-in and an internet connection.
+Failed or canceled scans keep the last successful map. A failed load offers a retry without starting another analysis.
+The local store contains the scan reference, not the map content. Other computers do not share these references, and unfinished scans do not resume after a restart.
+The map remains a snapshot. Analyze again after code changes.
 Web and mobile hosts do not start local analysis.
 
 The initial version does not infer properties or generate tests or formal specifications.

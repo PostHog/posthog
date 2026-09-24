@@ -314,6 +314,13 @@ type Story = StoryObj<typeof meta>;
 
 export const Empty: Story = {};
 export const Analyzing: Story = { args: { running: true } };
+export const Restoring: Story = { args: { restoring: true } };
+export const RestoreFailed: Story = {
+  args: {
+    error: "Check your connection and retry, or analyze the repository again.",
+    onRetryLoad: () => {},
+  },
+};
 export const Failed: Story = {
   args: { error: "The agent returned an invalid map. Try the analysis again." },
 };
@@ -336,6 +343,15 @@ export const NoRepository: Story = {
     ),
     hasRepository: false,
   },
+};
+export const AnalysisFailedWithSavedMap: Story = {
+  args: {
+    result: Overview.args.result,
+    error: "Analysis ended without a map. Try the analysis again.",
+  },
+};
+export const AnalyzingWithSavedMap: Story = {
+  args: { result: Overview.args.result, running: true },
 };
 export const Disconnected: Story = {
   args: {

@@ -2,6 +2,14 @@ import { z } from "zod";
 
 export const SYSTEM_MAP_FLAG = "posthog-desktop-system-map";
 
+export const systemMapReferenceSchema = z.object({
+  taskId: z.string().uuid(),
+  runId: z.string().uuid(),
+  analyzedAt: z.string().datetime(),
+});
+
+export type SystemMapReference = z.infer<typeof systemMapReferenceSchema>;
+
 const id = z
   .string()
   .min(1)
