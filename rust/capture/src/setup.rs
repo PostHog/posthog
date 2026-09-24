@@ -641,10 +641,8 @@ async fn create_output(
         return Ok(Output::single(NoOpSink::new()));
     }
 
-    // Refuse to boot on incomplete output wiring: a blank topic fails here,
-    // at startup, instead of at first produce. Config-only, so it runs before
-    // any producer is built and the broker is pinged, which makes the refusal
-    // instant, not one connect attempt later.
+    // Runs before any producer connects, so a blank topic refuses boot
+    // immediately instead of after a broker connect attempt.
     let topics = TopicTable::from(&config.kafka_topics);
     if config.outputs_completeness_check_enabled {
         topics.check_complete()?;

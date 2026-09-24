@@ -41,7 +41,7 @@ impl ProducerName {
 }
 
 /// One producer's connection and tuning. Each field maps to the rdkafka key of
-/// the same name; the defaults are the settings capture has always used.
+/// the same name.
 #[derive(Envconfig, Clone, Debug)]
 pub struct ProducerConfig {
     // `kafka:9092` is the broker in local dev and hobby. A deployment that
@@ -242,8 +242,7 @@ fn create_producer(
     let producer: FutureProducer<KafkaContext> =
         client_config.create_with_context(KafkaContext::new(liveness.clone()))?;
 
-    // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-    // Note: we don't error if we fail to connect as there may be other sinks that report healthy
+    // A failed ping is not an error, because other sinks may still report healthy.
     if producer
         .client()
         .fetch_metadata(

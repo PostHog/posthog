@@ -285,18 +285,14 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka_topics: KafkaTopicsConfig,
 
-    /// Application-level compression for session replay (snapshot) Kafka payloads.
-    /// Independent of broker-level compression; consumers must detect and decompress.
-    /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
+    /// Application-level compression of session replay payloads, independent of
+    /// broker-level compression. Consumers detect and decompress it.
     #[envconfig(from = "KAFKA_REPLAY_ENVELOPE_COMPRESSION", default = "none")]
     pub replay_envelope_compression: EnvelopeCompression,
 
-    /// Refuse to boot when a registered output resolves to an empty topic
-    /// name (see `TopicTable::check_complete`). Config-only — the broker
-    /// is never probed, so topic autocreation on first publish is unaffected.
-    /// Opt-in (default off) so deployments that deliberately blank a topic
-    /// they never produce to keep booting; arm it per deployment once its
-    /// topic wiring is known-complete.
+    /// Refuse to boot when a registered output has an empty topic name (see
+    /// `TopicTable::check_complete`). Off by default so that a deployment which
+    /// blanks a topic it never produces to still boots.
     #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
     pub outputs_completeness_check_enabled: bool,
 
@@ -454,10 +450,9 @@ pub struct Config {
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 
     // The warnings emitter's own destination. It serves every pipeline that
-    // emits (v1 and legacy analytics, both AI endpoints, and replay) but is
-    // independent of the v0 `KAFKA_*` block: it reads only these three vars,
-    // never `kafka_hosts` / `kafka_tls` /
-    // `kafka_client_ingestion_warning_topic`. charts sets all three per env,
+    // emits (v1 and legacy analytics, both AI endpoints, and replay) but reads
+    // only these three vars, never the ingestion producer's settings or
+    // `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`. charts sets all three per env,
     // pointed at the MSK cluster the clientwarnings consumer reads from.
     //
     // Defaults are inert on purpose: empty hosts or topic makes
@@ -540,23 +535,18 @@ pub struct KafkaTopicsConfig {
     pub replay_overflow: String,
     #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "events_plugin_ingestion_dlq")]
     pub dlq: String,
-    /// Dedicated Kafka topic for AI events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    /// Both the v0 pipeline (via `DataType::AiEvents`) and the v1 pipeline
-    /// (via `Destination::AiEvents`) divert AI events here instead of the
-    /// analytics main topic, on every deployment that accepts them — including
-    /// capture-ai, whose main topic used to double as the AI topic. Setup also
-    /// injects it into every v1 sink config.
+    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
+    /// divert AI events here instead of the main topic on every deployment,
+    /// capture-ai included. Setup also injects it into every v1 sink config.
     #[envconfig(
         from = "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC",
         default = "events_plugin_ingestion_ai"
     )]
     pub ai_events: String,
-    /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
-    /// Unset means AI events never overflow (the pre-overflow behavior). When
-    /// set, the AI lane participates in the same overflow limiter and
-    /// restriction-driven force_overflow as the analytics main lane, rerouting
-    /// here instead of the analytics overflow topic. Refused at boot in import
-    /// mode because imports must never overflow.
+    /// Unset means AI events never overflow. When set, the AI lane uses the
+    /// analytics main lane's overflow limiter and restriction-driven
+    /// force_overflow, and reroutes here. Import mode refuses it at boot
+    /// because imports must never overflow.
     #[envconfig(from = "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
     pub ai_events_overflow: Option<String>,
 }
