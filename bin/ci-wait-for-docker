@@ -246,12 +246,12 @@ run_launch() {
     done
 
     launch_services=("$@")
+    configure_registry_mirror
 
     launch_runner() {
         local inner_attempt=1
         local inner_sleep_time
 
-        configure_registry_mirror
         while [ "$inner_attempt" -le "$LAUNCH_RETRIES" ]; do
             if run_launch_once "$down_mode" "${launch_services[@]}"; then
                 echo "Docker Compose launch succeeded"
