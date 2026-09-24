@@ -875,6 +875,9 @@ importers:
       '@posthog/quill-components':
         specifier: workspace:*
         version: link:../packages/quill/packages/components
+      '@posthog/quill-tokens':
+        specifier: workspace:*
+        version: link:../packages/quill/packages/tokens
       '@posthog/react':
         specifier: 'catalog:'
         version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.11(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)

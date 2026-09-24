@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { brandDataColorPalette } from '@posthog/quill-tokens'
+
 import api from 'lib/api'
-import { BRAND_DATA_COLORS, DataColorTheme, DataColorToken, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
+import { DataColorTheme, DataColorToken, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -162,7 +164,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                     if (themeModel) {
                         const colors =
                             themeModel.is_global && featureFlags[FEATURE_FLAGS.BRAND_DATA_COLORS]
-                                ? BRAND_DATA_COLORS
+                                ? brandDataColorPalette
                                 : themeModel.colors
                         return colors.reduce((theme, color, index) => {
                             theme[`preset-${index + 1}`] = color

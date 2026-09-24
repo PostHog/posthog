@@ -66,25 +66,6 @@ const FALLBACK_DATA_COLOR_THEME_COLORS = [
     '#30d5c8',
 ] as const
 
-// Brand hues from brand.posthog.com/colors. Low-contrast hues use their "darker" tone so lines stay visible on white.
-export const BRAND_DATA_COLORS: readonly string[] = [
-    '#0457FF', // cobalt
-    '#FF5C1C', // tangerine
-    '#35B14E', // green darker
-    '#A737D2', // purple
-    '#E58E00', // yellow darker
-    '#1A89AD', // corn blue darker
-    '#FF474D', // coral
-    '#25BC95', // teal darker
-    '#8BAF1D', // lime darker
-    '#1490E8', // blue
-    '#6D4FFF', // violet
-    '#F0BC00', // lemon darker
-    '#F00008', // coral darker
-    '#512EFF', // violet darker
-    '#106FB2', // blue darker
-]
-
 export const FALLBACK_DATA_COLOR_THEME: DataColorTheme = FALLBACK_DATA_COLOR_THEME_COLORS.reduce(
     (theme, color, index) => {
         theme[`preset-${index + 1}`] = color
