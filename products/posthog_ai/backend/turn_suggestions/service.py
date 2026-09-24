@@ -42,8 +42,6 @@ from products.tasks.backend.models import Task, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-# The judgment sends conversation text to TypeSafe, so this flag reaches PostHog staff only until the
-# launch conditions in "Usage policy" in posthog/egress/typesafe/README.md are met.
 TURN_SUGGESTIONS_FLAG = "posthog-ai-turn-suggestions"
 TURN_SUGGESTION_METHOD = "_posthog/turn_suggestion"
 TURN_SUGGESTION_RESOLVED_METHOD = "_posthog/turn_suggestion_resolved"
