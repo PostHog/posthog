@@ -12283,7 +12283,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         run.state.update({"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id})
         run.save(update_fields=["state"])
         run.record_pending_followup_message("pending", "First message", accepted_at=django_timezone.now())
-        run.record_pending_followup_message("failed", "Second message", accepted_at=django_timezone.now(), resendable=False)
+        run.record_pending_followup_message(
+            "failed", "Second message", accepted_at=django_timezone.now(), resendable=False
+        )
         run.fail_pending_followup_message("failed")
 
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/failed_messages/"

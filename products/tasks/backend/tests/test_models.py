@@ -1296,7 +1296,15 @@ class TestTaskRun(TestCase):
         self.assertNotIn("pending_followup_messages", run.state)
         self.assertEqual(
             run.state["failed_followup_messages"],
-            [{"id": "m1", "content": "send this", "ts": accepted_at.isoformat(), "truncated": False, "resendable": True}],
+            [
+                {
+                    "id": "m1",
+                    "content": "send this",
+                    "ts": accepted_at.isoformat(),
+                    "truncated": False,
+                    "resendable": True,
+                }
+            ],
         )
 
     def test_record_pending_followup_message_caps_the_backlog_keeping_the_newest(self):
