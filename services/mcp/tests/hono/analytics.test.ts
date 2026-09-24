@@ -332,6 +332,20 @@ describe('Hono MCP analytics contexts', () => {
         expect((properties.$mcp_tool_description as string).length).toBe(MAX_CAPTURED_DESCRIPTION_LENGTH)
     })
 
+    it.each([[true], [false]])('stamps $feature/mcp-exec-skills with the evaluated value %s', async (flag) => {
+        await trackToolCall('exec', 5, false, makeState({ toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: flag } }))
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_EXEC_SKILLS_FEATURE_FLAG}`]).toBe(flag)
+    })
+
+    it('omits $feature/mcp-exec-skills when the flag was not evaluated', async () => {
+        await trackToolCall('exec', 5, false, makeState({ toolFeatureFlags: {} }))
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty(
+            `$feature/${MCP_EXEC_SKILLS_FEATURE_FLAG}`
+        )
+    })
+
     it('omits $mcp_tool_category and $mcp_tool_description for tools without a catalogued definition', async () => {
         await trackToolCall('exec', 5, false, makeState())
 

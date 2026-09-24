@@ -74,14 +74,23 @@ interface DiscoveryHintInput {
     handlerResult: unknown
 }
 
+export type DiscoveryHintKind = 'empty_state' | 'related_capability'
+
+export interface DiscoveryHint {
+    kind: DiscoveryHintKind
+    text: string
+}
+
 /**
  * Returns the discovery hint for a successful tool call, or `undefined` when
  * none is registered. At most one hint fires per call: the empty-state hint
  * when the result is empty, the related-capability hint otherwise.
  */
-export function getDiscoveryHint({ toolName, handlerResult }: DiscoveryHintInput): string | undefined {
+export function getDiscoveryHint({ toolName, handlerResult }: DiscoveryHintInput): DiscoveryHint | undefined {
     if (isEmptyToolResult(handlerResult)) {
-        return EMPTY_STATE_HINTS[toolName]
+        const text = EMPTY_STATE_HINTS[toolName]
+        return text ? { kind: 'empty_state', text } : undefined
     }
-    return RELATED_CAPABILITY_HINTS[toolName]
+    const text = RELATED_CAPABILITY_HINTS[toolName]
+    return text ? { kind: 'related_capability', text } : undefined
 }

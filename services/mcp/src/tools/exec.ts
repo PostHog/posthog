@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { isEmptyToolResult } from '@/lib/discovery-hints'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
@@ -15,7 +16,7 @@ import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-import { type ExecLearnCatalog } from './exec-learn'
+import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -139,6 +140,7 @@ export interface ExecInnerCallProperties {
     output?: unknown
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skill_lookup_miss_kind?: SkillLookupMissKind
+    result_empty?: boolean
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -160,9 +162,38 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    exec_learn_kind?: ExecLearnKind
+    exec_learn_target?: string
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
+
+export type ExecLearnKind = 'search' | 'load' | 'list' | 'describe' | 'guide'
+
+export function classifyLearnCommand(
+    rest: string
+): Pick<ExecCommandMeta, 'exec_learn_kind' | 'exec_search_query' | 'exec_learn_target'> {
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return {}
+    }
+    const [first, ...args] = tokens
+    if (first === '-s') {
+        return { exec_learn_kind: 'search', exec_search_query: args.join(' ').slice(0, MAX_SEARCH_PATTERN_LENGTH) }
+    }
+    if (first === '-d') {
+        return { exec_learn_kind: 'describe' }
+    }
+    if (first === 'skills') {
+        return { exec_learn_kind: 'list' }
+    }
+    if (first !== undefined && QUALIFIED_IDENTIFIER.test(first)) {
+        return { exec_learn_kind: 'load', exec_learn_target: first.slice(0, MAX_SEARCH_PATTERN_LENGTH) }
+    }
+    return { exec_learn_kind: 'guide' }
+}
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
@@ -1546,6 +1577,8 @@ export function createExecTool(
 
             switch (verb) {
                 case 'learn': {
+                    // Before the availability check, so a rejected skill command still records its form.
+                    options.trackCommand?.({ exec_verb: verb, ...classifyLearnCommand(rest) })
                     const learnCatalog = options.learnCatalog
                     if (!learnCatalog) {
                         // `learn` is only advertised when a catalog exists, so without one
@@ -1884,6 +1917,8 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    // The text path below builds no payload, so emptiness is reported from here.
+                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
@@ -1907,6 +1942,7 @@ export function createExecTool(
                             output_tokens: estimateTokens(outputText),
                             input,
                             output: outputText,
+                            ...resultShape,
                         })
                         if (!includeAppData) {
                             return outputText
@@ -1956,6 +1992,7 @@ export function createExecTool(
                             output_tokens: estimateResponseTokens(payload),
                             input,
                             output: payload,
+                            ...resultShape,
                         })
                         return payload
                     }
@@ -1981,6 +2018,7 @@ export function createExecTool(
                         output_tokens: estimateTokens(outputText),
                         input,
                         output: outputText,
+                        ...resultShape,
                     })
                     return outputText
                 }

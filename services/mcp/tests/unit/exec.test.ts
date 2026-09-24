@@ -16,6 +16,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -91,6 +92,41 @@ describe('exec tool', () => {
             },
         ]
         const learnCatalog = new ExecLearnCatalog(guides, { posthog: undefined })
+
+        it.each([
+            ['learn -s "funnel conversion"', { exec_learn_kind: 'search', exec_search_query: 'funnel conversion' }],
+            [
+                'learn posthog:building-a-dashboard README.md',
+                { exec_learn_kind: 'load', exec_learn_target: 'posthog:building-a-dashboard' },
+            ],
+            ['learn skills', { exec_learn_kind: 'list' }],
+            ['learn -d posthog:building-a-dashboard', { exec_learn_kind: 'describe' }],
+            ['learn analytics', { exec_learn_kind: 'guide' }],
+            ['learn', { exec_learn_kind: 'guide' }],
+        ])('reports the learn form for "%s" whether or not learn is available', async (command, expected) => {
+            for (const catalogOption of [{ learnCatalog }, {}]) {
+                const tracked: ExecCommandMeta[] = []
+                const exec = createExec(undefined, undefined, {
+                    ...catalogOption,
+                    trackCommand: (meta) => tracked.push(meta),
+                })
+
+                await exec.handler(mockContext, { command }).catch(() => undefined)
+
+                expect(tracked.at(-1)).toEqual({ exec_verb: 'learn', ...expected })
+            }
+        })
+
+        it('keeps a malformed learn command a usage error and stamps no form', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(undefined, undefined, { learnCatalog, trackCommand: (meta) => tracked.push(meta) })
+
+            await expect(exec.handler(mockContext, { command: 'learn -s "unterminated' })).rejects.toMatchObject({
+                reason: 'usage',
+                message: 'Unterminated quote in learn command.',
+            })
+            expect(tracked.at(-1)).toEqual({ exec_verb: 'learn' })
+        })
 
         it('lists guide metadata and skill discovery commands without loading content', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })

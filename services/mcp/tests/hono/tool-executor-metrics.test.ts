@@ -445,6 +445,22 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
+        it('stamps the discovery hint kind and emptiness the response builder recorded', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('query-error-tracking-issues-list', async () => ({ results: [] })) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'query-error-tracking-issues-list', arguments: {} },
+                makeToolExecutorState([{ name: 'query-error-tracking-issues-list' }])
+            )
+
+            expect(trackToolCallExtras('query-error-tracking-issues-list')).toMatchObject({
+                $mcp_discovery_hint: 'empty_state',
+                $mcp_result_empty: true,
+            })
+        })
+
         it('records error for unknown tool', async () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeToolExecutorState([]))
 
@@ -483,11 +499,36 @@ describe('ToolExecutor metrics', () => {
             // records that it was unrecognized rather than the token itself.
             ['frobnicate whatever', { $mcp_exec_verb: 'unrecognized' }],
             ['call not-a-real-tool {}', { $mcp_exec_verb: 'call', $mcp_exec_target_tool: 'unrecognized' }],
+            [
+                'learn -s "funnel conversion"',
+                {
+                    $mcp_exec_verb: 'learn',
+                    $mcp_learn_kind: 'search',
+                    exec_search_query: 'funnel conversion',
+                    $mcp_error_code: 'unknown_command',
+                },
+            ],
         ])('stamps the exec verb and target for "%s"', async (command, expected) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
             const call = mockTrackToolCall.mock.calls.at(-1)
             expect(call?.[4]).toMatchObject(expected)
+            expect(call?.[4]).not.toHaveProperty('exec_learn_kind')
+        })
+
+        it.each([
+            ['an empty results envelope', async () => ({ results: [] }), true],
+            ['a populated result', async () => ({ results: [{ id: 1 }] }), false],
+        ])('reports emptiness of %s on an exec-routed call', async (_label, handler, empty) => {
+            const tool = { ...makeFakeTool('query-error-tracking-issues-list', handler).base }
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call query-error-tracking-issues-list {}' } },
+                makeToolExecutorState([{ name: 'query-error-tracking-issues-list', ...tool }], { useSingleExec: true })
+            )
+
+            const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
+            expect(extras?.$mcp_result_empty).toBe(empty ? true : undefined)
+            expect(extras).not.toHaveProperty('$mcp_discovery_hint')
         })
 
         // A name a feature flag retired is one we own, so it is recordable like any

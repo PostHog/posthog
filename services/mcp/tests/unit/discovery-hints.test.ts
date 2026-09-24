@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { buildToolResultPayload, markExecPayload, toolResultAnalyticsProperties } from '@/lib/build-tool-result'
 import { getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
@@ -34,8 +34,9 @@ describe('getDiscoveryHint', () => {
             handlerResult: { results: [] },
         })
 
-        expect(hint).toContain('instrument-error-tracking')
-        expect(hint).toContain('dateRange')
+        expect(hint?.kind).toBe('empty_state')
+        expect(hint?.text).toContain('instrument-error-tracking')
+        expect(hint?.text).toContain('dateRange')
     })
 
     it('returns the related-capability hint when the same tool has results', () => {
@@ -44,8 +45,9 @@ describe('getDiscoveryHint', () => {
             handlerResult: { results: [{ id: 'issue-1' }] },
         })
 
-        expect(hint).toContain('authoring-error-tracking-alerts')
-        expect(hint).not.toContain('instrument-error-tracking')
+        expect(hint?.kind).toBe('related_capability')
+        expect(hint?.text).toContain('authoring-error-tracking-alerts')
+        expect(hint?.text).not.toContain('instrument-error-tracking')
     })
 
     it.each([
@@ -53,14 +55,14 @@ describe('getDiscoveryHint', () => {
         ['query-session-recordings-list', 'diagnosing-missing-recordings'],
         ['get-llm-total-costs-for-project', 'instrument-llm-analytics'],
     ])('points %s at %s when empty', (toolName, skillName) => {
-        expect(getDiscoveryHint({ toolName, handlerResult: { results: [] } })).toContain(skillName)
+        expect(getDiscoveryHint({ toolName, handlerResult: { results: [] } })?.text).toContain(skillName)
     })
 
     it('cross-sells subscriptions and dashboards after insight creation', () => {
         const hint = getDiscoveryHint({ toolName: 'insight-create', handlerResult: { id: 1, short_id: 'abc' } })
 
-        expect(hint).toContain('managing-subscriptions')
-        expect(hint).toContain('building-a-dashboard')
+        expect(hint?.text).toContain('managing-subscriptions')
+        expect(hint?.text).toContain('building-a-dashboard')
     })
 
     it('returns undefined for unregistered tools, empty or not', () => {
@@ -112,6 +114,39 @@ describe('buildToolResultPayload discovery hint footer', () => {
         expect(() => JSON.parse(payload.content[0]?.text ?? '')).not.toThrow()
         expect(payload.content[0]?.text).not.toContain('instrument-error-tracking')
     })
+
+    it.each([
+        [
+            'an empty result with a hint',
+            { results: [] },
+            {},
+            { $mcp_discovery_hint: 'empty_state', $mcp_result_empty: true },
+        ],
+        [
+            'a populated result with a hint',
+            { results: [{ id: 'issue-1' }] },
+            {},
+            { $mcp_discovery_hint: 'related_capability' },
+        ],
+        [
+            'an empty json result, where no footer fires',
+            { results: [] },
+            { output_format: 'json' },
+            { $mcp_result_empty: true },
+        ],
+    ])(
+        'records %s for the tool-call event, before and after the exec stamp',
+        (_label, handlerResult, params, expected) => {
+            const payload = buildToolResultPayload({
+                handlerResult,
+                toolName: 'query-error-tracking-issues-list',
+                params,
+            })
+
+            expect(toolResultAnalyticsProperties(payload)).toEqual(expected)
+            expect(toolResultAnalyticsProperties(markExecPayload(payload))).toEqual(expected)
+        }
+    )
 
     it('appends the footer after a formatted-results override', () => {
         const payload = buildToolResultPayload({

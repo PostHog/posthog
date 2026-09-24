@@ -1,6 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
-import { getDiscoveryHint } from '@/lib/discovery-hints'
+import { type DiscoveryHint, type DiscoveryHintKind, getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
@@ -79,6 +79,8 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
 interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
+    discoveryHint: DiscoveryHintKind | undefined
+    resultEmpty: boolean
 }
 
 const builtResponseText = new WeakMap<ToolResultPayload, BuiltResponseText>()
@@ -91,6 +93,14 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
         builtResponseText.set(marked, built)
     }
     return marked
+}
+
+export function toolResultAnalyticsProperties(response: ToolResultPayload): Record<string, unknown> {
+    const built = builtResponseText.get(response)
+    return {
+        ...(built?.discoveryHint ? { $mcp_discovery_hint: built.discoveryHint } : {}),
+        ...(built?.resultEmpty ? { $mcp_result_empty: true } : {}),
+    }
 }
 
 /**
@@ -221,10 +231,11 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     const footers: string[] = []
 
+    let discoveryHint: DiscoveryHint | undefined
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
-        const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
+        discoveryHint = getDiscoveryHint({ toolName, handlerResult })
         if (discoveryHint) {
-            footers.push(discoveryHint)
+            footers.push(discoveryHint.text)
         }
     }
 
@@ -237,7 +248,12 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
     }
-    builtResponseText.set(payload, { structuredContentOnly, footers })
+    builtResponseText.set(payload, {
+        structuredContentOnly,
+        footers,
+        discoveryHint: discoveryHint?.kind,
+        resultEmpty: isEmptyToolResult(handlerResult),
+    })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>
     }
