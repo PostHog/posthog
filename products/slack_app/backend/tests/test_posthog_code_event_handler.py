@@ -1644,11 +1644,17 @@ class TestQueueWorkflowDispatch(TestCase):
 
 
 class TestUntaggedFollowupPrompt(SimpleTestCase):
-    def test_prompt_shows_where_to_change_the_setting(self):
+    @parameterized.expand(
+        [
+            ("linked", {"app_id": "A123"}, "<slack://app?team=T12345&id=A123&tab=home|PostHog app Home tab>"),
+            ("no_app_id", {}, "PostHog app Home tab"),
+        ]
+    )
+    def test_prompt_shows_where_to_change_the_setting(self, _name, config, expected_label):
         from products.slack_app.backend.api import _post_untagged_followup_prompt
 
         slack = MagicMock()
-        integration = MagicMock(id=1, integration_id="T12345")
+        integration = MagicMock(id=1, integration_id="T12345", config=config)
         event = {"channel": "C001", "user": "U123", "thread_ts": "1234.5678"}
 
         assert _post_untagged_followup_prompt(slack, integration, event, is_ext_shared_channel=False)
@@ -1656,7 +1662,7 @@ class TestUntaggedFollowupPrompt(SimpleTestCase):
         blocks = slack.client.chat_postEphemeral.call_args.kwargs["blocks"]
         assert blocks[-1] == {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "You can change this in the PostHog app Home tab."}],
+            "elements": [{"type": "mrkdwn", "text": f"You can change this in the {expected_label}."}],
         }
 
 

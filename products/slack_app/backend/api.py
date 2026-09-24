@@ -3210,6 +3210,8 @@ def _post_untagged_followup_prompt(
         timeout=PICKER_TOKEN_MAX_AGE_SECONDS,
     )
 
+    home_tab_url = app_home_url(integration)
+    home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
@@ -3243,7 +3245,7 @@ def _post_untagged_followup_prompt(
         },
         {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "You can change this in the PostHog app Home tab."}],
+            "elements": [{"type": "mrkdwn", "text": f"You can change this in the {home_tab_label}."}],
         },
     ]
 
