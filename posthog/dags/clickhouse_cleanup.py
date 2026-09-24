@@ -580,6 +580,8 @@ def resolve_tombstone_queue(
         context.log.exception("resolving the person tombstone queue failed, continuing with the sweep")
         return run
 
+    if result.failed_teams:
+        context.log.warning("%s teams could not be resolved after retries; their rows stay queued", result.failed_teams)
     if result.remaining:
         context.log.warning(
             "persons deleted in Postgres but not confirmed deleted in ClickHouse: %s",
@@ -591,6 +593,7 @@ def resolve_tombstone_queue(
             "dropped": dagster.MetadataValue.int(result.dropped),
             "confirmed": dagster.MetadataValue.int(result.confirmed),
             "republished": dagster.MetadataValue.int(result.republished),
+            "failed_teams": dagster.MetadataValue.int(result.failed_teams),
             "remaining": dagster.MetadataValue.int(len(result.remaining)),
         }
     )

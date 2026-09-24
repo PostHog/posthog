@@ -5,10 +5,16 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 import dagster
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dags import clickhouse_cleanup
-from posthog.dags.person_tombstone_queue import QueueResolution, clickhouse_confirmed, resolve_person_tombstone_queue
+from posthog.dags.person_tombstone_queue import (
+    TEAM_ATTEMPTS,
+    QueueResolution,
+    clickhouse_confirmed,
+    resolve_person_tombstone_queue,
+)
 from posthog.models import Team
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
@@ -123,6 +129,39 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert (result.republished, result.confirmed) == (3, 3)
         assert self._queued() == set()
         assert max(len(call.args[1]) for call in confirm.call_args_list) == 2
+
+    @parameterized.expand([("transient", 1, 0), ("persistent", TEAM_ATTEMPTS, 1)])
+    def test_retries_a_failing_team_and_leaves_it_queued_when_it_keeps_failing(
+        self, _name: str, failures: int, failed_teams: int
+    ) -> None:
+        other = Team.objects.create(organization=self.organization)
+        ours = self._tombstoned("queue-ours", published=True)
+        theirs = create_person(team=other, distinct_ids=["queue-theirs"])
+        tombstone_persons_in_postgres(other.pk, [theirs.uuid])
+        raised = 0
+
+        def flaky(team_id: int, tombstones: list) -> set[UUID]:
+            nonlocal raised
+            if team_id == other.pk and raised < failures:
+                raised += 1
+                raise RuntimeError("clickhouse down")
+            return clickhouse_confirmed(team_id, tombstones)
+
+        with (
+            patch("posthog.dags.person_tombstone_queue.clickhouse_confirmed", side_effect=flaky),
+            patch("posthog.dags.person_tombstone_queue.RETRY_BACKOFF_SECONDS", 0),
+        ):
+            result = self._resolve()
+
+        # Our team is unaffected by the other team's failure.
+        assert result.failed_teams == failed_teams
+        assert ours not in self._queued()
+        if failed_teams:
+            assert [(row.team_id, row.person_uuid) for row in result.remaining] == [(other.pk, theirs.uuid)]
+            assert self._queued() == {theirs.uuid}
+        else:
+            assert result.remaining == []
+            assert self._queued() == set()
 
     def test_remaining_rows_keep_their_own_team(self) -> None:
         other = Team.objects.create(organization=self.organization)
