@@ -472,7 +472,7 @@ export function AccountConversationsExpansion({
         return <LemonSkeleton className="h-64 w-full" />
     }
     const toolbar = (
-        <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto pb-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-1">
             <LemonInput
                 type="search"
                 value={searchTerm}
