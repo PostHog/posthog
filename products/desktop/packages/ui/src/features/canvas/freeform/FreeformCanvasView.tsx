@@ -882,10 +882,6 @@ export function FreeformCanvasView({
       clearTextSelectionKey={clearTextSelectionKey}
     />
   ) : headCode ? (
-    // The iframe lives in the persistent warm-frame pool
-    // (CanvasFrameHost); this placeholder just reserves the viewport
-    // box and owns scroll via the host's overlay, so the canvas
-    // survives navigation without a reload.
     <CanvasFramePlaceholder
       dashboardId={dashboardId}
       code={headCode}
