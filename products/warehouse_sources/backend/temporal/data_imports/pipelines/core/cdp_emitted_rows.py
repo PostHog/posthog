@@ -36,9 +36,11 @@ CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL = Counter(
     labelnames=["team_id"],
 )
 
-# A row only has to stay remembered from one run of its view to the next. A week covers every sync
-# period a view can be scheduled on, with room for a run that is late or retried.
-EMITTED_ROWS_TTL_SECONDS = 7 * 24 * 60 * 60
+# A row only has to stay remembered from one run of its view to the next. The longest cadence a view
+# can take is 30day, which runs monthly, so two runs can be 31 days apart plus schedule jitter. 35
+# days covers that with room for a run that is late or retried. Each run replaces the record, so a
+# longer lifetime only keeps the record of a view that stopped running for longer.
+EMITTED_ROWS_TTL_SECONDS = 35 * 24 * 60 * 60
 
 # Above this, the run stops recording, and the rows past the limit repeat once more. Suppression is
 # best effort, like the rest of this path, and a view large enough to pass the limit must not be
