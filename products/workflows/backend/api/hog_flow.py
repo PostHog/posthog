@@ -439,6 +439,10 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
+def _stored_values(flow: HogFlow) -> dict[str, Any]:
+    return {field.attname: getattr(flow, field.attname) for field in HogFlow._meta.concrete_fields}
+
+
 def snapshot_flow_content(flow: HogFlow, template_cache: Optional["TemplateCache"] = None) -> dict:
     snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
@@ -4805,12 +4809,29 @@ class HogFlowViewSet(
             },
         )
 
+    def _validate_against_locked_row(self, serializer: BaseSerializer, locked: HogFlow) -> BaseSerializer:
+        """Return a serializer whose save applies this request to the row read under the lock.
+
+        DRF validated the request against the row that get_object() read before the lock. A write
+        can land between the two reads, for example a push that claims the workflow. Saving the older
+        copy would then write its stale fields back over that write. validate() also derives the
+        trigger, billable_action_types and the recovered secrets from the row it was given. So when
+        the locked row differs, the same request is validated again against it.
+        """
+        if _stored_values(serializer.instance) == _stored_values(locked):
+            return serializer
+        # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; `locked` stays the pre-write state)
+        current = HogFlow.objects.get(pk=locked.pk)
+        revalidated = self.get_serializer(current, data=self.request.data, partial=serializer.partial)
+        revalidated.is_valid(raise_exception=True)
+        return revalidated
+
     def perform_update(self, serializer):
         # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
-        route_to_draft = False
+        stages_draft_if_active = False
         if is_mcp_transport_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
@@ -4836,15 +4857,18 @@ class HogFlowViewSet(
 
             # Content edits on an active workflow stage a draft rather than landing live. Status-only
             # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
-            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
-        elif serializer.instance.status == HogFlow.State.ACTIVE and self.request.data.get("stage_draft"):
+            if has_non_status:
+                stages_draft_if_active = bool(keys & set(DRAFT_CONTENT_FIELDS))
+        elif self.request.data.get("stage_draft"):
             # The web builder opts into the same draft routing per request ("stage_draft" rides the
             # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
             # existing raw-API automation is unaffected.
-            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
+            stages_draft_if_active = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
+        # UpdateModelMixin renders the response from the serializer it passed in, so it has to end up
+        # holding the row this method saved.
+        response_serializer = serializer
 
         # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
         # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -4863,29 +4887,29 @@ class HogFlowViewSet(
                 # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
                 before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
             except HogFlow.DoesNotExist:
-                before_update = None
+                # Saving the serializer's copy now would insert the deleted row again.
+                raise exceptions.NotFound()
 
-            if before_update is not None:
-                self._refuse_if_code_managed(self.request, before_update)
+            self._refuse_if_code_managed(self.request, before_update)
+            serializer = self._validate_against_locked_row(serializer, before_update)
+            route_to_draft = stages_draft_if_active and before_update.status == HogFlow.State.ACTIVE
 
             # Draft edits race against other draft edits, not against the live row (which they don't
             # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
-            guard_timestamp = before_update.updated_at if before_update else None
-            if route_to_draft and before_update and before_update.draft_updated_at:
+            guard_timestamp = before_update.updated_at
+            if route_to_draft and before_update.draft_updated_at:
                 guard_timestamp = before_update.draft_updated_at
             # The web builder sends "includes_staged_draft" (raw body, like "stage_draft") when a save on
             # a non-active workflow carries the staged draft merged into it. The draft is only cleared on
             # that explicit signal, so an API caller that resends live content never loses a draft.
             clears_staged_draft = (
                 not route_to_draft
-                and before_update is not None
                 and before_update.status != HogFlow.State.ACTIVE
                 and before_update.draft is not None
                 and bool(self.request.data.get("includes_staged_draft"))
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys()
             )
             if clears_staged_draft:
-                assert before_update is not None
                 # A revision restore writes the draft without moving the live stamp, so fence on the newer one.
                 if before_update.draft_updated_at and (
                     guard_timestamp is None or before_update.draft_updated_at > guard_timestamp
@@ -4895,7 +4919,6 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
 
             if route_to_draft:
-                assert before_update is not None
                 self._write_draft(serializer.instance, before_update, serializer.validated_data)
                 # Metadata in the same payload still applies live. Content (and the fields validate()
                 # derives from it — trigger, billable_action_types) must not leak onto the live row:
@@ -4920,20 +4943,18 @@ class HogFlowViewSet(
                     serializer.validated_data.update(remaining)
                     serializer.save()
             else:
-                bump = False
-                if before_update is not None:
-                    self._refresh_action_redirects(
-                        serializer.instance, before_update, serializer.validated_data.get("actions")
-                    )
-                    bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
+                self._refresh_action_redirects(
+                    serializer.instance, before_update, serializer.validated_data.get("actions")
+                )
+                bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
                 else:
                     serializer.save()
                 if bump:
-                    assert before_update is not None
                     self._append_revisions(serializer.instance, before_update)
 
+        response_serializer.instance = serializer.instance
         if not route_to_draft:
             self._maybe_reschedule_timing_edits(before_update, serializer.instance)
             self._pause_schedules_on_audience_change(before_update, serializer.instance)
@@ -4941,11 +4962,7 @@ class HogFlowViewSet(
         self._emit_resource_edited(serializer.instance)
 
         # PostHog capture for hog_flow activated (draft -> active)
-        if (
-            before_update
-            and before_update.status == HogFlow.State.DRAFT
-            and serializer.instance.status == HogFlow.State.ACTIVE
-        ):
+        if before_update.status == HogFlow.State.DRAFT and serializer.instance.status == HogFlow.State.ACTIVE:
             self._report_workflow_action(
                 "hog_flow_activated",
                 serializer.instance,

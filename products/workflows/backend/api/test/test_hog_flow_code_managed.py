@@ -119,6 +119,42 @@ class TestCodeManagedHogFlow(APIBaseTest):
         gui_workflow.refresh_from_db()
         assert gui_workflow.name == "Welcome"
 
+    def test_a_status_write_racing_a_push_keeps_what_the_push_wrote(self) -> None:
+        # The push lands after the status PATCH was validated and before it takes the row lock, so
+        # the serializer still holds the app-owned row with the old graph.
+        gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
+        pushed_trigger = {
+            **TRIGGER_ACTION,
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}]},
+            },
+        }
+        original_perform_update = HogFlowViewSet.perform_update
+
+        def push_then_perform_update(viewset, serializer):
+            HogFlow.objects.filter(pk=gui_workflow.pk).update(
+                managed_by=HogFlow.ManagedBy.CODE,
+                actions=[pushed_trigger, EXIT_ACTION],
+                trigger=pushed_trigger["config"],
+                source_ref="a1b2c3d",
+            )
+            return original_perform_update(viewset, serializer)
+
+        with patch.object(HogFlowViewSet, "perform_update", push_then_perform_update):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}", {"status": HogFlow.State.ARCHIVED}
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed_by"] == HogFlow.ManagedBy.CODE
+        gui_workflow.refresh_from_db()
+        assert gui_workflow.status == HogFlow.State.ARCHIVED
+        assert gui_workflow.managed_by == HogFlow.ManagedBy.CODE
+        assert gui_workflow.source_ref == "a1b2c3d"
+        assert gui_workflow.actions[0]["config"] == pushed_trigger["config"]
+        assert gui_workflow.trigger == pushed_trigger["config"]
+
     def test_bulk_delete_is_refused(self) -> None:
         self.workflow.status = HogFlow.State.ARCHIVED
         self.workflow.save()
