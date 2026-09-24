@@ -277,17 +277,24 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
         pr_bearing_task_run_filter(),
         Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
     )
+    # Every leg is an `id__in` subquery, so one report never fans out across its artefact rows and
+    # the result needs no `DISTINCT` to collapse again.
+    pull_request_artefacts = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        pull_request__team_id=team_id,
+        pull_request__repository__iexact=repository,
+        pull_request__number=pr_number,
+    )
+    assignments = SignalReportAssignment.all_teams.filter(
+        team_id=team_id, repository__iexact=repository, pr_number=pr_number
+    )
     candidates = SignalReport.objects.filter(team_id=team_id).filter(
-        Q(
-            artefacts__pull_request__repository__iexact=repository,
-            artefacts__pull_request__number=pr_number,
-            artefacts__pull_request__team_id=team_id,
-        )
-        | Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
+        Q(id__in=pull_request_artefacts.values("report_id"))
+        | Q(id__in=assignments.values("report_id"))
         | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
     )
     prs = fetch_implementation_prs_for_reports(
-        [str(report_id) for report_id in candidates.values_list("id", flat=True).distinct()], team_id=team_id
+        [str(report_id) for report_id in candidates.values_list("id", flat=True)], team_id=team_id
     )
     return [
         report_id
