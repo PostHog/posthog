@@ -2972,6 +2972,11 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         res = self._put("default", {**base, "resource_id": str(uuid.uuid4()), "access_level": "read"})
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+        # A property name instead of the id, for a set and for a clear
+        res = self._put("default", {**base, "resource_id": "salary", "access_level": "read"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+        res = self._put("default", {**base, "resource_id": "salary", "access_level": None})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
         # Property access without role-based access: role rules stay gated like every other scope
         self.organization.available_product_features = [

@@ -47,6 +47,10 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_list_with_property_name_instead_of_id_returns_404(self):
+        response = self.client.get(f"{self.url}?property_definition_id={self.prop_def.name}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_create_default_rule(self):
         response = self._post({"access_level": PropertyAccessLevel.NONE.value})
         assert response.status_code == status.HTTP_200_OK
