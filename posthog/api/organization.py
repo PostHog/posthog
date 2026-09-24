@@ -425,12 +425,11 @@ class OrganizationSerializer(
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_other_owner(self, organization: Organization) -> bool:
-        return (
-            OrganizationMembership.objects.filter(
-                organization_id=organization.id, level=OrganizationMembership.Level.OWNER
-            )
-            .exclude(user_id=self.context["request"].user.id)
-            .exists()
+        user_id = _resolve_cached_user_id(self.context)
+        if user_id is None:
+            return False
+        return bool(
+            OrganizationMembership.org_ids_with_other_owner(user_id=user_id, organization_ids=[organization.id])
         )
 
     def validate_read_only_mcp_access(self, value: bool) -> bool:

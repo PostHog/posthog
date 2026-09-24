@@ -324,13 +324,9 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
 
     @cached_property
     def _org_ids_with_other_owner(self) -> set[UUID]:
-        return set(
-            OrganizationMembership.objects.filter(
-                organization_id__in=self._membership_levels_by_org.keys(),
-                level=OrganizationMembership.Level.OWNER,
-            )
-            .exclude(user=self.context["request"].user)
-            .values_list("organization_id", flat=True)
+        return OrganizationMembership.org_ids_with_other_owner(
+            user_id=self.context["request"].user.id,
+            organization_ids=self._membership_levels_by_org.keys(),
         )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")

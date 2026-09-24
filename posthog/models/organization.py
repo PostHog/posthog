@@ -1,7 +1,9 @@
 import sys
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -761,15 +763,17 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
-    def has_other_owner(self) -> bool:
-        """Whether the organization has an owner other than this membership."""
-        return (
-            OrganizationMembership.objects.filter(
-                organization_id=self.organization_id, level=OrganizationMembership.Level.OWNER
-            )
-            .exclude(pk=self.pk)
-            .exists()
+    @classmethod
+    def org_ids_with_other_owner(cls, *, user_id: int, organization_ids: Iterable[UUID]) -> set[UUID]:
+        """Which of the given organizations have an owner who is not the given user."""
+        return set(
+            cls.objects.filter(organization_id__in=organization_ids, level=cls.Level.OWNER)
+            .exclude(user_id=user_id)
+            .values_list("organization_id", flat=True)
         )
+
+    def has_other_owner(self) -> bool:
+        return bool(self.org_ids_with_other_owner(user_id=self.user_id, organization_ids=[self.organization_id]))
 
     def validate_update(
         self,

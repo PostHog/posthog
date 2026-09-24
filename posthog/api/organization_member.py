@@ -310,41 +310,31 @@ class OrganizationMemberViewSet(
         requesting_user = cast(User, self.request.user)
         removed_user = cast(User, instance.user)
 
-        is_self_removal = requesting_user.id == removed_user.id
-        removal_type = "self_removal" if is_self_removal else "removed_by_other"
+        properties = {
+            "removed_member_id": removed_user.distinct_id,
+            "removed_by_id": requesting_user.distinct_id,
+            "organization_id": instance.organization_id,
+            "organization_name": instance.organization.name,
+            "removal_type": "self_removal" if requesting_user.id == removed_user.id else "removed_by_other",
+            "removed_email": removed_user.email,
+            "removed_user_id": removed_user.id,
+        }
+
+        def capture(event: str) -> None:
+            posthoganalytics.capture(
+                distinct_id=str(requesting_user.distinct_id),
+                event=event,
+                properties=properties,
+                groups=groups(instance.organization),
+            )
 
         try:
             removed_user.leave(organization=instance.organization)
         except exceptions.ValidationError:
-            # The only refusal left is the organization's last owner. Capture it so the rate is measurable.
-            posthoganalytics.capture(
-                distinct_id=str(requesting_user.distinct_id),
-                event="organization member removal blocked",
-                properties={
-                    "removed_by_id": requesting_user.distinct_id,
-                    "organization_id": instance.organization_id,
-                    "organization_name": instance.organization.name,
-                    "removal_type": removal_type,
-                    "reason": "only_owner",
-                },
-                groups=groups(instance.organization),
-            )
+            capture("organization member removal blocked")
             raise
 
-        posthoganalytics.capture(
-            distinct_id=str(requesting_user.distinct_id),
-            event="organization member removed",
-            properties={
-                "removed_member_id": removed_user.distinct_id,
-                "removed_by_id": requesting_user.distinct_id,
-                "organization_id": instance.organization_id,
-                "organization_name": instance.organization.name,
-                "removal_type": removal_type,
-                "removed_email": removed_user.email,
-                "removed_user_id": removed_user.id,
-            },
-            groups=groups(instance.organization),
-        )
+        capture("organization member removed")
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
