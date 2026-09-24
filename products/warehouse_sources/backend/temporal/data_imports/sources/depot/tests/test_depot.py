@@ -162,6 +162,8 @@ class TestDepotSource:
 
         assert make_session.call_args.kwargs["headers"] == {"Authorization": f"Bearer {API_TOKEN}"}
         assert API_TOKEN in make_session.call_args.kwargs["redact_values"]
+        # Every Depot RPC is a POST, which the shared retry leaves out, so a 429 must still retry.
+        assert make_session.call_args.kwargs["retry"].is_retry("POST", 429)
         assert _requests(session)[:3] == [
             ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 200}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 200}),

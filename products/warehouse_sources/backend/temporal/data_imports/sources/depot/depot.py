@@ -185,6 +185,7 @@ def depot_source(
         items=items,
         primary_keys=[PRIMARY_KEY],
         partition_mode="datetime",
+        partition_format="week",
         partition_keys=[RUN_CREATED_AT],
         sort_mode="asc",
     )

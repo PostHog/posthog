@@ -52,6 +52,7 @@ class DepotSource(SimpleSource[DepotSourceConfig]):
             keywords=["depot.dev", "depot ci"],
             caption="Sync Depot CI job attempts for one GitHub repository. Create an organization API token in your Depot organization settings, then enter the repository as `owner/name`.",
             releaseStatus=ReleaseStatus.ALPHA,
+            docsUrl="https://posthog.com/docs/cdp/sources/depot",
             iconPath="/static/services/depot.png",
             fields=cast(
                 list[FieldType],
