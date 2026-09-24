@@ -822,8 +822,11 @@ def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, s
     not a letter or a digit.
 
     Reports holding the most terms are kept first, so the cap falls on the reports least likely to
-    survive the caller's remaining terms. Same dedup and cap semantics as
-    `fetch_report_ids_for_scout_names` otherwise.
+    survive the caller's remaining terms, and every report the narrower all-terms query returned
+    is still returned. The cap can still cut a report that holds one term here and the rest only
+    in its own prose, which needs more than `_REPORT_ID_FILTER_CAP` reports to match one term.
+    Lifting the cap trades that for an unbounded id list into Postgres. Same dedup and cap
+    semantics as `fetch_report_ids_for_scout_names` otherwise.
     """
     if not terms:
         return {}
@@ -841,7 +844,8 @@ def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, s
     )
     # A report matching every term is the one the caller is most likely looking for, so it outranks
     # a partial match. That keeps the cap from dropping a report the narrower all-terms query would
-    # have returned.
+    # have returned. `report_id` breaks the remaining ties, because the list request and the count
+    # request run this separately and a nondeterministic cut would disagree between them.
     matched_count = " + ".join(f"matched_{index}" for index in range(len(terms)))
     # Bound the dedup to the documents that ever held one of the terms. The inbox runs this per
     # typed search across every section, and the unbounded form holds argMax state for the team's
@@ -868,7 +872,7 @@ def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, s
           AND report_id != ''
           AND ({any_term})
         GROUP BY report_id
-        ORDER BY {matched_count} DESC, max(timestamp) DESC
+        ORDER BY {matched_count} DESC, max(timestamp) DESC, report_id
         LIMIT {_REPORT_ID_FILTER_CAP}
     """
 

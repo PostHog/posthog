@@ -1998,7 +1998,8 @@ class SignalReportViewSet(
                     "and the evidence it was built from (observation prose and source ids). Punctuation and "
                     "underscores split the query into terms, so `$web_vitals` also finds a report titled "
                     '"Web Vitals". Each term must match the report, but they can match different parts of '
-                    "it, so terms of your own wording find a report worded differently."
+                    "it, so terms of your own wording find a report worded differently. At most 200 "
+                    "characters, of which the first 8 terms are used; a longer query is rejected with a 400."
                 ),
             ),
             OpenApiParameter(

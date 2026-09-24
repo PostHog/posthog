@@ -224,7 +224,9 @@ tools:
             `assignee=me`. `search` covers a report's title, summary, work-log notes, and the evidence it was built from
             (observation prose and source ids). Punctuation and underscores split the query into terms that each have to
             match, but they can match different parts of the report: so `$web_vitals` also finds a report titled "Web
-            Vitals", and your own wording finds a report worded differently. Claimed reports remain actionable and
+            Vitals", and your own wording finds a report worded differently. `search` takes at most 200 characters and
+            uses the first 8 terms of the query, so narrow a long query rather than pasting a whole summary into it; a
+            longer query is rejected with a 400. Claimed reports remain actionable and
             visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some
             statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass
             `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full
