@@ -305,6 +305,7 @@ class _Renderer:
         self.dropped: set[str] = set()
         # Which arm of the stored branch each rendered arm came from, after empty arms are dropped.
         self.kept_arms: dict[str, list[int]] = {}
+        self.edgeless_arms: dict[str, set[int]] = {}
         self.pass_through: list[str] = []
         # The secret variable each step names, so two distinct steps naming one variable warn.
         self.secret_owner: dict[str, str] = {}
@@ -410,6 +411,7 @@ class _Renderer:
                     action["id"],
                     f'The arm "{arm_name or index}" of "{self._name(action)}" has no edge. Add a step to it before you push.',
                 )
+                self.edgeless_arms.setdefault(action["id"], set()).add(index)
                 arms.append(())
             else:
                 arms.append(self.walk(target, rejoin))
@@ -419,6 +421,34 @@ class _Renderer:
     def _name(action: dict[str, Any]) -> str:
         name = action.get("name")
         return name if isinstance(name, str) and name else action["id"]
+
+    def droppable_arms(
+        self, action_id: str, arms: tuple[tuple[_Placement, ...], ...], arm_count: int, *, conditions_follow: bool
+    ) -> set[int]:
+        """The arms without steps that the file can leave out and still route every person the same way.
+
+        PostHog takes the first arm that matches, so leaving out an arm before an arm with steps
+        sends a person who matches both down the later arm. Only a trailing run of arms without
+        steps can go. When `conditions_follow` is false the step keeps every condition in its
+        config, so an arm with an edge must keep that edge and only an arm without one can go.
+        """
+        edgeless = self.edgeless_arms.get(action_id, set()) | set(range(len(arms), arm_count))
+        droppable: set[int] = set()
+        for index in reversed(range(arm_count)):
+            if index < len(arms) and arms[index]:
+                break
+            if not conditions_follow and index not in edgeless:
+                break
+            droppable.add(index)
+        return droppable
+
+    def warn_kept_empty_arm(self, action: dict[str, Any], index: int, arm_name: Any) -> None:
+        if index in self.edgeless_arms.get(action["id"], set()):
+            return
+        self.warn(
+            action["id"],
+            f'The arm "{arm_name}" of "{self._name(action)}" has no steps. {PACKAGE} cannot declare an empty arm, and leaving it out would send a person who matches it and a later arm down the later arm. The file keeps it as an empty path(), which does not push. Add a step to the arm or remove it in PostHog first.',
+        )
 
     @classmethod
     def _base_options(cls, action: dict[str, Any]) -> dict[str, Any]:
@@ -518,15 +548,11 @@ class _Renderer:
         self, action: dict[str, Any], config: dict[str, Any], arms: tuple[tuple[_Placement, ...], ...]
     ) -> _Call:
         if arms:
-            kept: list[int] = []
-            for index, arm in enumerate(arms):
-                if arm:
-                    kept.append(index)
-                else:
-                    self.warn(
-                        action["id"],
-                        f'The branch arm {index} of "{self._name(action)}" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
-                    )
+            dropped = self.droppable_arms(action["id"], arms, len(arms), conditions_follow=False)
+            kept = [index for index in range(len(arms)) if index not in dropped]
+            for index in kept:
+                if not arms[index]:
+                    self.warn_kept_empty_arm(action, index, index)
             self.kept_arms[action["id"]] = kept
         self.pass_through.append(f"{action['id']} ({self._name(action)})")
         return _Call(self.use("step"), (self.pass_through_options(action, config, arms),))
@@ -779,20 +805,23 @@ class _Renderer:
         if not isinstance(conditions, list) or not conditions:
             return None
         self.warn_extra_config(action, config, frozenset({"conditions"}))
+        # `emit.ts` refuses an empty arm. A trailing empty arm sends a person to the step after
+        # the branch, which is where the fall-through goes too, so dropping it changes nothing at
+        # run time. An earlier one stays, because dropping it would change which arm matches first.
+        dropped = self.droppable_arms(action["id"], placed_arms, len(conditions), conditions_follow=True)
         arms = []
         kept: list[int] = []
+        # The arm warnings wait for `branch()` to hold, because a fallback to `step()` keeps the arms differently.
+        dropped_names: list[Any] = []
+        empty_kept: list[tuple[int, Any]] = []
         for index, condition in enumerate(conditions):
             if not isinstance(condition, dict):
                 return None
-            # An empty arm sends a person to the step after the branch, which is where the
-            # fall-through goes too, so dropping it changes nothing at run time. `emit.ts`
-            # refuses an empty arm, so keeping it would produce a file that never pushes.
-            if index >= len(placed_arms) or not placed_arms[index]:
-                self.warn(
-                    action["id"],
-                    f'The arm "{condition.get("name", index)}" of "{self._name(action)}" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
-                )
+            if index in dropped:
+                dropped_names.append(condition.get("name", index))
                 continue
+            if not placed_arms[index]:
+                empty_kept.append((index, condition.get("name", index)))
             filters = _dict(condition.get("filters"))
             properties = filters.get("properties")
             if not isinstance(properties, list) or not properties:
@@ -810,6 +839,13 @@ class _Renderer:
             kept.append(index)
         if not arms:
             return None
+        for arm_name in dropped_names:
+            self.warn(
+                action["id"],
+                f'The arm "{arm_name}" of "{self._name(action)}" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
+            )
+        for index, arm_name in empty_kept:
+            self.warn_kept_empty_arm(action, index, arm_name)
         self.kept_arms[action["id"]] = kept
         return _Call(self.use("branch"), ({**self._base_options(action), "branches": arms},))
 
