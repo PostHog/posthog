@@ -2617,7 +2617,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_without_backing_node_reports_the_failure(self, mock_sync_connect):
+    def test_run_without_backing_node_creates_one_and_runs(self, mock_sync_connect):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="orphan_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
@@ -2628,7 +2628,25 @@ class TestSavedQueryRun(APIBaseTest):
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
         )
 
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_names_the_dependency_that_keeps_the_view_from_materializing(self, mock_sync_connect):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="orphan_view",
+            team=self.team,
+            query={"query": "SELECT 1 FROM no_such_table", "kind": "HogQLQuery"},
+        )
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+        )
+
         self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("no_such_table", response.json()["detail"])
         mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")

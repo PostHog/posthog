@@ -80,6 +80,24 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         nodeless.refresh_from_db()
         assert nodeless.is_materialized is False
 
+    def test_first_run_disables_materialization_when_the_node_vanished_after_scheduling(self):
+        # the first run is deferred to commit, so the node can go away in between. Leaving
+        # is_materialized set reports a view that refreshes while nothing runs it, and its readers
+        # then read whatever the last run wrote with no error anywhere.
+        self.sq.is_materialized = True
+        self.sq.save(update_fields=["is_materialized"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
+            mock.patch(f"{MODEL}.capture_exception"),
+            mock.patch(f"{NODE_MAT}.sync_connect"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.sq.schedule_materialization(trigger_immediate_run=True)
+            Node.objects.filter(saved_query=self.sq).delete()
+
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is False
+
     def test_reports_and_disables_when_there_is_no_node_to_bootstrap(self):
         # a DAG with no v2 schedule is bootstrapped through its node, so the one way left to
         # reach the end of schedule_materialization with nothing scheduled is a query that has

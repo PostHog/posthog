@@ -271,6 +271,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.facade.api import (
             MissingDagNodeError,
             clear_incremental_state,
+            ensure_dag_node,
             materialize_saved_query,
         )
 
@@ -278,6 +279,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+
+        blocked = ensure_dag_node(saved_query)
+        if blocked is not None:
+            raise exceptions.ValidationError(detail=blocked)
 
         if body.validated_data["full_refresh"]:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
@@ -289,6 +294,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         try:
             materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
         except MissingDagNodeError:
+            # The node was there a moment ago, so something removed it mid-request.
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
             )
@@ -427,6 +433,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
 
         assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
+
+        from products.data_modeling.backend.facade.api import ensure_dag_node
+
+        # The node is what a run materializes, so a query with none can only fail later, after the
+        # enable has already written is_materialized=True. Ask for it here, where the reason the
+        # query cannot have one is still in hand.
+        blocked = ensure_dag_node(saved_query)
+        if blocked is not None:
+            raise serializers.ValidationError(blocked)
 
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
