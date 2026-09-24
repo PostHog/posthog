@@ -53,6 +53,7 @@ from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
@@ -99,6 +100,7 @@ from products.feature_flags.backend.facade.api import (
     ship_variant as ship_flag_variant,
     unarchive_flag,
     update_flag,
+    user_can_create_flags,
     user_can_edit_flag,
 )
 from products.feature_flags.backend.facade.filters import (
@@ -303,6 +305,15 @@ def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
         marker_key=EXPOSURE_FROZEN_GROUP_KEY,
         cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
         marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+    )
+
+
+def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
+    """The facade's plain-value holdout setter, bound to the experiments holdout model."""
+    return set_holdout(
+        filters,
+        holdout_id=holdout.id if holdout else None,
+        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
     )
 
 
@@ -1570,9 +1581,15 @@ class ExperimentService:
             # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
             # already owns.
             assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
+            self._assert_flag_access(
+                existing_flag,
+                next_step="It can't be used for an experiment. Pick a different flag key, or ask someone with flag access.",
+            )
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
+
+        self._assert_flag_access()
 
         config = feature_flag_config or {}
         config_filters = config.get("filters") or {}
@@ -1591,15 +1608,14 @@ class ExperimentService:
         # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
         # and any future key — is applied as-is so nothing the serializer accepted is
         # silently dropped.
-        feature_flag_filters = set_holdout(
+        feature_flag_filters = _apply_holdout(
             {
                 "aggregation_group_type_index": None,
                 **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                 "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
                 "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             },
-            holdout_id=holdout.id if holdout else None,
-            exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+            holdout,
         )
 
         feature_flag_data: dict[str, Any] = {
@@ -1624,6 +1640,44 @@ class ExperimentService:
         )
 
         return feature_flag, variants or list(DEFAULT_VARIANTS)
+
+    def _assert_flag_access(
+        self,
+        feature_flag: FeatureFlag | None = None,
+        *,
+        next_step: str = "This experiment can't be changed without it. Ask someone with flag access.",
+    ) -> None:
+        """Enforce the flag API's own access control before an experiment write touches a flag.
+
+        Every such write reaches the flag facade, which enforces no access control, so without this
+        check experiment editor access substitutes for flag access. A caller could adopt a flag they
+        are denied, mint one where flag writes are refused, or drive an existing flag's `active`
+        state and release targeting through the experiment lifecycle. Pass `feature_flag` to check
+        editing that flag, or omit it to check creating a new one. `self.team` is the flag's team on
+        every path, including a cross-project copy, which re-instantiates the service against the
+        target. This mirrors `assert_feature_flag_rbac_access`, which covers the same two branches
+        for early access features.
+
+        Call it before the action's first side effect, not just before the flag write. Freezing
+        exposure builds a snapshot cohort first, and a refusal after that point leaves the cohort
+        behind.
+
+        Synthetic principals (project secret API keys) and userless system writes bypass
+        access control everywhere else, so they are not evaluated here either.
+        """
+        if not isinstance(self.user, User):
+            return
+        if feature_flag is not None:
+            if not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
+                raise PermissionDenied(
+                    f"You don't have editor access to the feature flag {feature_flag.key}. {next_step}"
+                )
+            return
+        if not user_can_create_flags(team=self.team, user=self.user):
+            raise PermissionDenied(
+                "An experiment needs a feature flag, and you don't have access to create feature flags. "
+                "Ask someone with flag access."
+            )
 
     def _validate_existing_flag(self, feature_flag: FeatureFlag) -> None:
         """Validate that an existing feature flag is suitable for experiment use."""
@@ -1951,6 +2005,7 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
+        self._assert_flag_access(feature_flag)
         self._validate_flag_for_launch(experiment, feature_flag)
 
         # The flag may have lost 'control' since create (out-of-band edit), so pin the
@@ -2223,6 +2278,7 @@ class ExperimentService:
             raise ValidationError("Experiment does not have a feature flag linked.")
         if not feature_flag.active:
             raise ValidationError("Experiment is already paused.")
+        self._assert_flag_access(feature_flag)
 
         # Deactivate through the approval gate. An ApprovalRequired (-> 409) aborts the
         # pause before we report it, leaving the flag active.
@@ -2262,6 +2318,7 @@ class ExperimentService:
             raise ValidationError("Experiment does not have a feature flag linked.")
         if feature_flag.active:
             raise ValidationError("Experiment is not paused.")
+        self._assert_flag_access(feature_flag)
 
         # Reactivate through the approval gate. An ApprovalRequired (-> 409) aborts the
         # resume before we report it, leaving the flag paused.
@@ -2334,6 +2391,9 @@ class ExperimentService:
         freeze_started_at = time.monotonic()
 
         # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
+        # The access check runs first so a caller who may not narrow the flag never pays for the
+        # scan, and never leaves a snapshot cohort behind.
+        self._assert_flag_access(experiment.feature_flag)
         self._validate_freeze_exposure_state(experiment)
         # Separate checkpoint so scan_ms measures only the ClickHouse scan — the guard above can
         # lazy-load the flag row, and folding that into scan_ms would misattribute it.
@@ -2683,6 +2743,7 @@ class ExperimentService:
             raise ValidationError("Experiment exposure is not frozen.")
 
         flag = experiment.feature_flag
+        self._assert_flag_access(flag)
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
@@ -3136,6 +3197,7 @@ class ExperimentService:
         # The reset strips the freeze narrowing, so tag the write like an unfreeze.
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
+            self._assert_flag_access(flag)
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
             # Non-HTTP callers have no acting user: a system write (user=None) skips the
@@ -3197,6 +3259,7 @@ class ExperimentService:
         flag = experiment.feature_flag
         if not flag:
             raise ValidationError("Experiment does not have a linked feature flag.")
+        self._assert_flag_access(flag)
 
         # A frozen experiment's release groups carry a machine-added snapshot-cohort condition.
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
@@ -3759,6 +3822,7 @@ class ExperimentService:
         # as the sync above: an ApprovalRequired must leave the pending
         # ChangeRequest intact rather than roll it back.
         if experiment.is_draft and update_data.get("start_date") is not None:
+            self._assert_flag_access(feature_flag)
             set_flag_active(feature_flag, True, team=self.team, user=self.user, request=context.get("request"))
 
         with transaction.atomic():
@@ -3953,6 +4017,10 @@ class ExperimentService:
             holdout = update_data["holdout"]
 
         if feature_flag_config:
+            # Checked per branch, not once above: a draft PATCH that touches neither the flag
+            # config nor the holdout falls through without writing the flag, and must not need
+            # flag access to rename an experiment.
+            self._assert_flag_access(feature_flag)
             config_filters = feature_flag_config.get("filters") or {}
             existing_filters = feature_flag.filters or {}
 
@@ -3974,15 +4042,14 @@ class ExperimentService:
             # merged, and variants always resolve against the flag); every other validated filters
             # key is merged as-is over the flag's current filters, so nothing the serializer
             # accepted is silently dropped.
-            new_filters = set_holdout(
+            new_filters = _apply_holdout(
                 {
                     **existing_filters,
                     **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                     "groups": new_groups,
                     "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
                 },
-                holdout_id=holdout.id if holdout else None,
-                exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+                holdout,
             )
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
@@ -3991,15 +4058,10 @@ class ExperimentService:
 
             update_flag(feature_flag, flag_update_data, team=self.team, user=self.user, request=context.get("request"))
         elif "holdout" in update_data:
+            self._assert_flag_access(feature_flag)
             update_flag(
                 feature_flag,
-                {
-                    "filters": set_holdout(
-                        feature_flag.filters,
-                        holdout_id=holdout.id if holdout else None,
-                        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
-                    )
-                },
+                {"filters": _apply_holdout(feature_flag.filters, holdout)},
                 team=self.team,
                 user=self.user,
                 request=context.get("request"),

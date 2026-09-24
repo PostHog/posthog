@@ -31,6 +31,7 @@ Read that before configuring anything.
    Both overstate the traffic and the exposure rate.
    For a surface that spans several pages, keep the exact `$host` and put only the path fragment in `target_url_contains`.
    Add `metric_properties` in the same call when the candidate metric counts only some occurrences of its event.
+   Pass `previous_experiments_limit: 5`. Five experiments are enough to read a precedent, and the default of 10 roughly doubles the response for no more signal.
    If the tool is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
 
    Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`.
@@ -44,7 +45,8 @@ Read that before configuring anything.
        { "key": "$host", "type": "event", "operator": "exact", "value": ["www.example.com"] },
        { "key": "$pathname", "type": "event", "operator": "exact", "value": ["/"] }
      ],
-     "metric_event": "your_conversion_event"
+     "metric_event": "your_conversion_event",
+     "previous_experiments_limit": 5
    }
    ```
 
@@ -131,7 +133,7 @@ Key details:
 
 - Minimum 2, maximum 20 variants. No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant (override with `stats_config.baseline_variant_key`). Convention: key the baseline `"control"` unless the user asks for specific keys.
 - `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
-- Bucketing and `ensure_experience_continuity` come from step 0. Keep user-id bucketing unless the page crosses identification. Only then, in this order: device-id bucketing when every flag call carries a device ID, else persistence when no SDK evaluates the flag locally, else user-id bucketing. Leave `ensure_experience_continuity` out unless you are choosing persistence: when omitted, the team's persistence default applies.
+- Bucketing and `ensure_experience_continuity` come from step 0. Keep user-id bucketing unless the page crosses identification. Only then, in this order: device-id bucketing when every flag call carries a device ID, else persistence when no SDK evaluates the flag locally, else user-id bucketing. On a mobile surface device-id bucketing is unavailable, because mobile events carry no device ID, so the choice is persistence or user-id bucketing. A project that has never used either is not a reason to skip them here. Leave `ensure_experience_continuity` out unless you are choosing persistence: when omitted, the team's persistence default applies.
 - Stats follow the team's defaults (method, confidence level). Only set `stats_config` if the user asks for a different method.
 
 ## After creation

@@ -31,14 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import retire_orphaned_companions
-from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
-    WRITE_RESOLUTION_FLAG,
-    is_cdc_write_resolution_enabled,
-)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFERED_BEFORE_KEY,
-    BUFFERED_LANE_KEY,
-    buffered_lane_candidate,
     serves_buffered_lane,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -106,37 +100,23 @@ class Command(BaseCommand):
         # Mirror capture's _get_cdc_schemas: a user-disabled schema must not be flipped — the last
         # step would unpause its schedule, reversing the disable.
         current_mode = (source.job_inputs or {}).get("cdc_ingest_mode", "legacy")
-        candidates = [s for s in cdc_schemas if s.should_sync and buffered_lane_candidate(s)]
-        already_served: list[ExternalDataSchema] = []
-        if rollback:
-            eligible = [s for s in candidates if serves_buffered_lane(s)]
-        else:
-            # On a source already buffered, only the schemas not yet served move: a history-mode
-            # schema left on legacy by a flip that predates them, or one added since.
-            already_served = [s for s in candidates if current_mode == "buffered" and serves_buffered_lane(s)]
-            eligible = [s for s in candidates if s not in already_served]
-        ineligible = [s for s in cdc_schemas if s not in eligible and s not in already_served]
+        eligible = [s for s in cdc_schemas if s.should_sync and serves_buffered_lane(s)]
+        ineligible = [s for s in cdc_schemas if s not in eligible]
 
-        self._report(source, current_mode, target_mode, eligible, ineligible, already_served)
+        self._report(source, current_mode, target_mode, eligible, ineligible)
 
+        if current_mode == target_mode:
+            self.stdout.write(self.style.WARNING(f"Already {target_mode}; nothing to do."))
+            return
         if not eligible and not rollback:
-            if current_mode == "buffered":
-                self.stdout.write(
-                    self.style.WARNING("Already buffered and every eligible schema is served; nothing to do.")
-                )
-                return
             raise CommandError(
                 "No schema on this source serves the buffered lane — nothing to flip. "
                 "Buffered ingress covers streaming schemas whose initial sync is done, in any table mode."
             )
-        if rollback and current_mode == target_mode:
-            self.stdout.write(self.style.WARNING("Already legacy; nothing to do."))
-            return
         if not rollback:
             # No pipeline-version gate: the scheduled sync forces the v3 pipeline for
             # schemas that consume the buffer (scheduled_sync_consumes_buffer), so the flip does
             # not depend on the team's general rollout flag.
-            self._require_write_resolution(source, eligible)
             self._require_no_reserved_columns(eligible)
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run — no changes made."))
@@ -146,21 +126,6 @@ class Command(BaseCommand):
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
             self._flip_to_buffered(source, eligible, cdc_schemas, options["drain_timeout"])
-
-    def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
-        """Refuse to flip a team whose write resolution is off.
-
-        Without the flag the loader never records a load position, so the consumer never has grounds
-        to delete a consumed file. Files then accumulate until the 14-day TTL expires them — and the
-        slot advanced long ago, so that expiry is unrecoverable data loss rather than a stall.
-        """
-        if is_cdc_write_resolution_enabled(source.team_id, str(eligible[0].id), f"preflight-{source.id}"):
-            return
-        raise CommandError(
-            f"{WRITE_RESOLUTION_FLAG} is off for team {source.team_id}. Buffered ingress needs it to "
-            "resolve write ordering: without it a retried batch can land rows the table already "
-            "holds back over newer ones, and a DELETE can erase columns the target still has."
-        )
 
     def _require_no_reserved_columns(self, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a schema whose source table has a column named `_ph_cdc_seq`.
@@ -204,14 +169,9 @@ class Command(BaseCommand):
         target_mode: str,
         eligible: list[ExternalDataSchema],
         ineligible: list[ExternalDataSchema],
-        already_served: list[ExternalDataSchema],
     ) -> None:
         self.stdout.write(f"Source {source.id} (team {source.team_id}): {current_mode} → {target_mode}")
         self.stdout.write(f"  buffered lane ({len(eligible)}): {', '.join(s.name for s in eligible) or '—'}")
-        if already_served:
-            self.stdout.write(
-                f"  already buffered ({len(already_served)}): {', '.join(s.name for s in already_served)}"
-            )
         off_cadence = [s.name for s in eligible if s.sync_frequency_interval != EXPECTED_SYNC_INTERVAL]
         if off_cadence:
             self.stdout.write(
@@ -296,19 +256,16 @@ class Command(BaseCommand):
             # have created its row yet. By now it has, so one more wait closes the straddle window.
             self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
-            # Still inside the recovery boundary: `_mark_schemas` writes one schema at a time, so a
-            # failure partway through it would otherwise leave the mode buffered with only some
-            # schemas marked served and every schedule still paused — the same silent outage this
-            # command exists to fix. The atomic block makes the two writes fail together, so a
-            # failure here rolls `job_inputs` back to legacy too, and the `except` below restores
-            # the schedules onto a state that is genuinely unchanged, not a half-flipped one.
-            self.stdout.write("6/7 setting cdc_ingest_mode=buffered and marking the schemas served")
+            # Still inside the recovery boundary, and atomic, so a failure partway through the
+            # per-schema writes rolls `job_inputs` back to legacy too and the `except` below restores
+            # the schedules onto a state that is genuinely unchanged.
+            self.stdout.write("6/7 setting cdc_ingest_mode=buffered")
             with transaction.atomic():
                 # `cdc_buffered_before` is kept across a rollback: it is what tells a later flip
                 # that a `_ph_cdc_seq` column on the warehouse table may be one this lane wrote,
                 # not one the source owns.
                 self._write_job_inputs(source, cdc_ingest_mode="buffered", cdc_buffered_before=True)
-                self._mark_schemas(eligible, served=True)
+                self._mark_buffered_before(eligible)
         except BaseException:
             self.stdout.write(self.style.WARNING("flip aborted, restoring per-schema schedules"))
             self._restore_schema_schedules(eligible)
@@ -369,18 +326,14 @@ class Command(BaseCommand):
             self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
             self._retire_orphaned_companions(eligible)
 
-            # Still inside the recovery boundary, for the same reason as the flip: `_mark_schemas`
-            # writes one schema at a time, and the atomic block makes it fail together with the
-            # `job_inputs` write so a failure here leaves the source genuinely still buffered
-            # rather than half-rolled-back, which is what the `except` below assumes.
-            self.stdout.write("5/6 setting cdc_ingest_mode=legacy and unmarking the schemas")
+            self.stdout.write("5/6 setting cdc_ingest_mode=legacy")
+            # `cdc_buffered_before` is set here as well as on the flip, on the source and on each
+            # served table: a source that started buffered, or was flipped before these markers
+            # existed, would otherwise be refused a second flip over a `_ph_cdc_seq` column the
+            # buffered lane wrote itself.
             with transaction.atomic():
-                self._mark_schemas(eligible, served=False)
-                # `cdc_buffered_before` is set here as well as on the flip, so a source flipped
-                # before this marker existed still carries it once it rolls back — which is the
-                # population that would otherwise be refused a second flip over a `_ph_cdc_seq`
-                # column the buffered lane wrote itself.
                 self._write_job_inputs(source, cdc_ingest_mode="legacy", cdc_buffered_before=True)
+                self._mark_buffered_before([s for s in cdc_schemas if serves_buffered_lane(s)])
         except BaseException:
             # The mode is still buffered, so the schemas go back to consuming the buffer, which is
             # what they were doing before this command ran. Leaving them paused instead would stop
@@ -415,18 +368,15 @@ class Command(BaseCommand):
             job_inputs=source.job_inputs, updated_at=dt.datetime.now(dt.UTC)
         )
 
-    def _mark_schemas(self, schemas: list[ExternalDataSchema], *, served: bool) -> None:
-        """The per-schema opt-in `serves_buffered_lane` reads. `cdc_buffered_before` is never cleared.
+    def _mark_buffered_before(self, schemas: list[ExternalDataSchema]) -> None:
+        """Record that the buffered lane wrote to these tables; never cleared, see the reserved-column check.
 
         Merged under the row lock: the runs this command waited out wrote their own keys into the
         same JSON, and saving the copy loaded at the start would put them back the way they were.
         """
         for schema in schemas:
             schema.sync_type_config = update_sync_type_config_keys(
-                schema.id,
-                schema.team_id,
-                updates={BUFFERED_LANE_KEY: True, BUFFERED_BEFORE_KEY: True} if served else None,
-                removes=None if served else [BUFFERED_LANE_KEY],
+                schema.id, schema.team_id, updates={BUFFERED_BEFORE_KEY: True}
             )
 
     def _retire_orphaned_companions(self, schemas: list[ExternalDataSchema]) -> None:

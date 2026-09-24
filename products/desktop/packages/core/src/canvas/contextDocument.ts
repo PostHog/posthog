@@ -75,6 +75,30 @@ export interface ContextDocument {
   broken: BrokenBlock[];
 }
 
+/** What the loops of a goal space may do on their own. Set by the setup task, changed by a person. */
+export const AUTONOMY_LEVELS = ["propose", "ship_drafts", "autopilot"] as const;
+export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
+
+const AUTONOMY_LINE = /^autonomy:\s*(.*?)\s*$/m;
+
+/** The page's autonomy level, or null when the page has none (a space that was not set up for a goal). */
+export function readAutonomy(doc: ContextDocument): AutonomyLevel | null {
+  const value = AUTONOMY_LINE.exec(doc.frontmatter)?.[1];
+  return AUTONOMY_LEVELS.find((level) => level === value) ?? null;
+}
+
+/** The document with its autonomy line replaced in place, so the wiki's other lines and their order survive. */
+export function withAutonomy(
+  doc: ContextDocument,
+  level: AutonomyLevel,
+): ContextDocument {
+  const line = `autonomy: ${level}`;
+  const frontmatter = AUTONOMY_LINE.test(doc.frontmatter)
+    ? doc.frontmatter.replace(AUTONOMY_LINE, line)
+    : [doc.frontmatter, line].filter(Boolean).join("\n");
+  return { ...doc, frontmatter };
+}
+
 export const CONTEXT_OBJECT_KIND_LABELS: Record<ContextObjectKind, string> = {
   insight: "Insight",
   dashboard: "Dashboard",

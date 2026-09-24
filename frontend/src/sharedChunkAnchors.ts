@@ -1,8 +1,11 @@
 // Build-time entry. Imports + the export below keep these npm packages
 // from being tree-shaken so esbuild's splitter places them in their own
 // shared chunk, keeping the largest chunk under CloudFront's 10 MB cap.
+//
+// An anchor keeps every export of its package, and a package that eager code imports then ships
+// whole on the logged-in path. @base-ui/react is not anchored for that reason: the app shell
+// uses only part of it.
 
-import * as BaseUiReact from '@base-ui/react'
 import * as DndKitCore from '@dnd-kit/core'
 import * as TiptapCore from '@tiptap/core'
 import * as XyflowReact from '@xyflow/react'
@@ -30,7 +33,6 @@ import * as Zod from 'zod'
 import * as PosthogIcons from '@posthog/icons'
 
 export const __chunkAnchors = {
-    BaseUiReact,
     DndKitCore,
     HighlightJsCore,
     Kea,

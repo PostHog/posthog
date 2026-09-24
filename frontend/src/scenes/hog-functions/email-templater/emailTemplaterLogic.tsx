@@ -103,6 +103,19 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
+    return new Promise((resolve) =>
+        editor.exportHtml((data: { html: string; design: JSONTemplate }) => {
+            let design = data.design
+            try {
+                // A save drops the undefined keys Unlayer exports, so an unnormalized export never equals it.
+                design = JSON.parse(JSON.stringify(design))
+            } catch {}
+            resolve({ ...data, design })
+        })
+    )
+}
+
 /**
  * Wrap raw html in an Unlayer design holding a single custom HTML block. Emails authored
  * programmatically (API/MCP) often have html but no design; loading a wrapped design shows the
@@ -554,7 +567,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
-                        new Promise<any>((res) => editor.exportHtml(res)),
+                        exportEditorHtml(editor),
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
@@ -612,7 +625,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!editor) {
                 return
             }
-            const htmlData: { design: JSONTemplate } = await new Promise<any>((res) => editor.exportHtml(res))
+            const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
             breakpoint()
             cache.lastEditorDesign = htmlData.design
         },
@@ -633,7 +646,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
-                new Promise<any>((res) => editor.exportHtml(res)),
+                exportEditorHtml(editor),
                 new Promise<any>((res) => editor.exportPlainText(res)),
             ])
             breakpoint()
@@ -733,7 +746,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (editor) {
                     const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                         await Promise.all([
-                            new Promise<any>((res) => editor.exportHtml(res)),
+                            exportEditorHtml(editor),
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
                     cache.pendingDesignEdit = false
@@ -774,7 +787,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                     const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                         await Promise.all([
-                            new Promise<any>((res) => editor.exportHtml(res)),
+                            exportEditorHtml(editor),
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
 
