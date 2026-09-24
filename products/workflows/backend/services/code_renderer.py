@@ -55,11 +55,11 @@ MAX_ACTIONS = 1000
 MAX_EDGES = 2000
 MAX_BRANCH_ARMS = 100
 
-_IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+_IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 # The same pattern and caps `emit.ts` checks, so a wait the push would refuse is warned about here.
-_DURATION = re.compile(r"^(?P<amount>[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?P<unit>[dhms])$")
+_DURATION = re.compile(r"(?P<amount>[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?P<unit>[dhms])")
 _DURATION_CAPS = {"d": 30, "h": 24, "m": 60, "s": 60}
-_REPEAT_ID = re.compile(r"^(?P<base>.+)_(?P<count>\d+)$")
+_REPEAT_ID = re.compile(r"(?P<base>.+)_(?P<count>\d+)")
 _JS_RESERVED = frozenset(
     "break case catch class const continue debugger default delete do else enum export extends false "
     "finally for function if import in instanceof new null return super switch this throw true try "
@@ -155,7 +155,7 @@ def _quote(value: str) -> str:
 
 
 def _key(key: str) -> str:
-    return key if _IDENTIFIER.match(key) else _quote(key)
+    return key if _IDENTIFIER.fullmatch(key) else _quote(key)
 
 
 def _comment_line(indent: str, text: str) -> str:
@@ -516,7 +516,7 @@ class _Renderer:
             return True
         if kind == "delay":
             duration = config.get("delay_duration")
-            match = _DURATION.match(duration) if isinstance(duration, str) else None
+            match = _DURATION.fullmatch(duration) if isinstance(duration, str) else None
             return (
                 set(config) != {"delay_duration"}
                 or match is None
@@ -572,7 +572,7 @@ class _Renderer:
         duration = config.get("delay_duration")
         if not isinstance(duration, str) or not duration:
             return None
-        match = _DURATION.match(duration)
+        match = _DURATION.fullmatch(duration)
         if match is None or float(match["amount"]) == 0 or float(match["amount"]) > _DURATION_CAPS[match["unit"]]:
             self.warn(
                 action["id"],
@@ -588,7 +588,7 @@ class _Renderer:
         names the variable after the first placement. Without that the two placements would
         render differently and never fold back into one const.
         """
-        match = _REPEAT_ID.match(action["id"])
+        match = _REPEAT_ID.fullmatch(action["id"])
         if match and match["count"] == str(int(match["count"])):
             first = self.actions.get(match["base"])
             if (
@@ -868,7 +868,7 @@ class _Renderer:
             call = self.calls.get(action_id)
             if call is None or placement.action.get("type") not in _HOISTABLE_TYPES:
                 continue
-            match = _REPEAT_ID.match(action_id)
+            match = _REPEAT_ID.fullmatch(action_id)
             if match and match["base"] in count_of_base and match["count"] == str(count_of_base[match["base"]] + 1):
                 first = match["base"]
                 if _print(call, "") == _print(self.calls[first], ""):
