@@ -586,6 +586,15 @@ class TaskSerializer(DataclassSerializer):
             "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
         ),
     )
+    category = serializers.ChoiceField(
+        choices=tasks_facade.TaskCategory.choices,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). "
+            "Classified from the first prompt. Null until classified."
+        ),
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -616,6 +625,7 @@ class TaskSerializer(DataclassSerializer):
             "channel",
             "slack_thread_references",
             "origin_key",
+            "category",
         ]
 
 
@@ -688,6 +698,12 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
+    )
+    category = serializers.ChoiceField(
+        choices=tasks_facade.TaskCategory.choices,
+        required=False,
+        allow_null=True,
+        help_text="Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).",
     )
     origin_product = serializers.ChoiceField(
         choices=tasks_facade.TaskOriginProduct.choices,

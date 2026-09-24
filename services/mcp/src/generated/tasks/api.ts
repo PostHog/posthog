@@ -1046,6 +1046,19 @@ export const TasksCreateBody = () => zod.object({
         .string()
         .optional()
         .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    category: zod
+        .union([
+            zod
+                .enum(['feat', 'fix', 'perf', 'refactor', 'docs', 'test', 'chore', 'ci', 'build', 'style', 'revert'])
+                .describe(
+                    '\* `feat` - Feature\n\* `fix` - Fix\n\* `perf` - Performance\n\* `refactor` - Refactor\n\* `docs` - Docs\n\* `test` - Test\n\* `chore` - Chore\n\* `ci` - CI\n\* `build` - Build\n\* `style` - Style\n\* `revert` - Revert'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).\n\n\* `feat` - Feature\n\* `fix` - Fix\n\* `perf` - Performance\n\* `refactor` - Refactor\n\* `docs` - Docs\n\* `test` - Test\n\* `chore` - Chore\n\* `ci` - CI\n\* `build` - Build\n\* `style` - Style\n\* `revert` - Revert'
+        ),
     origin_product: zod
         .enum([
             'onboarding',

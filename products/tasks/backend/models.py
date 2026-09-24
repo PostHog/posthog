@@ -383,6 +383,20 @@ class Task(DeletedMetaFields, models.Model):
         # from the create-space flow, so it is billed and timed like their own tasks.
         SPACE_SETUP = "space_setup", "Space Setup"
 
+    class Category(models.TextChoices):
+        # Conventional commit types, so a task's category reads like the PR it produces.
+        FEAT = "feat", "Feature"
+        FIX = "fix", "Fix"
+        PERF = "perf", "Performance"
+        REFACTOR = "refactor", "Refactor"
+        DOCS = "docs", "Docs"
+        TEST = "test", "Test"
+        CHORE = "chore", "Chore"
+        CI = "ci", "CI"
+        BUILD = "build", "Build"
+        STYLE = "style", "Style"
+        REVERT = "revert", "Revert"
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -392,6 +406,7 @@ class Task(DeletedMetaFields, models.Model):
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
+    category = models.CharField(max_length=16, choices=Category.choices, null=True, blank=True)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     client_provenance = models.CharField(

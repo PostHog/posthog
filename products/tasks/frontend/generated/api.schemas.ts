@@ -1850,6 +1850,35 @@ export interface SlackThreadReferenceDTOApi {
 }
 
 /**
+ * * `feat` - Feature
+ * * `fix` - Fix
+ * * `perf` - Performance
+ * * `refactor` - Refactor
+ * * `docs` - Docs
+ * * `test` - Test
+ * * `chore` - Chore
+ * * `ci` - CI
+ * * `build` - Build
+ * * `style` - Style
+ * * `revert` - Revert
+ */
+export type TaskCategoryEnumApi = (typeof TaskCategoryEnumApi)[keyof typeof TaskCategoryEnumApi]
+
+export const TaskCategoryEnumApi = {
+    Feat: 'feat',
+    Fix: 'fix',
+    Perf: 'perf',
+    Refactor: 'refactor',
+    Docs: 'docs',
+    Test: 'test',
+    Chore: 'chore',
+    Ci: 'ci',
+    Build: 'build',
+    Style: 'style',
+    Revert: 'revert',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1909,6 +1938,20 @@ export interface TaskDetailDTOApi {
      * @nullable
      */
     origin_key?: string | null
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
 }
 
 /**
@@ -1973,6 +2016,20 @@ export interface TaskBasicApi {
      * @nullable
      */
     origin_key?: string | null
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -2073,6 +2130,20 @@ export interface TaskCreateApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
@@ -2281,6 +2352,20 @@ export interface TaskCreateResponseDTOApi {
      * @nullable
      */
     origin_key?: string | null
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -2295,6 +2380,20 @@ export interface TaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
@@ -2429,6 +2528,20 @@ export interface PatchedTaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
@@ -3200,6 +3313,20 @@ export interface TaskRunResponseApi {
      * @nullable
      */
     origin_key?: string | null
+    /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+     *
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert */
+    category?: TaskCategoryEnumApi | null
     /** Error returned when the run could not start. */
     run_error?: string
 }

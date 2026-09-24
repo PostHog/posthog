@@ -181,6 +181,7 @@ TaskRunStatus = TaskRun.Status
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
 TaskRuntime = Task.Runtime
+TaskCategory = Task.Category
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -205,6 +206,7 @@ __all__ = [
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
     "TaskRuntime",
+    "TaskCategory",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "WarmRunActivationUnavailable",
@@ -811,6 +813,7 @@ def _task_detail_to_dto(
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=task.origin_key,
+        category=task.category,
     )
 
 

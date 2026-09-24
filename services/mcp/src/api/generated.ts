@@ -66858,6 +66858,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `feat` - Feature
+     * * `fix` - Fix
+     * * `perf` - Performance
+     * * `refactor` - Refactor
+     * * `docs` - Docs
+     * * `test` - Test
+     * * `chore` - Chore
+     * * `ci` - CI
+     * * `build` - Build
+     * * `style` - Style
+     * * `revert` - Revert
+     */
+    export type TaskCategoryEnum = typeof TaskCategoryEnum[keyof typeof TaskCategoryEnum];
+
+
+    export const TaskCategoryEnum = {
+      Feat: 'feat',
+      Fix: 'fix',
+      Perf: 'perf',
+      Refactor: 'refactor',
+      Docs: 'docs',
+      Test: 'test',
+      Chore: 'chore',
+      Ci: 'ci',
+      Build: 'build',
+      Style: 'style',
+      Revert: 'revert',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -66917,6 +66947,20 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
     }
 
     /**
@@ -66981,6 +67025,20 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -76782,6 +76840,20 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
@@ -95537,6 +95609,20 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
@@ -95745,6 +95831,20 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -96876,6 +96976,20 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...). Classified from the first prompt. Null until classified.
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
       /** Error returned when the run could not start. */
       run_error?: string;
     }
@@ -97128,6 +97242,20 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** Kind of change the task makes, as a conventional commit type (feat, fix, perf, ...).
+       *
+       * * `feat` - Feature
+       * * `fix` - Fix
+       * * `perf` - Performance
+       * * `refactor` - Refactor
+       * * `docs` - Docs
+       * * `test` - Test
+       * * `chore` - Chore
+       * * `ci` - CI
+       * * `build` - Build
+       * * `style` - Style
+       * * `revert` - Revert */
+      category?: TaskCategoryEnum | null;
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding

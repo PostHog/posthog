@@ -2886,6 +2886,25 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["title"], "Updated Task")
+        self.assertIsNone(response.json()["category"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"category": "perf"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["category"], "perf")
+        self.assertEqual(response.json()["title"], "Updated Task")
+        task.refresh_from_db()
+        self.assertEqual(task.category, "perf")
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"category": "wip"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_delete_task(self):
         task = self.create_task("Task to Delete")
