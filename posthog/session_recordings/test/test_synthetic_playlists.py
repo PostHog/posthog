@@ -18,7 +18,11 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
-from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
+from posthog.session_recordings.synthetic_playlists import (
+    ExpiringPlaylistSource,
+    ExportedPlaylistSource,
+    FrustrationSignalsPlaylistSource,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -164,7 +168,32 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
 
+    def test_exported_playlist_caches_and_shares_one_scan(self) -> None:
+        cache.clear()
+
+        for index in range(2):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.GIF,
+                export_context={"session_recording_id": f"exported-session-{index}"},
+                created_by=self.user,
+            )
+
+        source = ExportedPlaylistSource()
+
+        # count + get_session_ids + a second list load share a single cached scan
+        with self.assertNumQueries(1):
+            count = source.count_session_ids(self.team, self.user)
+            session_ids = source.get_session_ids(self.team, self.user)
+            recount = source.count_session_ids(self.team, self.user)
+
+        assert count == 2
+        assert recount == 2
+        assert sorted(session_ids) == ["exported-session-0", "exported-session-1"]
+
     def test_synthetic_playlist_exported_content(self) -> None:
+        cache.clear()
+
         ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.GIF,

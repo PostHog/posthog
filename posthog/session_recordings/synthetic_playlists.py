@@ -159,7 +159,29 @@ class SharedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class ExportedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+    """
+    Surfaces recordings that have been exported as clips or screenshots.
+    The `has_key` filter compiles to the jsonb `?` operator, which the
+    (team_id, export_context->'session_recording_id') index cannot serve, so the
+    scan reads the team's whole asset history. The session ids are cached for
+    1 hour and shared by the count and pagination paths to keep that scan off
+    every list load.
+    """
+
+    CACHE_KEY_PREFIX = "exported_synthetic_playlist"
+    CACHE_TTL = 3600  # 1 hour
+
+    @staticmethod
+    def _get_cache_key(team_id: int) -> str:
+        return f"{ExportedPlaylistSource.CACHE_KEY_PREFIX}_team_{team_id}"
+
+    @staticmethod
+    def _get_exported_session_ids(team: Team) -> list[str]:
+        cache_key = ExportedPlaylistSource._get_cache_key(team.pk)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return cached_data
+
         qs = (
             ExportedAsset.objects.filter(team=team)
             .filter(export_context__has_key="session_recording_id")
@@ -169,18 +191,15 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
             .values_list("export_context__session_recording_id", flat=True)
         )
         session_ids = list(dict.fromkeys(qs))
+        cache.set(cache_key, session_ids, ExportedPlaylistSource.CACHE_TTL)
+        return session_ids
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        session_ids = self._get_exported_session_ids(team)
         return self._paginate_list(session_ids, limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
-        return (
-            ExportedAsset.objects.filter(team=team)
-            .filter(export_context__has_key="session_recording_id")
-            .exclude(export_context__session_recording_id__isnull=True)
-            .exclude(export_context__session_recording_id="")
-            .values("export_context__session_recording_id")
-            .distinct()
-            .count()
-        )
+        return len(self._get_exported_session_ids(team))
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
