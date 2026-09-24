@@ -48,7 +48,9 @@ _WRITE_CHUNK_SIZE = 1_000
 
 
 def emitted_rows_key(team_id: int, saved_query_id: str) -> str:
-    return f"cdp_produced_view_rows:{team_id}:{saved_query_id}"
+    # The braces are a Redis Cluster hash tag. commit() renames a scratch key onto this one inside a
+    # transaction, and on a cluster that fails with CROSSSLOT unless both keys hash to the same slot.
+    return f"cdp_produced_view_rows:{{{team_id}:{saved_query_id}}}"
 
 
 class EmittedRowStore:

@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from redis.crc import key_slot
 
 from posthog.redis import get_async_client
 
@@ -23,7 +24,10 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows import EmittedRowStore
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows import (
+    EmittedRowStore,
+    emitted_rows_key,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
     ObjectStoreConfigurationError,
@@ -1391,3 +1395,9 @@ async def test_the_record_never_holds_more_than_the_tracked_row_limit():
         await store.commit()
 
     assert await get_async_client().scard(key) == 2
+
+
+def test_the_emitted_rows_key_and_its_scratch_key_share_a_cluster_slot():
+    key = emitted_rows_key(1, "01a0d0f3-b1c8-0000-1589-739b4a75582c")
+
+    assert key_slot(key.encode()) == key_slot(f"{key}:writing".encode())
