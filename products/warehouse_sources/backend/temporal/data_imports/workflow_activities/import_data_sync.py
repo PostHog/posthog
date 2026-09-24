@@ -448,15 +448,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
 
-        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
-
-        await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
-        await logger.adebug(f"reset_pipeline = {reset_pipeline}")
-
         try:
             schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
+
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
+
+        await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
+        await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
