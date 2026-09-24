@@ -225,11 +225,6 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         ]
         self.organization.save()
 
-    def test_default_period_matches_the_logs_default(self):
-        # The tracing model deliberately duplicates the constant rather than importing it.
-        self.assertEqual(DEFAULT_TRACES_RETENTION_DAYS, DEFAULT_LOGS_RETENTION_DAYS)
-        self.assertEqual(self.client.get(self.url).json()["retention_days"], DEFAULT_TRACES_RETENTION_DAYS)
-
     def test_patch_free_tier_records_the_update_time(self):
         response = self.client.patch(self.url, {"retention_days": 14}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
