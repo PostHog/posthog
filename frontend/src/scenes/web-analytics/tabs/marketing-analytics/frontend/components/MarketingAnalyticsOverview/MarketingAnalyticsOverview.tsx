@@ -42,7 +42,7 @@ export function MarketingAnalyticsOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -70,7 +70,7 @@ export function MarketingAnalyticsOverview(props: {
 
     const hasResults = overviewItems.length > 0
     if (responseError && !responseLoading && !hasResults) {
-        return <InsightErrorState title={responseError} />
+        return <InsightErrorState title={responseError} queryId={responseErrorObject?.queryId ?? queryId} />
     }
 
     // A cold precompute window comes back as an empty result, which the metric grid would render as a row

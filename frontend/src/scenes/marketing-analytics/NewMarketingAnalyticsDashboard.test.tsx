@@ -13,7 +13,7 @@ jest.mock('kea', () => ({
     useActions: () => new Proxy({}, { get: () => jest.fn() }),
 }))
 jest.mock('@posthog/lemon-ui', () => ({
-    LemonBanner: () => null,
+    LemonBanner: ({ children }: { children: React.ReactNode }) => <div role="alert">{children}</div>,
     LemonCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     LemonSelect: ({
         value,
@@ -64,7 +64,7 @@ jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
     VariationCell: () => () => null,
     webAnalyticsDataTableQueryContext: {},
 }))
-jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () => ({}) }))
+jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: (props: { key: string }) => ({ props }) }))
 jest.mock('~/queries/nodes/OverviewGrid/OverviewMetricCardGrid', () => ({ OverviewMetricCardGrid: () => null }))
 jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () => '' }))
 jest.mock('~/queries/Query/Query', () => ({
@@ -90,6 +90,42 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/Ret
 
 describe('NewMarketingAnalyticsDashboard', () => {
     afterEach(cleanup)
+
+    it.each([
+        ['marketing-acquisition-overview', 'failed-traffic-query', 'current-traffic-query', 'failed-traffic-query'],
+        ['marketing-acquisition-overview', undefined, 'current-traffic-query', 'current-traffic-query'],
+        ['marketing-acquisition-customers', 'failed-customer-query', 'current-customer-query', 'failed-customer-query'],
+        ['marketing-acquisition-customers', undefined, 'current-customer-query', 'current-customer-query'],
+        ['marketing-acquisition-overview', undefined, null, null],
+    ])('identifies the failed %s request with error ID %s and request ID %s', (key, errorId, requestId, expected) => {
+        jest.mocked(useValues).mockImplementation((logic) => ({
+            dateFilter: { dateFrom: '-30d', dateTo: null },
+            compareFilter: { compare: false },
+            shouldFilterTestAccounts: false,
+            responseLoading: false,
+            setupPlan: {},
+            visibleSuggestions: [],
+            trafficOrderBy: {},
+            trafficChartMetric: 'visitors',
+            trafficChartSeries: { kind: 'EventsNode', event: null, math: 'dau', custom_name: 'Visitors' },
+            customerConversionGoal: { kind: 'EventsNode', event: 'purchase' },
+            customerGoals: [],
+            ...(typeof logic !== 'function' && (logic as { props?: { key?: string } }).props?.key === key
+                ? {
+                      responseError: 'Query failed',
+                      responseErrorObject: { queryId: errorId },
+                      queryId: requestId,
+                      response: { query_status: { id: 'previous-successful-query' } },
+                  }
+                : {}),
+        }))
+
+        render(<NewMarketingAnalyticsDashboard />)
+
+        const error = screen.getByRole('alert')
+        expect(error.textContent?.match(/Query ID: (.+)/)?.[1] ?? null).toBe(expected)
+        expect(error.textContent).not.toContain('previous-successful-query')
+    })
 
     it('shows every section without per-section flags', () => {
         jest.mocked(useValues).mockReturnValue({

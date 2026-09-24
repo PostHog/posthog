@@ -173,6 +173,8 @@ export function ExperimentView(): JSX.Element {
                         // Fall back to the default tab if the active one is conditionally hidden
                         activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
                         onChange={(key) => setActiveTabKey(key)}
+                        // Override sceneInset's -mt-4 pull-up so the tabs keep 24px from whatever sits above them
+                        className="mt-2"
                         sceneInset
                         // Keep the tab bar full-width, but cap the content under each tab for readability
                         tabs={tabs.map((tab) =>

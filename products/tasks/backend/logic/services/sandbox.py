@@ -79,6 +79,9 @@ class SandboxTemplate(str, Enum):
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
     CANVAS_BUILD = "canvas_build"
+    # SLIM_BASE plus a uv cache that already holds the stamphog review engine's pinned deps,
+    # so the engine's `uv run` starts without a download.
+    STAMPHOG_REVIEW = "stamphog_review"
 
 
 # Templates whose image hosts the task agent server, so a task can ask for them. The

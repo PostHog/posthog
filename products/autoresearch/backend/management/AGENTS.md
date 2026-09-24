@@ -2,16 +2,16 @@
 
 The headless entrypoints. Four commands cover the whole product lifecycle, and together they are how autoresearch is exercised end to end locally without a browser.
 
-This package landed with `autoresearch_validate`, `autoresearch_score`, and `autoresearch_validate_online`. `autoresearch_train` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 Every command calls the same functions the API and the Temporal activities call. They are thin wrappers, not a parallel implementation, and they should stay that way.
 
 **All of them bypass the `autoresearch` feature flag.** That is why local CLI testing works with no flag setup while the API and UI still need one.
+The real-agent path of `autoresearch_train` is the exception: its sandbox agent calls the flag-gated API, so the command refuses a team without the flag before it spends a run.
 
 ## The four commands
 
 - `autoresearch_train` — create a pipeline and/or launch training.
   `--pipeline-id | --team-id --target --name --horizon --create --stub --user-id --iterations`
+  `--pipeline-id` and `--create` are mutually exclusive. `--user-id` has no default: `--create` and real training require a member of the pipeline's team. `--create` applies the API's target rules, and an archived pipeline is refused.
   With `--create` it creates the pipeline first. With `--stub` it runs `../training/stub.py` (deterministic, free); without it, the real Claude agent runs in a sandbox and costs roughly a dollar.
   **Use `--stub` for anything that isn't specifically testing the agent.**
 - `autoresearch_score` — load the champion, score the inference population, emit `autoresearch_prediction` events.

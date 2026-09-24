@@ -30,6 +30,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import (
@@ -2730,7 +2731,7 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         deduped: list[str] = []
         seen_ids: set[str] = set()
         for target in value:
-            member_id = target.split("|", 1)[0].strip()
+            member_id = channel_id_from_target(target)
             if not re.fullmatch(r"[UW][A-Z0-9]{4,}", member_id):
                 raise serializers.ValidationError(
                     f"{target!r} is not a Slack member target. Expected a member ID starting with U or W, "
@@ -3955,7 +3956,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
 
 class ScoutLimitsSerializer(serializers.Serializer):
-    """A team's enforced scout run caps and current usage.
+    """A team's enforced scout caps and current usage.
 
     These are the values the coordinator actually applies at dispatch (resolved per-team override →
     fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -3975,6 +3976,9 @@ class ScoutLimitsSerializer(serializers.Serializer):
     runs_remaining_today = serializers.IntegerField(
         allow_null=True,
         help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+    max_enabled_scouts = serializers.IntegerField(
+        help_text="Most scouts the project can have switched on at once. Enabling another past this is rejected.",
     )
 
 
