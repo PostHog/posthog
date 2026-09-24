@@ -31,6 +31,28 @@ describe('navFilesTabLogic', () => {
         expect(starred.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(['Overview', 'Research'])
     })
 
+    it('combines ownership and type filters without dropping text or desynchronizing starred files', () => {
+        const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
+        const starred = projectTreeLogic({ key: FILES_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'files' })
+
+        files.actions.setSearchTerm('Overview')
+        files.actions.toggleOnlyMyStuff()
+        files.actions.toggleFileTypeFilter('insight')
+        expect(files.values.searchTerm).toBe('Overview user:me type:insight')
+        expect(files.values.searchFilters).toEqual({ onlyMine: true, fileType: 'insight' })
+        expect(starred.values.searchTerm).toBe(files.values.searchTerm)
+
+        files.actions.toggleFileTypeFilter('dashboard')
+        expect(files.values.searchTerm).toBe('Overview user:me type:dashboard')
+
+        files.actions.toggleOnlyMyStuff()
+        expect(files.values.searchTerm).toBe('Overview type:dashboard')
+        files.actions.toggleFileTypeFilter('dashboard')
+        expect(files.values.searchTerm).toBe('Overview')
+        expect(files.values.searchFilters).toEqual({ onlyMine: false, fileType: null })
+        expect(starred.values.searchTerm).toBe('Overview')
+    })
+
     it('reveals a folder in the files tab even when the navigation and folder are collapsed', async () => {
         const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
         panelLayoutLogic.actions.setNavExperimentTab('home')
