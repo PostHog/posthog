@@ -456,7 +456,7 @@ def count_backfill_candidates(
     )
     # `countIf` over the judged half only, because negating it would put the whole dedupe subquery
     # in the statement a second time. The other half is the difference from the total.
-    counts = [ast.Call(name="count", args=[]), ast.Call(name="countIf", args=[judged])]
+    counts: list[ast.Expr] = [ast.Call(name="count", args=[]), ast.Call(name="countIf", args=[judged])]
     if not reads_heavy_properties(conditions):
         query = ast.SelectQuery(select=counts, select_from=ast.JoinExpr(table=units))
         return _scope_from_counts(_run(query, team=team, query_type=COUNT_QUERY_TYPE), rerun_existing)
