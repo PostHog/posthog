@@ -12,7 +12,7 @@ Work the steps in order. Each step ends when its check holds. [references/steps.
 ## 1. Install the package and scaffold a file
 
 - Add `@posthog/workflows` as a devDependency of the package that holds the workflow files. The package is not on npm yet, so this works only inside the PostHog monorepo, where the entry is `"@posthog/workflows": "workspace:*"`. The CLI needs Node 22.12 or newer.
-- Run `posthog-workflows init flows/onboarding.ts`. It writes a starter file with the key and the name taken from the file name, and refuses to overwrite a file that exists.
+- Run `posthog-workflows init flows/onboarding.ts`. It writes a starter file with the key and the name taken from the file name, plus `status: 'draft'` (see step 4), and refuses to overwrite a file that exists.
 - The CLI evaluates the TypeScript itself, so there is no build step. Keep your own `tsc` running over the file, because the loader does not type-check.
 
 Done when: the file exists and exports one `workflow({ ... })`.
@@ -21,7 +21,7 @@ Done when: the file exists and exports one `workflow({ ... })`.
 
 - `key` is the workflow's identity in the project. It must use only letters, digits, hyphens and underscores, and it must be 400 characters or fewer. Every push resolves it, so treat it as fixed once pushed. A renamed key orphans the old workflow and creates a new one. The same file reaches a staging project and a production project without a change.
 - `on: onEvent({ event: 'user signed up' })` starts one run per occurrence, and each run has a person. Narrow it with `properties: [eventProperty('$current_url', 'icontains', '/pricing')]`. Pass `name` or `description` when the trigger action needs editor copy.
-- `on: onSchedule()` starts a run per occurrence of a cadence. A run has no person, so write a straight path and read no person property. The cadence is attached in PostHog after the first push; until then the workflow does not run.
+- `on: onSchedule()` starts a run per occurrence of a cadence. A run has no person, so write a straight path and read no person property. `onSchedule()` carries no cadence, so PostHog owns it: after the first push, add the schedule to the workflow in PostHog. PostHog accepts schedule changes on a workflow managed by code, and a push leaves the schedule as it is. Until a schedule exists, the workflow does not run, `active` or not.
 - `on: trigger(config, { name, description })` passes an unsupported trigger type through unchanged. Use it only when there is no typed helper. You must know the stored config shape, so start from an existing workflow. Copy one with the Copy code button or use the `workflows-get-code` MCP tool when it is available.
 
 Done when: the key is final and the trigger matches how the workflow starts.
@@ -44,11 +44,11 @@ Done when: every step has a distinct name, every branch arm has at least one ste
 ## 4. Set variables, status and exit
 
 - `variables: [{ key: 'docs_url', type: 'string', default: 'https://example.com/docs', label: 'Docs URL' }]`. Every default is a string, keys are unique, and the list is capped at 5120 bytes.
-- Leave `status` out. PostHog owns it. A new workflow starts as a draft, and a push never changes the status of a workflow whose file omits the field. Set `status` in the file only when code must control whether the workflow is `draft`, `active` or `archived`.
+- Decide who owns `status`. The starter from `init` sets `status: 'draft'`, and while the field is in the file, the file owns the status: every push that writes sets it back to the file's value, even after someone turns the workflow on in PostHog. Delete the line to let PostHog own the status. A new workflow starts as a draft either way, and a push never changes the status of a workflow whose file omits the field. Keep the field only when code must control whether the workflow is `draft`, `active` or `archived`.
 - `exit: { reason: 'Onboarding finished', name: 'Finish' }` is required. Add `description` when the exit action needs editor copy. `exitCondition` defaults to `exit_only_at_end`.
 - `export` the workflow, because the CLI pushes what the file exports and skips the rest.
 
-Done when: variables are small, `status` is omitted unless code must own it, and the workflow is exported.
+Done when: variables are small, the `status` line is gone unless code must own the status, and the workflow is exported.
 
 ## 5. Run check and read its output
 
@@ -66,7 +66,7 @@ Done when: `check` exits 0 and the result is the one you expect.
 
 Run `posthog-workflows push flows/onboarding.ts`. It prints `created`, `updated` or `unchanged` per workflow, with the stored version, the workflow's URL and the source ref that was sent, and exits non-zero when any workflow failed.
 
-- Every push that writes marks the workflow as `managed_by: code`, which makes it read-only in the PostHog UI with a link to the file. A workflow released in the UI is claimed again by the next push that writes.
+- Every push that writes marks the workflow as `managed_by: code`, and PostHog shows a link to the file. PostHog keeps edits made in its editor to that workflow and does not save them. **Copy code** turns those edits into the file to commit. A workflow released in the UI is claimed again by the next push that writes.
 - A push writes nothing when nothing changed. `--force` pushes anyway. That is how a rotated secret lands, because the comparison never looks at a secret input, and how a released workflow is claimed again without another change.
 - A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path for a file that moved. A copy needs a key of its own.
 - The CLI sends source repository, path and ref fields when it can resolve them. It does not send a `source` object, and it does not send the commit author or subject.
@@ -76,7 +76,7 @@ Done when: `push` exits 0 and the URL it prints opens the workflow.
 
 ## 7. Credentials
 
-- `push` needs a personal API key with the `hog_flow:write` scope for the project. The key is never a flag.
+- `push` needs an API key with the `hog_flow:write` scope for the project. Use the project's secret API key (`phs_...`), because it belongs to the project and keeps working when a person leaves. A personal API key with the same scope also works. The key is never a flag.
 - The CLI reads `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST` from the environment. Otherwise it reads `~/.posthog/credentials.json`, which `posthog-cli login` writes. The key and the project id always come from one source.
 - `--project <id>` wins over the environment and the file. `--host <url>` wins over `POSTHOG_CLI_HOST` and the file. The host defaults to `https://us.posthog.com` and must be `https` unless it is loopback.
 - Use one key per project and one CI job per environment. The environment is a variable of the job, never a value in the file.

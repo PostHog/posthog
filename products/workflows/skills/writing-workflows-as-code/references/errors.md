@@ -30,11 +30,11 @@ Read `status` first, then do what `fix` says. The tables below list every litera
 
 ## `init`
 
-| Status                  | Meaning                                                                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| `unnamed_workflow_file` | The file name holds no letters or digits, so no key or name can be taken from it.                     |
-| `file_exists`           | The file exists. `init` never overwrites.                                                             |
-| `draft`                 | Not a refusal. The starter file sets `status: 'draft'`; remove the field unless code must own status. |
+| Status                  | Meaning                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unnamed_workflow_file` | The file name holds no letters or digits, so no key or name can be taken from it.                                                                       |
+| `file_exists`           | The file exists. `init` never overwrites.                                                                                                               |
+| `draft`                 | Not a refusal. `init` writes `status: 'draft'` into the starter, which makes the file own the status. Remove the field unless code must own the status. |
 
 ## Loading the file
 
