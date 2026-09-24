@@ -166,17 +166,14 @@ type PersonDistinctIdMove = {
 // conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
 // fields needed to emit the `conversion` metric without re-reading the hogflow.
 // A person wake carries a synthetic $person_updated event with no properties and no workflow
-// variables, so only a condition built purely from person properties can be decided here. Anything
-// else reads as false against the synthetic globals, which would strand the wait until its ceiling.
-// The worker holds the run's real trigger event and variables, so the matcher wakes the job and
-// lets it decide instead of treating the missing data as a non-match.
+// variables, so anything but a pure person-property condition reads as false here and would strand
+// the wait until its ceiling. Wake the job and let the worker, which holds the run's own globals, decide.
 function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_until_condition' }>): boolean {
     const properties = action.config.condition?.filters?.properties
     if (!Array.isArray(properties) || properties.length === 0) {
-        // An event-shaped condition needs an event, which the events stream delivers. Nothing to do here.
+        // An event-shaped condition needs an event, which the events stream delivers.
         return false
     }
-    // A hogql term can read anything, so it counts as undecidable rather than being parsed.
     return properties.some((p: { type?: string }) => p?.type !== 'person')
 }
 

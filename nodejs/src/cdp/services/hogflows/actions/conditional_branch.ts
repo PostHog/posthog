@@ -66,8 +66,7 @@ export class ConditionalBranchHandler implements ActionHandler {
             invocation.state.currentAction.anchorWake = false
         }
 
-        // Same again for a wake the matcher could not decide: the condition reads data only this
-        // worker holds, so the evaluation below is the decision, and a non-match re-parks as usual.
+        // Same again for a wake the matcher could not decide: the evaluation below is the decision.
         const recheckWoken =
             action.type === 'wait_until_condition' && invocation.state?.currentAction?.recheckWake === true
         if (recheckWoken && invocation.state.currentAction) {
