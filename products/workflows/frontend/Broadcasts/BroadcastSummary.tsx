@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconArrowLeft, IconExternal, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
@@ -67,7 +67,8 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         recipientSearch,
         hasMoreRecipients,
     } = useValues(broadcastSentLogic)
-    const { loadSends, setStatusFilter, selectInvocation, setRecipientSearch } = useActions(broadcastSentLogic)
+    const { loadSends, loadMoreSends, setStatusFilter, selectInvocation, setRecipientSearch } =
+        useActions(broadcastSentLogic)
 
     useEffect(() => {
         loadSends()
@@ -180,6 +181,19 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                           : 'No sends recorded for this run yet.'
                 }
             />
+            {hasMoreRecipients ? (
+                <div className="flex justify-center">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        loading={sendsLoading}
+                        onClick={loadMoreSends}
+                        data-attr="broadcast-sent-load-more"
+                    >
+                        Load more recipients
+                    </LemonButton>
+                </div>
+            ) : null}
             {selectedSend ? (
                 <EmailViewerModal
                     workflowId={workflowId}
@@ -200,18 +214,14 @@ function RunsTable({
     batchJobs,
     batchJobsLoading,
     columns,
-    latestRunId,
 }: {
     workflowId: string
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
     columns: LemonTableColumns<HogFlowBatchJobApi>
-    latestRunId: string | null
 }): JSX.Element {
-    // The latest run is what a sender opens this page to read, so it starts expanded. Runs load after
-    // mount, so null means "not touched yet" and follows whichever run is latest once they arrive.
-    const [expandedRunIds, setExpandedRunIds] = useState<string[] | null>(null)
-    const expanded = expandedRunIds ?? (latestRunId ? [latestRunId] : [])
+    const { expandedRunIds } = useValues(broadcastWizardLogic)
+    const { expandRun, collapseRun } = useActions(broadcastWizardLogic)
 
     return (
         <LemonTable
@@ -226,9 +236,9 @@ function RunsTable({
                 // A table inside a table runs out of room first. Dropping the indent cell gives the
                 // recipients back the width the toggle column would otherwise take.
                 noIndent: true,
-                isRowExpanded: (job) => (expanded.includes(job.id) ? 1 : 0),
-                onRowExpand: (job) => setExpandedRunIds([...expanded, job.id]),
-                onRowCollapse: (job) => setExpandedRunIds(expanded.filter((id) => id !== job.id)),
+                isRowExpanded: (job) => (expandedRunIds.includes(job.id) ? 1 : 0),
+                onRowExpand: (job) => expandRun(job.id),
+                onRowCollapse: (job) => collapseRun(job.id),
             }}
             emptyState="No runs yet. Scheduled broadcasts appear here after they send."
         />
@@ -347,7 +357,6 @@ export function BroadcastSummary(): JSX.Element {
                         batchJobs={batchJobs}
                         batchJobsLoading={batchJobsLoading}
                         columns={batchJobColumns}
-                        latestRunId={latestBatchJobId ?? null}
                     />
                 </div>
             </div>
