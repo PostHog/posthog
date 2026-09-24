@@ -27,6 +27,14 @@ It is exercised locally via management commands, and it is also used by the prod
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
 
+- `ownership_reviewers.py`
+  Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. A human reviewer edit prevents subsequent research runs from replacing the selection.
+
+- `team_membership.py`
+  Resolves which teams a person belongs to, so a report can be routed at a team slug rather than at a name. Provider-neutral by design (a membership is a slug, a display name, and whether the person maintains the team); the synced GitHub org roster read through the engineering_analytics facade is the only source behind it today.
+  - Backs the `team` filter and the `teams` field on `scout-members-list` (`resolve_reviewers.list_project_members`).
+  - The roster is a warehouse snapshot, so it can lag the live team, and the membership endpoint is off by default at the source (it needs the org Members grant). A slug with no rows therefore means "not synced here", never "no such team", and callers must keep those two apart.
+  - A failed read degrades rather than raising, so a warehouse hiccup never takes down the member list beside it. It is marked `read_failed`, kept apart from a genuinely unsynced roster: a filtered call answers 503 and asks for a retry, because telling a scout to turn on a sync that is already on sends it to change a correct setting.
 - `reviewer_telemetry.py`
   Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).

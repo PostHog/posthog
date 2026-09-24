@@ -159,6 +159,16 @@ export interface TaskChannel {
 /** Lifecycle events a client may post into a channel's feed. */
 export type ChannelFeedMessageEvent = "context_md_building";
 
+export type {
+  SpaceFeatureInput,
+  SpaceGoalDirection,
+  SpaceGoalInput,
+  SpaceGoalPeriod,
+  SpaceSetupInput,
+  SpaceSetupKind,
+  SpaceSetupStarted,
+} from "./schemas";
+
 /**
  * A durable, team-visible "PostHog agent" announcement in a channel's feed —
  * rendered alongside task cards (e.g. "Adam created this context"). `author` is

@@ -869,6 +869,24 @@ export enum PredicateScope {
     Unknown = 'unknown',
 }
 
+export enum PredicateFixAction {
+    /** A query edit unblocks an index that already exists. */
+    EditQuery = 'edit_query',
+    /** The property definition declares a type its stored values do not have. */
+    EditPropertyType = 'edit_property_type',
+    /** The property has no dedicated column to index. */
+    Materialize = 'materialize',
+}
+
+export interface PredicateQuickfix {
+    /** Character offset in the query where the replaced range starts. */
+    start: integer
+    /** Character offset in the query where the replaced range ends. */
+    end: integer
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
+}
+
 /** How one property filter in the query reads its data, decided before the query runs. */
 export interface PredicateIndexUsage {
     property_name: string
@@ -886,7 +904,13 @@ export interface PredicateIndexUsage {
     usable_indexes: string[]
     verdict: PredicateIndexVerdict
     message: string
+    /** Prose advice for a reader. */
     fix?: string
+    fix_action?: PredicateFixAction
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfix
     start?: integer
     end?: integer
 }
@@ -3570,6 +3594,8 @@ export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryRespo
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
@@ -3598,6 +3624,8 @@ export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryRespo
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
@@ -3632,6 +3660,8 @@ export interface MCPToolFailureOccurrencesQuery extends DataNode<MCPToolFailureO
     /** When set, only events with this HTTP status match; when unset, only events without a status match. */
     errorStatus?: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolFailureOccurrencesQueryResponse = CachedQueryResponse<MCPToolFailureOccurrencesQueryResponse>
@@ -3659,6 +3689,8 @@ export interface MCPToolStatsQuery extends DataNode<MCPToolStatsQueryResponse> {
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolStatsQueryResponse = CachedQueryResponse<MCPToolStatsQueryResponse>
@@ -3684,6 +3716,8 @@ export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryR
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window
      * buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
     interval?: IntervalType
@@ -3853,6 +3887,8 @@ export interface MCPToolDescriptionsQuery extends DataNode<MCPToolDescriptionsQu
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolDescriptionsQueryResponse = CachedQueryResponse<MCPToolDescriptionsQueryResponse>
@@ -3877,6 +3913,8 @@ export interface MCPToolSampleIntentsQuery extends DataNode<MCPToolSampleIntents
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolSampleIntentsQueryResponse = CachedQueryResponse<MCPToolSampleIntentsQueryResponse>
@@ -3899,6 +3937,8 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
     /** Whether to count tools called immediately before or after the target tool. */
     neighborDirection: 'before' | 'after'
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
@@ -6748,6 +6788,7 @@ export enum DetectorType {
     LOF = 'lof',
     OCSVM = 'ocsvm',
     PCA = 'pca',
+    LLM = 'llm',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -6894,6 +6935,32 @@ export interface PCADetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+/**
+ * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
+ * differencing or smoothing would hide from the model exactly what it is meant to read.
+ */
+export interface LLMDetectorConfig {
+    type: 'llm'
+    /**
+     * What counts as unusual or interesting for this metric, in your own words. Optional.
+     * @maxLength 2000
+     */
+    instructions?: string
+    /**
+     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
+     * @minimum 0
+     * @maximum 1
+     */
+    threshold?: number
+    /**
+     * How many recent points the model is shown (default: 90)
+     * @asType integer
+     * @minimum 5
+     * @maximum 400
+     */
+    window?: number
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
@@ -6916,13 +6983,16 @@ export type SingleDetectorConfig =
     | LOFDetectorConfig
     | OCSVMDetectorConfig
     | PCADetectorConfig
+    | LLMDetectorConfig
+
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
     /** How to combine sub-detector results */
     operator: EnsembleOperator
     /** Sub-detector configurations (minimum 2) */
-    detectors: SingleDetectorConfig[]
+    detectors: EnsembleSubDetectorConfig[]
 }
 
 /**
@@ -7634,6 +7704,11 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -7642,6 +7717,11 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     results: Record<string, MarketingAnalyticsItem>
     hogql?: string
     samplingRate?: SamplingRate
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
@@ -8716,6 +8796,7 @@ export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
     AI_ENGINEERING = 'AI engineering',
     BEHAVIOR = 'Behavior',
+    MESSAGING = 'Messaging',
     APP_MONITORING = 'App monitoring',
     FEATURES = 'Features',
     TOOLS = 'Tools',

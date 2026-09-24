@@ -194,6 +194,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             // init() fetches remote config and flags for the placeholder token from PostHog Cloud
             // before `loaded` can opt out.
             advanced_disable_flags: true,
+            // `loaded` runs at the end of init(). An event captured before then stays in the request
+            // queue, and the queue sends it to PostHog Cloud on page unload even after the opt-out.
+            opt_out_capturing_by_default: true,
             loaded: function (ph) {
                 ph.opt_out_capturing()
             },

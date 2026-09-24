@@ -30,10 +30,12 @@ from products.warehouse_sources.backend.models.external_data_job import (
     latest_completed_job_prefetch,
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
     ExternalDataSchema,
     auto_enable_new_schemas,
     get_all_schemas_for_source_id,
     get_schemas_for_direct_reconciliation,
+    mark_schema_running_unless_halted,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -123,7 +125,9 @@ __all__ = [
     "sync_frequency_to_sync_frequency_interval",
     "sync_old_schemas_with_new_schemas",
     "update_should_sync",
+    "mark_schema_running_unless_halted",
     "update_sync_type_config_keys",
+    "CDC_SNAPSHOT_LANE_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
 ]

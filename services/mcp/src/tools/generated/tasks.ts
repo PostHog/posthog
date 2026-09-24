@@ -612,6 +612,7 @@ const TasksCreateSchema = () => {
         pending_user_artifact_ids: true,
         auto_publish: true,
         channel: true,
+        scheduled_at: true,
         start_run: true,
         signal_report_discussion_question: true,
         naming_source: true,
@@ -692,6 +693,9 @@ const tasksCreateAndRun = (): ToolBase<ReturnType<typeof TasksCreateAndRunSchema
             'latest_run.stage',
             'latest_run.status',
             'run_error',
+            'latest_run.scheduled_at',
+            'latest_run.model',
+            'latest_run.reasoning_effort',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
@@ -901,6 +905,9 @@ const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Sch
             'latest_run.id',
             'latest_run.stage',
             'latest_run.status',
+            'latest_run.scheduled_at',
+            'latest_run.model',
+            'latest_run.reasoning_effort',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
@@ -940,6 +947,9 @@ const tasksRunsList = (): ToolBase<
                     'environment',
                     'error_message',
                     'state.sandbox_environment_id',
+                    'scheduled_at',
+                    'model',
+                    'reasoning_effort',
                     'created_at',
                     'updated_at',
                     'completed_at',

@@ -15,7 +15,7 @@ on:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - '.github/actions/setup-uv/**'
             - 'products/tasks/backend/sandbox/images/**'
-            - 'products/desktop/packages/agent-shadow/**'
+            - 'packages/agent/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
@@ -70,7 +70,7 @@ jobs:
                         - '.github/workflows/cd-sandbox-base-image.yml'
                         - '.github/actions/setup-uv/**'
                         - 'products/tasks/backend/sandbox/images/**'
-                        - 'products/desktop/packages/agent-shadow/**'
+                        - 'packages/agent/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
                         - 'products/notebooks/backend/sandbox/kernel/**'
@@ -319,6 +319,8 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
             packages: write # allow push to ghcr.io
+        outputs:
+            promoted: ${{ steps.promote.outcome }}
 
         steps:
             - name: Check out
@@ -412,6 +414,7 @@ jobs:
                   done
 
             - name: Promote the smoked base image to :master
+              id: promote
               if: github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
               env:
                   IMAGE: ghcr.io/posthog/posthog-sandbox-base
@@ -440,6 +443,20 @@ jobs:
                         build-args: |
                             BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
 
+                  - name: Build and push container image (autoresearch)
+                    id: build-autoresearch
+                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    with:
+                        project: vpl2362h0x # tasks-sandbox-images
+                        context: . # use local checkout (includes downloaded artifact)
+                        file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch
+                        buildx-fallback: false # the fallback is so slow it's better to just fail
+                        push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                        tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-autoresearch:master,ghcr.io/posthog/posthog-sandbox-autoresearch:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-autoresearch:{0}', github.sha) }}
+                        platforms: linux/arm64,linux/amd64
+                        build-args: |
+                            BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+
                   - name: Build and push container image (vm)
                     id: build-vm
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -453,6 +470,114 @@ jobs:
                         platforms: linux/arm64,linux/amd64
                         build-args: |
                             BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+
+    # Posts in the release thread that update-sandbox-agent-version.yml cached under the pinned version.
+    # It runs on a GitHub-hosted runner because Depot runners read a separate cache backend.
+    # hogli-lint: not-a-required-gate -- reads the build result only to report it in Slack
+    notify_agent_bump:
+        needs: sandbox_base_build
+        name: Post the agent bump to Slack
+        if: |
+            !cancelled() &&
+            github.event_name == 'push' &&
+            github.ref == 'refs/heads/master' &&
+            vars.CD_DEPLOY_ENABLED == 'true' &&
+            needs.sandbox_base_build.result != 'skipped'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        env:
+            DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+            SLACK_CHANNEL: 'C0C3FBES5ST'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                  sparse-checkout-cone-mode: false
+
+            # The merge queue can land several commits in one push, so the bump is not always HEAD.
+            # Compare with the commit master pointed at before the push, not with HEAD^.
+            - name: Check whether this push moved the agent pin
+              id: pin
+              env:
+                  BEFORE: ${{ github.event.before }}
+              run: |
+                  pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' "$DOCKERFILE")
+                  echo "version=$pinned" >> "$GITHUB_OUTPUT"
+                  if ! git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
+                    echo "::warning::Could not fetch the pre-push commit '$BEFORE', so this run posts no agent bump notice"
+                    echo "changed=false" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  previous=$(git show "$BEFORE:$DOCKERFILE" 2>/dev/null | sed -n 's/^ARG AGENT_VERSION=//p' || true)
+                  if [ -n "$pinned" ] && [ "$pinned" != "$previous" ]; then
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
+                    echo "Agent pin moved from '$previous' to '$pinned'"
+                  else
+                    echo "changed=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Restore the release thread
+              if: steps.pin.outputs.changed == 'true'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .sandbox-agent-slack-thread
+                  key: sandbox-agent-slack-${{ steps.pin.outputs.version }}
+
+            - name: Describe the merge for Slack
+              id: message
+              if: steps.pin.outputs.changed == 'true'
+              env:
+                  VERSION: ${{ steps.pin.outputs.version }}
+                  PROMOTED: ${{ needs.sandbox_base_build.outputs.promoted }}
+                  SHA: ${{ github.sha }}
+                  COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              run: |
+                  ts=""
+                  if [ -f .sandbox-agent-slack-thread ]; then ts=$(cat .sandbox-agent-slack-thread); fi
+                  commit="<${COMMIT_URL}|${SHA:0:7}>"
+                  if [ "$PROMOTED" = "success" ]; then
+                    text=":rocket: Merged in ${commit}. \`posthog-sandbox-base:master\` now runs @posthog/agent ${VERSION}."
+                  else
+                    text=":red_circle: The master image build for ${commit} failed, so \`posthog-sandbox-base:master\` still runs the previous agent. <${RUN_URL}|View run>"
+                  fi
+                  if [ -z "$ts" ]; then
+                    text="*@posthog/agent ${VERSION}*: ${text}"
+                  fi
+                  {
+                    echo "ts=$ts"
+                    echo "text=$text"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Post the merge in the release thread
+              if: steps.message.outputs.text != '' && steps.message.outputs.ts != ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      thread_ts: "${{ steps.message.outputs.ts }}"
+                      unfurl_links: false
+                      text: "${{ steps.message.outputs.text }}"
+
+            # A hand-edited pin has no cached thread, so the merge post starts one.
+            - name: Post the merge as a new thread
+              if: steps.message.outputs.text != '' && steps.message.outputs.ts == ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: "${{ steps.message.outputs.text }}"
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.

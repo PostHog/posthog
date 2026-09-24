@@ -333,10 +333,13 @@ SETTINGS
 """
 
 
-def KAFKA_TRACE_SPANS_AVRO_MV():
+def KAFKA_TRACE_SPANS_AVRO_MV(to_table: str = TABLE_NAME):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # `to_table` defaults to `trace_spans` for the environments that keep this MV on the logs
+    # nodes, where that table is local. Dev keeps it on the apm nodes instead, which host only
+    # `writable_trace_spans` — the Distributed proxy — so migration 0330 passes that name there.
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{to_table}
 (
     `uuid` String,
     `trace_id` String,

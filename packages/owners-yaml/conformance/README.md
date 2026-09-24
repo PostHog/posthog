@@ -1,10 +1,10 @@
 # owners.yaml conformance suite
 
 This directory holds test cases for the resolution rules of the `owners.yaml` format.
-The cases are data, so an implementation in any language can run them.
+The cases are data, so a resolver in any language can run them.
 
 The cases are normative together with [SPEC.md section 4](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#4-resolution) and [section 5.2](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#52-team-channels).
-An implementation of those sections must give the expected result for every case that applies to it.
+A resolver has to give the expected result for every case that applies to it.
 
 ## Contents
 
@@ -81,13 +81,13 @@ For each case in each file in `cases/`:
 Give each test a name of the form `<file name>::<case name>`, such as `nearest-file.yaml::owners null marks paths as unowned by design`.
 Before a run, a runner can validate each case file against `case.schema.json`.
 
-## Cases that apply only to some implementations
+## Cases that apply only to some resolvers
 
-- `aliases.yaml` applies only to an implementation that supports alias files ([SPEC.md section 6](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#6-alias-files)). Its cases declare `product.yaml` in `alias_files`.
-- `owners-yaml-extensions.yaml` is not part of the format. It tests the `team-CHANGEME` placeholder of `owners-yaml` ([SPEC.md section 8](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#8-the-owners-yaml-reference-implementation)). Other implementations skip this file.
-- A case with a `producer` applies only to an implementation that accepts a producer.
+- `aliases.yaml` applies only to a resolver that supports alias files ([SPEC.md section 6](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#6-alias-files)). Its cases declare `product.yaml` in `alias_files`.
+- `owners-yaml-extensions.yaml` is not part of the format. It tests the `team-CHANGEME` placeholder of `owners-yaml` ([SPEC.md section 8](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#8-the-owners-yaml-reference-implementation)). Other resolvers skip this file.
+- A case with a `producer` applies only to a resolver that accepts a producer.
 
-All other files apply to every implementation.
+All other files apply to every resolver.
 
 ## Reference runner
 
@@ -103,4 +103,4 @@ uv run pytest packages/owners-yaml/tests/test_conformance.py
 1. Put the case in the file for its topic. Make a new file only for a new topic.
 2. Write the `name` as a statement of the behavior.
 3. Get each expected value from SPEC.md, then run the reference runner to confirm it.
-4. When SPEC.md and a case disagree, the disagreement is a defect in SPEC.md ([section 4.3](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#43-conformance)). Fix SPEC.md or the case, not only the implementation.
+4. When SPEC.md and a case disagree, the disagreement is a defect in SPEC.md ([section 4.3](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#43-conformance)). Fix SPEC.md or the case, not only the resolver.

@@ -37,6 +37,16 @@ def create_insight_variable(
     )
 
 
+def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
+    return (
+        Insight.objects_including_soft_deleted.select_for_update(no_key=True)
+        .filter(id=insight_id, team_id=team_id)
+        .values_list("id", flat=True)
+        .first()
+        is not None
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
     InsightViewed.objects.update_or_create(
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}

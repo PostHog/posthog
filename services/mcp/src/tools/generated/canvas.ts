@@ -187,6 +187,9 @@ const canvasEditCreate = (): ToolBase<
         if (params.operations !== undefined) {
             body['operations'] = params.operations
         }
+        if (params.capabilities !== undefined) {
+            body['capabilities'] = params.capabilities
+        }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }

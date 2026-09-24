@@ -11,7 +11,6 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -22,7 +21,10 @@ from products.data_warehouse.backend.facade.api import delete_external_data_sche
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    mark_schema_running_unless_halted,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
@@ -86,6 +88,15 @@ class SourceOrSchemaDeletedError(NonReportableError):
     """
 
 
+class V3PipelineLockLostError(NonReportableError):
+    """Another run's lock takeover (see acquire_v3_lock.py) reassigned the v3 pipeline lock
+    away from this run before it reached job creation. The takeover path only steals from a
+    holder whose Temporal workflow already looks terminal, so a resumed run landing here is
+    the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
+    it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
+    """
+
+
 def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
     than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
@@ -138,10 +149,7 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
     if holder is None:
         return
     if holder != run_id:
-        raise ApplicationError(
-            "v3 pipeline lock lost to another run before job creation",
-            non_retryable=True,
-        )
+        raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
 # Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
@@ -271,14 +279,8 @@ def _fast_return_eligible(
     if data_quality_checks_needed_for(team_id, schema.table_id):
         return False
 
-    last_full_run_at = schema.last_full_run_at
-    if last_full_run_at is None:
-        return False
-    try:
-        stamped = dt.datetime.fromisoformat(last_full_run_at)
-    except (TypeError, ValueError):
-        return False
-    if stamped.tzinfo is None:
+    stamped = schema.last_full_run
+    if stamped is None:
         return False
     return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
 
@@ -342,10 +344,6 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Persist the Running status only after the job row exists: a Running schema with no job
-        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
-        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
-        schema.status = ExternalDataSchema.Status.RUNNING
         # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
         if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
@@ -361,7 +359,10 @@ def create_external_data_job_model_activity(
             schema_snapshot=_build_schema_snapshot(schema),
             destination_ids=destination_ids,
         )
-        schema.save(update_fields=["status", "updated_at"])
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        mark_schema_running_unless_halted(schema)
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -422,6 +423,10 @@ def create_external_data_job_model_activity(
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
         )
+    except V3PipelineLockLostError:
+        # The takeover race the guard handles, not a defect — skip the generic handler's
+        # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
+        raise
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

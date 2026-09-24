@@ -841,8 +841,6 @@ class TestEditSurveyTool(BaseTest):
         assert updated_survey.conditions["url"] == "/dashboard"
         assert updated_survey.conditions["urlMatchType"] == "icontains"
 
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
     @parameterized.expand(
         [
             (
@@ -881,6 +879,8 @@ class TestEditSurveyTool(BaseTest):
             ),
         ]
     )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_edit_survey_targeting_updates_preserve_existing_conditions(
         self,
         _case_name,

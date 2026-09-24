@@ -3,12 +3,13 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -21,6 +22,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
+import { TracingSqlEditor } from './components/TracingSqlEditor/TracingSqlEditor'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
@@ -35,7 +37,7 @@ import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
-import { tracingSceneLogic } from './tracingSceneLogic'
+import { type TracingSceneTab, tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
@@ -52,6 +54,7 @@ export const scene: SceneExport = {
 export default function TracingScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
+    const { activeSceneTab } = useValues(sceneLogic)
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
@@ -68,7 +71,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
-                    <TracingAgentIntegration />
+                    <TracingAgentIntegration sceneTabIsViewer={activeSceneTab === 'viewer'} />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
@@ -115,6 +118,8 @@ function TracingSceneContents(): JSX.Element {
         showHeatmap,
         activeTracingTab,
         compareActive,
+        sceneTabsEnabled,
+        activeSceneTab,
     } = useValues(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -132,6 +137,7 @@ function TracingSceneContents(): JSX.Element {
         setSort,
         setChartType,
         applyHeatmapBrush,
+        selectSceneTab,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -231,7 +237,18 @@ function TracingSceneContents(): JSX.Element {
                     </>
                 }
             />
-            <>
+            {sceneTabsEnabled && (
+                <LemonTabs<TracingSceneTab>
+                    activeKey={activeSceneTab}
+                    onChange={selectSceneTab}
+                    tabs={[
+                        { key: 'viewer', label: 'Viewer' },
+                        { key: 'sql', label: 'SQL' },
+                    ]}
+                    sceneInset
+                />
+            )}
+            <div className={cn('flex flex-col gap-y-4 flex-1 min-h-0', activeSceneTab !== 'viewer' && 'hidden')}>
                 <TracingFilterBar />
                 <SceneDivider />
                 <TracingSparkline
@@ -310,7 +327,8 @@ function TracingSceneContents(): JSX.Element {
                         )}
                     </div>
                 </div>
-            </>
+            </div>
+            {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             <TraceDrawer
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}

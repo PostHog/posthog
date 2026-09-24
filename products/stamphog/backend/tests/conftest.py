@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import Client, override_settings
 
 from cryptography.hazmat.primitives import serialization
@@ -22,6 +24,7 @@ from products.stamphog.backend.temporal.activities import (
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
+    refuse_on_pre_gates,
     run_review_in_sandbox,
     signal_review_started,
 )
@@ -79,6 +82,7 @@ class StamphogTeamScopedTestMixin:
 
 
 WEBHOOK_PATH = "/webhooks/stamphog/github"
+FAST_REFUSAL_SUMMARY = "Terraform changes need a human reviewer."
 WEBHOOK_SECRET = "integration-webhook-secret"
 
 
@@ -121,18 +125,24 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
 
     Mirrors StamphogReviewWorkflow: dismiss stale approvals FIRST (fail-closed — even a context-fetch
     failure must not leave an earlier head's approval standing), signal the review has started (the
-    "review in flight" 👀), then fetch context, run in the (faked) sandbox, post the verdict; on any
-    error mark the run failed, exactly like the workflow's failure path.
+    "review in flight" 👀), then fetch context, refuse on the pre-gates or else run in the (faked)
+    sandbox, post the verdict; on any error mark the run failed, exactly like the workflow's failure
+    path.
     """
     inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
     try:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(signal_review_started, inp)
         _run_activity(fetch_review_context, inp)
-        # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
-        # reactions snapshot, then proceed) without its durable timers.
-        _run_activity(list_in_flight_reviewer_bots, inp)
-        _run_activity(run_review_in_sandbox, inp)
+        try:
+            refused = _run_activity(refuse_on_pre_gates, inp)["refused"]
+        except Exception:  # noqa: BLE001 — the workflow falls through when the pre-gates activity fails
+            refused = False
+        if not refused:
+            # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
+            # reactions snapshot, then proceed) without its durable timers.
+            _run_activity(list_in_flight_reviewer_bots, inp)
+            _run_activity(run_review_in_sandbox, inp)
         _run_activity(post_verdict, inp)
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
         _run_activity(
@@ -178,6 +188,10 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     ``on_commit`` fires inline (the test's outer transaction never really commits). Everything else
     runs as production code.
     """
+    # The chain caches GitHub reads (installation tokens, the ownership reader's head commit and
+    # blobs), and those entries outlive one test, so a test would answer with the files of the one
+    # before it.
+    cache.clear()
     recorder = fakes.GitHubRecorder()
     # review-guidance.md is a required trusted policy file — run_review_in_sandbox fails closed without
     # it — so seed it for the whole chain; individual tests still set/override policy.yml as they need.
@@ -201,12 +215,25 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY="phs_test_mint")
         )
         stack.enter_context(patch("products.stamphog.backend.temporal.activities.requests.post", _fake_gateway_post))
+        # The fast refusal's LLM note is a network call. Tests asserting on the fallback re-patch it.
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.temporal.activities.summarize_refusal",
+                return_value=FAST_REFUSAL_SUMMARY,
+            )
+        )
+        # The pre-check's engine process emits its analytics event when a capture key is set; keep it
+        # from reaching a real project from a developer machine.
+        stack.enter_context(patch.dict(os.environ, {"POSTHOG_API_KEY": ""}))
         # mark_review_failed emits a failure event through the real analytics client — a network
         # boundary, faked like the rest. Tests asserting on the event re-patch this locally.
         stack.enter_context(patch("products.stamphog.backend.temporal.activities.ph_scoped_capture"))
         stack.enter_context(
             patch("products.stamphog.backend.logic.github_client.github_request", recorder.github_request)
         )
+        # Routing reads the repo's owners.yaml through the shared ownership reader, which talks to
+        # GitHub itself rather than through the stamphog client.
+        stack.enter_context(patch("posthog.ownership.github_files.github_request", recorder.github_request))
         stack.enter_context(
             patch(
                 "products.stamphog.backend.logic.github_client.remember_observed_core_limit",
@@ -232,7 +259,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=_run_on_commit_immediately)
         )
         stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
-        stack.enter_context(patch("posthog.team_notifications.slack.SlackIntegration", fake_slack))
+        stack.enter_context(patch("posthog.slack.channels.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
                 "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",

@@ -11,7 +11,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { expect, spyOn, waitFor } from 'storybook/test'
+import { expect, spyOn, userEvent, waitFor } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
 import { terminalDockLogic } from './terminalDockLogic'
@@ -48,7 +48,10 @@ const meta: Meta<typeof TerminalScene> = {
     title: 'Scenes-App/Terminal',
     component: TerminalScene,
     parameters: { layout: 'padded', featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL] },
-    beforeEach: () => {
+    beforeEach: ({ parameters }) => {
+        if (parameters.liveRuntime) {
+            return
+        }
         // Visual snapshots must not depend on firmware downloads or Linux boot timing.
         const start = spyOn(TerminalRuntime.prototype, 'start').mockImplementation(
             async (_server, _signal, onReady) => {
@@ -103,8 +106,16 @@ const meta: Meta<typeof TerminalScene> = {
                 { id: item.ref, name: item.name, description: 'Terminal demo', user_access_level: 'editor' },
             ])
         )
+        objectData.set('demoinsight', {
+            ...objectData.get('demoinsight'),
+            query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 42 as answer' } },
+        })
         useStorybookMocks({
             get: {
+                '/api/projects/:projectId/insights/': [
+                    200,
+                    { count: 1, results: [{ short_id: 'demoinsight' }], next: null },
+                ],
                 ...Object.fromEntries(
                     objects.map((item) => [
                         `/api/projects/:projectId/${item.route}/${item.ref}/`,
@@ -123,6 +134,7 @@ const meta: Meta<typeof TerminalScene> = {
                                 type: 'notebook',
                                 ref: item.short_id,
                                 user_access_level: 'editor',
+                                meta: { content_type: 'text/markdown' },
                             }))
                             .concat(
                                 [...folders].map(([id, path]) => ({
@@ -131,6 +143,7 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: 'folder',
                                     ref: '',
                                     user_access_level: 'editor',
+                                    meta: { content_type: 'inode/directory' },
                                 }))
                             )
                             .concat(
@@ -140,6 +153,9 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: item.type,
                                     ref: item.ref,
                                     user_access_level: 'editor',
+                                    meta: {
+                                        content_type: item.type === 'insight' ? 'application/sql' : 'application/json',
+                                    },
                                 }))
                             ),
                     },
@@ -187,6 +203,10 @@ const meta: Meta<typeof TerminalScene> = {
                 ],
             },
             post: {
+                '/api/projects/:projectId/query/:queryKind/': [
+                    200,
+                    { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: false },
+                ],
                 '/api/projects/:projectId/file_system/': async ({ request }) => {
                     const { path } = (await request.json()) as { path: string }
                     const id = crypto.randomUUID()
@@ -292,6 +312,11 @@ const meta: Meta<typeof TerminalScene> = {
 export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
+
+export const LiveRuntime: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+}
 export const Docked: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
@@ -321,4 +346,55 @@ export const Narrow: StoryObj<typeof TerminalScene> = {
             </div>
         ),
     ],
+}
+
+export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        void terminalLogic.cache.filesystem
+            .confirmOperation({
+                title: 'Delete PostHog files and folders?',
+                description:
+                    'Remove 4 files and folders from project 1. Removing the last file reference also deletes the PostHog object. This affects everyone in the project.',
+                items: [
+                    '/posthog/files/Research/Welcome.md (notebook: demonote)',
+                    '/posthog/files/Research/Overview.json (dashboard: 101)',
+                    '/posthog/files/Research/Signups.json (insight: demoinsight)',
+                    '/posthog/files/Research',
+                ],
+            })
+            .catch(() => {})
+        await waitFor(() => expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull())
+        const approve = document.querySelector<HTMLButtonElement>('[data-attr="terminal-confirmation-approve"]')!
+        approve.focus()
+        await userEvent.keyboard('{Enter} {Escape}{Tab}')
+        approve.click()
+        expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull()
+    },
+}
+
+export const Framebuffer: StoryObj<typeof TerminalScene> = {
+    parameters: { testOptions: { snapshotTargetSelector: 'body' } },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        terminalLogic.actions.setDisplayOpen(true)
+    },
+}
+
+export const LiveDoom: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('doom\n')
+    },
+}
+
+export const LiveClassics: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('figlet PostHog\n')
+    },
 }

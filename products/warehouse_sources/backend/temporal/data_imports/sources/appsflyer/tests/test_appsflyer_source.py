@@ -62,6 +62,13 @@ class TestAppsFlyerSource:
         full_refresh_only = {"post_attribution_installs"}
         assert {schema.name for schema in schemas if not schema.supports_incremental} == full_refresh_only
         assert {schema.name for schema in schemas if not schema.supports_append} == full_refresh_only
+        # The Protect360 reports need an add-on most accounts don't have, so selecting them by
+        # default fails the first sync of every new source.
+        assert {schema.name for schema in schemas if not schema.should_sync_default} == {
+            "blocked_installs",
+            "blocked_in_app_events",
+            "post_attribution_installs",
+        }
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"
