@@ -1446,6 +1446,30 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # `bq_client.get_table(...)` in `_build_source_response` hitting a deleted GCP project.
+        str(
+            Forbidden(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/some-project/datasets/some_dataset/"
+                "tables/some_table?prettyPrint=false: Project #123456789 has been deleted."
+            )
+        ),
+        # Same condition surfacing from a different call site with a different HTTP verb/path.
+        str(Forbidden("POST https://bigquery.googleapis.com/bigquery/v2/jobs: Project #987654321 has been deleted.")),
+    ],
+)
+def test_non_retryable_errors_match_deleted_gcp_project(observed_error):
+    """A GCP project deleted after the source was set up can't be recovered by retrying — the
+    numeric project id (not the friendly one shown in the source config) means this is distinct
+    from the "Make sure it references valid GCP project" 404 key."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Deleted GCP project error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "observed_error,expected_key,expected_word",
     [
         # Overwriting a PostHog temp table — denied with bigquery.tables.update on the table.
