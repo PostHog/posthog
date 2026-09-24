@@ -10,6 +10,7 @@ const PAGE_SIZE = 500
 export interface githubIntegrationLogicValues {
     currentOffset: number
     repositories: GitHubRepoApi[]
+    repositoriesError: string | null
     repositoriesLoading: boolean
 }
 
@@ -21,8 +22,8 @@ export interface githubIntegrationLogicActions {
     loadRepositoriesPage: (offset: number) => {
         offset: number
     }
-    loadRepositoriesPageFailure: () => {
-        value: true
+    loadRepositoriesPageFailure: (error: string) => {
+        error: string
     }
     loadRepositoriesPageSuccess: (
         repositories: GitHubRepoApi[],
@@ -62,7 +63,7 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
             repositories,
             hasMore,
         }),
-        loadRepositoriesPageFailure: true,
+        loadRepositoriesPageFailure: (error: string) => ({ error }),
     }),
 
     reducers({
@@ -92,6 +93,16 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
                 loadRepositoriesPageSuccess: (state) => state + PAGE_SIZE,
             },
         ],
+        // A failed page leaves the repository list empty or partial. Consumers need the difference between
+        // that and an account with no repositories, because only the first one is worth retrying.
+        repositoriesError: [
+            null as string | null,
+            {
+                loadRepositories: () => null,
+                loadRepositoriesPageSuccess: () => null,
+                loadRepositoriesPageFailure: (_, { error }) => error,
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -115,7 +126,7 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
                 if (isBreakpoint(e)) {
                     throw e
                 }
-                actions.loadRepositoriesPageFailure()
+                actions.loadRepositoriesPageFailure(e?.detail || 'Could not load repositories from GitHub.')
             }
         },
     })),
