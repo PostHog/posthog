@@ -912,6 +912,11 @@ def _is_materialized_view_engine(engine: str | None) -> bool:
     return engine == "MaterializedView"
 
 
+def _to_columns(rows: Sequence[Sequence[Any]]) -> list[ClickHouseColumn]:
+    """Build columns from `(name, type)` rows, in the order the source returned them."""
+    return [ClickHouseColumn(name=row[0], data_type=row[1], nullable=_strip_type_modifiers(row[1])[1]) for row in rows]
+
+
 def _columns_from_system_columns(client: ClickHouseClient, database: str, table_name: str) -> list[ClickHouseColumn]:
     """Read a table's columns from `system.columns`."""
     # Skip ALIAS and EPHEMERAL columns, matching `get_schemas`'s discovery query — see its
@@ -928,10 +933,7 @@ def _columns_from_system_columns(client: ClickHouseClient, database: str, table_
         """,
         parameters={"database": database, "table": table_name},
     )
-    return [
-        ClickHouseColumn(name=name, data_type=raw_type, nullable=_strip_type_modifiers(raw_type)[1])
-        for name, raw_type in result.result_rows
-    ]
+    return _to_columns(result.result_rows)
 
 
 def _columns_from_view_body(client: ClickHouseClient, database: str, table_name: str) -> list[ClickHouseColumn]:
@@ -944,14 +946,11 @@ def _columns_from_view_body(client: ClickHouseClient, database: str, table_name:
     view body re-resolves the names against the tables as they are today.
     """
     result = client.query(f"DESCRIBE (SELECT * FROM {_qualified_table(database, table_name)})")
-    return [
-        ClickHouseColumn(name=row[0], data_type=row[1], nullable=_strip_type_modifiers(row[1])[1])
-        for row in result.result_rows
-    ]
+    return _to_columns(result.result_rows)
 
 
 def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Table[ClickHouseColumn]:
-    """Read columns + table type for a single table from system tables."""
+    """Read a single table's type, then its columns from whichever source matches that type."""
     engine_result = client.query(
         "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(table)s",
         parameters={"database": database, "table": table_name},
@@ -988,9 +987,8 @@ def _validate_query_identifiers(
     one has been renamed or dropped since, ClickHouse answers the extraction query with a
     raw UNKNOWN_IDENTIFIER that names no column the customer can act on.
     """
-    available = {column.name for column in table.columns}
-    missing = {name for name in (incremental_field,) if name is not None and name not in available}
-    missing |= {row_filter.column for row_filter in row_filters or [] if row_filter.column not in available}
+    configured = [incremental_field, *(row_filter.column for row_filter in row_filters or [])]
+    missing = {name for name in configured if name is not None and name not in table}
 
     if missing:
         raise ValueError(
