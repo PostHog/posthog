@@ -390,6 +390,18 @@ impl Client for RedisClient {
         Ok(())
     }
 
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.conn();
+        redis::cmd("ZADD")
+            .arg(&k)
+            .arg("NX")
+            .arg(score)
+            .arg(&member)
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
+
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.hincr::<_, _, _, ()>(k, v, count).await?;
@@ -1597,6 +1609,50 @@ mod integration_tests {
                 "Mismatch at index {i}: expected {expected:?}, got {result:?}"
             );
         }
+    }
+
+    // `zadd_nx` is hand-built from `redis::cmd` because the driver exposes no NX helper, so
+    // the argument order is ours to get wrong. `ZADD key NX member score` parses the member
+    // as a score and returns an error the caller only sees as a failed write, which would
+    // leave the rebuild queue silently empty. This pins the order against a real server.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_zadd_nx_keeps_the_first_score() {
+        let (client, _container) = create_test_client().await;
+        let key = "zadd_nx_score".to_string();
+        let member = "team-1".to_string();
+
+        client
+            .zadd_nx(key.clone(), member.clone(), 100)
+            .await
+            .unwrap();
+        client
+            .zadd_nx(key.clone(), member.clone(), 200)
+            .await
+            .unwrap();
+
+        // The trait has no ZSCORE, so read the score back through a range that admits one
+        // value.
+        let at_first_score = client
+            .zrangebyscore(key.clone(), "100".to_string(), "100".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            at_first_score,
+            vec![member.clone()],
+            "the second NX write must leave the first score alone"
+        );
+
+        client.zadd(key.clone(), member.clone(), 200).await.unwrap();
+        let at_new_score = client
+            .zrangebyscore(key.clone(), "200".to_string(), "200".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            at_new_score,
+            vec![member],
+            "a plain zadd moves the member, which is the behavior NX exists to avoid"
+        );
     }
 
     /// Helper to create a test client with compression enabled.

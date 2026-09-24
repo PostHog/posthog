@@ -177,7 +177,15 @@ enum RawJsonResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CacheSource {
     Redis,
+    /// S3 answered after Redis confirmed the key was absent, so the entry is genuinely
+    /// missing from the Redis tier.
     S3,
+    /// S3 answered after the Redis read failed, timed out, or returned a value that would
+    /// not decode. Whether the key exists in Redis is unknown. Callers that repair or
+    /// rebuild the Redis tier must act on `S3` only, because acting on this variant would
+    /// write during a Redis incident, when the cluster can least afford it. Both variants
+    /// log and count as "s3": the distinction drives behavior, not dashboards.
+    S3AfterRedisError,
     Fallback,
 }
 
@@ -187,6 +195,7 @@ impl CacheSource {
         match self {
             CacheSource::Redis => "redis",
             CacheSource::S3 => "s3",
+            CacheSource::S3AfterRedisError => "s3",
             CacheSource::Fallback => "fallback",
         }
     }
@@ -655,12 +664,17 @@ impl HyperCacheReader {
                     namespace = %self.config.namespace,
                     "HyperCache hit: S3"
                 );
-                // Repair only a confirmed Redis miss. Reaching S3 on a Redis error or
+                // One branch decides both outcomes, so a repair can never happen on a
+                // source the caller was told to distrust. Reaching S3 on a Redis error or
                 // timeout means the tier is degraded, and piling detached repair writes
                 // onto it would only add load.
-                if infra_error.is_none() {
-                    self.spawn_read_repair(redis_cache_key, raw_json);
-                }
+                let source = match infra_error {
+                    None => {
+                        self.spawn_read_repair(redis_cache_key, raw_json);
+                        CacheSource::S3
+                    }
+                    Some(_) => CacheSource::S3AfterRedisError,
+                };
                 inc(
                     HYPERCACHE_COUNTER_NAME,
                     &[
@@ -670,7 +684,7 @@ impl HyperCacheReader {
                     ],
                     1,
                 );
-                return Ok((Some(data), CacheSource::S3));
+                return Ok((Some(data), source));
             }
             Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => {
                 debug!(
@@ -1461,13 +1475,15 @@ mod tests {
     #[cfg(feature = "mock-client")]
     async fn redis_calls_after_s3_hit(
         fixture: &RedisMissS3HitFixture,
+        expected_source: CacheSource,
     ) -> Vec<common_redis::MockRedisCall> {
         let (_, source) = fixture
             .reader
             .get_with_source(&fixture.team_key)
             .await
             .unwrap();
-        assert_eq!(source, CacheSource::S3);
+        assert_eq!(source, expected_source);
+        assert_eq!(source.as_log_str(), "s3");
 
         tokio::time::sleep(Duration::from_millis(1)).await;
         fixture.redis.get_calls()
@@ -1481,7 +1497,7 @@ mod tests {
         config.read_repair_ttl_seconds = Some(600);
 
         let fixture = redis_miss_s3_hit_fixture(config, payload);
-        let calls = redis_calls_after_s3_hit(&fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture, CacheSource::S3).await;
 
         let repair = calls
             .iter()
@@ -1504,7 +1520,7 @@ mod tests {
     async fn test_s3_hit_does_not_repair_redis_by_default() {
         // The reader is read-only unless a caller opts in.
         let fixture = redis_miss_s3_hit_fixture(create_test_config(), r#"{"key":"value"}"#);
-        let calls = redis_calls_after_s3_hit(&fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture, CacheSource::S3).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
@@ -1517,7 +1533,7 @@ mod tests {
         config.enable_etag = true;
 
         let fixture = redis_miss_s3_hit_fixture(config, r#"{"key":"value"}"#);
-        let calls = redis_calls_after_s3_hit(&fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture, CacheSource::S3).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
@@ -1569,7 +1585,7 @@ mod tests {
 
         let fixture =
             redis_failure_s3_hit_fixture(config, r#"{"key":"value"}"#, CustomRedisError::Timeout);
-        let calls = redis_calls_after_s3_hit(&fixture).await;
+        let calls = redis_calls_after_s3_hit(&fixture, CacheSource::S3AfterRedisError).await;
         assert!(calls.iter().all(|c| c.op != "set_nx_ex_with_format"));
     }
 
@@ -2042,7 +2058,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(source, CacheSource::S3);
+        assert_eq!(source, CacheSource::S3AfterRedisError);
         assert_eq!(data, Some(expected));
         assert!(
             redis_handle.get_calls().iter().any(|c| c.key == cache_key),
@@ -2084,7 +2100,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(source, CacheSource::S3);
+        assert_eq!(source, CacheSource::S3AfterRedisError);
         assert_eq!(data, Some(expected));
         assert!(
             redis_handle.get_calls().iter().any(|c| c.key == cache_key),
