@@ -14,7 +14,8 @@ import { SidePanelTab } from '~/types'
 import { MARKETING_AI_QUESTIONS } from './marketingAiQuestions'
 
 export function AskPostHogAi(): JSX.Element {
-    const { dashboardView } = useValues(marketingAnalyticsLogic)
+    const { dashboardBreakdown, dashboardProperties, dashboardView, dateFilter, draftConversionGoal } =
+        useValues(marketingAnalyticsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
@@ -22,7 +23,20 @@ export function AskPostHogAi(): JSX.Element {
         ? undefined
         : (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
 
-    const ask = (question: string): void => openSidePanel(SidePanelTab.Max, `!${question}`)
+    const ask = (question: string): void => {
+        const context = [
+            `Dashboard section: ${dashboardView}`,
+            `Date range: ${dateFilter.dateFrom ?? 'all time'} to ${dateFilter.dateTo ?? 'today'}`,
+            `Breakdown: ${dashboardBreakdown}`,
+            draftConversionGoal ? `Conversion goal: ${draftConversionGoal.conversion_goal_name}` : null,
+            dashboardProperties.length > 0 ? `Property filters: ${JSON.stringify(dashboardProperties)}` : null,
+        ].filter(Boolean)
+
+        openSidePanel(
+            SidePanelTab.Max,
+            `!${question}\n\nUse this Marketing Analytics dashboard context:\n${context.join('\n')}`
+        )
+    }
 
     return (
         <div className="rounded-lg border border-dashed border-primary bg-surface-secondary p-4 flex flex-col gap-3">
