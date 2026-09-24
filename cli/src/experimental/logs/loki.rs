@@ -128,16 +128,15 @@ impl LokiClient {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<u64> {
-        let response = self
-            .get("/loki/api/v1/index/volume_range")
-            .query(&[
+        let response = send(
+            self.get("/loki/api/v1/index/volume_range").query(&[
                 ("query", selector),
                 ("start", &nanos(start)?),
                 ("end", &nanos(end)?),
                 ("step", "24h"),
-            ])
-            .send()
-            .context("failed to reach Loki for a volume lookup")?;
+            ]),
+            "a volume lookup",
+        )?;
 
         let body: VolumeResponse = decode(response, "index/volume_range")?;
         let total = body
@@ -158,9 +157,8 @@ impl LokiClient {
         start_ns: i64,
         end: DateTime<Utc>,
     ) -> Result<(Vec<Entry>, Option<i64>)> {
-        let response = self
-            .get("/loki/api/v1/query_range")
-            .query(&[
+        let response = send(
+            self.get("/loki/api/v1/query_range").query(&[
                 ("query", selector),
                 ("start", &start_ns.to_string()),
                 ("end", &nanos(end)?),
@@ -168,9 +166,9 @@ impl LokiClient {
                 // One more than is kept, so a full page is distinguishable from an exhausted shard
                 // without inferring it from the count.
                 ("limit", &(PAGE_LIMIT + 1).to_string()),
-            ])
-            .send()
-            .context("failed to reach Loki for a query_range page")?;
+            ]),
+            "a query_range page",
+        )?;
 
         let body: QueryResponse = decode(response, "query_range")?;
         let mut entries = entries_from(body)?;
@@ -225,6 +223,27 @@ fn nanos(at: DateTime<Utc>) -> Result<String> {
         .with_context(|| format!("{at} is outside the range Loki nanosecond epochs can express"))
 }
 
+/// reqwest exposes no typed variant for a trust failure, so this matches the rustls message.
+fn tls_trust_hint(error: &(dyn std::error::Error + 'static)) -> &'static str {
+    let mut cause = Some(error);
+    while let Some(current) = cause {
+        if current.to_string().contains("invalid peer certificate") {
+            return " The certificate is signed by an authority this machine does not trust. \
+                    Install that authority's root certificate on this machine, or set SSL_CERT_FILE \
+                    to a PEM file holding it.";
+        }
+        cause = current.source();
+    }
+    ""
+}
+
+fn send(request: RequestBuilder, what: &str) -> Result<Response> {
+    request.send().map_err(|error| {
+        let hint = tls_trust_hint(&error);
+        anyhow::Error::new(error).context(format!("failed to reach Loki for {what}.{hint}"))
+    })
+}
+
 fn decode<T: serde::de::DeserializeOwned>(response: Response, endpoint: &str) -> Result<T> {
     let status = response.status();
     if !status.is_success() {
@@ -249,6 +268,39 @@ fn decode<T: serde::de::DeserializeOwned>(response: Response, endpoint: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct Layer(&'static str, Option<Box<Layer>>);
+
+    impl std::fmt::Display for Layer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for Layer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.1
+                .as_deref()
+                .map(|inner| inner as &(dyn std::error::Error + 'static))
+        }
+    }
+
+    #[test]
+    fn tls_trust_hint_reads_the_whole_chain() {
+        // The trust failure is never the outermost error, which is what this pins.
+        let trust_failure = Layer(
+            "error sending request for url (https://loki.example.com)",
+            Some(Box::new(Layer(
+                "invalid peer certificate: UnknownIssuer",
+                None,
+            ))),
+        );
+        assert!(tls_trust_hint(&trust_failure).contains("SSL_CERT_FILE"));
+
+        let unreachable = Layer("connection refused", None);
+        assert!(tls_trust_hint(&unreachable).is_empty());
+    }
 
     fn parse(json: &str) -> Vec<Entry> {
         let body: QueryResponse = serde_json::from_str(json).expect("decodes");
