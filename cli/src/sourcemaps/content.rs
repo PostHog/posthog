@@ -4,13 +4,14 @@ use posthog_symbol_data::{write_symbol_data, HermesMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, ops::Range, path::PathBuf};
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::constant::{
-        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE,
+        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CHUNK_IDS_PROPERTY, CODE_SNIPPET_TEMPLATE,
         CODE_SNIPPET_WITH_RELEASE_TEMPLATE, QUOTED_CHUNKID_PLACEHOLDER, RELEASE_ID_PLACEHOLDER,
+        RELEASE_ID_PROPERTY,
     },
     utils::files::SourceFile,
 };
@@ -40,15 +41,9 @@ fn substitute_chunk_id(template: &str, chunk_id: &str) -> Result<String> {
 
 /// The injected IIFE found in a chunk, and the release id it carries.
 struct InjectedSnippet {
-    span: std::ops::Range<usize>,
+    span: Range<usize>,
     release_id: Option<String>,
 }
-
-/// Property names the snippet sets on the global. A minifier renames the snippet's variables
-/// and requotes its strings, but it cannot rename a property read back by the SDK, so these
-/// are the only anchors that survive a post-injection minify pass.
-const CHUNK_IDS_PROPERTY: &str = "_posthogChunkIds";
-const RELEASE_ID_PROPERTY: &str = "_posthogReleaseId";
 
 /// Longest statement accepted as a rewritten snippet. The snippet is a few hundred bytes, so a
 /// much longer statement means the minifier merged it with user code, and removing the whole
@@ -99,22 +94,26 @@ fn find_template_snippet(source: &str, chunk_id: &str) -> Option<InjectedSnippet
 /// chunk-id map property and the chunk id itself, which no rename can touch.
 fn find_rewritten_snippet(source: &str, chunk_id: &str) -> Option<InjectedSnippet> {
     let start = first_statement_start(source)?;
-    let end = statement_end(source, start)?;
-    if end - start > MAX_REWRITTEN_SNIPPET_LEN {
+    // Cheapest guard first: a chunk without the property cannot hold a snippet, and rejecting
+    // it here keeps a whole-bundle IIFE from being scanned statement by statement.
+    let window = &source[start..source.len().min(start + MAX_REWRITTEN_SNIPPET_LEN)];
+    if !window.contains(CHUNK_IDS_PROPERTY) {
         return None;
     }
 
-    let statement = &source[start..end];
-    if !statement.contains(CHUNK_IDS_PROPERTY) {
-        return None;
-    }
-    let literals = string_literals(statement);
-    if !literals.iter().any(|(_, value)| value == chunk_id) {
+    let statement = scan_statement(source, start)?;
+    if !statement
+        .literals
+        .iter()
+        .any(|(_, value)| value == chunk_id)
+    {
         return None;
     }
 
-    let release_id = statement.rfind(RELEASE_ID_PROPERTY).and_then(|anchor| {
-        literals
+    let body = &source[start..statement.end];
+    let release_id = body.rfind(RELEASE_ID_PROPERTY).and_then(|anchor| {
+        statement
+            .literals
             .iter()
             .find(|(offset, _)| *offset > anchor)
             .map(|(_, value)| value.clone())
@@ -122,12 +121,13 @@ fn find_rewritten_snippet(source: &str, chunk_id: &str) -> Option<InjectedSnippe
     });
 
     Some(InjectedSnippet {
-        span: start..end,
+        span: start..statement.end,
         release_id,
     })
 }
 
-/// Byte offset of the program's first statement, past any hashbang, comments, and directives.
+/// Byte offset of the program's first statement, past the directive prologue and any comments.
+/// A Node CLI bundle also opens with a hashbang line.
 fn first_statement_start(source: &str) -> Option<usize> {
     let mut index = if source.starts_with("#!") {
         source.find('\n').map_or(source.len(), |end| end + 1)
@@ -152,15 +152,30 @@ fn first_statement_start(source: &str) -> Option<usize> {
     }
 }
 
-/// Byte offset just past the statement starting at `start`.
-fn statement_end(source: &str, start: usize) -> Option<usize> {
+/// One statement: where it ends, and the string literals it holds with the offset of each
+/// opening quote, relative to the statement's own start.
+struct Statement {
+    end: usize,
+    literals: Vec<(usize, String)>,
+}
+
+/// Read the statement starting at `start`. Scanning stops once the statement grows past
+/// `MAX_REWRITTEN_SNIPPET_LEN`, so a whole-bundle IIFE costs a few kilobytes rather than a walk
+/// to the end of the chunk.
+fn scan_statement(source: &str, start: usize) -> Option<Statement> {
     let bytes = source.as_bytes();
+    let limit = bytes.len().min(start + MAX_REWRITTEN_SNIPPET_LEN);
+    let mut literals = Vec::new();
     let mut index = start;
     let mut depth = 0usize;
 
-    while index < bytes.len() {
+    while index < limit {
         match bytes[index] {
-            b'"' | b'\'' | b'`' => index = string_literal_end(source, index)?,
+            b'"' | b'\'' | b'`' => {
+                let end = string_literal_end(source, index)?;
+                literals.push((index - start, unescape(&source[index + 1..end - 1])));
+                index = end;
+            }
             b'/' if matches!(bytes.get(index + 1), Some(b'/') | Some(b'*')) => {
                 index = skip_trivia(source, index)
             }
@@ -175,16 +190,24 @@ fn statement_end(source: &str, start: usize) -> Option<usize> {
                     continue;
                 }
                 let next = skip_trivia(source, index);
-                match bytes.get(next) {
+                let end = match bytes.get(next) {
                     // The function body and the call that runs it both close at depth zero,
                     // so a following call, index, member access or block continues the
                     // statement rather than ending it.
                     Some(b'(') | Some(b'[') | Some(b'{') | Some(b'.') | Some(b'?') => continue,
-                    Some(b';') | Some(b',') => return Some(next + 1),
-                    _ => return Some(index),
-                }
+                    // A minifier merges adjacent expression statements into a sequence, so the
+                    // comma is taken with the snippet and the statements after it are left.
+                    Some(b';') | Some(b',') => next + 1,
+                    _ => index,
+                };
+                return Some(Statement { end, literals });
             }
-            b';' if depth == 0 => return Some(index + 1),
+            b';' if depth == 0 => {
+                return Some(Statement {
+                    end: index + 1,
+                    literals,
+                })
+            }
             _ => index += 1,
         }
     }
@@ -227,43 +250,21 @@ fn string_literal_end(source: &str, start: usize) -> Option<usize> {
     None
 }
 
-/// The string literal values in `code`, each with the offset of its opening quote. Escapes are
-/// resolved by dropping the backslash, which is exact for the JSON-encoded ids the snippet
-/// carries and for anything a minifier re-encodes them as.
-fn string_literals(code: &str) -> Vec<(usize, String)> {
-    let bytes = code.as_bytes();
-    let mut literals = Vec::new();
-    let mut index = 0;
-
-    while index < bytes.len() {
-        match bytes[index] {
-            b'"' | b'\'' => {
-                let Some(end) = string_literal_end(code, index) else {
-                    break;
-                };
-                let mut value = String::new();
-                let mut chars = code[index + 1..end - 1].chars();
-                while let Some(character) = chars.next() {
-                    if character == '\\' {
-                        match chars.next() {
-                            Some(escaped) => value.push(escaped),
-                            None => break,
-                        }
-                    } else {
-                        value.push(character);
-                    }
-                }
-                literals.push((index, value));
-                index = end;
-            }
-            b'/' if matches!(bytes.get(index + 1), Some(b'/') | Some(b'*')) => {
-                index = skip_trivia(code, index)
-            }
-            _ => index += 1,
+/// Resolve a string literal's escapes by dropping the backslash. That is exact for the
+/// JSON-encoded ids the snippet carries, and for anything a minifier re-encodes them as.
+fn unescape(raw: &str) -> String {
+    let mut value = String::with_capacity(raw.len());
+    let mut characters = raw.chars();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => match characters.next() {
+                Some(escaped) => value.push(escaped),
+                None => break,
+            },
+            _ => value.push(character),
         }
     }
-
-    literals
+    value
 }
 
 /// Read the release id embedded in the source's injected snippet, if any.
@@ -596,8 +597,7 @@ impl MinifiedSourceFile {
     /// The two snippet variants have different lengths, so the choice shifts every generated
     /// column the sourcemap records for the injected chunk.
     pub fn has_release_snippet(&self, chunk_id: &str) -> bool {
-        find_injected_snippet(&self.inner.content, chunk_id)
-            .is_some_and(|snippet| snippet.release_id.is_some())
+        get_injected_release_id(&self.inner.content, chunk_id).is_some()
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
@@ -825,55 +825,6 @@ mod tests {
             get_injected_release_id(&format!("{snippet}code();"), chunk_id).as_deref(),
             Some(release_id)
         );
-    }
-
-    /// A release snippet as a post-injection minifier rewrites it. Variables are renamed, the
-    /// `typeof` comparisons are rewritten and the catch binding is dropped, so nothing of the
-    /// template survives except the property names and the ids.
-    fn minified_release_snippet(chunk_id: &str, release_id: &str) -> String {
-        format!(
-            r#"!function(){{try{{var t=typeof window<"u"?window:typeof globalThis<"u"?globalThis:{{}};t._posthogReleaseId=t._posthogReleaseId||"{release_id}";var o=new t.Error().stack;o&&(t._posthogChunkIds=t._posthogChunkIds||{{}},t._posthogChunkIds[o]="{chunk_id}")}}catch{{}}}}();"#
-        )
-    }
-
-    #[test]
-    fn minified_release_snippet_is_detected_and_removed() {
-        let source = format!(
-            "\"use strict\";{}console.log(1);\n//# chunkId=chunk-1\n",
-            minified_release_snippet("chunk-1", "release-1")
-        );
-        let mut minified = minified_source(&source);
-
-        assert_eq!(
-            get_injected_release_id(&source, "chunk-1").as_deref(),
-            Some("release-1")
-        );
-        assert!(minified.has_release_snippet("chunk-1"));
-
-        minified
-            .remove_chunk_id("chunk-1".to_string())
-            .expect("Failed to remove chunk id");
-
-        assert_eq!(minified.inner.content, "\"use strict\";console.log(1);\n");
-    }
-
-    #[test]
-    fn a_snippet_for_another_chunk_is_left_alone() {
-        // Sibling chunks carry the same rewritten shape, so the chunk id in the statement is
-        // what proves the snippet is the one being removed.
-        let source = format!(
-            "{}console.log(1);\n",
-            minified_release_snippet("chunk-1", "release-1")
-        );
-        let mut minified = minified_source(&source);
-
-        assert_eq!(get_injected_release_id(&source, "chunk-2"), None);
-
-        minified
-            .remove_chunk_id("chunk-2".to_string())
-            .expect("Failed to remove chunk id");
-
-        assert_eq!(minified.inner.content, source);
     }
 
     #[test]

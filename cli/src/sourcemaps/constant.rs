@@ -7,6 +7,12 @@ pub const CODE_SNIPPET_TEMPLATE: &str = r#"!function(){try{var e="undefined"!=ty
 // a JSON-encoded string literal that carries its own quotes.
 pub const CODE_SNIPPET_WITH_RELEASE_TEMPLATE: &str = r#"!function(){try{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||__POSTHOG_RELEASE_ID__;var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]="__POSTHOG_CHUNK_ID__")}catch(e){}}();"#;
 
+/// Property names the snippet sets on the global. A minifier renames the snippet's variables
+/// and requotes its strings, but it cannot rename a property the SDK reads back, so these are
+/// the only anchors that survive a minify pass over already-injected code.
+pub const CHUNK_IDS_PROPERTY: &str = "_posthogChunkIds";
+pub const RELEASE_ID_PROPERTY: &str = "_posthogReleaseId";
+
 pub const CHUNKID_COMMENT_PREFIX: &str = "\n//# chunkId=__POSTHOG_CHUNK_ID__";
 pub const CHUNKID_PLACEHOLDER: &str = "__POSTHOG_CHUNK_ID__";
 /// The placeholder as it appears in the snippet templates: inside a JS string literal. Snippet
@@ -19,3 +25,18 @@ pub const RELEASE_ID_PLACEHOLDER: &str = "__POSTHOG_RELEASE_ID__";
 // dedupe and symbol sets stay stable without a per-build random id.
 pub const CHUNK_ID_NAMESPACE: uuid::Uuid =
     uuid::Uuid::from_u128(0x0e9b3c7a5d1f42a8b6c4e2d0f8a17593);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn both_templates_carry_the_anchor_properties() {
+        // Detection falls back to searching for these names when a minifier rewrites the
+        // snippet. Renaming one in a template without renaming it here would leave the
+        // fallback hunting for a property no chunk sets.
+        assert!(CODE_SNIPPET_TEMPLATE.contains(CHUNK_IDS_PROPERTY));
+        assert!(CODE_SNIPPET_WITH_RELEASE_TEMPLATE.contains(CHUNK_IDS_PROPERTY));
+        assert!(CODE_SNIPPET_WITH_RELEASE_TEMPLATE.contains(RELEASE_ID_PROPERTY));
+    }
+}

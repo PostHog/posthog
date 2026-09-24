@@ -730,6 +730,48 @@ fn test_reinject_replaces_a_minified_release_snippet() {
     assert_eq!(source.matches("_posthogReleaseId||").count(), 1, "{source}");
 }
 
+fn source_file_with(content: String) -> MinifiedSourceFile {
+    MinifiedSourceFile {
+        inner: SourceFile::new(PathBuf::from("chunk.js"), content),
+    }
+}
+
+#[test]
+fn test_a_snippet_for_another_chunk_is_left_alone() {
+    // Sibling chunks carry the same rewritten shape, so the chunk id inside the statement is
+    // what proves the snippet belongs to the chunk being processed. Without that guard the
+    // removal would strip a statement out of someone else's bundle.
+    let content = format!(
+        "{}console.log(1);\n",
+        minified_release_snippet(BUNDLER_DEBUG_ID, "release-a")
+    );
+    let mut source = source_file_with(content.clone());
+
+    source
+        .remove_chunk_id("99999999-8888-4777-8666-000000000000".to_string())
+        .expect("Failed to remove chunk id");
+
+    assert_eq!(source.inner.content, content);
+}
+
+#[test]
+fn test_removal_keeps_user_code_a_minifier_merged_with_the_snippet() {
+    // A minifier merges adjacent expression statements into a sequence, so the snippet can end
+    // at a comma instead of a semicolon. Removal must stop at that comma: taking the whole
+    // statement would delete the user code that follows it from the shipped chunk.
+    let snippet = minified_release_snippet(BUNDLER_DEBUG_ID, "release-a");
+    let mut source = source_file_with(format!(
+        "{},console.log(1);\n//# chunkId={BUNDLER_DEBUG_ID}\n",
+        snippet.trim_end_matches(';')
+    ));
+
+    source
+        .remove_chunk_id(BUNDLER_DEBUG_ID.to_string())
+        .expect("Failed to remove chunk id");
+
+    assert_eq!(source.inner.content, "console.log(1);\n");
+}
+
 #[test]
 fn test_file_selection() {
     // This does not work with glob patterns
