@@ -357,6 +357,16 @@ pub fn epoch_key(prefix: &str, key: &str, epoch: i64) -> String {
     format!("{prefix}:{key}:{epoch}")
 }
 
+/// The absolute unix second at which an epoch key stops being readable, since
+/// a read consults only the current and previous epoch.
+///
+/// TTL configured above the two-window minimum becomes clock-skew grace.
+pub fn epoch_expire_at(epoch: i64, window_interval: Duration, global_cache_ttl: Duration) -> i64 {
+    let window_secs = window_interval.as_secs() as i64;
+    let grace_secs = (global_cache_ttl.as_secs() as i64 - 2 * window_secs).max(0);
+    (epoch + 2) * window_secs + grace_secs
+}
+
 /// Build the current and previous epoch Redis keys for a given entity
 pub fn epoch_keys(
     prefix: &str,
@@ -1115,7 +1125,6 @@ impl GlobalRateLimiterImpl {
     ) {
         let redis_idx_str: Arc<str> = Arc::from(redis_idx.to_string().as_str());
         let now = Utc::now();
-        let ttl = config.global_cache_ttl.as_secs() as usize;
 
         // Writes first, then reads. A read result zeroes each synced key's
         // `local_pending`, so the read must already include this tick's write
@@ -1126,8 +1135,7 @@ impl GlobalRateLimiterImpl {
         // ticks. Counts deferred past the write cap are still cleared by the
         // read before they land; that loss is bounded by the cap and fails
         // open, like every other overload path here.
-        let writes_issued =
-            Self::run_writes(config, redis, &redis_idx_str, writes, ttl, scope).await;
+        let writes_issued = Self::run_writes(config, redis, &redis_idx_str, writes, scope).await;
         let reads_issued =
             Self::run_reads(config, redis, &redis_idx_str, cache, sync_keys, now, scope).await;
 
@@ -1149,22 +1157,23 @@ impl GlobalRateLimiterImpl {
         redis: &Arc<dyn Client + Send + Sync>,
         redis_idx_str: &Arc<str>,
         writes: &HashMap<(String, i64), u64>,
-        ttl: usize,
         scope: &'static str,
     ) -> usize {
         if writes.is_empty() {
             return 0;
         }
 
-        let write_items: Vec<(String, i64)> = writes
+        let write_items: Vec<(String, i64, i64)> = writes
             .iter()
             .map(|((key, epoch), count)| {
                 let redis_key = epoch_key(&config.redis_key_prefix, key, *epoch);
-                (redis_key, *count as i64)
+                let expire_at =
+                    epoch_expire_at(*epoch, config.window_interval, config.global_cache_ttl);
+                (redis_key, *count as i64, expire_at)
             })
             .collect();
 
-        let chunks: Vec<Vec<(String, i64)>> = write_items
+        let chunks: Vec<Vec<(String, i64, i64)>> = write_items
             .chunks(config.max_keys_per_command.max(1))
             .map(|chunk| chunk.to_vec())
             .collect();
@@ -1182,7 +1191,7 @@ impl GlobalRateLimiterImpl {
                     let started = Instant::now();
                     match tokio::time::timeout(
                         config.global_write_timeout,
-                        redis.batch_incr_by_expire(chunk.clone(), ttl),
+                        redis.batch_incr_by_expire_at(chunk.clone()),
                     )
                     .await
                     {
@@ -1583,6 +1592,43 @@ mod tests {
         assert_eq!(prev, "p:k:1");
     }
 
+    #[test]
+    fn test_epoch_expire_at_covers_exactly_the_readable_window() {
+        let window = Duration::from_secs(120);
+        // The minimum cache TTL is two windows, which leaves no grace.
+        let ttl = Duration::from_secs(240);
+
+        // A key written anywhere in epoch 10 is read while the clock sits in
+        // epoch 10 or epoch 11, so it must live to the end of epoch 11 and no
+        // longer. Epoch 11 ends at (10 + 2) * 120.
+        assert_eq!(epoch_expire_at(10, window, ttl), 1440);
+
+        let last_readable_instant = 12 * 120 - 1;
+        assert!(epoch_expire_at(10, window, ttl) > last_readable_instant);
+
+        // The deadline follows the epoch, so consecutive epochs stay one
+        // window apart rather than drifting with write time.
+        assert_eq!(
+            epoch_expire_at(11, window, ttl) - epoch_expire_at(10, window, ttl),
+            120
+        );
+    }
+
+    #[test]
+    fn test_epoch_expire_at_carries_configured_slack_as_grace() {
+        let window = Duration::from_secs(120);
+
+        // TTL above the two-window minimum becomes clock-skew grace.
+        assert_eq!(
+            epoch_expire_at(10, window, Duration::from_secs(250)),
+            1440 + 10
+        );
+
+        // A TTL below the minimum cannot pull the deadline inside the readable
+        // window, which would expire a key that reads still consult.
+        assert_eq!(epoch_expire_at(10, window, Duration::from_secs(60)), 1440);
+    }
+
     // --- Weighted count estimation tests (parameterized) ---
 
     #[test]
@@ -1911,7 +1957,7 @@ mod tests {
         let calls = client.get_calls();
         let batch_calls: Vec<_> = calls
             .iter()
-            .filter(|c| c.op == "batch_incr_by_expire")
+            .filter(|c| c.op == "batch_incr_by_expire_at")
             .collect();
         assert!(
             !batch_calls.is_empty(),
@@ -2397,12 +2443,18 @@ mod tests {
         let write_calls: Vec<String> = mock
             .get_calls()
             .into_iter()
-            .filter(|c| c.op == "batch_incr_by_expire")
+            .filter(|c| c.op == "batch_incr_by_expire_at")
             .map(|c| c.key)
             .collect();
+        let live_key = epoch_key(&config.redis_key_prefix, "live", current_epoch);
+        let live_expire_at = epoch_expire_at(
+            current_epoch,
+            config.window_interval,
+            config.global_cache_ttl,
+        );
         assert_eq!(
             write_calls,
-            vec![format!("items=1;ttl={}", config.global_cache_ttl.as_secs())],
+            vec![format!("{live_key}=1@{live_expire_at}")],
             "only the readable-epoch entry may be written; a stale epoch can              never be read (reads consult current + previous only) and must              not spend write commands"
         );
         assert!(
