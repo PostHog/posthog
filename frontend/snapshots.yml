@@ -5504,6 +5504,34 @@ snapshots:
         hash: v1.k794b7964.fda088b86665fa1e7f42ac158d9c5acf12b2afc030a90ad385d3d0fe16170d46.WqmQ9-wSSHQj0J-kUbJKkFI8DhDljOP6queW3e6jxDQ
     marketing-analytics-customer-acquisition-cards--unconfigured--light:
         hash: v1.k794b7964.40240d162f715f3da0d8363e08797fb8a9c131852a5d6356c892424e25dfa35c.yeHaH7ecKHVh7IOwmerxuVPzSGclQrUDBwWnoPV0rmw
+    marketing-analytics-dashboard-ask-posthog-ai--acquisition--dark:
+        hash: v1.k794b7964.bf802fa137c78dcb6d3ca94c02e903e9464e92aabb02a3dc92391e0d60c64f8a.tCxe-gi3h9CTPQnEcqATxDNa8DtXQaoYz5QuvYVhOjY
+    marketing-analytics-dashboard-ask-posthog-ai--acquisition--light:
+        hash: v1.k794b7964.c2b261cbc4ae91d1326fd5e6bb3ef4bf135d4dbe1bd08d0692caf7dcb936d639.3Fc6a9f_crPuHJCfuqHBad4X8flG5C3N6SMGSg4nxKM
+    marketing-analytics-dashboard-ask-posthog-ai--ai-data-processing-not-approved--dark:
+        hash: v1.k794b7964.92b3949d77ad5cd056fbea060a61917358f03c1ef68419470d8ff0901ac0792b.6sQEKQbE4m3ua9QrQJdos5mZ30G2AI9-EWBeJTo0TWk
+    marketing-analytics-dashboard-ask-posthog-ai--ai-data-processing-not-approved--light:
+        hash: v1.k794b7964.64cb096bcb631102e0581e9b52b038b34ca611f6bdb23057eb5774d5bdf3e773.twzGE8BSXYdX5BtCMV76UoLLssbsgYCVHMvWu5xxhnQ
+    marketing-analytics-dashboard-ask-posthog-ai--conversion--dark:
+        hash: v1.k794b7964.6a71d4510e44a0a9c20d357c912f00af7976c48a984e77157a456c05ea9742e7.8uwssiuWJenX4i5x-OIMZxEr2Fi4Wg0C6xfMx7Xzu_4
+    marketing-analytics-dashboard-ask-posthog-ai--conversion--light:
+        hash: v1.k794b7964.191d111022982f97a17e13419e72f9c5da73becb6c5c34f3b7e5e5a7256f5348.5X6pfOyc_whtc_kMHLz9ftl5Y7U-UZLFnQPmH0TNUqk
+    marketing-analytics-dashboard-ask-posthog-ai--engagement--dark:
+        hash: v1.k794b7964.8e9f49c14f469f2f9b38ab3f50d7e758c2c271238be6dfc24221bc1acc865ff3.OULQj22Y6PJNphdoG8_fdtsBiGCUrmiFX0DZ-hG_HzY
+    marketing-analytics-dashboard-ask-posthog-ai--engagement--light:
+        hash: v1.k794b7964.105cd44e9e677e2842a4bed1329b29e9be2ee939dd61bc021f7eccabdb0b1e39.niH90yoFtA8ulu6vt1Nx39mGoES2dPck28gCCV8axNo
+    marketing-analytics-dashboard-ask-posthog-ai--narrow--dark:
+        hash: v1.k794b7964.39f19e95e4f467f0f5b562fda90630e1e1b2eb69413a3ab1d89ea2ee79ca66f0.Xjv3Qzby0wjmS5u9XddnUBQ0Fglx_om6lvsZoAfqtGA
+    marketing-analytics-dashboard-ask-posthog-ai--narrow--light:
+        hash: v1.k794b7964.39bca8ed804102275c50f24f654e61973cfd5788f5c29febf5b63e1a9aff393c.EYkjYvOxP5dbWZTuHUwSO9xXcU68eBd3KCeAS3vkF3k
+    marketing-analytics-dashboard-ask-posthog-ai--overview--dark:
+        hash: v1.k794b7964.92b3949d77ad5cd056fbea060a61917358f03c1ef68419470d8ff0901ac0792b.3D-2_ljkj3N7vXcBu1k1F0KR-1psjK36YPjjPLlUrZg
+    marketing-analytics-dashboard-ask-posthog-ai--overview--light:
+        hash: v1.k794b7964.64cb096bcb631102e0581e9b52b038b34ca611f6bdb23057eb5774d5bdf3e773.F_49bxAIbWEShaBxeQr22JHS5ZQCzQ4cLQj_0zhZhOo
+    marketing-analytics-dashboard-ask-posthog-ai--retention--dark:
+        hash: v1.k794b7964.897494ae1bb8d405601e93e9d3b746716f68aec81d761c94b953dadc04097a96.rOFMLNnCszQIL0uG_O4mFIIGdUaTNrP2Z4ATcHewwlo
+    marketing-analytics-dashboard-ask-posthog-ai--retention--light:
+        hash: v1.k794b7964.74e7aa3b07c74c5e6f6e40bec5a4e32bfb498525e5e4278b3cb80ea5035f1113.7rrdBr-XRoEB3mQi_C0Nqr62IcxhDmg5wmrnYRTtz_w
     marketing-analytics-dashboard-breakdown-table--empty--dark:
         hash: v1.k794b7964.595e55eba52af8b27ddecd40dd1b59d636bcbae1ee0dc5d78be62dd3b892d981.IyZb58wgD9xEUOLcWOt5PP2o4wps9Oh7Sb6S1SfQKvE
     marketing-analytics-dashboard-breakdown-table--empty--light:
