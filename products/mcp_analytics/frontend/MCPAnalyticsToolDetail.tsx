@@ -109,7 +109,7 @@ interface ResultColumn {
     header: string
     align?: 'left' | 'right'
     expand?: boolean
-    // Applied to both the header and cell, e.g. `@max-lg:hidden` to drop a lower-priority column
+    // Applied to both the header and cell, e.g. `@max-2xl:hidden` to drop a lower-priority column
     // once the card narrows past a container breakpoint instead of letting the table overflow it.
     className?: string
     render: (row: unknown[]) => React.ReactNode
@@ -719,14 +719,14 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Errors',
                                 align: 'right',
-                                className: '@max-lg:hidden',
+                                className: '@max-2xl:hidden',
                                 render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Sessions',
                                 align: 'right',
-                                className: '@max-lg:hidden',
+                                className: '@max-2xl:hidden',
                                 render: (r) => formatNumber(Number(r[4] ?? 0)),
                             },
                             {
@@ -750,7 +750,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Errors',
                                 align: 'right',
-                                className: '@max-lg:hidden',
+                                className: '@max-2xl:hidden',
                                 render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
@@ -760,7 +760,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             },
                             {
                                 header: 'Last seen',
-                                className: '@max-lg:hidden',
+                                className: '@max-2xl:hidden',
                                 render: (r) => <TZLabel time={String(r[5])} />,
                             },
                         ]}
