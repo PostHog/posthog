@@ -24,6 +24,7 @@ from posthog.schema import HogQLVariable
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
 from posthog.hogql import ast
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -1071,11 +1072,13 @@ def process_property_removal_shard(
         # keys, and let the assignment cast the cleaned string back to the JSON column type.
         if properties:
             properties_read = "toJSONString(properties)" if json_schema else "properties"
-            update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_read})")
+            update_parts.append(f"properties = {JSON_DROP_KEYS_CLICKHOUSE_NAME}({properties_read}, %(keys)s)")
             mutation_params["keys"] = properties
         if person_properties:
             person_properties_read = "toJSONString(person_properties)" if json_schema else "person_properties"
-            update_parts.append(f"person_properties = JSONDropKeys(%(person_keys)s)({person_properties_read})")
+            update_parts.append(
+                f"person_properties = {JSON_DROP_KEYS_CLICKHOUSE_NAME}({person_properties_read}, %(person_keys)s)"
+            )
             mutation_params["person_keys"] = person_properties
         # Cast to DateTime64(6) so microseconds survive the parameter binding —
         # mirrors the cast in the delete predicate so both sides agree on the marker.
