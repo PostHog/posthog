@@ -3,7 +3,7 @@
 FROM golang:1.23 AS agent-shadow-builder
 
 WORKDIR /src
-COPY products/desktop/packages/agent-shadow/ ./
+COPY packages/agent/agent-shadow/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /agent-shadow .
 
 FROM ubuntu:24.04
