@@ -22,11 +22,13 @@ import time
 import shlex
 import base64
 import random
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -582,6 +584,40 @@ def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
     return min(ceiling_seconds, remaining)
 
 
+class _StepTimer:
+    """Wall-clock milliseconds per sandbox step, for the run output and the worker log."""
+
+    def __init__(self) -> None:
+        self.timings_ms: dict[str, int] = {}
+
+    @contextmanager
+    def step(self, name: str) -> Iterator[None]:
+        # Recorded on failure too, so the log line shows how long the failing step ran.
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.timings_ms[name] = int((time.monotonic() - started) * 1000)
+
+
+def _destroy_sandbox_in_background(sandbox: SandboxBase, run_id: str) -> None:
+    """Tear the sandbox down on a daemon thread, so the verdict does not wait for it.
+
+    The provider's terminate call blocks until the sandbox is gone, and nothing after the reviewer
+    needs the sandbox. A failed or lost teardown only leaves an orphan, and an orphan
+    self-terminates when SandboxConfig.ttl_seconds expires. That includes a thread that dies with
+    its worker.
+    """
+
+    def destroy() -> None:
+        try:
+            sandbox.destroy()
+        except Exception:
+            activity.logger.exception(f"Failed to destroy sandbox for run {run_id}")
+
+    threading.Thread(target=destroy, name=f"stamphog-destroy-{run_id}", daemon=True).start()
+
+
 @activity.defn
 @asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
@@ -673,7 +709,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     try:
         config = SandboxConfig(
             name=f"stamphog-review-{run.id}",
-            template=SandboxTemplate.SLIM_BASE,
+            template=SandboxTemplate.STAMPHOG_REVIEW,
             metadata={"review_run_id": str(run.id)},
             environment_variables=environment,
             outbound_domain_allowlist=_sandbox_egress_allowlist(environment["AI_GATEWAY_URL"]),
@@ -700,36 +736,41 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
         run.save(update_fields=["output", "updated_at"])
 
+        timer = _StepTimer()
         # Sandbox creation draws on the same budget as the steps below it, so a slow provision
         # leaves the clone, the prefetch and the reviewer correspondingly less.
         try:
             # Raises when the budget is already gone, so an activity with no time left does not pay
             # for a box the first step would only reject.
             _step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS)
-            sandbox = sandbox_class.create(config)
+            with timer.step("sandbox_create"):
+                sandbox = sandbox_class.create(config)
             try:
-                _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
-                _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
+                with timer.step("clone"):
+                    _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
+                with timer.step("prefetch"):
+                    _prefetch_review_blobs(sandbox, base_sha, run.head_sha, token, _blame_paths(files), deadline)
                 # The prefetch swallows its own failure, including a timeout that consumed the rest
                 # of the budget. Re-check here, because the three steps below write through the
                 # sandbox filesystem API and cannot take a deadline: passing one would switch them
                 # to an exec-based write, which is a different mechanism, not a bounded one.
                 _step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS)
-                _inject_policy_files(sandbox, policy_files)
-                _ship_engine(sandbox)
-                _write_context(sandbox, invocation)
+                with timer.step("ship_engine"):
+                    _inject_policy_files(sandbox, policy_files)
+                    _ship_engine(sandbox)
+                    _write_context(sandbox, invocation)
 
                 command = (
                     f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
                 )
-                result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS))
+                with timer.step("reviewer"):
+                    result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS))
             finally:
-                # A destroy failure must not mask a completed review — the verdict below still has to be
-                # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
-                try:
-                    sandbox.destroy()
-                except Exception:
-                    activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
+                # A destroy failure must not mask a completed review, because the verdict below still
+                # has to be persisted and posted.
+                with timer.step("destroy_dispatch"):
+                    _destroy_sandbox_in_background(sandbox, str(run.id))
+                activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
 
             # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
             # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
@@ -737,6 +778,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 **(run.output or {}),
                 "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
                 "reviewer_exit_code": result.exit_code,
+                "timings_ms": timer.timings_ms,
             }
             run.save(update_fields=["output", "updated_at"])
 
@@ -1343,6 +1385,29 @@ _MAX_BLAME_PREFETCH_PATHS = 100
 # blames anything, and its history is the most expensive to fetch.
 _MAX_PREFETCH_CHANGED_LINES = 2000
 
+# Mirrors the lockfile names of DEPENDENCY_ECOSYSTEMS in the engine's gates.py, which familiarity.py
+# keeps out of blame. Update both. A lockfile's history is the largest set of blobs a prefetch can
+# name, and the engine never blames it. Matched against the lowercased basename, like the engine.
+_LOCKFILE_NAMES = frozenset(
+    {
+        "pnpm-lock.yaml",
+        "package-lock.json",
+        "yarn.lock",
+        "npm-shrinkwrap.json",
+        "uv.lock",
+        "poetry.lock",
+        "pipfile.lock",
+        "gemfile.lock",
+        "composer.lock",
+        "cargo.lock",
+        "go.sum",
+    }
+)
+
+
+def _is_lockfile(path: str) -> bool:
+    return PurePosixPath(path).name.lower() in _LOCKFILE_NAMES
+
 
 def _blame_paths(files: list[dict]) -> list[str]:
     """Base-side paths of the changed text files, for the blame prefetch.
@@ -1356,7 +1421,7 @@ def _blame_paths(files: list[dict]) -> list[str]:
     Deliberately wider than the engine's own blame selection (largest 30 files): duplicating that
     heuristic here would let the two drift apart, and naming a path the engine skips costs one more
     tree walk, because the enumeration reads local trees and the fetch is one request either way.
-    The size bound is the exception, because there the cost is the fetch itself.
+    The size bound and lockfiles are the exceptions, because there the cost is the fetch itself.
 
     Ordered by changed lines, the way the engine orders its own blame selection. Taking the API's
     order instead would bound a different set: the engine blames the largest files, so a large one
@@ -1367,7 +1432,7 @@ def _blame_paths(files: list[dict]) -> list[str]:
     paths: list[str] = []
     for entry in candidates:
         path = entry.get("previous_filename") or entry.get("filename")
-        if path and path not in paths:
+        if path and not _is_lockfile(path) and path not in paths:
             paths.append(path)
     return paths[:_MAX_BLAME_PREFETCH_PATHS]
 

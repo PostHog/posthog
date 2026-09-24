@@ -200,6 +200,18 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
     assert fam.modified_lines_total == 0
 
 
+def test_lockfiles_are_left_out_of_blame_without_capping() -> None:
+    lockfile = familiarity._FileDiff(
+        old_path="frontend/pnpm-lock.yaml", new_path="frontend/pnpm-lock.yaml", changed_lines=5000
+    )
+    source = familiarity._FileDiff(old_path="src/app.py", new_path="src/app.py", changed_lines=4)
+
+    considered, capped = familiarity._select_considered_files([lockfile, source])
+
+    assert considered == [source]
+    assert capped is False
+
+
 def test_failed_blame_counts_its_lines_as_not_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)

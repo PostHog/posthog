@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import threading
 from pathlib import Path
 
 import pytest
@@ -213,18 +214,30 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
 
 
+@pytest.mark.parametrize("teardown", ["raises", "hangs"])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_sandbox_destroy_failure_does_not_mask_a_completed_review(team, stamphog_chain: StamphogChain) -> None:
-    # Teardown runs in a finally block after a successful review; if its exception propagated it
-    # would replace the success, drop the verdict, and mark the run FAILED.
+def test_sandbox_teardown_does_not_hold_up_a_completed_review(
+    team, stamphog_chain: StamphogChain, teardown: str
+) -> None:
+    # Teardown runs after a successful review. An exception from it would replace the success and
+    # mark the run FAILED, and waiting on it would hold the verdict back until the provider is done.
     _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha109a"
     recorder.register_pr(REPO, 109, _pr_object(109, author, head_sha), _pr_files())
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
-    stamphog_chain.sandbox_class.destroy_error = RuntimeError("sandbox teardown blew up")
+    blocker = threading.Event()
+    if teardown == "raises":
+        stamphog_chain.sandbox_class.destroy_error = RuntimeError("sandbox teardown blew up")
+    else:
+        stamphog_chain.sandbox_class.destroy_blocker = blocker
 
-    status = stamphog_chain.post_webhook(_opened_event(109, author, head_sha), delivery_id=str(uuid.uuid4()))
+    try:
+        status = stamphog_chain.post_webhook(_opened_event(109, author, head_sha), delivery_id=str(uuid.uuid4()))
+        if teardown == "hangs":
+            assert not stamphog_chain.sandbox_class.destroy_returned
+    finally:
+        blocker.set()
     assert status == 202
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
@@ -625,7 +638,7 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
         "obo": str(team.id),
         "user": user.distinct_id,
     }
-    # The token dies with its sandbox: a best-effort revoke follows destroy.
+    # The token dies with its run: a best-effort revoke follows the reviewer.
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
     assert revoke_call.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}

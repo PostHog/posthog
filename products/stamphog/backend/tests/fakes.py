@@ -17,6 +17,7 @@ import re
 import hmac
 import json
 import hashlib
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -571,6 +572,11 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     class _FakeSandbox:
         # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
         destroy_error: Exception | None = None
+        # A test can set this to make teardown hang until the event is set, or for at most ten
+        # seconds, so a caller that waits on teardown fails the test instead of hanging it.
+        destroy_blocker: threading.Event | None = None
+        # Set once destroy() returns, so a test can tell whether its caller waited for it.
+        destroy_returned: bool = False
         # A test can set this to make provisioning blow up, which is the first step of the review's
         # paid phase (retry-boundary coverage).
         create_error: Exception | None = None
@@ -595,6 +601,9 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return FakeExecResult(stdout="", stderr="", exit_code=0)
 
         def destroy(self) -> None:
+            if self.destroy_blocker is not None:
+                self.destroy_blocker.wait(timeout=10)
+            type(self).destroy_returned = True
             if self.destroy_error is not None:
                 raise self.destroy_error
 

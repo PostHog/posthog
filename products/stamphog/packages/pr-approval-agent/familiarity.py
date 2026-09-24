@@ -24,6 +24,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from gates import _ALL_LOCKFILE_NAMES
 from policy import FamiliarityPolicy
 
 # Bounds - keep the work predictable on large PRs.
@@ -220,15 +221,26 @@ def _coalesce(lines: list[int]) -> list[tuple[int, int]]:
     return ranges
 
 
+def _is_lockfile(file_diff: _FileDiff) -> bool:
+    return PurePosixPath(file_diff.path).name.lower() in _ALL_LOCKFILE_NAMES
+
+
 def _select_considered_files(file_diffs: list[_FileDiff]) -> tuple[list[_FileDiff], bool]:
-    """Bound the blame work: drop binaries, skip huge files, cap at 30 (largest first).
+    """Bound the blame work: drop binaries and lockfiles, skip huge files, cap at 30 (largest first).
 
     Returns (considered, capped) where capped is True when work was dropped for
     a bound (an oversize file or the 30-file cap) - binaries don't count as
     capping, they carry no reviewable lines.
+
+    Lockfiles don't count either. A package manager writes their lines, so blame
+    names whoever last ran the install, which says nothing about the author's
+    familiarity. Their history is also the largest a blobless clone has to fetch.
+    The server's blame prefetch (`_LOCKFILE_NAMES` in the backend's
+    temporal/activities.py) skips the same names and has to stay in sync.
     """
-    eligible = [f for f in file_diffs if not f.is_binary and f.changed_lines <= _MAX_CHANGED_LINES_PER_FILE]
-    oversize = any(not f.is_binary and f.changed_lines > _MAX_CHANGED_LINES_PER_FILE for f in file_diffs)
+    blameable = [f for f in file_diffs if not f.is_binary and not _is_lockfile(f)]
+    eligible = [f for f in blameable if f.changed_lines <= _MAX_CHANGED_LINES_PER_FILE]
+    oversize = any(f.changed_lines > _MAX_CHANGED_LINES_PER_FILE for f in blameable)
     eligible.sort(key=lambda f: f.changed_lines, reverse=True)
     considered = eligible[:_MAX_BLAME_FILES]
     capped = oversize or len(eligible) > _MAX_BLAME_FILES

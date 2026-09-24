@@ -78,6 +78,7 @@ PI_IMAGE_NAME = "posthog-sandbox-pi"
 AUTORESEARCH_IMAGE_NAME = "posthog-sandbox-autoresearch"
 STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
 SLIM_IMAGE_NAME = "posthog-sandbox-slim"
+STAMPHOG_REVIEW_IMAGE_NAME = "posthog-sandbox-stamphog-review"
 
 # Stamped on the base image so a later run can tell whether it must rebuild: the sha of
 # the Dockerfile that produced it, and the @posthog/agent version baked into the npm layer.
@@ -389,6 +390,19 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
             DockerSandbox._build_image_if_needed(SLIM_IMAGE_NAME, dockerfile_path, needs_skills=False)
             return SLIM_IMAGE_NAME
+
+        if template == SandboxTemplate.STAMPHOG_REVIEW:
+            DockerSandbox._ensure_image_exists(SandboxTemplate.SLIM_BASE)
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-stamphog-review"
+            )
+            DockerSandbox._build_image_if_needed(
+                STAMPHOG_REVIEW_IMAGE_NAME,
+                dockerfile_path,
+                build_args={"BASE_IMAGE": SLIM_IMAGE_NAME},
+                needs_skills=False,
+            )
+            return STAMPHOG_REVIEW_IMAGE_NAME
 
         # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
         # user + auth proxy), so it doesn't build on top of the base image like PI does.

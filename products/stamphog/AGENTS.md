@@ -98,8 +98,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   from the Go ai-gateway (`POST /v1/tokens`) with the worker's `phs_` (`AI_GATEWAY_API_KEY`), pinned
   to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
   acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
-  the run (no shared-key fallback); the worker revokes the token once the sandbox is destroyed. Do
-  not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
+  without waiting for the sandbox teardown. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
   spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.

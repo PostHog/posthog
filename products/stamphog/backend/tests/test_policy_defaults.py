@@ -184,3 +184,12 @@ def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
     # GitHub omits the patch of a large text file too, but reports its real line counts. The engine
     # parses the local diff and blames it, so it has to be prefetched.
     assert _blame_paths([{"filename": "src/huge.py", "changes": 1800}]) == ["src/huge.py"]
+
+    # A lockfile's history is the largest blob set a prefetch can name, and the engine never blames it.
+    assert _blame_paths(
+        [
+            {"filename": "pnpm-lock.yaml", "changes": 40},
+            {"filename": "rust/Cargo.lock", "changes": 12},
+            {"filename": "src/plain.py", "changes": 2},
+        ]
+    ) == ["src/plain.py"]
