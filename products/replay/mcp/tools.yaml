@@ -62,9 +62,9 @@ tools:
             Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a
             `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that
             project or session. When no recording is available, the tool returns `found: false` with reason
-            `recording_not_found`; this is a normal lookup result, not a tool failure. If the user wants to understand what happened
-            without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary of
-            the session. To generate one, call `vision-scanners-inline-scan-create` with the session id in
+            `recording_not_found`; this is a normal lookup result, not a tool failure. If the user wants to understand
+            what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision
+            AI summary of the session. To generate one, call `vision-scanners-inline-scan-create` with the session id in
             `session_ids`, `scanner_type: "summarizer"`, and a `prompt` (required), then read the summary back with
             `vision-observations-list`. The investigating-replay skill carries the exact prompt and `scanner_config` the
             Summarize button in the player uses, so pass those to land on the same summary (scanning is slow).
