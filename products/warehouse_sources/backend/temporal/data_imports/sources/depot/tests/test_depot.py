@@ -103,8 +103,11 @@ TERMINAL_PAGES = [
     [_run("r0", dt.timedelta(days=6))],
 ]
 WATERMARK = NOW - dt.timedelta(hours=4)
-RECENT_IN_FLIGHT = _run("in-flight", dt.timedelta(minutes=90))
-STALE_QUEUED = _run("stale", dt.timedelta(days=30))
+RECENT_IN_FLIGHT = {**_run("in-flight", dt.timedelta(minutes=90)), "status": "queued"}
+STALE_QUEUED = {**_run("stale", dt.timedelta(days=30)), "status": "queued"}
+LONG_RUNNING = {**_run("long", dt.timedelta(minutes=150)), "status": "running"}
+# Older than the queued cutoff, and still running, so it holds the horizon.
+VERY_LONG_RUNNING = {**_run("very-long", dt.timedelta(hours=7)), "status": "running"}
 
 
 class TestDepotSource:
@@ -115,6 +118,8 @@ class TestDepotSource:
             ([RECENT_IN_FLIGHT], ["r3", "r4"]),
             ([STALE_QUEUED], ["r3", "r4", "r5", "r6"]),
             ([STALE_QUEUED, RECENT_IN_FLIGHT], ["r3", "r4"]),
+            ([LONG_RUNNING], ["r3"]),
+            ([VERY_LONG_RUNNING], []),
         ],
     )
     def test_syncs_only_runs_created_before_the_oldest_recent_in_flight_run(

@@ -23,9 +23,9 @@ REQUEST_TIMEOUT_SECONDS = 60
 LIST_RUNS_PAGE_SIZE = 200
 IN_FLIGHT_STATUSES = ["queued", "running"]
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
-# Depot can leave a run in `queued` and never start it. An in-flight run older than this counts as
-# stuck, so it does not hold the sync horizon back.
-IN_FLIGHT_MAX_AGE = dt.timedelta(hours=6)
+# Depot can leave a run in `queued` and never start it. A queued run older than this counts as stuck,
+# so it does not hold the sync horizon back. A running run always holds it, because its jobs time out.
+QUEUED_MAX_AGE = dt.timedelta(hours=6)
 
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
@@ -70,10 +70,12 @@ def _list_runs(session: Session, repository: str, statuses: list[str]) -> Iterat
 # a run that has not finished and each run is fetched once, after it is terminal. A job that is
 # retried after its run was synced is therefore never picked up.
 def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> dt.datetime:
-    in_flight_created_ats = [
-        _parse_timestamp(run["createdAt"]) for run in _list_runs(session, repository, IN_FLIGHT_STATUSES)
-    ]
-    return min([now, *(created_at for created_at in in_flight_created_ats if created_at > now - IN_FLIGHT_MAX_AGE)])
+    horizon = now
+    for run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
+        created_at = _parse_timestamp(run["createdAt"])
+        if run["status"] == "running" or created_at > now - QUEUED_MAX_AGE:
+            horizon = min(horizon, created_at)
+    return horizon
 
 
 def _runs_to_sync(
@@ -93,7 +95,7 @@ def _runs_to_sync(
 
 def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
     shared_columns = {
-        "run_id": workflow.get("runId"),
+        "run_id": run["runId"],
         "repo": workflow.get("repo"),
         "ref": workflow.get("ref"),
         "sha": workflow.get("sha"),
@@ -104,7 +106,7 @@ def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
         "run_created_at": run["createdAt"],
         "run_started_at": workflow.get("runStartedAt"),
         "run_finished_at": workflow.get("runFinishedAt"),
-        "workflow_id": workflow.get("workflowId"),
+        "workflow_id": workflow["workflowId"],
         "workflow_name": workflow.get("workflowName"),
         "workflow_path": workflow.get("workflowPath"),
         "workflow_status": workflow.get("workflowStatus"),
@@ -115,7 +117,7 @@ def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
     rows: list[JSONObject] = []
     for job in workflow.get("jobs", []):
         job_columns = {
-            "job_id": job.get("jobId"),
+            "job_id": job["jobId"],
             "job_key": job.get("jobKey"),
             "job_display_name": job.get("jobDisplayName"),
             "job_status": job.get("status"),
@@ -127,7 +129,7 @@ def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
                 {
                     **shared_columns,
                     **job_columns,
-                    "attempt_id": attempt.get("attemptId"),
+                    "attempt_id": attempt["attemptId"],
                     "attempt": attempt.get("attempt"),
                     "attempt_status": attempt.get("status"),
                     "attempt_started_at": attempt.get("startedAt"),
