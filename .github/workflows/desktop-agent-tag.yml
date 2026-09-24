@@ -33,6 +33,23 @@ jobs:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
+            - name: Check the dispatcher is on team-posthog-desktop
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  ACTOR: ${{ github.actor }}
+                  ORG: ${{ github.repository_owner }}
+                  TEAM_SLUG: team-posthog-desktop
+              run: |
+                  if ! MEMBERS=$(gh api "orgs/${ORG}/teams/${TEAM_SLUG}/members" --paginate --jq '.[].login'); then
+                    echo "::error::Could not read ${TEAM_SLUG} membership, so the release is held."
+                    exit 1
+                  fi
+                  if ! echo "$MEMBERS" | grep -qixF "$ACTOR"; then
+                    echo "::error::@${ACTOR} is not on ${TEAM_SLUG}, so a manual release is not allowed."
+                    exit 1
+                  fi
+
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
