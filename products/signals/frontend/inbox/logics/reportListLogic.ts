@@ -32,6 +32,7 @@ import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from 
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
+import { fetchReportSourceMeta, ReportSourceMeta } from '../utils/reportSourceMeta'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
@@ -167,6 +168,7 @@ export interface reportListLogicValues {
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
+    reportSourceMeta: Record<string, ReportSourceMeta>
     staleMetricReportIds: string[]
     totalCount: number | null
 }
@@ -217,6 +219,9 @@ export interface reportListLogicActions {
     applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => {
         snapshots: SignalReportMetricSnapshotsApi[]
     }
+    applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => {
+        meta: Record<string, ReportSourceMeta>
+    }
     dismissReport: (
         reportId: string,
         dismissal: DismissalFeedback
@@ -259,6 +264,9 @@ export interface reportListLogicActions {
     ) => {
         reportsResponse: ReportListResponse
         payload?: any
+    }
+    loadReportSourceMeta: (reportIds: string[]) => {
+        reportIds: string[]
     }
     loadReports: () => any
     loadReportsFailure: (
@@ -318,7 +326,10 @@ export interface reportListLogicMeta {
             user: UserType | null,
             arg: any
         ) => any
-        reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
+        reports: (
+            reportsResponse: ReportListResponse | null,
+            reportSourceMeta: Record<string, ReportSourceMeta>
+        ) => SignalReport[]
         staleMetricReportIds: (reports: SignalReport[]) => string[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
@@ -406,6 +417,10 @@ export const reportListLogic = kea<reportListLogicType>([
         // failure leaves the rows on their saved snapshot.
         refreshReportMetrics: (reportIds: string[]) => ({ reportIds }),
         applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
+        // Source products and scout come from ClickHouse, so the rows load without them and this
+        // fills them in once the page is on screen.
+        loadReportSourceMeta: (reportIds: string[]) => ({ reportIds }),
+        applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => ({ meta }),
     }),
 
     loaders(({ values }) => ({
@@ -434,7 +449,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
-                    const response = await api.signalReports.list({ ...params, offset: 0, limit: PAGE_SIZE })
+                    const response = await api.signalReports.list({
+                        ...params,
+                        offset: 0,
+                        limit: PAGE_SIZE,
+                        include_source_metadata: 'false',
+                    })
                     return { ...response, requestParams: params, requestContext }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
@@ -445,6 +465,7 @@ export const reportListLogic = kea<reportListLogicType>([
                         ...params,
                         offset: current.length,
                         limit: PAGE_SIZE,
+                        include_source_metadata: 'false',
                     })
                     return {
                         ...response,
@@ -458,6 +479,14 @@ export const reportListLogic = kea<reportListLogicType>([
     })),
 
     reducers({
+        // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
+        // source line while the lookup runs again.
+        reportSourceMeta: [
+            {} as Record<string, ReportSourceMeta>,
+            {
+                applyReportSourceMeta: (state, { meta }) => ({ ...state, ...meta }),
+            },
+        ],
         reportsResponse: {
             // Only the numbers change: the row keeps its title, summary, and query as loaded.
             applyReportMetricSnapshots: (state, { snapshots }) =>
@@ -555,8 +584,14 @@ export const reportListLogic = kea<reportListLogicType>([
             },
         ],
         reports: [
-            (s) => [s.reportsResponse],
-            (reportsResponse: ReportListResponse | null): SignalReport[] => reportsResponse?.results ?? [],
+            (s) => [s.reportsResponse, s.reportSourceMeta],
+            (
+                reportsResponse: ReportListResponse | null,
+                reportSourceMeta: Record<string, ReportSourceMeta>
+            ): SignalReport[] =>
+                (reportsResponse?.results ?? []).map((report) =>
+                    reportSourceMeta[report.id] ? { ...report, ...reportSourceMeta[report.id] } : report
+                ),
         ],
         // Rows whose metric snapshot is missing or older than the server's freshness window. Rows
         // refreshed on an earlier page are fresh, so a next-page load only sends the new ones.
@@ -625,10 +660,25 @@ export const reportListLogic = kea<reportListLogicType>([
         loadReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
+            actions.loadReportSourceMeta(values.reports.map((report) => report.id))
         },
         loadMoreReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
+            actions.loadReportSourceMeta(values.reports.map((report) => report.id))
+        },
+        // Only asks for rows it has not resolved yet, so a next page or a refresh queries just the
+        // new reports. Best effort: on failure the rows keep an empty source line.
+        loadReportSourceMeta: async ({ reportIds }) => {
+            const missing = reportIds.filter((id) => !(id in values.reportSourceMeta))
+            if (missing.length === 0) {
+                return
+            }
+            try {
+                actions.applyReportSourceMeta(await fetchReportSourceMeta(missing))
+            } catch {
+                return
+            }
         },
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.

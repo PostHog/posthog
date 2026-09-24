@@ -6130,6 +6130,10 @@ export type SignalsReportsListParams = {
      */
     include_all_statuses?: boolean
     /**
+     * Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Defaults to true.
+     */
+    include_source_metadata?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number

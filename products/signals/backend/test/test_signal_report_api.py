@@ -1728,6 +1728,29 @@ class TestSignalReportListAPI(APIBaseTest):
         # scout_name flows from the ClickHouse meta through the view's map split into the serializer.
         assert response.json()["scout_name"] == "signals-scout-error-tracking"
 
+    @parameterized.expand(
+        [
+            ("default", {}, True),
+            ("opted_out", {"include_source_metadata": "false"}, False),
+        ]
+    )
+    def test_list_source_metadata_opt_out(self, _name, query, expect_lookup):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={
+                str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
+            },
+        ) as fetch_source_products:
+            response = self.client.get(self._list_url(**query))
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert fetch_source_products.called is expect_lookup
+        assert row["source_products"] == (["zendesk"] if expect_lookup else [])
+        assert row["scout_name"] == ("signals-scout-support" if expect_lookup else None)
+
     def test_source_products_present_on_signals_action(self):
         report = self._create_report()
 

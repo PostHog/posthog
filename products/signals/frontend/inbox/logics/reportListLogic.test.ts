@@ -190,6 +190,76 @@ describe('reportListLogic', () => {
         })
     })
 
+    // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
+    // must then fill in from one HogQL query, and a refresh must not ask again for resolved rows.
+    describe('lazy source line', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+        let includeSourceMetadata: (string | null)[]
+        let queriedReportIds: string[][]
+
+        beforeEach(async () => {
+            includeSourceMetadata = []
+            queriedReportIds = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        if (searchParams.get('count_only') !== 'true') {
+                            includeSourceMetadata.push(searchParams.get('include_source_metadata'))
+                        }
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: null,
+                                previous: null,
+                                results: ['scouted', 'no-signals'].map((id) => ({
+                                    ...makeReport(id),
+                                    source_products: [],
+                                    scout_name: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        queriedReportIds.push(['scouted', 'no-signals'].filter((id) => query.query.includes(`'${id}'`)))
+                        return [200, { results: [['scouted', ['signals_scout'], 'signals-scout-support']] }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('fills the source line after the rows load, once per report', async () => {
+            expect(includeSourceMetadata).toEqual(['false'])
+            expect(queriedReportIds).toEqual([['scouted', 'no-signals']])
+            expect(
+                logic.values.reports.map(({ id, source_products, scout_name }) => ({ id, source_products, scout_name }))
+            ).toEqual([
+                { id: 'scouted', source_products: ['signals_scout'], scout_name: 'signals-scout-support' },
+                { id: 'no-signals', source_products: [], scout_name: null },
+            ])
+
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(queriedReportIds).toHaveLength(1)
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-support')
+        })
+    })
+
     // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
     // or dropped pull request has no CI worth reading, and asking about it spends a GitHub call.
     describe('pull requests still in flight on the page', () => {

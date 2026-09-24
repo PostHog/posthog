@@ -185,7 +185,7 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
-from products.signals.backend.signal_metadata import fetch_source_products_for_reports
+from products.signals.backend.signal_metadata import ReportSignalMeta, fetch_source_products_for_reports
 from products.signals.backend.slack_notification_targets import (
     is_slack_member_target,
     resolve_own_direct_message_target,
@@ -1243,16 +1243,19 @@ class SignalReportViewSet(
             return False
         raise serializers.ValidationError({"include_all_statuses": f"Invalid value: {raw!r}. Allowed: true, false."})
 
-    def _count_only_requested(self) -> bool:
-        raw = self.request.query_params.get("count_only")
+    def _bool_query_param(self, name: str, default: bool) -> bool:
+        raw = self.request.query_params.get(name)
         if raw is None or not raw.strip():
-            return False
+            return default
         value = raw.strip().lower()
         if value in ("1", "true", "yes"):
             return True
         if value in ("0", "false", "no"):
             return False
-        raise serializers.ValidationError({"count_only": f"Invalid value: {raw!r}. Allowed: true, false."})
+        raise serializers.ValidationError({name: f"Invalid value: {raw!r}. Allowed: true, false."})
+
+    def _count_only_requested(self) -> bool:
+        return self._bool_query_param("count_only", default=False)
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -2132,6 +2135,17 @@ class SignalReportViewSet(
                     "serialization, and decorative metadata lookups. Defaults to false."
                 ),
             ),
+            OpenApiParameter(
+                name="include_source_metadata",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so "
+                    "pass false to skip that lookup and get the page from Postgres only: rows then carry "
+                    "an empty `source_products` and a null `scout_name`. Defaults to true."
+                ),
+            ),
         ],
     )
     @tracer.start_as_current_span("signals.reports.list")
@@ -2140,11 +2154,13 @@ class SignalReportViewSet(
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
         count_only = self._count_only_requested()
+        include_source_metadata = self._bool_query_param("include_source_metadata", default=True)
         list_span = trace.get_current_span()
         list_span.set_attribute(
             "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
         )
         list_span.set_attribute("signals.reports.list.count_only", count_only)
+        list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
@@ -2176,13 +2192,15 @@ class SignalReportViewSet(
                     )
 
         # Source metadata is decorative. The serializer degrades to empty values when ClickHouse is
-        # unavailable, so a metadata failure does not hide otherwise available reports.
-        with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
-            try:
-                signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
-            except Exception:
-                logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
-                signal_meta_map = {}
+        # unavailable, so a metadata failure does not hide otherwise available reports. The web inbox
+        # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
+        signal_meta_map: dict[str, ReportSignalMeta] = {}
+        if include_source_metadata and report_ids:
+            with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
+                try:
+                    signal_meta_map = fetch_source_products_for_reports(self.team, report_ids)
+                except Exception:
+                    logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
