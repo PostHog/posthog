@@ -11,7 +11,7 @@ re-validates everything on save.
 
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 
@@ -48,6 +48,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     apply_experiment_targeting,
 )
 from products.replay_vision.backend.queries.action_volume import recent_action_sessions
+from products.replay_vision.backend.queries.event_volume import recent_event_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -92,6 +93,10 @@ _SCANNER_GIST_CHARS = 200
 # more just zeroes out the match set.
 _MAX_FILTER_SCREENS = 1
 _MAX_FILTER_EVENTS = 2
+# A v2 draft can also OR its events (see `filter_events_match`), and a goal about "created or
+# edited" names the several events that each mean the same thing, which two of them cannot cover.
+# An AND filter still rarely wants more than one, so the extra room is for the OR case only.
+_MAX_V2_FILTER_EVENTS = 3
 # Screens match via icontains, so a short pathname like "/" or "/en" matches nearly every URL:
 # it renders as a narrowing filter while narrowing nothing. Require this many non-slash
 # characters before a screen can ground a filter.
@@ -324,6 +329,16 @@ class _MatchedAction:
     # Sessions the action fired in over the volume query's window. Shown in the briefing so the model
     # can prefer a busy action when several match the goal.
     recent_sessions: int = 0
+
+
+@dataclass(frozen=True, kw_only=True)
+class _CandidateEvent:
+    """One custom event offered to the model, with the volume that says whether it still fires."""
+
+    name: str
+    # Sessions the event fired in over the volume query's window, or None when the measurement
+    # failed. None is rendered without a count rather than as a zero, which would read as dead.
+    sessions: int | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -671,7 +686,9 @@ def _event_names_by_lower(team_id: int, candidates: Sequence[str]) -> dict[str, 
         return {}
 
 
-def _grounded_events(proposed: list[str], allowed: Sequence[str], cap: int, team_id: int | None) -> list[str]:
+def _grounded_events(
+    proposed: list[str], allowed: Sequence[str], cap: int, team_id: int | None, excluded: Collection[str] = ()
+) -> list[str]:
     """The proposed event filters worth keeping: verbatim members of the briefing list, plus
     proposals that are real events on the team by exact (case-insensitive) name.
 
@@ -679,9 +696,15 @@ def _grounded_events(proposed: list[str], allowed: Sequence[str], cap: int, team
     sample missed and the model copies it faithfully. List membership alone would drop it and
     silently widen the scan. The definition lookup keeps `_grounded`'s anti-hallucination property,
     because an invented name matches no definition and still drops. Kept names come back in the
-    team's canonical casing, which is what the recordings query has to match."""
+    team's canonical casing, which is what the recordings query has to match.
+
+    `excluded` names are measured-dead events (0 sessions in the volume window). They drop before
+    both paths, so the definition lookup cannot re-admit one whose only liveness signal is a
+    non-null `last_seen_at` from long ago. Events AND with the rest of the filter, so one dead event
+    takes the whole scan to zero."""
     allowed_set = set(allowed)
-    cleaned = list(dict.fromkeys(v for raw in proposed if (v := raw.strip())))
+    excluded_lower = {e.lower() for e in excluded}
+    cleaned = list(dict.fromkeys(v for raw in proposed if (v := raw.strip()) and v.lower() not in excluded_lower))
     unknown = [v for v in cleaned if v not in allowed_set]
     canonical = _event_names_by_lower(team_id, unknown) if unknown and team_id is not None else {}
     kept = (
@@ -865,8 +888,16 @@ class _LlmDraftV2(BaseModel):
         default_factory=list,
         description="Custom events a session must contain to be worth scanning, each copied verbatim from the "
         "briefing's events list. Use when a specific action is the sharpest signal for the goal (e.g. an event "
-        "fired when a flow starts). Each event ANDs, with the other events and with the pages, so a session must "
-        "have all of them; keep to the one or two that define the flow, and leave empty when pages already capture it.",
+        "fired when a flow starts). `filter_events_match` decides whether a session needs all of them or any of "
+        "them; keep to the few that define the flow, and leave empty when pages already capture it.",
+    )
+    filter_events_match: Literal["all", "any"] = Field(
+        default="all",
+        description="How several `filter_events` combine. 'all' (the default) scans a session only when it "
+        "contains every event, for events that are steps of one flow. 'any' scans a session containing any one "
+        "of them, for events that are alternative ways of doing the same thing ('created or edited'). 'any' "
+        "needs the events to be the whole filter: with pages, actions, a cohort or a property filter alongside "
+        "them, everything ANDs together.",
     )
     filter_actions: list[str] = Field(
         default_factory=list,
@@ -931,15 +962,34 @@ there, so a broad draft is the right answer, not a guess at what they meant.
 Pick the single type that best fits the goal, then draft the scanner:
 - name: short and specific, under 8 words.
 - description: one sentence saying what the scanner looks for.
-- prompt: a direct, specific instruction grounded in behavior observable in a recording. Reference the
-  product's real pages and events where relevant so the scanner knows what to look at. Avoid vague
-  adjectives, multi-part questions, and data the model cannot see in a recording (revenue, account tier).
-  - monitor prompts state a yes/no question, what counts as a yes, and ask for a one-sentence reason.
-  - classifier prompts describe the dimension to categorize by; do NOT list the tags in the prompt
-    (the vocabulary is configured separately via `tags`).
-  - scorer prompts describe what a low score versus a high score means; the numeric scale is configured
-    separately via `scale_min`/`scale_max`.
-  - summarizer prompts say what the summary should focus on.
+- prompt: the brief the scanner follows while watching ONE recording. Whoever reads it sees the video
+  and nothing else - no account, no ticket, no idea what the goal was - so write the brief you would
+  give an analyst on their first day, not a one-line question. Six to fifteen lines is the usual shape.
+  Write it in this order:
+  1. Context: one line on what this product is and what the person in the recording is doing in it.
+  2. Where to look: the real pages, UI elements and events involved, named the way the product names
+     them, so the scanner knows which moments of the recording decide the answer.
+  3. The decision rule, in the shape the scanner type needs (below).
+  4. Near misses: one to three things that look like a hit but are NOT one, said out loud. A scanner
+     without these fires on everything that merely resembles its subject.
+  5. Evidence: answer only from what is visible on screen, cite the moment or the on-screen wording the
+     answer rests on, and when the screen is masked, unreadable or the evidence is ambiguous, take the
+     safe answer instead of guessing - a no, the neutral tag, the low end of the scale, or a summary
+     that says what could not be seen. Recordings are downscaled video with masked inputs, so the
+     failure to design against is a confident answer read off text the model could not really see.
+  Avoid vague adjectives, multi-part questions, and anything a recording cannot show (revenue, account
+  tier, who the person is).
+  - monitor: one line stating the yes/no question, then the two to four concrete observable signals
+    that each make it a yes, then the near misses that are a no. Close by asking for a one-sentence
+    reason citing what was on screen.
+  - classifier: name the dimension being categorized and say where the boundary falls between the two
+    categories that are easiest to confuse, so the same behavior always lands on the same side. Do NOT
+    list the tags in the prompt (the vocabulary is configured separately via `tags`).
+  - scorer: describe what the bottom, the middle and the top of the scale each look like in observable
+    terms, so two sessions with the same behavior get the same number; the numeric scale itself is
+    configured separately via `scale_min`/`scale_max`.
+  - summarizer: say what every summary must cover and in what order (what the person was trying to do,
+    what the product did, where they got stuck, how it ended), and what to leave out.
 - Fill only the fields relevant to the chosen type; leave the rest at their defaults.
 - For monitors: set allow_inconclusive to true when many sessions won't even reach the flow the question
   is about (e.g. a checkout question when most sessions never open checkout), so those sessions aren't
@@ -957,12 +1007,26 @@ Pick the single type that best fits the goal, then draft the scanner:
     a goal about creation does not want. Use several pages only when the goal genuinely spans distinct
     pages (a checkout moving through cart, shipping, and payment), never to add a broader page around a
     specific one.
-  - filter_events: when a specific action is the sharpest signal for the goal, pick the one or two
-    custom events that mark it, each copied EXACTLY from the briefing's events list. An event is often
-    more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts).
-  - Prefer the single strongest signal. Events AND with each other and with the pages, so a session
-    must satisfy ALL of them: only combine when a session genuinely has both, or the filter matches
-    nothing. Anything not copied from the briefing's lists is discarded.
+  - filter_events: when a specific action is the sharpest signal for the goal, pick up to three custom
+    events that mark it, each copied EXACTLY from the briefing's events list. An event is often
+    more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts). Each
+    event carries the sessions it fired in over the last 7 days: when two events fit the goal, take
+    the one that actually fires, and never filter on one showing 0, which would take the scan to
+    nothing.
+  - filter_events_match decides how several events combine, and the wrong one silently empties the
+    scan:
+    - "all" (the default): the session must contain EVERY event. For events that are steps of one
+      flow a single session really does hit.
+    - "any": a session containing ANY of them is scanned. For events that are alternative ways of
+      doing the SAME thing - created, edited or drafted the same object; signed up from three
+      entrypoints. A goal phrased as "X or Y" is this case, and "all" would match almost nobody.
+    "any" covers the events only, so it needs them to be the whole filter: when the draft also has
+    pages, actions, a cohort or an event property filter, every part ANDs together as usual. Pick
+    the events alone when the goal is "did they DO one of these things".
+  - Prefer the single strongest signal. Events AND with the pages, and with each other unless
+    filter_events_match is "any", so a session must satisfy ALL of them: only combine when a session
+    genuinely has both, or the filter matches nothing. Anything not copied from the briefing's lists
+    is discarded.
   - Leave both empty ONLY when the goal genuinely spans the whole product ("summarize what users do
     here").
 - filter_event_properties: use ONLY when the goal names one specific thing its event cannot identify
@@ -1033,7 +1097,7 @@ Output strictly matches the provided JSON schema."""
 
 def _build_user_content_v2(
     goal: str,
-    events: list[str],
+    events: Sequence[_CandidateEvent],
     pages: Sequence[VisitedPath],
     *,
     scanners: list[_ExistingScanner] | None = None,
@@ -1067,9 +1131,14 @@ def _build_user_content_v2(
                 + "\n- ".join(f"{p.pathname} ({p.sessions})" for p in pages)
             )
         if events:
+            # The session counts do for events what they already do for pages and actions: a name the
+            # goal matches can belong to an event that has not fired in years, and only the count
+            # separates it from the one that fires in every session.
             taxonomy_lines.append(
-                "The product's most active custom events (use to ground the prompt, and pick from these "
-                "for filter_events when an action is the sharpest signal):\n- " + "\n- ".join(events)
+                "The product's custom events, the ones matching the goal first (sessions last 7 days; "
+                "use to ground the prompt, and pick from these for filter_events when an action is the "
+                "sharpest signal):\n- "
+                + "\n- ".join(e.name if e.sessions is None else f"{e.name} ({e.sessions})" for e in events)
             )
         lines.append("\n" + as_untrusted_data("product-data", taxonomy_lines, source="collected from product traffic"))
     if scanners:
@@ -1353,6 +1422,30 @@ def _live_actions(team: Team, actions: list[_MatchedAction]) -> list[_MatchedAct
     return live
 
 
+def _measured_events(team: Team, names: Sequence[str]) -> list[_CandidateEvent]:
+    """The candidate events, each carrying the sessions it fired in recently.
+
+    Fails open, because unmeasured names still beat no grounding at all: the briefing then shows
+    them with no count, which reads as unknown rather than as dead.
+    """
+    if not names:
+        return []
+    try:
+        sessions = recent_event_sessions(team=team, event_names=list(names))
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.event_volume_failed", team_id=team.id, exc_info=True)
+        return [_CandidateEvent(name=name) for name in names]
+    # The exact name first: event definitions are unique on the name itself, so a team can hold both
+    # "Signup" and "signup" as separate live events, and folding their counts together would credit
+    # one with the other's volume. The case-insensitive fallback is for a definition that outlived a
+    # casing change, and only when one measured name claims that spelling.
+    by_lower: dict[str, list[int]] = {}
+    for measured_name, count in sessions.items():
+        by_lower.setdefault(measured_name.lower(), []).append(count)
+    unambiguous = {lowered: counts[0] for lowered, counts in by_lower.items() if len(counts) == 1}
+    return [_CandidateEvent(name=name, sessions=sessions.get(name, unambiguous.get(name.lower(), 0))) for name in names]
+
+
 def _page_filter_regex(pathname: str) -> str | None:
     """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
     cannot narrow.
@@ -1375,9 +1468,22 @@ def _page_filter_regex(pathname: str) -> str | None:
     return _ID_WILDCARD.join(re.escape(part) for part in pathname.split(":id"))
 
 
-def _strip_page_count(page: str) -> str:
-    """Remove the trailing " (123)" session count the briefing appends, leaving the bare pathname."""
-    return re.sub(r"\s*\(\d+\)\s*$", "", page).strip()
+def _strip_briefing_count(value: str) -> str:
+    """Remove the trailing " (123)" session count the briefing appends, leaving the bare page or
+    event name."""
+    return re.sub(r"\s*\(\d+\)\s*$", "", value).strip()
+
+
+def _proposed_filter_values(raw: Sequence[str], allowed: Sequence[str]) -> list[str]:
+    """The model's proposed filter values, with the briefing's session count removed.
+
+    The briefing renders each page and event as "/billing (10)", and a literal-minded model copies
+    the count along with the name. Stripping unconditionally corrupts a name that itself ends in a
+    numeric parenthetical, so a value the briefing actually offered is left alone.
+    """
+    allowed_set = set(allowed)
+    kept = (value.strip() if value.strip() in allowed_set else _strip_briefing_count(value) for value in raw)
+    return [v for v in kept if v]
 
 
 def _v2_query(
@@ -1386,14 +1492,19 @@ def _v2_query(
     event_properties: Sequence[_LlmEventPropertyFilter] = (),
     actions: Sequence[_MatchedAction] = (),
     cohorts: Sequence[_MatchedCohort] = (),
+    *,
+    events_match: Literal["all", "any"] = "all",
 ) -> dict[str, Any] | None:
     """The scanner's recording filter from the grounded pages, events, and event properties.
 
     Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
     matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
-    `events` list, where each event ANDs, with the other events and with the page property. A
-    property filter rides on its event's entry, so "survey sent where $survey_id is X" stays one
-    condition rather than matching every survey. The estimate the caller runs, and the review page's
+    `events` list, where each event ANDs, with the other events and with the page property, unless
+    `events_match` is "any": then the query carries the OR operand, so a session holding any one of
+    the events is scanned. That operand covers the whole filter rather than the events alone, so the
+    caller only asks for it when the events ARE the filter. A property filter rides on its event's
+    entry, so "survey sent where $survey_id is X" stays one condition rather than matching every
+    survey. The estimate the caller runs, and the review page's
     Save-at-zero gate, catch an over-constrained AND before it ever becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
@@ -1432,6 +1543,11 @@ def _v2_query(
         ]
     if not any(key in query for key in ("properties", "events", "actions")):
         return None
+    if events_match == "any" and len(query.get("events") or []) > 1:
+        # One event is the same set either way, and leaving the operand off keeps that query
+        # identical to every other single-event draft. Test-account filtering is AND'd by the query
+        # runner whatever the operand, so the union still excludes internal traffic.
+        query["operand"] = "OR"
     return query
 
 
@@ -1567,6 +1683,7 @@ def _finalize_v2(
     allowed_pages: Sequence[str],
     allowed_events: Sequence[str],
     team_id: int,
+    excluded_events: Collection[str] = (),
     allowed_surveys: Sequence[_MatchedSurvey] = (),
     allowed_actions: Sequence[_MatchedAction] = (),
     allowed_cohorts: Sequence[_MatchedCohort] = (),
@@ -1578,24 +1695,20 @@ def _finalize_v2(
         raise DraftError("missing_name_or_prompt")
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
-    # The briefing shows each page as "/billing (10)" for ranking, but the prompt tells the model to
-    # copy pages exactly, so a literal-minded model returns the count too. Strip it before matching,
-    # or a well-behaved model's page fails the verbatim check and the scanner widens to everything.
-    proposed_pages = [s for p in parsed.filter_pages if (s := _strip_page_count(p))]
+    proposed_pages = _proposed_filter_values(parsed.filter_pages, allowed_pages)
+    # Dead events count as offered here: they left the briefing, but revival below can still put one
+    # back, and a name that itself ends in a numeric parenthetical must survive to be recognised.
+    proposed_events = _proposed_filter_values(parsed.filter_events, [*allowed_events, *excluded_events])
     # Verbatim membership in the lists the model was shown: a page or event the product never emits
     # would silently match zero sessions, so a hallucinated one must not survive. Events also accept
     # a definition-lookup match, because the briefing's events list is a sample and the goal can
     # name a real event the sample missed.
     pages = _grounded(proposed_pages, allowed_pages, _MAX_FILTER_PAGES)
-    events = _grounded_events(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS, team_id)
+    # The model's own operand, not the possibly-downgraded one below: the wider cap is what an
+    # "any" draft asked for, while three ANDed events describe a flow almost no session has.
+    event_cap = _MAX_V2_FILTER_EVENTS if parsed.filter_events_match == "any" else _MAX_FILTER_EVENTS
+    events = _grounded_events(proposed_events, allowed_events, event_cap, team_id, excluded=excluded_events)
 
-    # Always exclude internal and test users: a scanner defaults to real-user sessions unless the
-    # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
-    # not configured internal-user filters. The narrowing query is None when no page or event
-    # survives, so the base still carries this default.
-    event_properties = _grounded_event_properties(
-        parsed.filter_event_properties, kept_events=events, allowed_surveys=allowed_surveys
-    )
     # Grounding by construction: a name maps back to the matched action's own id, so an invented
     # name has no id to resolve to and drops out.
     actions_by_name = {a.name: a for a in allowed_actions}
@@ -1613,15 +1726,60 @@ def _finalize_v2(
     targeting = _grounded_targeting(
         parsed.filter_experiment, parsed.filter_experiment_variant, allowed=allowed_experiments
     )
-    narrowing = _v2_query(pages, events, event_properties, kept_actions, kept_cohorts)
+    # Dropping a dead event narrows only while another filter still holds the scan down. Alone it
+    # inverts, leaving a query that matches every session rather than none, so the event goes back.
+    revived_dead_events = (
+        bool(proposed_events)
+        and not events
+        and not (pages or kept_actions or kept_cohorts or targeting)
+        and bool(excluded_events)
+    )
+    if revived_dead_events:
+        events = _grounded_events(proposed_events, [*allowed_events, *excluded_events], event_cap, team_id)
+        logger.info(
+            "replay_vision.scanner_draft.dead_events_revived",
+            team_id=team_id,
+            kept_events=len(events),
+        )
+    # Grounded after the events are final: a property filter rides on its event's entry, so it has
+    # to name an event the query still carries.
+    event_properties = _grounded_event_properties(
+        parsed.filter_event_properties, kept_events=events, allowed_surveys=allowed_surveys
+    )
+    # "any" is an operand on the whole recordings query, so it would OR the pages, actions and
+    # cohort with the events as well, scanning a union the goal never asked for. It only survives
+    # when the events are the entire filter.
+    events_match: Literal["all", "any"] = parsed.filter_events_match
+    downgraded_match = events_match == "any" and bool(pages or kept_actions or kept_cohorts or event_properties)
+    if downgraded_match:
+        # One event, not an AND of all of them: "any" means the events are alternatives, and
+        # requiring one session to do every one of them matches almost nobody. A property filter's
+        # event takes the slot, or the filter is left riding on an event the query no longer carries.
+        kept_event = event_properties[0].event if event_properties else next(iter(events), None)
+        events = [kept_event] if kept_event is not None else []
+        event_properties = [p for p in event_properties if p.event == kept_event]
+        events_match = "all"
+        logger.info(
+            "replay_vision.scanner_draft.events_match_downgraded",
+            team_id=team_id,
+            kept_events=len(events),
+            kept_pages=len(pages),
+            kept_actions=len(kept_actions),
+            kept_cohorts=len(kept_cohorts),
+        )
+    narrowing = _v2_query(pages, events, event_properties, kept_actions, kept_cohorts, events_match=events_match)
     query: dict[str, Any] = narrowing if narrowing is not None else {"kind": "RecordingsQuery"}
+    # Always exclude internal and test users: a scanner defaults to real-user sessions unless the
+    # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
+    # not configured internal-user filters. The narrowing query is None when no page or event
+    # survives, so the base still carries this default.
     query["filter_test_accounts"] = True
 
     dropped_pages = set(proposed_pages) - set(pages)
     # Compare case-insensitively: a kept event may carry the team's canonical casing rather than
     # the model's, and that is a kept filter, not a dropped one.
     kept_events_lower = {e.lower() for e in events}
-    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e and e.lower() not in kept_events_lower}
+    dropped_events = {e for e in proposed_events if e.lower() not in kept_events_lower}
     # A page can ground yet drop to None in `_page_filter_value` (a too-short prefix) with nothing
     # formally dropped, so the query still widens to everything. Fire the warning whenever the model
     # wanted a filter but none survived, not only when a value was dropped.
@@ -1629,7 +1787,7 @@ def _finalize_v2(
     widened_unexpectedly = (
         narrowing is None
         and targeting is None
-        and bool(proposed_pages or parsed.filter_events or parsed.filter_actions or parsed.filter_cohorts)
+        and bool(proposed_pages or proposed_events or parsed.filter_actions or parsed.filter_cohorts)
     )
     if dropped_pages or dropped_events or dropped_experiment or widened_unexpectedly:
         # Every dropped value silently broadens the scan (worst case to every non-internal session,
@@ -1694,14 +1852,45 @@ def draft_scanner_from_goal_v2(
     # Measured here rather than inside the match, so the access-control helper stays free of a
     # ClickHouse query its other callers do not need.
     matches = replace(matches, actions=_live_actions(team, matches.actions))
+    survey_events: set[str] = set()
     if matches.surveys:
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without
         # the event it rides on, so offer those events whenever a survey matched.
-        events = list(dict.fromkeys([*_SURVEY_EVENTS, *events]))
+        #
+        # Canonicalized first: the constants are lowercase, but a team's own spelling can differ, and
+        # the goal search returns that spelling. Both would otherwise reach the briefing as separate
+        # candidates for the one event.
+        canonical = _event_names_by_lower(team.id, _SURVEY_EVENTS)
+        # A list, not the set, so the briefing keeps a stable order: string hashing is randomized
+        # per process, and an order that moves between runs makes drafts irreproducible.
+        injected = [canonical.get(name, name) for name in _SURVEY_EVENTS]
+        survey_events = set(injected)
+        events = list(dict.fromkeys([*injected, *events]))
+    # Measured here, not in `_events_for_goal`: that lookup is a name search, and only a session
+    # count tells the model which of the matching names is worth filtering on. Event volume is an
+    # analytics read behind query:read, so a scoped token without it gets the names unmeasured —
+    # counts the briefing would show could otherwise reach the model's prompt and rationale.
+    measured = (
+        _measured_events(team, events)
+        if _scopes_allow_read(allowed_scopes, "query")
+        else [_CandidateEvent(name=name) for name in events]
+    )
+    # The survey events are injected to carry a `$survey_id` filter, not because volume picked
+    # them. A survey quiet for the window measures zero on all of them, and the filter can only
+    # ride on an event the query carries, so dropping them would widen a one-survey scan to every
+    # session. Offered without a count instead, the way an unmeasured event reads.
+    if survey_events:
+        measured = [replace(c, sessions=None) if c.sessions == 0 and c.name in survey_events else c for c in measured]
+    # A measured-zero event fired in no session in the window, so a filter on it (events AND with the
+    # rest) would take the whole scan to zero. Drop it from the briefing like a dead action, and carry
+    # its name so grounding's definition-lookup fallback cannot re-admit it. sessions=None is an
+    # unmeasured event, not a dead one, so it stays available.
+    dead_events = {c.name for c in measured if c.sessions == 0}
+    candidates = [c for c in measured if c.sessions != 0]
     user_content = _build_user_content_v2(
         goal,
-        events,
+        candidates,
         pages,
         scanners=_existing_scanners(team, user_access_control),
         surveys=matches.surveys,
@@ -1722,7 +1911,8 @@ def draft_scanner_from_goal_v2(
     draft = _finalize_v2(
         cast(_LlmDraftV2, parsed),
         allowed_pages=[p.pathname for p in pages],
-        allowed_events=events,
+        allowed_events=[c.name for c in candidates],
+        excluded_events=dead_events,
         team_id=team.id,
         allowed_surveys=matches.surveys,
         allowed_actions=matches.actions,
