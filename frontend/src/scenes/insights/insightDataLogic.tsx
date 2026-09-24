@@ -101,9 +101,22 @@ import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
-export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
-    sceneLogic.values.activeSceneId === Scene.Insight &&
-    insightSceneLogic.findMounted()?.values.insightLogicRef?.logic.key === keyForInsightLogicProps('new')(props)
+// Compares against insightSceneLogic's insightId/dashboardId reducers, not its insightLogicRef.
+// The ref is set by a listener that rebuilds and mounts a new logic instance, a side effect that
+// can still be in flight right after navigating into the scene; insightId/dashboardId are plain
+// reducers written by the same action that drives the URL match, so they're never stale relative
+// to "is the editor showing this insight". Matching against the ref let a chart-type click land
+// in that gap and fall through to a PATCH before the guard below could see the scene.
+export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
+    if (sceneLogic.values.activeSceneId !== Scene.Insight) {
+        return false
+    }
+    const sceneValues = insightSceneLogic.findMounted()?.values
+    return (
+        sceneValues?.insightId === props.dashboardItemId &&
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+    )
+}
 
 const isMatchingSqlQuery = (
     query: Node | null | undefined,

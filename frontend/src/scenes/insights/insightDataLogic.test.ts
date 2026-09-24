@@ -678,7 +678,32 @@ describe('insightDataLogic', () => {
             sceneLogic.mount()
             sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
             const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
-                values: { insightLogicRef: { logic: { key: Insight42 } } },
+                values: { insightId: Insight42, dashboardId: null },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
+        })
+
+        it('skips the PATCH even when insightSceneLogic has not yet rebuilt its insightLogicRef for this insight', async () => {
+            // insightLogicRef is set by a listener that rebuilds and mounts a new logic instance
+            // after navigating into the scene, a side effect that can still be in flight right after
+            // the user enters edit mode. insightId/dashboardId are plain reducers written by the same
+            // action that matches the URL, so they're already correct while insightLogicRef lags.
+            // Regression test: a chart-type click landing in that gap used to reach the API before
+            // insightLogicRef caught up, auto-saving the insight without an explicit Save.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightId: Insight42, dashboardId: null, insightLogicRef: null },
             } as any)
 
             try {
