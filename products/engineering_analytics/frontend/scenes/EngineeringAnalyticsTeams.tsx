@@ -9,8 +9,10 @@ import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
+import { timesTypical } from '../lib/format'
 import { rowNavigationProps } from '../lib/rowNavigation'
 import { withCurrentScope } from '../lib/scope'
+import { authorFrictionLogic } from './authorFrictionLogic'
 import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
 
 const FIXED_WINDOW = TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current.toLowerCase()
@@ -23,6 +25,8 @@ function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
 export function EngineeringAnalyticsTeams(): JSX.Element {
     const { teams, teamsFailed, teamsLoading, teamsNotConnected, sourceId } = useValues(teamsLogic)
     const { loadTeams } = useActions(teamsLogic)
+    const { friction } = useValues(authorFrictionLogic)
+    const medianFriction = new Map((friction?.teams ?? []).map((team) => [team.github_team, team.median_score]))
 
     const columns: LemonTableColumns<TeamCIHealthRow> = [
         {
@@ -54,6 +58,19 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                         {row.ownerTeam}
                     </Link>
                 ),
+        },
+        {
+            title: 'Friction',
+            key: 'friction',
+            width: 100,
+            align: 'right',
+            tooltip: `Median friction of the team's members over the last ${friction?.window_days ?? 30} days, as a multiple of the typical author. Shown for teams with at least 3 members who have a score.`,
+            sorter: (a, b) => (medianFriction.get(a.ownerTeam) ?? -1) - (medianFriction.get(b.ownerTeam) ?? -1),
+            render: (_, row) => (
+                <span className="tabular-nums">
+                    {medianFriction.has(row.ownerTeam) ? timesTypical(medianFriction.get(row.ownerTeam)) : '–'}
+                </span>
+            ),
         },
         {
             title: 'Test files',

@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { GitHubSourceApi, TeamCIHealthItemApi, TeamCIHealthListApi } from '../generated/api.schemas'
+import { FRICTION_STORY_FIXTURE } from '../lib/frictionFixtures'
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
@@ -82,6 +83,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/team_ci_health/': TEAM_CI_HEALTH,
+                'api/projects/:team_id/engineering_analytics/author_friction/': FRICTION_STORY_FIXTURE,
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 // Sibling-tab loaders mount with the scene; stub them so the story renders without error toasts.
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {

@@ -29,6 +29,7 @@ import { withCurrentScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { TeamDeliveryPanel } from './TeamDeliveryPanel'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
+import { TeamFrictionSection } from './TeamFrictionSection'
 import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, UNOWNED_TEAM } from './teamsLogic'
 
 export const scene: SceneExport<TeamDetailLogicProps> = {
@@ -244,6 +245,8 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                             {windowedSections}
                         </ScopePanel>
                     )}
+
+                    {!isUnowned && <TeamFrictionSection githubTeam={ownerTeam} />}
 
                     <Section id="team-tests" title="Owned tests with signal" busy={activityLoading && !!activity}>
                         {activityStatus === 'error' ? (
