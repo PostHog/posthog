@@ -2826,7 +2826,7 @@
         }
     },
     "dashboard-create-tile": {
-        "description": "Add a dashboard tile. Set `type` to text or image. Use Markdown headings, dividers, or notes for a text tile. The desktop grid is 12 columns wide. A typical text heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the bottom with the default size. Use dashboard-reorder-tiles for precise placement. An image tile body must contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The image URL must be reachable by dashboard viewers. Use `layouts` to control the tile size.",
+        "description": "Add a dashboard tile. Set `type` to text or image. Use Markdown headings, dividers, or notes for a text tile. The desktop grid is 12 columns wide. A typical text heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the bottom with the default size. Use `layouts` to control the size and placement of this text or image tile. To lay out insight tiles or create a mixed layout, first call dashboard-get to get tile IDs, then use dashboard-update with complete `layouts.sm` boxes. An image tile body must contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The image URL must be reachable by dashboard viewers.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard tile",
@@ -2896,7 +2896,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the layout parameter only when every tile should use the same size: `two_column` makes every tile 6-wide, `three_column` makes every tile 4-wide, and `full_width` makes every tile 12-wide. For a mixed layout, set each tile's `layouts` with dashboard-update instead.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the layout parameter only when every tile should use the same size: `two_column` makes every tile 6-wide, `three_column` makes every tile 4-wide, and `full_width` makes every tile 12-wide. For a mixed layout, set each tile's `layouts` with dashboard-update instead. This tool repacks the whole dashboard. It does not set different sizes or positions for individual tiles.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -2951,8 +2951,22 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-transfer-tile": {
+        "description": "Transfer a tile from the source dashboard to another dashboard. This does not resize or reposition the tile. To resize or reposition tiles on a dashboard, use dashboard-update. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Transfer dashboard tile",
+        "title": "Transfer dashboard tile",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To resize or move tiles, pass `tiles` with each tile's `id` from dashboard-get and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, insight tiles included. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only for a whole-dashboard repack where every tile should use the same size. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -3050,20 +3064,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "dashboards-move-tile-partial-update": {
-        "description": "Move a tile from the source dashboard (path ID) to another dashboard. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Move dashboard tile",
-        "title": "Move dashboard tile",
-        "required_scopes": ["dashboard:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "data-catalog-certification-certify-execute": {

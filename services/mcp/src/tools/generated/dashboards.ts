@@ -836,7 +836,7 @@ const dashboardsGetAll = (): ToolBase<
     },
 })
 
-const DashboardsMoveTilePartialUpdateSchema = () => {
+const DashboardTransferTileSchema = () => {
     const DashboardsMoveTilePartialUpdateBody = orvalSchemas.DashboardsMoveTilePartialUpdateBody()
     const DashboardsMoveTilePartialUpdateParams = orvalSchemas.DashboardsMoveTilePartialUpdateParams()
     return DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
@@ -844,13 +844,13 @@ const DashboardsMoveTilePartialUpdateSchema = () => {
         .extend({ id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']) })
 }
 
-const dashboardsMoveTilePartialUpdate = (): ToolBase<
-    ReturnType<typeof DashboardsMoveTilePartialUpdateSchema>,
+const dashboardTransferTile = (): ToolBase<
+    ReturnType<typeof DashboardTransferTileSchema>,
     WithPostHogUrl<Schemas.Dashboard>
 > => ({
-    name: 'dashboards-move-tile-partial-update',
-    schema: DashboardsMoveTilePartialUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsMoveTilePartialUpdateSchema>>) => {
+    name: 'dashboard-transfer-tile',
+    schema: DashboardTransferTileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardTransferTileSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.to_dashboard !== undefined) {
@@ -886,5 +886,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-widgets-batch-update': dashboardWidgetsBatchUpdate,
     'dashboard-widgets-run': dashboardWidgetsRun,
     'dashboards-get-all': dashboardsGetAll,
-    'dashboards-move-tile-partial-update': dashboardsMoveTilePartialUpdate,
+    'dashboard-transfer-tile': dashboardTransferTile,
 }
