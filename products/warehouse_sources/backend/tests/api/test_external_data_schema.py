@@ -1701,6 +1701,14 @@ class TestExternalDataSchema(APIBaseTest):
                 (None, None),
             ),
             (
+                "switching_to_full_refresh_with_the_saved_interval_resent_turns_it_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"sync_type": "full_refresh", "full_refresh_interval_days": 7},
+                200,
+                (None, None),
+            ),
+            (
                 "a_full_refresh_table_rejects_it",
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,

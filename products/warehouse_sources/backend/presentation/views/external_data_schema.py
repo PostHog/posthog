@@ -1153,7 +1153,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "full_refresh_interval_days", instance.full_refresh_interval_days
         )
         if full_refresh_interval_days is not None and resulting_sync_type not in SCHEDULED_FULL_REFRESH_SYNC_TYPES:
-            if validated_data.get("full_refresh_interval_days") is not None:
+            requested_days = validated_data.get("full_refresh_interval_days")
+            if requested_days is not None and requested_days != instance.full_refresh_interval_days:
                 raise ValidationError({"full_refresh_interval_days": SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR})
             full_refresh_interval_days = None
         if (

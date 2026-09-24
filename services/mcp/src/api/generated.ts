@@ -42301,7 +42301,7 @@ export namespace Schemas {
          */
       sync_time_of_day?: string | null;
       /**
-         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.
          * @minimum 1
          * @maximum 90
          * @nullable
