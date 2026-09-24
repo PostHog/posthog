@@ -10240,6 +10240,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ("repeated_dependency_counts_once", [("half", True), ("half", True)], 5),
             ("contradictory_values_never_match", [("half", True), ("half", False)], 0),
             ("independent_dependencies_multiply", [("half", True), ("two_fifths", True)], 2),
+            # needs_half depends on half, so requesting both is one draw of half, not two.
+            ("transitive_dependency_counts_once", [("half", True), ("needs_half", True)], 5),
+            ("transitive_contradiction_never_matches", [("half", False), ("needs_half", True)], 0),
         ]
     )
     def test_user_blast_radius_with_several_flag_dependencies(self, _name, dependencies, expected_affected):
@@ -10254,6 +10257,26 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             )
             for key, rollout in [("half", 50), ("two_fifths", 40)]
         }
+        flags["needs_half"] = FeatureFlag.objects.create(
+            team=self.team,
+            key="needs_half",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(flags["half"].pk),
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -10270,6 +10293,41 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_flag_dependency_in_an_or_group_stays_neutral(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 0}]},
+        )
+
+        # The flag's 0% must not zero out the persons the other branch matches.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": str(dependency_flag.pk),
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            },
+                            {"key": "group", "type": "person", "value": ["0", "1", "2"], "operator": "exact"},
+                        ],
+                    },
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 10, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):

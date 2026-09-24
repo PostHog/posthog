@@ -23,14 +23,24 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
+from posthog.models.property import (
+    GroupTypeIndex,
+    Property,
+    PropertyGroup,
+    PropertyOperatorType,
+    PropertyValidationError,
+)
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
-from products.feature_flags.backend.person_sampling import build_person_count_query, count_matching_persons
+from products.feature_flags.backend.person_sampling import (
+    build_person_count_query,
+    count_matching_persons,
+    count_settings,
+)
 
 
 @frozen
@@ -233,6 +243,9 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
         query=select_query,
         team=team,
         context=HogQLContext(team_id=team.pk, database=database),
+        # The weighted count groups by person, so it takes the settings that let that aggregation
+        # stream in id order and spill to disk. The plain count keeps its historical defaults.
+        settings=count_settings(None) if weight is not None else None,
     )
 
     row = response.results[0] if response.results else None
@@ -256,10 +269,22 @@ def _flag_dependency_weight(team: Team, filter: Filter) -> Optional[ast.Expr]:
     the count paths weight each person by this instead. The persons listing stays unweighted and
     lists everyone the plain filters match.
     """
-    flag_properties = [prop for prop in filter.property_groups.flat if prop.type == "flag"]
+    group = filter.property_groups
+    flag_properties = [prop for prop in group.flat if prop.type == "flag"]
     if not flag_properties:
         return None
+    # A weight applies to every matched person, which only means "every dependency holds" when
+    # the condition is an AND tree, the shape release conditions have. An OR shape would put the
+    # flag's probability on persons that matched another branch, so it keeps the neutral count.
+    if not _is_conjunction(group):
+        return None
     return FlagDependencyEstimator(team, clean_condition=replace_proxy_properties).weight_expr(flag_properties)
+
+
+def _is_conjunction(group: PropertyGroup) -> bool:
+    if group.type != PropertyOperatorType.AND and len(group.values) > 1:
+        return False
+    return all(_is_conjunction(value) for value in group.values if isinstance(value, PropertyGroup))
 
 
 def _build_person_query(team: Team, filter: Filter, cursor: Optional[str] = None) -> ast.SelectQuery:

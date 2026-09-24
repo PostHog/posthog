@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.models.filters import Filter
 from posthog.models.property import Property, PropertyValidationError
@@ -22,8 +22,12 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 MAX_DEPENDENCY_DEPTH = 5
 
 # Dependencies are deduplicated per condition, so a real configuration expands a handful of
-# flags. The budget bounds the Postgres lookups and the query size when a chain fans out anyway.
+# flags. The budget bounds the Postgres lookups when a chain fans out anyway.
 MAX_DEPENDENCY_NODES = 50
+
+# The variant model re-embeds every earlier set's expression for each later set, so the emitted
+# expression can outgrow the dependency budget. Above this many AST nodes the weight is neutral.
+MAX_WEIGHT_AST_NODES = 10_000
 
 # Probability used when a dependency cannot be sized per person: every person counts, which is
 # what property_to_expr's neutral filter for flag properties already does.
@@ -78,24 +82,39 @@ class FlagDependencyEstimator:
         """Probability that every flag dependency in the condition evaluates to its requested value."""
         references = [(str(prop.key), prop.value) for prop in flag_properties]
         try:
-            return self._conjunction_expr(references, depth=0, seen=frozenset())
+            weight = self._conjunction_expr(references, depth=0, seen=frozenset(), assumed={})
+            if _count_nodes(weight) > MAX_WEIGHT_AST_NODES:
+                raise _DependencyBudgetExceeded()
         except _DependencyBudgetExceeded:
             # A partially expanded chain would give a misleading number, so the whole weight is neutral.
             return ast.Constant(value=NEUTRAL)
+        return weight
 
-    def _conjunction_expr(self, references: list[tuple[str, Any]], depth: int, seen: frozenset[int]) -> ast.Expr:
+    def _conjunction_expr(
+        self, references: list[tuple[str, Any]], depth: int, seen: frozenset[int], assumed: dict[str, bool | str]
+    ) -> ast.Expr:
+        """
+        Probability that every referenced flag evaluates to its requested value. `assumed` holds the
+        values the enclosing conjunctions already fixed. The flags service evaluates a flag once, so
+        a reference to one of those is settled by that value rather than drawn again.
+        """
         requested_by_flag = _merge_requested_values(references)
         if requested_by_flag is None:
-            # The flags service evaluates a flag once, so contradictory requests never match.
             return ast.Constant(value=0.0)
-        return _product(
-            [
-                self._probability_expr(reference, requested, depth, seen)
-                for reference, requested in requested_by_flag.items()
-            ]
-        )
 
-    def _probability_expr(self, reference: str, requested: bool | str, depth: int, seen: frozenset[int]) -> ast.Expr:
+        factors: list[ast.Expr] = []
+        for reference, requested in requested_by_flag.items():
+            settled = _settled_by(assumed.get(reference), requested)
+            if settled is None:
+                return ast.Constant(value=0.0)
+            if settled:
+                continue
+            factors.append(self._probability_expr(reference, requested, depth, seen, {**assumed, **requested_by_flag}))
+        return _product(factors) if factors else ast.Constant(value=1.0)
+
+    def _probability_expr(
+        self, reference: str, requested: bool | str, depth: int, seen: frozenset[int], assumed: dict[str, bool | str]
+    ) -> ast.Expr:
         self._nodes += 1
         if self._nodes > MAX_DEPENDENCY_NODES:
             raise _DependencyBudgetExceeded()
@@ -109,7 +128,7 @@ class FlagDependencyEstimator:
         if flag.pk in seen or _has_unmodeled_evaluation(flag):
             return ast.Constant(value=NEUTRAL)
 
-        admitted_by_set = self._admitted_probabilities(flag, depth, seen | {flag.pk})
+        admitted_by_set = self._admitted_probabilities(flag, depth, seen | {flag.pk}, assumed)
         if admitted_by_set is None:
             return ast.Constant(value=NEUTRAL)
 
@@ -128,7 +147,9 @@ class FlagDependencyEstimator:
             ).first()
         return self._flags[flag_id]
 
-    def _admitted_probabilities(self, flag: FeatureFlag, depth: int, seen: frozenset[int]) -> Optional[list[ast.Expr]]:
+    def _admitted_probabilities(
+        self, flag: FeatureFlag, depth: int, seen: frozenset[int], assumed: dict[str, bool | str]
+    ) -> Optional[list[ast.Expr]]:
         """
         One expression per condition set, in stored order: the probability that the set's targeting
         matches the person and its rollout admits them. None when a set cannot be sized per person.
@@ -152,7 +173,7 @@ class FlagDependencyEstimator:
                 factors.append(ast.Call(name="if", args=[targeting, ast.Constant(value=1.0), ast.Constant(value=0.0)]))
             nested = [(str(prop.get("key")), prop.get("value")) for prop in properties if prop.get("type") == "flag"]
             if nested:
-                factors.append(self._conjunction_expr(nested, depth + 1, seen))
+                factors.append(self._conjunction_expr(nested, depth + 1, seen, assumed))
 
             admitted.append(_product(factors))
         return admitted
@@ -175,6 +196,35 @@ def _merge_requested_values(references: list[tuple[str, Any]]) -> Optional[dict[
         else:
             return None
     return merged
+
+
+def _settled_by(assumed: bool | str | None, requested: bool | str) -> Optional[bool]:
+    """
+    Whether a value an enclosing conjunction already fixed decides this request: True when it
+    implies it, None when it contradicts it, False when the request needs its own probability.
+    """
+    if assumed is None:
+        return False
+    if _merge_requested_values([("flag", assumed), ("flag", requested)]) is None:
+        return None
+    # A variant implies `true`; `true` does not imply a variant, which keeps its own share.
+    return assumed == requested or (requested is True and isinstance(assumed, str))
+
+
+class _NodeCounter(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def visit(self, node: ast.AST | None) -> None:
+        self.count += 1
+        return super().visit(node)
+
+
+def _count_nodes(expr: ast.Expr) -> int:
+    counter = _NodeCounter()
+    counter.visit(expr)
+    return counter.count
 
 
 def _from_true_probability(requested: bool, true_probability: ast.Expr) -> ast.Expr:
