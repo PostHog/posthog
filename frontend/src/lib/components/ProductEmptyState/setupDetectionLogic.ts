@@ -103,33 +103,31 @@ export function clearAllCachedHasData(): void {
     }
 }
 
-// localStorage can throw (private modes, disabled storage); a cache miss is always safe.
-function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
+// localStorage can throw (private modes, disabled storage); every read/write miss is
+// safe, since the caller either re-detects or just skips caching the answer.
+function withHasDataCacheKey<T>(
+    teamId: number | null,
+    productKey: ProductKey,
+    fallback: T,
+    run: (key: string) => T
+): T {
     try {
-        return teamId !== null && window.localStorage.getItem(hasDataCacheKey(teamId, productKey)) === '1'
+        return teamId === null ? fallback : run(hasDataCacheKey(teamId, productKey))
     } catch {
-        return false
+        return fallback
     }
+}
+
+function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
+    return withHasDataCacheKey(teamId, productKey, false, (key) => window.localStorage.getItem(key) === '1')
 }
 
 function writeCachedHasData(teamId: number | null, productKey: ProductKey): void {
-    try {
-        if (teamId !== null) {
-            window.localStorage.setItem(hasDataCacheKey(teamId, productKey), '1')
-        }
-    } catch {
-        // Nothing cached; the next mount just detects again.
-    }
+    withHasDataCacheKey(teamId, productKey, undefined, (key) => window.localStorage.setItem(key, '1'))
 }
 
 function clearCachedHasData(teamId: number | null, productKey: ProductKey): void {
-    try {
-        if (teamId !== null) {
-            window.localStorage.removeItem(hasDataCacheKey(teamId, productKey))
-        }
-    } catch {
-        // A stale entry only means the next mount revalidates again.
-    }
+    withHasDataCacheKey(teamId, productKey, undefined, (key) => window.localStorage.removeItem(key))
 }
 
 /**
@@ -197,9 +195,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 ])
             ),
             detectStatusSuccess: ({ detectedStatus }) => {
-                const revalidating = !!cache.revalidating
-                cache.revalidating = false
+                const revalidating = cache.cacheGate === 'armed'
                 if (revalidating) {
+                    cache.cacheGate = 'closed'
                     // The cached has-data already opened the gate and ran onDetected. Only a
                     // definite "no data" answer changes anything, and it must bypass the
                     // guard that stops needs-setup replacing has-data.
@@ -228,7 +226,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             detectStatusFailure: ({ errorObject }) => {
-                cache.revalidating = false
+                if (cache.cacheGate === 'armed') {
+                    cache.cacheGate = 'closed'
+                }
                 // Never strand the gate on its spinner: if nothing (preload included)
                 // has answered yet, fail open to the real scene. The poll keeps
                 // retrying, and a failure never downgrades an existing answer.
@@ -243,15 +243,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
-                // Covers non-polling products mounted before bootstrap settled, plus a still-armed
-                // revalidation; once a cache hit has been served and revalidated, a later fire of
-                // this action must not send a second, unflagged detectStatus (its answer would be
-                // dropped by the has-data guard in setDetectedStatus).
-                if (
-                    (!cache.servedFromCache || cache.revalidating) &&
-                    values.detectedStatus === null &&
-                    !values.detectedStatusLoading
-                ) {
+                // Covers non-polling products mounted before bootstrap settled. A cache hit
+                // gates this off, except for one still-armed revalidation catch-up.
+                if (cache.cacheGate !== 'closed' && values.detectedStatus === null && !values.detectedStatusLoading) {
                     actions.detectStatus()
                 }
             },
@@ -262,10 +256,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // The cache skips detection, not the side effects - returning users take
                 // this path on every later visit.
                 onDetected?.('has-data')
-                cache.servedFromCache = true
+                cache.cacheGate = revalidateCachedHasData ? 'armed' : 'closed'
                 if (revalidateCachedHasData) {
                     // Before bootstrap settles, the loadCurrentProjectSuccess listener runs it.
-                    cache.revalidating = true
                     detectIfProjectKnown(actions, values)
                 }
                 return
