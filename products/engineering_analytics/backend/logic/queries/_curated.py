@@ -28,6 +28,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -52,6 +53,8 @@ from products.engineering_analytics.backend.logic.views import (
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+_QUERY_PAGE_SIZE = 5000
+
 
 @dataclass(frozen=True, kw_only=True)
 class _IssueEventsWindow:
@@ -70,6 +73,17 @@ class DeploySources:
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+_PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
+
+
+def push_rows_select(*, runs_source: str, run_filter: str) -> str:
+    """One row per authored commit that reached CI. Skipped workflows still prove the push."""
+    return f"""
+        SELECT pr_number, head_sha, min(coalesce(created_at, run_started_at)) AS pushed_at
+        FROM {runs_source} AS r
+        WHERE {_PUSH_RUN_PREDICATE} AND ({run_filter})
+        GROUP BY pr_number, head_sha
+    """
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -139,11 +153,17 @@ class CuratedGitHubSource:
     """
 
     def __init__(
-        self, *, team: Team, tables: GitHubTables, user_access_control: "UserAccessControl | None" = None
+        self,
+        *,
+        team: Team,
+        tables: GitHubTables,
+        user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> None:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._queries_remaining = query_limit
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
         self._trunk_quarantine_source: TrunkQuarantineSource | None = None
@@ -167,6 +187,7 @@ class CuratedGitHubSource:
         source_id: str | None = None,
         repo: str | None = None,
         user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
@@ -174,6 +195,7 @@ class CuratedGitHubSource:
                 team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
             ),
             user_access_control=user_access_control,
+            query_limit=query_limit,
         )
 
     def pr_source(self) -> str:
@@ -463,7 +485,7 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0 AND NOT is_merge_queue
+                WHERE {_PUSH_RUN_PREDICATE}
                     AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
@@ -487,6 +509,46 @@ class CuratedGitHubSource:
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
+
+    def run_paged(
+        self,
+        sql: str,
+        *,
+        page_key: tuple[tuple[str, int], ...],
+        query_type: str,
+        placeholders: dict[str, ast.Expr],
+    ) -> list[tuple]:
+        """Read every row by an immutable unique key, without the per-query result cap."""
+        rows: list[tuple] = []
+        cursor: tuple[object, ...] | None = None
+        key_columns = [column for column, _index in page_key]
+        order_by = ", ".join(key_columns)
+        while True:
+            cursor_filter = ""
+            page_placeholders = placeholders
+            if cursor is not None:
+                cursor_names = [f"paged_after_{index}" for index in range(len(cursor))]
+                left = key_columns[0] if len(key_columns) == 1 else f"({', '.join(key_columns)})"
+                right = (
+                    f"{{{cursor_names[0]}}}"
+                    if len(cursor_names) == 1
+                    else f"({', '.join(f'{{{name}}}' for name in cursor_names)})"
+                )
+                cursor_filter = f"WHERE {left} > {right}"
+                page_placeholders = {
+                    **placeholders,
+                    **{name: ast.Constant(value=value) for name, value in zip(cursor_names, cursor, strict=True)},
+                }
+            response = self.run(
+                f"SELECT * FROM ({sql}) AS paged\n{cursor_filter}\nORDER BY {order_by}\nLIMIT {_QUERY_PAGE_SIZE}",
+                query_type=query_type,
+                placeholders=page_placeholders,
+            )
+            page = list(response.results or [])
+            rows.extend(page)
+            if len(page) < _QUERY_PAGE_SIZE:
+                return rows
+            cursor = tuple(page[-1][index] for _column, index in page_key)
 
     def run(
         self,
@@ -512,6 +574,10 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
+        if self._queries_remaining is not None:
+            if self._queries_remaining <= 0:
+                raise QueryWorkLimitExceededError
+            self._queries_remaining -= 1
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(

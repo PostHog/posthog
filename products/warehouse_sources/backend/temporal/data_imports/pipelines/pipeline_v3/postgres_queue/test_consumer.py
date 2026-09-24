@@ -11,6 +11,10 @@ import psycopg
 import structlog
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_DELETED_JOB_ERROR,
+    SYNC_DISABLED_JOB_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
     batch_consumer as batch_consumer_module,
@@ -28,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     consumer as consumer_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
+    JOB_STATUS_CACHE_MAX_ENTRIES,
     BatchConsumer,
     ConsumerConfig,
     DeltaBatchConsumerAdapter,
@@ -1498,11 +1503,33 @@ class TestFailRun:
         with (
             patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
             patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._auto_widen_reset_is_pending", return_value=False),
             patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
         ):
             await consumer._fail_run(batch, reason=reason, conn=consumer._poll_conn)
 
         assert mock_disable.called is expect_disabled
+
+    @pytest.mark.asyncio
+    async def test_a_widening_with_a_reset_already_stamped_keeps_its_schedule(self):
+        # Disabling pauses the schema's schedule, and the stamped reset only runs on the next
+        # scheduled sync — so disabling here strands the recovery the pipeline just promised.
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._auto_widen_reset_is_pending", return_value=True),
+            patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
+        ):
+            await consumer._fail_run(
+                batch,
+                reason="Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                conn=consumer._poll_conn,
+            )
+
+        assert mock_disable.called is False
 
     @pytest.mark.asyncio
     async def test_disable_failure_does_not_crash_the_consumer(self):
@@ -1670,6 +1697,90 @@ class TestShouldProcessBatch:
         mock_queue_fail.assert_awaited_once()
         assert mock_queue_fail.call_args.kwargs["run_uuid"] == batch.run_uuid
         mock_release.assert_called_once_with(team_id=batch.team_id, schema_id=batch.schema_id, token="wf-run-1")
+
+    @pytest.mark.parametrize(
+        "sync_type,job_status,latest_error,expect_drained",
+        [
+            # The case this exists for: extraction died, rows are already staged, and the next
+            # run continues from a cursor that only promotes on a Completed job.
+            ("incremental", "Failed", "connection lost", True),
+            # A decision to stop this run. Finishing the load would override it.
+            ("incremental", "Failed", SYNC_DISABLED_JOB_ERROR, False),
+            ("incremental", "Failed", SCHEMA_DELETED_JOB_ERROR, False),
+            # A permanent, unfixable failure already disabled the schema; loading more
+            # writes into a destination the run has already given up on.
+            ("incremental", "Failed", "delta-rs: is too large to store in a Decimal128", False),
+            ("incremental", "Failed", "Primary key required for incremental syncs", False),
+            ("incremental", "Failed", "SchemaColumnTypeChangedException: Source column type changed", False),
+            # The schema or job row is gone — nothing left to load into.
+            ("incremental", "Failed", "ExternalDataSchema matching query does not exist", False),
+            ("incremental", "Failed", "ExternalDataJob matching query does not exist", False),
+            # Loading more is the thing a billing limit exists to prevent.
+            ("incremental", "BillingLimitReached", "over limit", False),
+            ("incremental", "BillingLimitTooLow", "limit too low", False),
+            # A full refresh replaces the table, so a partial snapshot is a torn table.
+            ("full_refresh", "Failed", "connection lost", False),
+            # An append has no primary key, so a re-extracted window duplicates rows.
+            ("append", "Failed", "connection lost", False),
+            # CDC resolves its position from consumed buffer files; that machinery owns it.
+            ("cdc", "Failed", "connection lost", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_only_incremental_runs_drain_after_a_genuine_failure(
+        self, sync_type, job_status, latest_error, expect_drained
+    ):
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch(sync_type=sync_type, metadata={"workflow_run_id": "wf-run-1"})
+
+        with (
+            patch(
+                f"{consumer_module.__name__}._get_job_status_and_error",
+                return_value=(job_status, latest_error),
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+            patch(f"{consumer_module.__name__}._update_job_status_to_failed"),
+            patch(f"{consumer_module.__name__}.release_v3_pipeline_lock"),
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is expect_drained
+        assert mock_queue_fail.await_count == (0 if expect_drained else 1)
+
+    @pytest.mark.asyncio
+    async def test_drain_survives_a_cache_eviction_on_the_same_call(self):
+        # The status map is pruned against the dead-verdict map. If this job's status were
+        # recorded before that prune it would be dropped on the way through, and the batch
+        # would be discarded rather than loaded - silently, and only once the cache is full.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        # _adapter is typed as the protocol, and the cache is a Delta-adapter detail.
+        adapter = cast(DeltaBatchConsumerAdapter, consumer._adapter)
+        adapter._job_dead_cache = {f"filler-{i}": (False, 0.0) for i in range(JOB_STATUS_CACHE_MAX_ENTRIES)}
+        batch = _make_batch(sync_type="incremental", metadata={"workflow_run_id": "wf-run-1"})
+
+        with (
+            patch(
+                f"{consumer_module.__name__}._get_job_status_and_error",
+                return_value=("Failed", "connection lost"),
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+            patch(f"{consumer_module.__name__}._update_job_status_to_failed"),
+            patch(f"{consumer_module.__name__}.release_v3_pipeline_lock"),
+        ):
+            result = await adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_awaited()
 
     @pytest.mark.parametrize(
         "status_row",

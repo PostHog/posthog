@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,13 +15,44 @@ ManagementMode = Literal["posthog", "self_managed"]
 IngestMode = Literal["legacy", "buffered"]
 
 
-def parse_ingest_mode(job_inputs: Mapping[str, Any] | None) -> IngestMode:
-    """Anything unrecognized reads as legacy: an unknown value must not route a source onto a
-    path it was never flipped to. `job_inputs` decrypts from EncryptedJSONField, so it is not
-    always a mapping — a non-mapping value is unrecognized too, not an error."""
-    if not isinstance(job_inputs, Mapping):
-        return "legacy"
-    return "buffered" if job_inputs.get("cdc_ingest_mode") == "buffered" else "legacy"
+class CDCJobInputsUnreadableError(Exception):
+    """`job_inputs` did not resolve to a mapping, so no CDC setting can be read from the source.
+
+    Non-retryable: the stored value replays identically on every read.
+
+    Raised instead of reading the settings as absent, because a source whose stored mode cannot be
+    read would then route onto the lane it was never flipped to, and a buffer nothing consumes
+    looks the same as an idle one.
+    """
+
+
+def decode_job_inputs(job_inputs: Mapping[str, Any] | str | None) -> Mapping[str, Any]:
+    """`job_inputs` as a mapping, whichever shape it decrypted to.
+
+    EncryptedJSONField encrypts each leaf of a mapping separately, but it encrypts a value that was
+    assigned as a string whole. A source written that way therefore reads back as one JSON string
+    rather than a mapping, so decode it.
+    """
+    if not job_inputs:
+        return {}
+    if isinstance(job_inputs, Mapping):
+        return job_inputs
+    if not isinstance(job_inputs, str):
+        raise CDCJobInputsUnreadableError(f"job_inputs is a {type(job_inputs).__name__}, expected a mapping")
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError as e:
+        # Never name the value in the message: job_inputs holds the source's connection credentials.
+        raise CDCJobInputsUnreadableError("job_inputs is a string that does not decode as JSON") from e
+    if not isinstance(decoded, Mapping):
+        raise CDCJobInputsUnreadableError(f"job_inputs decoded to a {type(decoded).__name__}, expected a mapping")
+    return decoded
+
+
+def parse_ingest_mode(job_inputs: Mapping[str, Any] | str | None) -> IngestMode:
+    """An unrecognized value reads as legacy: it must not route a source onto a path it was never
+    flipped to. Raises ``CDCJobInputsUnreadableError`` when there is no value to read at all."""
+    return "buffered" if decode_job_inputs(job_inputs).get("cdc_ingest_mode") == "buffered" else "legacy"
 
 
 @dataclass(frozen=True)

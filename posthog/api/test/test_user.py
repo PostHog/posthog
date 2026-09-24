@@ -3646,7 +3646,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": False,
                 "has_totp": False,
@@ -3671,7 +3671,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": True,
-                "backup_codes": ["123456", "789012"],
+                "backup_codes_remaining": 2,
                 "method": "TOTP",
                 "has_passkeys": False,
                 "has_totp": True,
@@ -3703,7 +3703,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": True,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": "passkey",
                 "has_passkeys": True,
                 "has_totp": False,
@@ -3744,7 +3744,7 @@ class TestUserTwoFactor(APIBaseTest):
                 response.json(),
                 {
                     "is_enabled": True,
-                    "backup_codes": ["123456"],
+                    "backup_codes_remaining": 1,
                     "method": "TOTP",
                     "has_passkeys": True,
                     "has_totp": True,
@@ -3773,7 +3773,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": False,
                 "has_totp": False,
@@ -3805,7 +3805,7 @@ class TestUserTwoFactor(APIBaseTest):
             response.json(),
             {
                 "is_enabled": False,
-                "backup_codes": [],
+                "backup_codes_remaining": 0,
                 "method": None,
                 "has_passkeys": True,
                 "has_totp": False,

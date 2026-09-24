@@ -484,16 +484,22 @@ describe('emailTemplaterLogic', () => {
             expect(loadDesign).toHaveBeenLastCalledWith(DESIGN_EXTERNAL)
         })
 
-        it('does not reload the canvas when our own edit echoes back through the parent', async () => {
+        it.each([
+            ['as exported', DESIGN_EDITED],
+            [
+                'after a save drops undefined keys',
+                { body: { ...DESIGN_EDITED.body, values: { fontFamily: undefined } } },
+            ],
+        ])('does not reload the canvas when our own edit echoes back through the parent %s', async (_, exported) => {
             jest.useFakeTimers()
-            editorDesign = DESIGN_EDITED
+            editorDesign = exported
             editorListeners['design:updated']()
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
             expect(onChange).toHaveBeenCalledTimes(1)
 
-            updateProps({ design: DESIGN_EDITED })
+            updateProps({ design: JSON.parse(JSON.stringify(exported)) })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadDesign).toHaveBeenCalledTimes(1)

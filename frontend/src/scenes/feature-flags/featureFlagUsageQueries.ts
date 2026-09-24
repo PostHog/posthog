@@ -5,10 +5,13 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
-import { getDefaultInterval } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 
 import { Noun } from '~/models/groupsModel'
 import {
+    ChartSettings,
+    DataVisualizationNode,
     DateRange,
     EventsNode,
     InsightVizNode,
@@ -16,11 +19,12 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
+    DateMappingOption,
     GroupMathType,
     GroupTypeIndex,
     PropertyFilterType,
@@ -37,11 +41,13 @@ export interface FlagUsageQueryOptions {
 
 export const DEFAULT_USAGE_DATE_RANGE: DateRange = { date_from: '-30d', date_to: null }
 
-export interface FlagUsageChart {
+export type FlagUsageQuery = InsightVizNode<TrendsQuery> | DataVisualizationNode
+
+export interface FlagUsageChart<Q extends FlagUsageQuery = FlagUsageQuery> {
     key: string
     title: string
     description: string
-    query: InsightVizNode<TrendsQuery>
+    query: Q
 }
 
 function flagCalledProperties({ flagKey, aggregationGroupTypeIndex }: FlagUsageQueryOptions): AnyPropertyFilter[] {
@@ -83,7 +89,9 @@ function buildUsageQuery(
     })
 }
 
-export function buildFlagCalledTotalVolumeChart(options: FlagUsageQueryOptions): FlagUsageChart {
+export function buildFlagCalledTotalVolumeChart(
+    options: FlagUsageQueryOptions
+): FlagUsageChart<InsightVizNode<TrendsQuery>> {
     return {
         key: 'total-volume',
         title: 'Feature flag called total volume',
@@ -100,7 +108,9 @@ export function buildFlagCalledTotalVolumeChart(options: FlagUsageQueryOptions):
     }
 }
 
-export function buildFlagCalledUniqueCallersChart(options: FlagUsageQueryOptions): FlagUsageChart {
+export function buildFlagCalledUniqueCallersChart(
+    options: FlagUsageQueryOptions
+): FlagUsageChart<InsightVizNode<TrendsQuery>> {
     const mathProperties: Pick<EventsNode, 'math' | 'math_group_type_index'> =
         options.aggregationGroupTypeIndex != null
             ? {
@@ -133,7 +143,7 @@ export function buildFlagCalledUniqueCallersChart(options: FlagUsageQueryOptions
 
 export function buildEnrichedUsageCharts(
     options: Pick<FlagUsageQueryOptions, 'flagKey' | 'dateRange'>
-): FlagUsageChart[] {
+): FlagUsageChart<InsightVizNode<TrendsQuery>>[] {
     return [
         {
             key: 'feature-view',
@@ -169,6 +179,167 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
         { kind: NodeKind.EventsNode, event, name: `${seriesLabel} - Total` },
         { kind: NodeKind.EventsNode, event, name: `${seriesLabel} - Unique users`, math: BaseMathType.UniqueUsers },
     ]
+}
+
+// Not a root table, so the `posthog.` prefix is part of the name. An organization without the
+// flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
+const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
+
+/** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
+export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
+
+// Start of the oldest day the table still holds. dateStringToDayJs resolves the ranges this is
+// compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
+// which drops the 90-day preset in a timezone ahead of UTC.
+function earliestRetainedDay(): dayjs.Dayjs {
+    return dayjs.utc().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
+}
+
+/** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
+export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {
+    const earliest = earliestRetainedDay()
+    const dateFrom = dateStringToDayJs(dateRange.date_from ?? null)
+    // A null start is "all time", which reaches further than any retained day.
+    if (dateFrom && !dateFrom.isBefore(earliest)) {
+        return dateRange
+    }
+    const dateTo = dateStringToDayJs(dateRange.date_to ?? null)
+    return {
+        date_from: `-${FLAG_EVALUATIONS_RETENTION_DAYS}d`,
+        // A range that ended before the window holds nothing, and the clamped start would sit
+        // after its end. Run to now instead of showing a backwards range.
+        date_to: dateTo?.isBefore(earliest) ? null : (dateRange.date_to ?? null),
+    }
+}
+
+/** The presets that stay inside the retention window, plus the custom-range entry. */
+export function flagEvaluationsDateOptions(): DateMappingOption[] {
+    const earliest = earliestRetainedDay()
+    return dateMapping.filter(({ values }) => {
+        const dateFrom = values[0]
+        if (dateFrom === undefined) {
+            return true
+        }
+        const parsed = dateStringToDayJs(dateFrom)
+        return !!parsed && !parsed.isBefore(earliest)
+    })
+}
+
+function flagEvaluationsConditions(
+    { aggregationGroupTypeIndex, flagKey }: FlagUsageQueryOptions,
+    indent: string = '    '
+): string {
+    // The flag key is an escaped literal rather than a placeholder because HogQLQueryRunner compiles
+    // every placeholder while it parses, and `{filters(...)}` is not compilable, so a query that
+    // carries both fails before it reaches replace_filters.
+    // `{filters(... AS timestamp)}` binds the tab's date range to this table's own timestamp column.
+    // The bare `{filters}` placeholder only knows a fixed set of tables, and this is not one of them.
+    const conditions = [`flag_key = ${escapeHogQLString(flagKey)}`, '{filters(timestamp AS timestamp)}']
+    if (aggregationGroupTypeIndex != null) {
+        // The group columns are non-nullable and hold an empty string when the evaluation
+        // carried no group, so this is the equivalent of the events path's is_set filter.
+        conditions.push(`\`$group_${aggregationGroupTypeIndex}\` != ''`)
+    }
+    return conditions.join(`\n${indent}AND `)
+}
+
+function buildFlagEvaluationsQuery(
+    options: FlagUsageQueryOptions,
+    query: string,
+    display: ChartDisplayType,
+    chartSettings?: ChartSettings
+): DataVisualizationNode {
+    const { dateRange } = options
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query,
+            filters: { dateRange },
+            // The backend infers a product from the event or table a query reads, and knows neither
+            // posthog.flag_evaluations nor this scene, so the tag has to be explicit. An untagged
+            // ClickHouse query raises under DEBUG and records with no product in production.
+            tags: { productKey: ProductKey.FEATURE_FLAGS },
+        },
+        display,
+        chartSettings,
+    })
+}
+
+/**
+ * A HogQL query without a LIMIT falls back to 100 rows, which would cut the newest periods off a
+ * period-ascending chart. The volume query returns one row per period per variant: at most 90 days
+ * of the retention window at the shortest interval the presets reach, times the 50 series the
+ * breakdown renders.
+ */
+export const FLAG_EVALUATIONS_VOLUME_ROW_LIMIT = 10000
+
+export function buildFlagEvaluationsTotalVolumeChart(
+    options: FlagUsageQueryOptions
+): FlagUsageChart<DataVisualizationNode> {
+    // dateTrunc needs a literal unit, so the interval is written into the query rather than
+    // passed as a value. getDefaultInterval only returns members of IntervalType.
+    const interval = getDefaultInterval(options.dateRange.date_from ?? null, options.dateRange.date_to ?? null)
+    return {
+        key: 'total-volume',
+        title: 'Feature flag called total volume',
+        description: `Shows the number of total calls made on feature flag with key: ${options.flagKey}`,
+        query: buildFlagEvaluationsQuery(
+            options,
+            // GROUP BY only emits the periods that hold evaluations, and the chart builds its time
+            // axis from the rows it gets back, so a quiet period would vanish instead of reading
+            // zero. WITH FILL puts the missing periods back for each variant, and the outer query
+            // restores the ascending period order the axis needs.
+            `SELECT period, variant, total
+FROM (
+    SELECT
+        dateTrunc('${interval}', timestamp) AS period,
+        response AS variant,
+        count() AS total
+    FROM ${FLAG_EVALUATIONS_TABLE}
+    WHERE ${flagEvaluationsConditions(options, '        ')}
+    GROUP BY period, variant
+    ORDER BY variant, period WITH FILL STEP INTERVAL 1 ${interval}
+)
+ORDER BY period
+LIMIT ${FLAG_EVALUATIONS_VOLUME_ROW_LIMIT}`,
+            ChartDisplayType.ActionsLineGraph,
+            {
+                xAxis: { column: 'period' },
+                yAxis: [{ column: 'total' }],
+                seriesBreakdownColumn: 'variant',
+                // A variant that starts or stops mid-range sits outside its own filled span.
+                showNullsAsZero: true,
+            }
+        ),
+    }
+}
+
+export function buildFlagEvaluationsUniqueCallersChart(
+    options: FlagUsageQueryOptions
+): FlagUsageChart<DataVisualizationNode> {
+    const { aggregationGroupTypeIndex, callerNoun, flagKey } = options
+    // `person_id` is not the column the row stores. HogQL resolves it through
+    // person_distinct_id_overrides, so a person who evaluated the flag before and after logging in
+    // counts once. That join is bounded by neither the date range nor the flag key, which means the
+    // retention clamp does not make this query cheaper.
+    const caller = aggregationGroupTypeIndex != null ? `\`$group_${aggregationGroupTypeIndex}\`` : 'person_id'
+    return {
+        key: 'unique-callers',
+        title: `Feature flag calls made by unique ${callerNoun.plural} per variant`,
+        description: `Shows the number of unique ${callerNoun.singular} calls made on feature flag per variant with key: ${flagKey}`,
+        query: buildFlagEvaluationsQuery(
+            options,
+            `SELECT
+    response AS \`Variant\`,
+    uniq(${caller}) AS \`Unique callers\`
+FROM ${FLAG_EVALUATIONS_TABLE}
+WHERE ${flagEvaluationsConditions(options)}
+GROUP BY \`Variant\`
+ORDER BY \`Unique callers\` DESC`,
+            ChartDisplayType.ActionsTable
+        ),
+    }
 }
 
 // Enriched analytics events carry the flag key in the bare `feature_flag` property,

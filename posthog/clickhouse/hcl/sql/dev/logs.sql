@@ -219,8 +219,9 @@ CREATE TABLE posthog.logs_volume_buckets (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -228,6 +229,7 @@ CREATE TABLE posthog.logs_volume_buckets_distributed (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('logs', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.metric_attributes (
@@ -546,9 +548,13 @@ CREATE TABLE posthog.metrics4_samples (
   trace_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   span_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   trace_flags_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+  timestamp_min DateTime64(6) ALIAS arrayMin(timestamp_arr),
+  timestamp_max DateTime64(6) ALIAS arrayMax(timestamp_arr),
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+  INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
@@ -1024,13 +1030,14 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   service_name,
   namespace,
   environment,
   severity_text,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -1052,7 +1059,17 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY

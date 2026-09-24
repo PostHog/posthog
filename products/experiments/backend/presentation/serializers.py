@@ -2546,7 +2546,8 @@ class ExperimentSetupTargetSurfaceSerializer(serializers.Serializer):
             "experiment-calculate-running-time, scaled by the share of traffic the experiment will include."
         )
     )
-    libs = ExperimentSetupLibReachSerializer(many=True, help_text="Up to 5 SDKs by persons reached.")
+    libs = ExperimentSetupLibReachSerializer(many=True, help_text="Up to 5 SDKs, most persons reached first.")
+    libs_truncated = serializers.BooleanField(help_text="True when more SDKs sent target events than libs lists.")
     anonymous_share = serializers.FloatField(
         allow_null=True,
         help_text=(

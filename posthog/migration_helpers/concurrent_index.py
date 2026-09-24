@@ -57,7 +57,8 @@ The Migration class still needs `atomic = False`.
 """
 
 from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
-from django.db import migrations
+from django.db import migrations, router
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 import structlog
 
@@ -157,6 +158,11 @@ class _ConcurrentIndexOp(migrations.RunSQL):
     using: str
     where: str
 
+    def _allow_migrate(self, app_label: str, schema_editor: BaseDatabaseSchemaEditor) -> bool:
+        # The same router check `RunSQL` makes, which the overridden apply path would skip.
+        # Without it a product app routed to its own database runs this on every database.
+        return router.allow_migrate(schema_editor.connection.alias, app_label, **self.hints)
+
     def deconstruct(self) -> tuple[str, list[object], dict[str, str | bool]]:
         # RunSQL.deconstruct() emits sql=/reverse_sql= kwargs, which this op's
         # keyword-only __init__ rejects — so squashmigrations / the migration
@@ -222,12 +228,16 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         )
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        if not self._allow_migrate(app_label, schema_editor):
+            return
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
         schema_editor.execute(self.sql)  # CREATE ... IF NOT EXISTS
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        if not self._allow_migrate(app_label, schema_editor):
+            return
         _disable_timeouts(schema_editor)
         schema_editor.execute(self.reverse_sql)
 
@@ -286,10 +296,14 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         )
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        if not self._allow_migrate(app_label, schema_editor):
+            return
         _disable_timeouts(schema_editor)
         schema_editor.execute(self.sql)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        if not self._allow_migrate(app_label, schema_editor):
+            return
         _disable_timeouts(schema_editor)
         if _index_validity(schema_editor, self.index_name) == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
