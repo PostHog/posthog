@@ -20,7 +20,8 @@ export interface ReportVerdict {
  *
  * `hasExistingPr` folds in what the report row alone can't know: a linked
  * implementation task may hold a live PR before `implementation_pr_url` is
- * stamped (see findContinuableImplementationTask).
+ * stamped (see findContinuableImplementationTask). `hasLiveImplementationTask`
+ * is the weaker fact of a task still running without one.
  *
  * `actionabilityExplanation` is the reasoning off the report's latest
  * actionability judgment. A verdict that parks the report carries it, because
@@ -30,8 +31,13 @@ export function deriveReportVerdict(
   report: SignalReport,
   {
     hasExistingPr,
+    hasLiveImplementationTask = false,
     actionabilityExplanation,
-  }: { hasExistingPr: boolean; actionabilityExplanation?: string | null },
+  }: {
+    hasExistingPr: boolean;
+    hasLiveImplementationTask?: boolean;
+    actionabilityExplanation?: string | null;
+  },
 ): ReportVerdict {
   switch (report.status) {
     case "resolved":
@@ -87,7 +93,10 @@ export function deriveReportVerdict(
       break;
   }
 
-  if (hasExistingPr) {
+  const parked = report.actionability === "not_actionable";
+  // A running task with no pull request has nothing to review yet, so it does
+  // not outrank a verdict that parked the report: no pull request follows it.
+  if (hasExistingPr || (hasLiveImplementationTask && !parked)) {
     return {
       tone: "decision",
       title: "Review the open PR",
@@ -120,8 +129,8 @@ export function deriveReportVerdict(
         tone: "info",
         title: "Not actionable after research",
         body: rationale
-          ? "Research judged this report not actionable, so no implementation was started and no run failed. Read the reasoning, then dismiss the report."
-          : "Research judged this report not actionable, so no implementation was started and no run failed. Open Activity for the judgment, then dismiss the report.",
+          ? "Research judged this report not actionable, so no pull request follows it. Read the reasoning, then dismiss the report."
+          : "Research judged this report not actionable, so no pull request follows it. Open Activity for the judgment, then dismiss the report.",
         rationale,
       };
     }
