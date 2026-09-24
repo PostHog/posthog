@@ -62,6 +62,7 @@ describe('marketingAnalyticsLogic', () => {
     it.each<{
         description: string
         overrideFromUrl?: boolean
+        tab?: MarketingAnalyticsTab
         clearDraft?: boolean
         saveDraft?: boolean
         removeDraftColumn?: boolean
@@ -70,6 +71,11 @@ describe('marketingAnalyticsLogic', () => {
     }>([
         { description: 'active draft' },
         { description: 'URL override', overrideFromUrl: true },
+        {
+            description: 'Ad performance URL override',
+            overrideFromUrl: true,
+            tab: MarketingAnalyticsTab.AD_PERFORMANCE,
+        },
         {
             description: 'cleared draft sorted by its goal',
             clearDraft: true,
@@ -84,6 +90,7 @@ describe('marketingAnalyticsLogic', () => {
         'restores campaign columns on a fresh visit: $description',
         async ({
             overrideFromUrl = false,
+            tab,
             clearDraft = false,
             saveDraft = false,
             removeDraftColumn = false,
@@ -162,7 +169,7 @@ describe('marketingAnalyticsLogic', () => {
             initKeaTests()
             router.actions.push(
                 urls.marketingAnalyticsApp(),
-                overrideFromUrl ? { select: 'Campaign,Cost', order_column: 'Cost', order_direction: 'ASC' } : {}
+                overrideFromUrl ? { tab, select: 'Campaign,Cost', order_column: 'Cost', order_direction: 'ASC' } : {}
             )
             tiles = await mountTable()
             try {
