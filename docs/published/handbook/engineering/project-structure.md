@@ -48,6 +48,12 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
 The app-level terminal lives in `src/scenes/terminal`.
+Its Linux VM runs in a dedicated Web Worker, with the graphical framebuffer drawn directly into a transferred `OffscreenCanvas`.
+The page owns xterm, PostHog API access, and the 9P filesystem server; typed messages carry serial input/output, keyboard and mouse input, and filesystem requests and replies.
+Stopping Linux terminates the worker, including during boot.
+The terminal requires a browser with module workers and `OffscreenCanvas` support.
+`LiveRuntime` and `LiveDoom` in the terminal's Storybook stories exercise the real VM and display.
+With Storybook running, `node frontend/bin/bench-terminal.mjs http://localhost:6006` measures main-thread work and responsiveness during Doom.
 SQL insights appear as editable `.sql` files; their full JSON remains editable under `/posthog/api/insight`.
 Saving SQL preserves the insight's other query options, and JSON saves send only changed fields through the existing APIs.
 `run report.sql` executes a SQL file in the current project and prints a Markdown table; `--json`, `--csv`, and `--tsv` select export formats.

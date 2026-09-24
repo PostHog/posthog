@@ -32,7 +32,7 @@ const outDir =
 copySnappyWASMFile(frontendDir, outDir)
 
 await buildInParallel(
-    WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
+    WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
         name,
         absWorkingDir: frontendDir,
         entryPoints: [entryPoint],
@@ -43,5 +43,6 @@ await buildInParallel(
         bundle: true,
         format: 'esm',
         writeMetaFile: false,
+        ...(define ? { define } : {}),
     }))
 )

@@ -1,4 +1,3 @@
-import type { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
 import kernelUrl from './assets/buildroot-bzimage.bin?url'
@@ -11,6 +10,7 @@ import { NinePServer } from './ninepServer'
 import packageManifest from './terminal-packages.json'
 import { DISPLAY_SCRIPT, TerminalDisplayInput } from './terminalDisplay'
 import { TerminalPackages } from './terminalPackages'
+import { TerminalWorkerClient } from './TerminalWorkerClient'
 
 function browserClock(): { timestamp: number; timezone: string } {
     const now = new Date()
@@ -44,8 +44,8 @@ async function verifiedImage(url: string, sha256: string, signal: AbortSignal): 
 }
 
 export class TerminalRuntime {
-    private emulator?: V86
-    private emulatorLoaded = false
+    private emulator?: TerminalWorkerClient
+    private removeAbortListener?: () => void
     private output = ''
     private decoder = new TextDecoder()
     private outputBuffer = new Uint8Array(8192)
@@ -68,17 +68,14 @@ export class TerminalRuntime {
 
     constructor(
         private onOutput: (bytes: Uint8Array) => void,
-        private onDisplay: (active: boolean) => void = () => {}
+        private onDisplay: (active: boolean) => void = () => {},
+        private onError: (message: string) => void = () => {}
     ) {
-        this.screen.append(document.createElement('div'), document.createElement('canvas'))
+        this.screen.append(document.createElement('canvas'))
     }
 
-    // v86 exposes PS/2 mouse input on its bus but has no public send-mouse method.
     private sendMouse(event: 'mouse-click' | 'mouse-delta', value: boolean[] | number[]): void {
-        const emulator = this.emulator as
-            | (V86 & { bus: { send: (event: string, value: boolean[] | number[]) => void } })
-            | undefined
-        emulator?.bus.send(event, value)
+        this.emulator?.send({ type: 'mouse', event, value })
     }
 
     moveMouse(x: number, y: number): void {
@@ -87,11 +84,13 @@ export class TerminalRuntime {
 
     attachDisplay(container: HTMLElement): void {
         container.append(this.screen)
+        this.emulator?.send({ type: 'display', visible: true })
     }
 
     detachDisplay(): void {
         this.displayInput.release()
         this.screen.remove()
+        this.emulator?.send({ type: 'display', visible: false })
     }
 
     async start(
@@ -100,9 +99,12 @@ export class TerminalRuntime {
         onReady: () => void,
         folder = '/posthog/files'
     ): Promise<void> {
-        const { V86 } = await import('v86')
         if (signal.aborted || this.disposed) {
             return
+        }
+        const canvas = this.screen.querySelector('canvas')!
+        if (!canvas.transferControlToOffscreen) {
+            throw new Error('This browser does not support the terminal display. Try a newer browser.')
         }
         const [bios, vgaBios, kernel, jq, tools] = await Promise.all([
             verifiedImage(biosUrl, '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98', signal),
@@ -132,30 +134,23 @@ export class TerminalRuntime {
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
             toolsArchive.byteLength
-        const emulator = (this.emulator = new V86({
-            wasm_path: wasmUrl,
-            bios: { buffer: bios },
-            vga_bios: { buffer: vgaBios },
-            bzimage: { buffer: kernel },
-            memory_size: 512 * 1024 * 1024,
-            filesystem: { handle9p: server.handle },
-            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on video=640x480',
-            vga_memory_size: 8 * 1024 * 1024,
-            screen: { container: this.screen, use_graphical_text: true },
-            disable_keyboard: true,
-            disable_mouse: true,
-            disable_speaker: true,
-            uart1: true,
-            autostart: false,
-        }))
-        emulator.add_listener('emulator-loaded', () => {
-            this.emulatorLoaded = true
-            if (this.disposed || signal.aborted) {
-                void emulator.destroy()
-            } else {
-                emulator.run()
+        const emulator = (this.emulator = new TerminalWorkerClient(
+            {
+                wasmUrl: new URL(wasmUrl, window.location.href).href,
+                bios,
+                vgaBios,
+                kernel,
+                canvas: canvas.transferControlToOffscreen(),
+            },
+            server,
+            (message) => {
+                this.dispose()
+                this.onError(message)
             }
-        })
+        ))
+        const abort = (): void => this.dispose()
+        signal.addEventListener('abort', abort, { once: true })
+        this.removeAbortListener = () => signal.removeEventListener('abort', abort)
         let boot = ''
         let configured = false
         emulator.add_listener('serial1-output-byte', (byte: number) => {
@@ -250,6 +245,11 @@ export class TerminalRuntime {
                 )
             }
         })
+        await emulator.loaded
+        if (!this.disposed && !signal.aborted) {
+            emulator.send({ type: 'display', visible: this.screen.isConnected })
+            emulator.send({ type: 'run' })
+        }
     }
 
     write(data: string): void {
@@ -309,10 +309,9 @@ export class TerminalRuntime {
         this.detachDisplay()
         this.disposed = true
         this.ready = false
-        // V86 cannot destroy its CPU until asynchronous WASM initialization has finished.
-        if (this.emulatorLoaded) {
-            void this.emulator?.destroy()
-        }
+        this.removeAbortListener?.()
+        this.removeAbortListener = undefined
+        this.emulator?.dispose()
         this.emulator = undefined
         this.output = ''
         this.outputLength = 0
