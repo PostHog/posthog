@@ -60,8 +60,7 @@ class LLMDetectorMisconfiguredError(LLMDetectorError):
 # a worker with no free model-call slot, and a model reply the judge could not read.
 LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
 LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
-    "The AI detector could not complete this check. "
-    "The alert is still on and the next check tries again."
+    "The AI detector could not complete this check. The alert is still on and the next check tries again."
 )
 
 
