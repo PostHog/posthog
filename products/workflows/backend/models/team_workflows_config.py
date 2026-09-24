@@ -1,12 +1,7 @@
-import logging
-
 from django.core.validators import MinValueValidator
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class EmailTrackingConsentMode(models.TextChoices):
@@ -68,6 +63,3 @@ class TeamWorkflowsConfig(models.Model):
     workflow_task_team_rate_limit_per_day = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)]
     )
-
-
-register_team_extension_signal(TeamWorkflowsConfig, logger=logger)

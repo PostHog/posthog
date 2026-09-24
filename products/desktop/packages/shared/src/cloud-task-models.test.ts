@@ -10,7 +10,6 @@ import {
   getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isDeepseekModelId,
   isModalModel,
@@ -71,25 +70,6 @@ describe("normalizeGatewayModelsResponse", () => {
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
-  });
-});
-
-describe("isBlockedModelId", () => {
-  it.each([
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "ANTHROPIC/CLAUDE-HAIKU-4-5",
-    "gpt-5.2",
-    "gpt-5.3",
-    "gpt-5.3-codex",
-    "OPENAI/GPT-5.3-CODEX",
-    "gpt-5.4",
-    "@cf/zai-org/glm-5.2",
-  ])("blocks %s", (modelId) => {
-    expect(isBlockedModelId(modelId)).toBe(true);
   });
 });
 

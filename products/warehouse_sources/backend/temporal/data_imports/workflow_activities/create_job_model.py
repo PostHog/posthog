@@ -279,14 +279,8 @@ def _fast_return_eligible(
     if data_quality_checks_needed_for(team_id, schema.table_id):
         return False
 
-    last_full_run_at = schema.last_full_run_at
-    if last_full_run_at is None:
-        return False
-    try:
-        stamped = dt.datetime.fromisoformat(last_full_run_at)
-    except (TypeError, ValueError):
-        return False
-    if stamped.tzinfo is None:
+    stamped = schema.last_full_run
+    if stamped is None:
         return False
     return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
 

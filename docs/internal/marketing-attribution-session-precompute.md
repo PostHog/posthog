@@ -8,13 +8,17 @@ The writer query change invalidates existing job hashes. Deploy both writer and 
 
 `MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS` covers calendar display days in the project timezone.
 The warmer starts at local midnight that many days before the run's local date, then subtracts the team's attribution lookback and one reachback day in UTC.
+It warms through the end of that local day so reports that include today have complete UTC daily-window coverage.
+For projects west of UTC, this can warm a UTC window before it starts.
+A job computed before its window starts stops being eligible at that start, including for stale reads.
+The reader falls back to live calculation until the window is refreshed after it starts, so the earlier snapshot cannot hide new sessions.
 The reader uses the same calendar boundary to check its maximum range.
 This includes the complete starting day for relative ranges such as `-90d`, even across daylight saving changes.
 Query overrides that extend before that boundary remain ineligible.
 
 Calendar alignment does not change the writer query or existing job hashes.
-Run the updated warmer to populate any missing oldest daily windows before testing the full display range.
-Existing ready jobs remain reusable, and missing coverage still falls back to live calculation.
+Run the updated warmer to populate missing daily windows at either end before testing the full display range.
+Existing ready jobs remain reusable if they satisfy the freshness policy, and missing coverage still falls back to live calculation.
 The allowlist, daily chunk size, and query execution limits are unchanged.
 
 With the existing serve-stale flag, readers may use jobs expired within six hours and enqueue debounced revalidation. Only that task runs reader-initiated inserts; it takes no stale grace. Scheduled writers also require fresh jobs. Classifier expression changes and the explicit dictionary version change the shared job hash, requiring fresh materialization.

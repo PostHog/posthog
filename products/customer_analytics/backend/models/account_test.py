@@ -9,6 +9,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.customer_analytics.backend.models import Account, TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.models.account import AccountProperties
@@ -86,7 +87,7 @@ class AccountExternalIdUniquenessTest(TeamScopedTestMixin, BaseTest):
 class TeamCustomerAnalyticsConfigDriftPolicyTest(TeamScopedTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.config = TeamCustomerAnalyticsConfig.objects.get(team=self.team)
+        self.config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
 
     @parameterized.expand(
         [

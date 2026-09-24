@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
@@ -275,7 +275,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             validate_user_query(query, team=self.team)
 
         paginator = None
-        if isinstance(query, ast.SelectQuery) and not query.limit:
+        if self.limit_context == LimitContext.SQL_ALERT:
+            paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
+        elif isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
         func = cast(
             Callable[..., HogQLQueryResponse],

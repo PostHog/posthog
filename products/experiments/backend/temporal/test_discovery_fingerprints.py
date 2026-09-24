@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team, User
 from posthog.temporal.experiments.activities import (
     _get_experiment_regular_metrics_for_hour_sync,
@@ -77,10 +79,19 @@ class TestDiscoveryFingerprints:
         fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
         assert fingerprints == [self._expected_fingerprint(experiment, saved_metric.query)]
 
-    def test_saved_metric_discovery_fingerprint_matches_recalculation_resolution(self) -> None:
-        """Discovery hashes the raw saved query; the recalculation side (timeseries sync, cold-start
-        fallback) hashes the merged dict from find_metric_dict, which injects an empty breakdown list.
-        If the two diverge, the sync never finds the daily points and daily results are never published."""
+    @parameterized.expand(
+        [
+            ("no_breakdowns", {}),
+            ("with_breakdowns", {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}),
+        ]
+    )
+    def test_saved_metric_discovery_fingerprint_matches_recalculation_resolution(
+        self, _name: str, metadata: dict
+    ) -> None:
+        """The readers (timeseries sync, cold-start fallback, chart read) resolve a saved metric through
+        find_metric_dict, which merges the link-metadata breakdowns. Discovery must fingerprint the same
+        merged dict, or the daily points are filed under a hash no reader looks up and daily results are
+        never published for that metric."""
         experiment, user = self._create_experiment(metrics=[])
         saved_metric = ExperimentSavedMetric.objects.create(
             team=experiment.team,
@@ -88,7 +99,7 @@ class TestDiscoveryFingerprints:
             query=METRIC,
             created_by=user,
         )
-        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata={})
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata=metadata)
 
         with patch("posthog.temporal.experiments.activities.close_old_connections"):
             results = _raw_saved_sync(hour=2)

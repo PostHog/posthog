@@ -54,7 +54,7 @@ One source-domain record can redirect to several target registrable domains. Suc
 
 DynamoDB stores URL outcomes and configuration entries. Reads use 100-item batches and writes use 25-item batches. Large configuration bodies use immutable generation-specific chunks that publish before their manifest.
 
-The client retries unprocessed keys and items with bounded concurrency and time. An incomplete chunk generation is a logged cache miss that the next configuration fetch repairs. A malformed base item fails the Kafka batch.
+The client retries unprocessed keys and items with bounded concurrency and time. It retries a batch command that reaches the command timeout in the same way, because a batch get or batch write of the same items is idempotent. An incomplete chunk generation is a logged cache miss that the next configuration fetch repairs. A malformed base item fails the Kafka batch.
 
 For a successful fetch, the producer publishes the image before DynamoDB records completion. Kafka offsets commit only after both operations succeed.
 

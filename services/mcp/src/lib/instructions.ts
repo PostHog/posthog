@@ -1,12 +1,4 @@
-import type { GroupType } from '@/api/client'
-import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
-
-export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
-    if (!groupTypes || groupTypes.length === 0) {
-        return ''
-    }
-    return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
-}
+import type { CachedOrg, CachedProject } from '@/tools/types'
 
 /** Bounds the onboarded-products line for intent-heavy teams; the environment
  *  prompt is repeated context, so the tail is summarized as a count instead. */
@@ -72,36 +64,28 @@ function buildIntegrationsLine(integrationKinds?: string[]): string | undefined 
 export interface EnvironmentContextOptions {
     /** Integration kinds connected in the active project; `undefined` means unknown. */
     integrationKinds?: string[]
-    /** Set to false for character-budgeted surfaces (the claude.ai exec command
-     *  reference counts against a ~16 KiB registry cap on the serialized
-     *  inputSchema) where the product/integration lines do not fit. */
-    includeProductContext?: boolean
 }
 
 export function buildActiveEnvironmentContextPrompt(
-    user?: CachedUser,
     org?: CachedOrg,
     project?: CachedProject,
     regionalBaseUrl?: string,
     opts?: EnvironmentContextOptions
 ): string | undefined {
-    if (!user && !org && !project) {
+    if (!org && !project) {
         return undefined
     }
     const lines: string[] = []
-    if (org || project) {
-        const projectName = project?.name ?? 'Unknown'
-        const projectId = project?.id ?? 'unknown'
-
-        if (org) {
-            const orgName = org.name ?? 'Unknown'
-            const orgId = org.id ?? 'unknown'
-            lines.push(
-                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
-            )
-        } else {
-            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
-        }
+    const projectName = project?.name ?? 'Unknown'
+    const projectId = project?.id ?? 'unknown'
+    if (org) {
+        const orgName = org.name ?? 'Unknown'
+        const orgId = org.id ?? 'unknown'
+        lines.push(
+            `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+        )
+    } else {
+        lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
     }
     if (regionalBaseUrl) {
         const origin = regionalBaseUrl.replace(/^https?:\/\//, '')
@@ -112,7 +96,7 @@ export function buildActiveEnvironmentContextPrompt(
         )
     }
     if (project) {
-        lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
+        lines.push('For project settings such as the timezone, call `project-get` without an ID.')
         if (project.test_account_filters_default_checked) {
             lines.push(
                 'This project filters out internal and test users by default. `query-*` tools apply this automatically when `filterTestAccounts` is omitted; when composing queries for other tools (e.g. insight-create), set `filterTestAccounts: true` unless the user asks to include internal/test data.'
@@ -128,17 +112,11 @@ export function buildActiveEnvironmentContextPrompt(
                 "Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred."
             )
         }
-        if (opts?.includeProductContext !== false) {
-            lines.push(...buildProductLines(project))
-            const integrationsLine = buildIntegrationsLine(opts?.integrationKinds)
-            if (integrationsLine) {
-                lines.push(integrationsLine)
-            }
+        lines.push(...buildProductLines(project))
+        const integrationsLine = buildIntegrationsLine(opts?.integrationKinds)
+        if (integrationsLine) {
+            lines.push(integrationsLine)
         }
-    }
-    if (user) {
-        const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
-        lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
     // No prose preamble: the heading plus the lines themselves already say the agent
     // is in this project, and the sentence it replaced ("All tool calls and queries
