@@ -325,9 +325,12 @@ async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool =
         return DetectOutput(team_id=team.team_id, candidate_count=len(candidates))
 
     payload = [{"id": c.ticket_id, "subject": c.subject, "message": c.message} for c in candidates]
+    # Send raw characters rather than \uXXXX escapes, because an escape costs the model several
+    # input tokens where the character costs about one. A window of non-Latin tickets could
+    # otherwise overflow the model's input limit on every tick.
     user_content = (
         f"Tickets opened in the last {team.settings.lookback_minutes} minutes (untrusted data):\n"
-        f"<tickets>\n{json.dumps(payload)}\n</tickets>"
+        f"<tickets>\n{json.dumps(payload, ensure_ascii=False)}\n</tickets>"
     )
     trace_id = str(uuid5(TICKET_PATTERNS_TRACE_NAMESPACE, f"{team.team_id}:{_run_key()}"))
     # The builder prefers the Go ai-gateway, which PARITY.md makes the default for a new
