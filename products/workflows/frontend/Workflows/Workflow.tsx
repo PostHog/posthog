@@ -14,7 +14,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
         workflowLogic(props)
     )
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
-    const { editorLayout } = useValues(hogFlowEditorLogic(logicProps))
+    const { editorLayout, listViewUnreachableSteps } = useValues(hogFlowEditorLogic(logicProps))
     const { setEditorLayout } = useActions(hogFlowEditorLogic(logicProps))
     const treeViewEnabled = useFeatureFlag('WORKFLOWS_LINEAR_VIEW')
 
@@ -25,6 +25,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                 editorLayout={editorLayout}
                 showEditorLayoutToggle={treeViewEnabled}
                 onEditorLayoutChange={setEditorLayout}
+                listViewUnreachableSteps={listViewUnreachableSteps}
             />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
             {isSyncingExternalEdit && <SpinnerOverlay />}

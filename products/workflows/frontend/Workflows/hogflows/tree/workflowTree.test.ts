@@ -3,6 +3,7 @@ import {
     buildWorkflowTree,
     computeMoveTreeBranchEdges,
     getWorkflowBranchLabel,
+    getWorkflowTreeUnreachableSteps,
     isWorkflowTreeComplete,
 } from './workflowTree'
 import {
@@ -11,6 +12,7 @@ import {
     getWorkflowTreeContinuationPath,
     getWorkflowTreeStepId,
     getWorkflowTreeStepIds,
+    getWorkflowTreeUnreachableStepFix,
 } from './workflowTreePresentation'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
@@ -38,6 +40,47 @@ describe('buildWorkflowTree', () => {
                 )
             )
         ).toBe(false)
+    })
+
+    it('lists unreachable steps with the unreachable steps that lead into them', () => {
+        const steps = getWorkflowTreeUnreachableSteps(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('exit', 'exit'),
+                    action('orphan'),
+                    action('after orphan'),
+                    action('loop'),
+                ],
+                [
+                    edge('trigger', 'exit'),
+                    edge('orphan', 'after orphan'),
+                    edge('after orphan', 'exit'),
+                    edge('loop', 'loop'),
+                ]
+            )
+        )
+
+        expect(
+            steps.map((step) => [step.action.id, step.unreachablePredecessors.map((predecessor) => predecessor.id)])
+        ).toEqual([
+            ['orphan', []],
+            ['after orphan', ['orphan']],
+            ['loop', []],
+        ])
+        expect(steps.map(getWorkflowTreeUnreachableStepFix)).toEqual([
+            'Not connected to the workflow. Connect a step to it, or delete it.',
+            'Only comes after "orphan", which is not connected either. Fix that step first.',
+            'Not connected to the workflow. Connect a step to it, or delete it.',
+        ])
+    })
+
+    it('reports no unreachable steps for a connected workflow', () => {
+        expect(
+            getWorkflowTreeUnreachableSteps(
+                workflow([action('trigger', 'trigger'), action('exit', 'exit')], [edge('trigger', 'exit')])
+            )
+        ).toEqual([])
     })
 
     it('renders converging routes before one shared continuation', () => {

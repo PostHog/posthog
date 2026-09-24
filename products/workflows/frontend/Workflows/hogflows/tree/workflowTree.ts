@@ -16,6 +16,13 @@ export interface WorkflowTreeNode {
     joinEdges: HogFlowEdge[]
 }
 
+/** A step the list view cannot show because the walk from the trigger never reaches it. */
+export interface WorkflowTreeUnreachableStep {
+    action: HogFlowAction
+    /** Steps that lead into this one but are unreachable too, so they must be fixed first. */
+    unreachablePredecessors: HogFlowAction[]
+}
+
 export interface WorkflowTreeBranch {
     edge: HogFlowEdge
     label: string
@@ -310,10 +317,27 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
     return buildSequence(trigger?.id, null, null, new Set())
 }
 
-export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {
+export function getWorkflowTreeUnreachableSteps(
+    workflow: Pick<HogFlow, 'actions' | 'edges'>
+): WorkflowTreeUnreachableStep[] {
     const actionIds = new Set<string>()
     collectWorkflowTreeActionIds(buildWorkflowTree(workflow), actionIds)
-    return workflow.actions.every((action) => actionIds.has(action.id))
+    const unreachableActions = workflow.actions.filter((action) => !actionIds.has(action.id))
+    const unreachableActionsById = new Map(unreachableActions.map((action) => [action.id, action]))
+
+    return unreachableActions.map((action) => {
+        const precedingActionIds = new Set(
+            workflow.edges.filter((edge) => edge.to === action.id && edge.from !== action.id).map((edge) => edge.from)
+        )
+        return {
+            action,
+            unreachablePredecessors: [...precedingActionIds].flatMap((id) => unreachableActionsById.get(id) ?? []),
+        }
+    })
+}
+
+export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {
+    return getWorkflowTreeUnreachableSteps(workflow).length === 0
 }
 
 function findWorkflowTreeNode(sequence: WorkflowTreeSequence, actionId: string): WorkflowTreeNode | null {

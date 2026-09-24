@@ -34,7 +34,11 @@ import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } 
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { isWorkflowTreeComplete } from './tree/workflowTree'
+import {
+    WorkflowTreeUnreachableStep,
+    getWorkflowTreeUnreachableSteps,
+    isWorkflowTreeComplete,
+} from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -210,6 +214,7 @@ export interface hogFlowEditorLogicValues {
     isCopyingNode: boolean
     isMovingNode: boolean
     isZoomedOutFar: boolean
+    listViewUnreachableSteps: WorkflowTreeUnreachableStep[]
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -2140,6 +2145,7 @@ export interface hogFlowEditorLogicMeta {
             selectedNode: HogFlowActionNode | null,
             selectedNodeCanBeDeleted: boolean
         ) => boolean
+        listViewUnreachableSteps: (workflow: HogFlow) => WorkflowTreeUnreachableStep[]
     }
 }
 
@@ -2388,6 +2394,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
+        ],
+        listViewUnreachableSteps: [
+            (s) => [s.workflow],
+            (workflow: HogFlow): WorkflowTreeUnreachableStep[] => getWorkflowTreeUnreachableSteps(workflow),
         ],
         selectedNodeCanBeCopiedOrMoved: [
             (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
