@@ -666,7 +666,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
     monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
 
-    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog", review_trigger="manual" if populated else "")
     pipeline.pr = _fake_pr(head_sha="abc123")
     if populated:
         pipeline.classification = {
@@ -706,6 +706,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_commit_count"] == 3
         assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
+        assert props["stamphog_review_trigger"] == "manual"
     else:
         assert props["stamphog_owner_teams"] == []
         assert props["stamphog_familiarity_band"] == ""
@@ -713,6 +714,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_agent_authored"] is None
         assert props["stamphog_generated_by"] == []
         assert props["stamphog_task_ids"] == []
+        assert props["stamphog_review_trigger"] == ""
 
 
 def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:
