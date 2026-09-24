@@ -1,28 +1,27 @@
 import { XIcon } from "@phosphor-icons/react";
 import { AutocompleteInput, InputGroupButton } from "@posthog/quill";
-import { forwardRef } from "react";
+import type { Ref } from "react";
 
-export const WorkSearchField = forwardRef<
-  HTMLInputElement,
-  {
-    query: string;
-    matchCount: number;
-    placeholder: string;
-    searchLabel: string;
-    onClear: () => void;
-    onClose: () => void;
-  }
->(function WorkSearchField(
-  { query, matchCount, placeholder, searchLabel, onClear, onClose },
+export function WorkSearchField({
   ref,
-) {
+  query,
+  matchCount,
+  onClear,
+  onClose,
+}: {
+  ref: Ref<HTMLInputElement>;
+  query: string;
+  matchCount: number;
+  onClear: () => void;
+  onClose: () => void;
+}) {
   const hasQuery = query !== "";
   return (
     <div className="min-w-0 flex-1">
       <AutocompleteInput
         ref={ref}
-        placeholder={placeholder}
-        aria-label={searchLabel}
+        placeholder="Search recent…"
+        aria-label="Search recent"
         className="h-6 text-[13px]"
         onKeyDown={(event) => {
           if (event.defaultPrevented || event.key !== "Escape") return;
@@ -51,4 +50,4 @@ export const WorkSearchField = forwardRef<
       </AutocompleteInput>
     </div>
   );
-});
+}

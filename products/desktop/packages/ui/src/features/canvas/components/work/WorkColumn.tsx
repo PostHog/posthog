@@ -106,16 +106,10 @@ const SESSION_PREFETCH_DELAY_MS = 250;
 
 const NO_PINNED_RUN = { pinnedRun: false } as const;
 
-const SECTION_KEYS: Record<WorkSectionId, string> = {
-  pinned: "work-pinned",
-  recent: "work-recent",
-  spaces: "work-spaces",
-};
-
-const SECTION_LABELS: Record<WorkSectionId, string> = {
-  pinned: "Pinned",
-  recent: "Recent",
-  spaces: "Spaces",
+const SECTIONS: Record<WorkSectionId, { key: string; label: string }> = {
+  pinned: { key: "work-pinned", label: "Pinned" },
+  recent: { key: "work-recent", label: "Recent" },
+  spaces: { key: "work-spaces", label: "Spaces" },
 };
 
 function isPinnedTask(item: ChannelItemModel): boolean {
@@ -279,7 +273,6 @@ export function SpaceRow({
 export function WorkColumn() {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchFocusNonce, setSearchFocusNonce] = useState(0);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const columnRef = useRef<HTMLDivElement | null>(null);
@@ -379,10 +372,8 @@ export function WorkColumn() {
     [channels],
   );
 
-  const isOpen = useCallback(
-    (id: WorkSectionId) => !collapsedSections.has(SECTION_KEYS[id]),
-    [collapsedSections],
-  );
+  const isOpen = (id: WorkSectionId) =>
+    !collapsedSections.has(SECTIONS[id].key);
   const pinnedOpen = isOpen("pinned");
   const recentOpen = isOpen("recent");
   const spacesOpen = isOpen("spaces");
@@ -403,34 +394,24 @@ export function WorkColumn() {
 
   const searchVisible = recentOpen && (searchOpen || query !== "");
   const openSearch = useCallback(() => {
-    if (collapsedSections.has(SECTION_KEYS.recent)) {
-      toggleSection(SECTION_KEYS.recent);
-    }
+    if (!recentOpen) toggleSection(SECTIONS.recent.key);
     setSearchOpen(true);
-    setSearchFocusNonce((nonce) => nonce + 1);
-  }, [collapsedSections, toggleSection]);
-  const closeSearch = useCallback(() => {
+    searchRef.current?.select();
+  }, [recentOpen, toggleSection]);
+  const closeSearch = () => {
     setQuery("");
     setSearchOpen(false);
-  }, []);
+  };
+
+  useEffect(() => {
+    if (searchVisible) searchRef.current?.focus();
+  }, [searchVisible]);
 
   const focusRequest = useSidebarSearchStore((state) => state.focusRequest);
-  const openSearchRef = useRef(openSearch);
-  openSearchRef.current = openSearch;
   useEffect(() => {
-    if (focusRequest === 0) return;
-    if (columnRef.current?.closest("[inert]")) return;
-    if (!useSidebarSearchStore.getState().claimFocus(focusRequest)) return;
-    openSearchRef.current();
-  }, [focusRequest]);
-
-  useEffect(() => {
-    if (searchFocusNonce === 0) return;
-    const input = searchRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
-  }, [searchFocusNonce]);
+    if (focusRequest === 0 || columnRef.current?.closest("[inert]")) return;
+    if (useSidebarSearchStore.getState().claimFocus(focusRequest)) openSearch();
+  }, [focusRequest, openSearch]);
 
   const presenceBySpace = useSpacePresence();
   const unreadSessionCount = useUnreadSessionCount();
@@ -475,13 +456,13 @@ export function WorkColumn() {
   const { renameTask } = useRenameTask();
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
-  const layoutAreaRef = layout.areaRef;
+  const measureArea = layout.measureRefs.area;
   const sectionsRef = useCallback(
     (element: HTMLDivElement | null) => {
       listAnchorRef.current = element;
-      layoutAreaRef(element);
+      return measureArea(element);
     },
-    [listAnchorRef, layoutAreaRef],
+    [listAnchorRef, measureArea],
   );
 
   const optionValues = useMemo(
@@ -598,7 +579,7 @@ export function WorkColumn() {
     ));
   };
 
-  const renderSpaces = () => (
+  const spacesBody = (
     <>
       {starredSpaces.map((channel) => (
         <SpaceRow
@@ -649,13 +630,14 @@ export function WorkColumn() {
       count: number;
       actions?: ReactNode;
       replaceHeading?: ReactNode;
-      body: () => ReactNode;
+      body: ReactNode;
     }
   > = {
     pinned: {
       count: pinnedItems.length,
-      body: () =>
-        pinnedItems.map((item) => renderItemRow(item, { showPinBadge: false })),
+      body: pinnedItems.map((item) =>
+        renderItemRow(item, { showPinBadge: false }),
+      ),
     },
     recent: {
       count: recentItems.length,
@@ -677,8 +659,6 @@ export function WorkColumn() {
           ref={searchRef}
           query={query}
           matchCount={recentItems.length}
-          placeholder="Search recent…"
-          searchLabel="Search recent"
           onClear={() => {
             setQuery("");
             searchRef.current?.focus();
@@ -686,7 +666,7 @@ export function WorkColumn() {
           onClose={closeSearch}
         />
       ) : undefined,
-      body: renderRecent,
+      body: renderRecent(),
     },
     spaces: {
       count: starredSpaces.length,
@@ -700,7 +680,7 @@ export function WorkColumn() {
           </IconAction>
         </>
       ),
-      body: renderSpaces,
+      body: spacesBody,
     },
   };
 
@@ -725,8 +705,6 @@ export function WorkColumn() {
           <h2 className="font-bold text-base">Work</h2>
         </ChromeBar>
         <AutocompleteList className="sidebar-autocomplete-tree !max-h-none !px-2 !pt-2 !pb-2 flex min-h-0 flex-1 flex-col overflow-hidden">
-          {/* Positioned and non-scrolling, because the marquee measures its band
-              against this box and reads the rows inside it. */}
           <div
             ref={sectionsRef}
             className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -738,10 +716,10 @@ export function WorkColumn() {
               return (
                 <WorkSection
                   key={section.id}
-                  label={SECTION_LABELS[section.id]}
+                  label={SECTIONS[section.id].label}
                   open={section.open}
                   count={content.count}
-                  onToggle={() => toggleSection(SECTION_KEYS[section.id])}
+                  onToggle={() => toggleSection(SECTIONS[section.id].key)}
                   actions={content.actions}
                   replaceHeading={content.replaceHeading}
                   height={layout.heights[section.id]}
@@ -753,9 +731,9 @@ export function WorkColumn() {
                       : undefined
                   }
                   resizing={layout.dragging === section.id}
-                  contentRef={layout.contentRef(section.id)}
+                  contentRef={layout.measureRefs[section.id]}
                 >
-                  {content.body()}
+                  {content.body}
                 </WorkSection>
               );
             })}

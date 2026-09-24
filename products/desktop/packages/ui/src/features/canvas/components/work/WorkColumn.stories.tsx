@@ -1,4 +1,5 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
+import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -47,6 +48,34 @@ const TASKS: Task[] = TASK_TITLES.map((title, index) =>
   task(index + 1, title, index * 3),
 );
 
+const HISTORY_TITLES = [
+  "Show the branch name in the task header",
+  "Keep the scroll position when a list refreshes",
+  "Add a keyboard shortcut for the command menu",
+  "Explain an empty search in the canvas list",
+  "Retry a cloud run that lost its sandbox",
+  "Sort spaces by last activity",
+  "Show who started a session on hover",
+  "Load older sessions on scroll",
+  "Hide archived tasks from the activity feed",
+  "Stop the diff view from jumping on resize",
+  "Group sessions by repository",
+  "Warn before closing a tab with a draft",
+  "Match the badge colours in light mode",
+  "Open a pull request from the task menu",
+  "Show the model name on each turn",
+  "Collapse long tool output by default",
+  "Remember the last filter per space",
+  "Add a copy link button to canvases",
+];
+
+const LONG_HISTORY: Task[] = [
+  ...TASKS,
+  ...HISTORY_TITLES.map((title, index) =>
+    task(TASKS.length + index + 1, title, 42 + index * 4),
+  ),
+];
+
 function channel(
   name: string,
   overrides: Partial<TaskChannel> = {},
@@ -74,10 +103,6 @@ const CHANNELS: TaskChannel[] = [
   channel("web-analytics"),
 ];
 
-/**
- * The column reads its rows through authenticated queries that never resolve in
- * Storybook, so seed their caches — a disabled query still serves cached data.
- */
 function seededClient({
   pinnedTaskIds = [],
   tasks = TASKS,
@@ -95,12 +120,10 @@ function seededClient({
   return client;
 }
 
-/** The same sessions, with the facts a row draws a badge for. */
 const MARKED_TASKS: Task[] = TASKS.map((entry, index) =>
   index === 1 ? { ...entry, origin_product: "slack" } : entry,
 );
 
-/** The column at the width the app gives it, against one seeded cache. */
 function column(client: QueryClient) {
   return function Decorator(Story: () => ReactElement) {
     return (
@@ -113,21 +136,49 @@ function column(client: QueryClient) {
   };
 }
 
+function app(client: QueryClient) {
+  return function Decorator(Story: () => ReactElement) {
+    return (
+      <QueryClientProvider client={client}>
+        <div className="flex h-screen bg-chrome">
+          <NavRail />
+          <div className="w-[280px] shrink-0">
+            <Story />
+          </div>
+          <div className="flex-1 rounded-tl-sm border-border border-t border-l bg-background" />
+        </div>
+      </QueryClientProvider>
+    );
+  };
+}
+
 const meta = {
   title: "Canvas/WorkColumn",
   component: WorkColumn,
   parameters: { layout: "fullscreen" },
-  decorators: [column(seededClient())],
 } satisfies Meta<typeof WorkColumn>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  decorators: [column(seededClient())],
+};
 
 export const WithPinned: Story = {
   decorators: [
     column(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
+  ],
+};
+
+export const InTheApp: Story = {
+  decorators: [
+    app(
+      seededClient({
+        pinnedTaskIds: ["task-2", "task-5", "task-9"],
+        tasks: LONG_HISTORY,
+      }),
+    ),
   ],
 };
 

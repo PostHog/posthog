@@ -35,14 +35,19 @@ describe("layoutWorkSections", () => {
       expected: { pinned: 90, recent: 0, spaces: 0 },
     },
     {
-      name: "short sections leave the rest of the column empty",
+      name: "a short recent still fills the column",
       input: sections([true, 90], [true, 120], [true, 150]),
-      expected: { pinned: 90, recent: 120, spaces: 150 },
+      expected: { pinned: 90, recent: 360, spaces: 150 },
     },
     {
-      name: "a short recent hands its space to a long spaces list",
-      input: sections([true, 90], [true, 120], [true, 900]),
-      expected: { pinned: 90, recent: 120, spaces: 390 },
+      name: "a short recent fills the column when spaces is folded",
+      input: sections([true, 90], [true, 120], [false, 290]),
+      expected: { pinned: 90, recent: 510, spaces: 0 },
+    },
+    {
+      name: "spaces keeps its own height when recent is folded",
+      input: sections([true, 90], [false, 1400], [true, 150]),
+      expected: { pinned: 90, recent: 0, spaces: 150 },
     },
     {
       name: "nothing is open",

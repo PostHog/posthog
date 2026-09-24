@@ -12,24 +12,19 @@ export interface WorkSectionInput {
   contentHeight: number;
 }
 
-export const WORK_SECTION_FILL_ORDER: readonly WorkSectionId[] = [
-  "recent",
-  "spaces",
-  "pinned",
-];
+const FILL_ORDER: readonly WorkSectionId[] = ["recent", "spaces", "pinned"];
 
 export const WORK_SECTION_HEADER_HEIGHT = 28;
-export const WORK_SECTION_SHARE_CAP = 0.4;
-export const WORK_SECTION_MIN_HEIGHT = 56;
-export const WORK_SECTION_MIN_DRAG_HEIGHT = 40;
+const SHARE_CAP = 0.4;
+const MIN_FILL_HEIGHT = 56;
+const MIN_DRAG_HEIGHT = 40;
+const STRETCHING_SECTION: WorkSectionId = "recent";
 
-const EMPTY_HEIGHTS: WorkSectionHeights = { pinned: 0, recent: 0, spaces: 0 };
-
-export function fillingWorkSection(
+function fillingWorkSection(
   sections: readonly WorkSectionInput[],
 ): WorkSectionId | null {
   return (
-    WORK_SECTION_FILL_ORDER.find((id) =>
+    FILL_ORDER.find((id) =>
       sections.some((section) => section.id === id && section.open),
     ) ?? null
   );
@@ -40,7 +35,7 @@ export function layoutWorkSections(
   available: number,
   preferred: PreferredWorkSectionHeights = {},
 ): WorkSectionHeights {
-  const heights = { ...EMPTY_HEIGHTS };
+  const heights: WorkSectionHeights = { pinned: 0, recent: 0, spaces: 0 };
   const fill = fillingWorkSection(sections);
   if (fill === null || available <= 0) return heights;
 
@@ -48,7 +43,7 @@ export function layoutWorkSections(
   const fillSection = open.find((section) => section.id === fill);
   if (!fillSection) return heights;
   const others = open.filter((section) => section.id !== fill);
-  const share = Math.round(available * WORK_SECTION_SHARE_CAP);
+  const share = Math.round(available * SHARE_CAP);
 
   let used = 0;
   for (const section of others) {
@@ -59,10 +54,7 @@ export function layoutWorkSections(
     used += heights[section.id];
   }
 
-  const fillFloor = Math.min(
-    fillSection.contentHeight,
-    WORK_SECTION_MIN_HEIGHT,
-  );
+  const fillFloor = Math.min(fillSection.contentHeight, MIN_FILL_HEIGHT);
   if (available - used < fillFloor && used > 0) {
     const scale = Math.max(0, available - fillFloor) / used;
     used = 0;
@@ -72,12 +64,15 @@ export function layoutWorkSections(
     }
   }
 
+  const rest = Math.max(0, available - used);
   heights[fill] = Math.floor(
-    Math.min(fillSection.contentHeight, Math.max(0, available - used)),
+    fill === STRETCHING_SECTION
+      ? rest
+      : Math.min(fillSection.contentHeight, rest),
   );
 
   let leftover = available - used - heights[fill];
-  for (const id of WORK_SECTION_FILL_ORDER) {
+  for (const id of FILL_ORDER) {
     if (leftover <= 0) break;
     const section = others.find((candidate) => candidate.id === id);
     if (!section || preferred[id] !== undefined) continue;
@@ -108,9 +103,11 @@ export function resizeWorkSections({
   const contentOf = (id: WorkSectionId): number =>
     sections.find((section) => section.id === id)?.contentHeight ?? 0;
   const shrinkable = (id: WorkSectionId): number =>
-    Math.max(0, heights[id] - WORK_SECTION_MIN_DRAG_HEIGHT);
+    Math.max(0, heights[id] - MIN_DRAG_HEIGHT);
   const growable = (id: WorkSectionId): number =>
-    Math.max(0, contentOf(id) - heights[id]);
+    id === STRETCHING_SECTION
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, contentOf(id) - heights[id]);
   const min = -Math.min(shrinkable(upper), growable(lower));
   const max = Math.min(growable(upper), shrinkable(lower));
   const applied = Math.max(min, Math.min(max, delta));
