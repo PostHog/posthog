@@ -32,13 +32,11 @@ export interface PanelLayoutState {
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   setFocusedPanel: (taskId: string, panelId: string) => void;
   addTerminalTab: (taskId: string, panelId: string) => void;
-  splitPanel: (
+  splitPanelWithCopy: (
     taskId: string,
-    tabId: string,
-    sourcePanelId: string,
-    targetPanelId: string,
+    panelId: string,
     direction: SplitDirection,
-    source?: PanelActionSource,
+    source: PanelActionSource,
   ) => void;
   closePanel: (
     taskId: string,
@@ -62,7 +60,7 @@ export function usePanelLayoutState(taskId: string): PanelLayoutState {
         keepTab: state.keepTab,
         setFocusedPanel: state.setFocusedPanel,
         addTerminalTab: state.addTerminalTab,
-        splitPanel: state.splitPanel,
+        splitPanelWithCopy: state.splitPanelWithCopy,
         closePanel: state.closePanel,
         draggingTabId: state.getLayout(taskId)?.draggingTabId ?? null,
         draggingTabPanelId: state.getLayout(taskId)?.draggingTabPanelId ?? null,

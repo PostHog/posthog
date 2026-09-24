@@ -109,14 +109,12 @@ interface PanelLayoutStore {
     sourcePanelId: string,
     targetPanelId: string,
   ) => void;
-  /** Drag-and-drop splits pass no source and are not tracked. */
   splitPanel: (
     taskId: string,
     tabId: string,
     sourcePanelId: string,
     targetPanelId: string,
     direction: SplitDirection,
-    source?: PanelActionSource,
   ) => void;
   splitPanelWithCopy: (
     taskId: string,
@@ -493,33 +491,21 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         );
       },
 
-      splitPanel: (
-        taskId,
-        tabId,
-        sourcePanelId,
-        targetPanelId,
-        direction,
-        source,
-      ) => {
-        const changed = updateLayoutIfChanged(
-          set,
-          taskId,
-          (layout) =>
-            splitPanelTree(
-              layout,
-              tabId,
-              sourcePanelId,
-              targetPanelId,
-              direction,
-            ) as Partial<TaskLayout>,
+      splitPanel: (taskId, tabId, sourcePanelId, targetPanelId, direction) => {
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              splitPanelTree(
+                layout,
+                tabId,
+                sourcePanelId,
+                targetPanelId,
+                direction,
+              ) as Partial<TaskLayout>,
+          ),
         );
-        if (changed && source) {
-          track(ANALYTICS_EVENTS.PANEL_SPLIT, {
-            source,
-            direction,
-            task_id: taskId,
-          });
-        }
       },
 
       splitPanelWithCopy: (taskId, panelId, direction, source) => {
