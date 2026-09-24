@@ -166,7 +166,8 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                 template_roots: runtime.template_roots,
             },
             null,
-            // Matches what the pre-commit hook (bin/hogli format:yaml) writes, so a regenerate is a no-op.
+            // The pre-commit formatter is kept off this file by an ignorePatterns entry in .oxfmtrc.json, so
+            // this output is byte-stable and the staleness test can compare the file as text.
             4
         ) + '\n'
     )
