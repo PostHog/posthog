@@ -1395,6 +1395,38 @@ describe('infiniteListLogic', () => {
             logic.mount()
         })
 
+        it('shows a scoped search failure even when the full count succeeds', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'device') {
+                            return url.searchParams.has('filter_by_event_names')
+                                ? [500, { detail: 'server error' }]
+                                : [200, { results: [{ name: '$device_type' }], count: 9 }]
+                        }
+                        return [200, { results: [{ name: '$browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.setSearchQuery('device'))
+                    .toDispatchActions(['loadRemoteItemsFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        expandedCount: 9,
+                        isExpandable: false,
+                        results: [],
+                        showErrorState: true,
+                        showEmptyState: false,
+                    })
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+        })
+
         it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {
             let resolveCount!: (response: [number, { count: number; results: { name: string }[] }]) => void
             useMocks({

@@ -607,7 +607,9 @@ export interface infiniteListLogicMeta {
             remoteEndpoint: string | null,
             scopedRemoteEndpoint: string | null,
             remoteItems: ListStorage,
-            expandedCount: number
+            expandedCount: number,
+            searchQuery: string,
+            remoteFetchFailed: string | null
         ) => boolean
         isExpandableButtonSelected: (isExpandable: boolean, index: number, totalListCount: number) => boolean
         hasRemoteDataSource: (remoteEndpoint: string | null) => boolean
@@ -1298,13 +1300,29 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         hasRenderFunction: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => !!group?.render],
         isExpandable: [
-            (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems, s.expandedCount],
+            (s) => [
+                s.remoteEndpoint,
+                s.scopedRemoteEndpoint,
+                s.remoteItems,
+                s.expandedCount,
+                s.searchQuery,
+                s.remoteFetchFailed,
+            ],
             (
                 remoteEndpoint: string | null,
                 scopedRemoteEndpoint: string | null,
                 remoteItems: ListStorage,
-                expandedCount: number
-            ) => !!(remoteEndpoint && scopedRemoteEndpoint && expandedCount > remoteItems.count),
+                expandedCount: number,
+                searchQuery: string,
+                remoteFetchFailed: string | null
+            ): boolean =>
+                !!(
+                    remoteEndpoint &&
+                    scopedRemoteEndpoint &&
+                    remoteItems.searchQuery === searchQuery &&
+                    remoteFetchFailed !== searchQuery &&
+                    expandedCount > remoteItems.count
+                ),
         ],
         isExpandableButtonSelected: [
             (s) => [s.isExpandable, s.index, s.totalListCount],
