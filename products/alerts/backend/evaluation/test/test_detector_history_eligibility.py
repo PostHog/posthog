@@ -152,6 +152,29 @@ def _last_buckets(at: datetime, hours: int) -> list[datetime]:
     return [floor - timedelta(hours=back) for back in range(1, hours + 1)]
 
 
+def test_an_alias_named_timestamp_is_refused_at_the_events_level() -> None:
+    # The injected narrowing predicates reference the timestamp column, and ClickHouse resolves
+    # select aliases inside WHERE — a value alias named timestamp binds them to an aggregate.
+    # The bucket carrying the name is refused too (by the matcher itself: GROUP BY timestamp is
+    # ambiguous between the alias and the column).
+    shadowed = SQL.replace("count() AS value", "count() AS timestamp")
+    assert match_detector_series_query(_query(shadowed), column="timestamp") is None
+
+    bucket_named_timestamp = (
+        SQL.replace("AS bucket", "AS timestamp")
+        .replace("GROUP BY bucket", "GROUP BY timestamp")
+        .replace("ORDER BY bucket", "ORDER BY timestamp")
+    )
+    assert match_detector_series_query(_query(bucket_named_timestamp), column="value") is None
+
+    inner_shadow = (
+        NESTED_SQL.replace("AS h", "AS timestamp")
+        .replace("GROUP BY h", "GROUP BY timestamp")
+        .replace("h AS window_start", "timestamp AS window_start")
+    )
+    assert match_detector_series_query(_query(inner_shadow), column="value") is None
+
+
 def test_narrowing_a_projection_bounds_the_inner_query() -> None:
     matched = match_detector_series_query(_query(NESTED_SQL), column="value")
     assert matched is not None
