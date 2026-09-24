@@ -165,6 +165,20 @@ def _reject_oversized_capture_image(image_bytes: bytes) -> None:
         raise ValidationError(code="image_too_large", detail="Screenshot dimensions are too large to process")
 
 
+def _read_capture_image(image_file: Any, user_id: int) -> bytes:
+    if image_file.size > HEATMAP_SCREENSHOT_MAX_BYTES:
+        raise ValidationError(code="file_too_large", detail="Each screenshot must be less than 20MB")
+    content_type = getattr(image_file, "content_type", "") or ""
+    if not content_type.startswith("image/"):
+        raise UnsupportedMediaType(content_type or "unknown")
+    image_file.seek(0)
+    image_bytes = image_file.read()
+    _reject_oversized_capture_image(image_bytes)
+    if not validate_image_file(image_bytes, user=user_id, formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS):
+        raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+    return image_bytes
+
+
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
             from (
@@ -1778,7 +1792,9 @@ class SavedHeatmapViewSet(
         "heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is "
         "the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+"
         "'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page "
-        "at each width and captures it, matching the widths the server renders). The image bytes are stored and "
+        "at each width and captures it, matching the widths the server renders). In a multi-width capture, a width "
+        "whose image breaches the size or dimension limits is skipped and the rest are still stored, so "
+        "'target_widths' on the response lists the widths that were saved. The image bytes are stored and "
         "served only through the authenticated content endpoint. The optional data URL selects which pages supply "
         "the overlay data and defaults to the captured URL.",
     )
@@ -1803,18 +1819,21 @@ class SavedHeatmapViewSet(
 
         user_id = cast(User, request.user).id
         snapshot_bytes: list[tuple[int, bytes]] = []
-        for width, image_file in width_image_pairs:
-            if image_file.size > HEATMAP_SCREENSHOT_MAX_BYTES:
-                raise ValidationError(code="file_too_large", detail="Each screenshot must be less than 20MB")
-            content_type = getattr(image_file, "content_type", "") or ""
-            if not content_type.startswith("image/"):
-                raise UnsupportedMediaType(content_type or "unknown")
-            image_file.seek(0)
-            image_bytes = image_file.read()
-            _reject_oversized_capture_image(image_bytes)
-            if not validate_image_file(image_bytes, user=user_id, formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS):
-                raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
-            snapshot_bytes.append((width, image_bytes))
+        if len(width_image_pairs) == 1:
+            single_width, single_image = width_image_pairs[0]
+            snapshot_bytes.append((single_width, _read_capture_image(single_image, user_id)))
+        else:
+            # The same page reflowed narrow gets much taller, so one width can breach the height or
+            # pixel cap while every other width sits well inside it. Keep the widths that pass and
+            # fail only when none do, so one bad reflow no longer discards the whole capture.
+            rejection: ValidationError | UnsupportedMediaType | None = None
+            for width, image_file in width_image_pairs:
+                try:
+                    snapshot_bytes.append((width, _read_capture_image(image_file, user_id)))
+                except (ValidationError, UnsupportedMediaType) as caught:
+                    rejection = rejection or caught
+            if rejection is not None and not snapshot_bytes:
+                raise rejection
 
         url = validated["url"]
         data_url = validated.get("data_url") or url

@@ -626,7 +626,29 @@ class TestHeatmapToolbarCapture(APIBaseTest):
             format="multipart",
         )
         self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], "file_too_large")
         self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.MAX_CAPTURE_IMAGE_HEIGHT", 100)
+    def test_capture_keeps_the_widths_that_fit_when_one_reflow_is_too_tall(self, _mock_task: MagicMock) -> None:
+        heights = {320: 200, 768: 40, 1440: 20}
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/capture/",
+            {
+                "images": [
+                    SimpleUploadedFile(f"heatmap-{w}.jpg", _jpeg_bytes(width=10, height=h), "image/jpeg")
+                    for w, h in heights.items()
+                ],
+                "widths": list(heights),
+                "url": "https://app.example.com/dashboard",
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, 201, resp.data)
+
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.target_widths, [768, 1440])
+        self.assertEqual(sorted(s.width for s in saved.snapshots.all()), [768, 1440])
 
     @patch("products.web_analytics.backend.api.heatmaps_api.MAX_CAPTURE_IMAGE_PIXELS", 100)
     def test_capture_rejects_oversized_dimensions(self, _mock_task: MagicMock) -> None:

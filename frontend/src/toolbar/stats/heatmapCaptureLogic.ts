@@ -20,6 +20,8 @@ import { captureElementScreenshot } from '~/toolbar/utils/screenshot'
 interface HeatmapCaptureResult {
     id: string
     short_id: string
+    // Widths the toolbar sent that the server could not store, e.g. a narrow reflow too tall to process.
+    skippedWidths: number[]
 }
 
 interface CaptureProgress {
@@ -50,16 +52,10 @@ export interface heatmapCaptureLogicActions {
         errorObject?: any
     }
     saveToPostHogSuccess: (
-        captureResult: {
-            id: string
-            short_id: string
-        },
+        captureResult: HeatmapCaptureResult,
         payload?: any
     ) => {
-        captureResult: {
-            id: string
-            short_id: string
-        }
+        captureResult: HeatmapCaptureResult
         payload?: any
     }
     setCaptureProgress: (progress: CaptureProgress | null) => {
@@ -127,10 +123,11 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                     const captures = await captureResponsiveScreenshots(RESPONSIVE_CAPTURE_WIDTHS, (done, total) =>
                         actions.setCaptureProgress({ done, total })
                     )
-                    const formData =
-                        captures.length > 0
-                            ? buildMultiWidthFormData(values.href, values.wildcardHref, captures)
-                            : await buildSingleWidthFormData(values.href, values.wildcardHref, values.windowWidth)
+                    const isMultiWidth = captures.length > 0
+                    const formData = isMultiWidth
+                        ? buildMultiWidthFormData(values.href, values.wildcardHref, captures)
+                        : await buildSingleWidthFormData(values.href, values.wildcardHref, values.windowWidth)
+                    const sentWidths = isMultiWidth ? captures.map(({ width }) => width) : [values.windowWidth]
 
                     const result = await toolbarApi.savedHeatmaps.capture(formData, {
                         context: 'capture_heatmap',
@@ -139,7 +136,11 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                     if (!result.ok) {
                         throw new ToolbarRequestError(result.error.detail, result.status)
                     }
-                    return result.data
+                    const savedWidths = result.data.target_widths ?? []
+                    return {
+                        ...result.data,
+                        skippedWidths: sentWidths.filter((width) => !savedWidths.includes(width)),
+                    }
                 },
             },
         ],
@@ -150,7 +151,13 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
             if (!captureResult) {
                 return
             }
-            lemonToast.success('Heatmap saved', {
+            const { skippedWidths } = captureResult
+            const message = skippedWidths.length
+                ? `Heatmap saved, without ${skippedWidths.join('px, ')}px. ${
+                      skippedWidths.length === 1 ? 'That width was' : 'Those widths were'
+                  } too large to store.`
+                : 'Heatmap saved'
+            lemonToast.success(message, {
                 button: {
                     label: 'Open in PostHog',
                     action: () =>
@@ -160,7 +167,7 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
         },
         saveToPostHogFailure: ({ error }) => {
             actions.setCaptureProgress(null)
-            lemonToast.error(`Couldn't save this heatmap: ${error}`)
+            lemonToast.error(`Couldn't save this heatmap: ${error || 'the server rejected the screenshot.'}`)
         },
     })),
 ])

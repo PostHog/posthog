@@ -153,7 +153,7 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The optional data URL selects which pages supply the overlay data and defaults to the captured URL.
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). In a multi-width capture, a width whose image breaches the size or dimension limits is skipped and the rest are still stored, so 'target_widths' on the response lists the widths that were saved. The image bytes are stored and served only through the authenticated content endpoint. The optional data URL selects which pages supply the overlay data and defaults to the captured URL.
  */
 export const savedCaptureCreateBodyWidthMin = 100
 export const savedCaptureCreateBodyWidthMax = 3000
