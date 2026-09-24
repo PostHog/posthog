@@ -587,11 +587,12 @@ class SlackThreadHandler:
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
         merged: bool = False,
-    ) -> None:
+    ) -> bool:
         """Post that the pull request ``post_pr_opened`` announced was merged or closed.
 
         Without this card the thread keeps reading as if the work still waits for review.
         It leaves any progress message alone, because the run can still be working.
+        Returns whether the card went out. A Slack failure is logged, never raised.
         """
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
@@ -603,9 +604,10 @@ class SlackThreadHandler:
         if not merged:
             blocks.append(context_block("Reply in this thread to try a different approach."))
         try:
-            self._post_in_thread(text=header, blocks=blocks)
+            return self._post_in_thread(text=header, blocks=blocks) is not None
         except Exception as e:
             logger.exception("slack_pr_closed_post_failed", error=str(e))
+            return False
 
     def _personal_github_hint(self) -> str:
         """One muted line telling the reader why the pull request isn't theirs.

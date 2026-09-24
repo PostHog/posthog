@@ -31,7 +31,18 @@ def pr_card_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | No
 
 
 def post_pr_closed_slack_update(run_id: str, pr_url: str, *, merged: bool = False) -> bool:
-    """Post the merged or closed card once per pull request. Returns True when a card went out."""
+    """Post the merged or closed card once per pull request. Returns True when a card went out.
+
+    Best-effort: any failure is logged and swallowed, and a failed card is not retried.
+    """
+    try:
+        return _post_pr_closed_card(run_id, pr_url, merged=merged)
+    except Exception:
+        logger.exception("slack_pr_closed_update_failed", run_id=run_id)
+        return False
+
+
+def _post_pr_closed_card(run_id: str, pr_url: str, *, merged: bool) -> bool:
     task_run = TaskRun.objects.select_related("task").filter(id=run_id).first()
     if task_run is None:
         return False
@@ -48,11 +59,12 @@ def post_pr_closed_slack_update(run_id: str, pr_url: str, *, merged: bool = Fals
     handler = SlackThreadHandler(
         SlackThreadContext.from_mapping(mapping), load_run_footer(task_run.id, integration_id=mapping.integration_id)
     )
-    handler.post_pr_closed(
+    posted = handler.post_pr_closed(
         pr_url,
         handler.reader_task_url(),
         reply_target_slack_user_id=pr_card_reply_target(task_run, mapping),
         merged=merged,
     )
-    logger.info("slack_pr_closed_notified", run_id=str(task_run.id), task_id=str(task_run.task_id), merged=merged)
-    return True
+    if posted:
+        logger.info("slack_pr_closed_notified", run_id=str(task_run.id), task_id=str(task_run.task_id), merged=merged)
+    return posted
