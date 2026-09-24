@@ -909,6 +909,11 @@ tools:
             person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the
             numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the
             ID. To apply a change at a future time instead, use `scheduled-changes-create`.
+
+
+            Returns 409 when an approval policy gates the change: a rollout percentage change, or a release condition
+            change when the policy selects release conditions. The flag does not change. The change waits as a change
+            request until someone approves it, so do not retry the same write.
         include_params:
             - key
             - name

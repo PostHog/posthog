@@ -244,6 +244,17 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+        extra_kwargs = {
+            "conditions": {
+                "help_text": (
+                    "Which changes require approval. Empty means every change the action detects. Otherwise "
+                    '{"type": ..., "field": ...}. For feature_flag.update, field is "rollout_percentage" or '
+                    '"release_conditions". Type "any_change" works for both. Types "before_after" and '
+                    '"change_amount" also take "operator" (>, >=, <, <=, ==, !=) and a numeric "value", and apply '
+                    'only to "rollout_percentage". Release conditions are gated only by a policy that selects them.'
+                )
+            },
+        }
 
     # TODO(experiment-approval-policies): temporary. Only the sync may write experiment policies.
     # See experiment_policy_sync.py.

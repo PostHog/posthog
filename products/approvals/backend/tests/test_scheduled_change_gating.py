@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import User
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
@@ -178,8 +180,16 @@ class TestScheduledChangeGating(APIBaseTest):
         # The enable must not have applied — a policy now gates it and it was never approved.
         assert flag.active is False
 
-    def test_scheduled_rollout_change_under_update_policy_is_gated(self, _mock_enabled):
-        self._update_policy({"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0})
+    @parameterized.expand(
+        [
+            ("rollout_threshold", {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0}),
+            ("release_conditions", {"type": "any_change", "field": "release_conditions"}),
+        ]
+    )
+    def test_scheduled_added_release_condition_under_update_policy_is_gated(
+        self, _mock_enabled, _name: str, conditions: dict[str, Any]
+    ):
+        self._update_policy(conditions)
         flag = self._disabled_flag(key="rollout-flag")
 
         new_condition: dict[str, Any] = {
