@@ -41,8 +41,16 @@ jobs:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
+            # The quiet-period step below dispatches its retry as github-actions[bot]. A workflow on any
+            # branch can also dispatch as that bot, so the bot passes only with the inputs of a real retry.
+            # Keep these two input conditions equal to the ones the later steps read, so a bot run still
+            # runs Desktop Tests before it tags, as a scheduled run does.
             - name: Check the dispatcher is on team-posthog-desktop
-              if: github.event_name == 'workflow_dispatch'
+              if: >-
+                  github.event_name == 'workflow_dispatch' &&
+                  !(github.triggering_actor == 'github-actions[bot]' &&
+                    github.event.inputs.quiet_retries != '0' &&
+                    github.event.inputs.ignore_master_ci != 'true')
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   # A re-run keeps github.actor from the first attempt, so the check reads the
