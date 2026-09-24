@@ -42,6 +42,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.ai_training.backend.apps.AiTrainingConfig",
+    "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
@@ -344,6 +345,10 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
+# Changing the login email asks for a re-auth of its own, because the 2 hour window above is wide
+# enough for a stolen session cookie to take the account over (default 5 minutes)
+SESSION_FRESH_REAUTH_AGE = get_from_env("SESSION_FRESH_REAUTH_AGE", 60 * 5, type_cast=int)
+
 SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
@@ -618,6 +623,10 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            # signals maps a warehouse import's status down to these three. Same values as the
+            # warehouse's own SyncStatus, but that class carries different labels, so the two are
+            # distinct choice sets and this one needs its own name.
+            "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
             "RunSourceEnum": ["manual", "signal_report", "agent"],
             "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             #
@@ -892,6 +901,12 @@ PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=s
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
+# PostHog's own (first-party) organizations, set per-region to PostHog's internal org id(s).
+# A generic allowlist for gating internal-only behaviour; today it lets these orgs register
+# reserved, PostHog-owned proxy domains (e.g. internal proxies on posthog.com). Empty by
+# default, so every such gate stays closed for other orgs unless a deployment lists an id here.
+POSTHOG_INTERNAL_ORG_IDS = get_list(get_from_env("POSTHOG_INTERNAL_ORG_IDS", ""))
+
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
@@ -920,6 +935,14 @@ FIRECRAWL_API_KEY = get_from_env("FIRECRAWL_API_KEY", "")
 # Operator ceilings on credit spend rather than Firecrawl's own limits, which the process can't see.
 FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_BUDGET", 60, type_cast=int)
 FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
+
+####
+# TypeSafe (System One judgments from the Jev model, see posthog/egress/typesafe/)
+TYPESAFE_API_KEY = get_from_env("TYPESAFE_API_KEY", "")
+# Half of TypeSafe's published per-minute request limit, which can change without notice.
+TYPESAFE_EGRESS_PER_MINUTE_BUDGET = get_from_env("TYPESAFE_EGRESS_PER_MINUTE_BUDGET", 600, type_cast=int)
+# An operator ceiling on spend, since TypeSafe bills every input token.
+TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 20000, type_cast=int)
 
 ####
 # Feature flag billing analytics

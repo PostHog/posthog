@@ -130,7 +130,11 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
+    let data_type = DataType::from_event_name(
+        &event.event,
+        context.historical_migration,
+        context.ai_lane_predicate,
+    );
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -375,9 +379,8 @@ async fn process_events_inner(
     // abort path emits an `invalid_ai_event` ingestion warning alongside the
     // 400, so the project owner sees it too.
     //
-    // Lane membership is the `AI_EVENT_NAMES` allowlist, not an `$ai_` prefix,
-    // so a prefixed-but-unlisted name is rejected here too — the Node AI
-    // pipeline would DLQ it anyway.
+    // Lane membership follows the deployment's `AiLanePredicate`, the same
+    // answer `DataType::from_event_name` stamped on each event above.
     if context.capture_mode == crate::config::CaptureMode::Ai {
         if let Some(offender) = events
             .iter()
@@ -660,7 +663,7 @@ mod tests {
     use super::*;
     use crate::ingestion_warnings::SdkAttribution;
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{OverflowReason, ProcessingContext};
+    use crate::v0_request::{AiLanePredicate, OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::WarningType;
@@ -687,6 +690,7 @@ mod tests {
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
             ai_max_event_bytes: 0,
+            ai_lane_predicate: AiLanePredicate::Allowlist,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -1663,27 +1667,41 @@ mod tests {
     /// second event is the one under test.
     struct AiLaneGateCase {
         second_event: &'static str,
+        predicate: AiLanePredicate,
         rejected: bool,
     }
 
     #[rstest]
     #[case::analytics_event_is_rejected(AiLaneGateCase {
         second_event: "$pageview",
+        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    // Lane membership is the AI_EVENT_NAMES allowlist, not an `$ai_` prefix.
-    // A prefixed-but-unlisted name resolves to AnalyticsMain, so it must be
-    // rejected too -- the Node AI pipeline would DLQ it downstream anyway.
+    #[case::analytics_event_is_rejected_under_prefix(AiLaneGateCase {
+        second_event: "$pageview",
+        predicate: AiLanePredicate::Prefix,
+        rejected: true,
+    })]
+    // Under `Allowlist` a prefixed-but-unlisted name resolves to AnalyticsMain,
+    // so it is rejected too; under `Prefix` the same name is on the lane.
     #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
         second_event: "$ai_call",
+        predicate: AiLanePredicate::Allowlist,
         rejected: true,
+    })]
+    #[case::prefixed_but_unlisted_name_passes_under_prefix(AiLaneGateCase {
+        second_event: "$ai_call",
+        predicate: AiLanePredicate::Prefix,
+        rejected: false,
     })]
     #[case::exception_is_rejected(AiLaneGateCase {
         second_event: "$exception",
+        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
     #[case::second_allowlisted_event_passes(AiLaneGateCase {
         second_event: "$ai_span",
+        predicate: AiLanePredicate::Allowlist,
         rejected: false,
     })]
     #[tokio::test]
@@ -1695,6 +1713,7 @@ mod tests {
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
         context.capture_mode = crate::config::CaptureMode::Ai;
+        context.ai_lane_predicate = case.predicate;
 
         let events = vec![
             create_test_event_with_name("$ai_generation", None, None, None),

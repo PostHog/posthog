@@ -7,6 +7,8 @@ import orjson
 
 from posthog.schema import PropertyOperator
 
+from posthog.hogql import ast
+
 from posthog.caching.utils import ThresholdMode, is_stale
 
 # Mapping from ai_events dedicated columns to their original property names.
@@ -94,6 +96,23 @@ def _is_filled_property_filter(prop: Any) -> bool:
 def filled_property_filters(properties: Sequence[Any] | None) -> list[Any]:
     """Drop incomplete filters without conflating valid falsy values with missing input."""
     return [prop for prop in (properties or []) if _is_filled_property_filter(prop)]
+
+
+def timestamp_bound_as_hogql(bound: datetime) -> ast.Expr:
+    """A non-null DateTime64(6) constant for `bound`, keeping its microseconds.
+
+    `QueryDateRange.format_date` rounds down to a whole second, which would drop the events inside
+    the final second of an upper bound. Event timestamps carry microseconds, so the bound does too.
+    """
+    return ast.Call(
+        name="assumeNotNull",
+        args=[
+            ast.Call(
+                name="toDateTime64",
+                args=[ast.Constant(value=bound.strftime("%Y-%m-%d %H:%M:%S.%f")), ast.Constant(value=6)],
+            )
+        ],
+    )
 
 
 def parse_ai_property_value(value: Any) -> Any:

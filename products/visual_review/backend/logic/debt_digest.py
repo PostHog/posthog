@@ -51,11 +51,13 @@ import structlog
 from owners_yaml.resolver import Purpose, team_channel
 from owners_yaml.schema import Producer, TeamEntry
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
-from posthog.team_notifications.slack import (
+from posthog.ownership.github_files import fetcher_for_team
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership, resolve_path_owners
+from posthog.slack.channels import (
     MAX_BLOCKS,
     MAX_BUTTON_URL_CHARS,
     MAX_SECTION_CHARS,
@@ -75,12 +77,10 @@ from posthog.team_notifications.slack import (
     post_with_join,
     section_block,
 )
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import human_list, pluralize
 
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
-
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import quarantine, run_queries, story_index, toleration
@@ -423,14 +423,12 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     expiring = quarantine.list_expiring_quarantines(repo.id, now=now, within_days=_DIGEST_EXPIRY_WINDOW_DAYS)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
-        key: count
-        for key, count in toleration.count_recent_intentional_tolerations(
-            repo.id, since=now - timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS), newest_run_by_type=newest_run_by_type
-        ).items()
+        key: counts.intentional
+        for key, counts in toleration.list_toleration_pileups(repo.id, now=now, newest_run_by_type=newest_run_by_type)
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
         # unreliable, so asking them about the tolerations underneath it is a second reminder about
         # one problem.
-        if count >= VARIANT_PILEUP_MIN and key not in quarantined_keys
+        if key not in quarantined_keys
     }
 
     run_types = {entry.run_type for entry in expiring} | {key.run_type for key in piled_up}
@@ -456,10 +454,8 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
                 line=_pileup_line(repo, key.run_type, key.identifier, count),
                 facts=_pileup_facts(count),
             )
-            # Biggest pile first, then by identity so a tie reads the same way every morning.
-            for key, count in sorted(
-                piled_up.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier)
-            )
+            # Already in pile order: `list_toleration_pileups` sorts, and the dict keeps it.
+            for key, count in piled_up.items()
         ],
     )
 
@@ -860,7 +856,13 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
         logger.info("visual_review.debt_digest_nothing_owed", repo_id=str(repo.id), team_id=repo.team_id)
         return []
 
-    ownership = resolve_path_owners(repo.repo_full_name, paths_to_resolve(debt))
+    ownership = resolve_path_owners(
+        repo.repo_full_name,
+        paths_to_resolve(debt),
+        # The digest is scheduled work that nobody waits on, so it sheds first when the
+        # installation's GitHub budget runs hot and sends the same items next week.
+        files=fetcher_for_team(repo.team_id, repo.repo_full_name, priority=Priority.BATCH),
+    )
     if not ownership.resolved:
         # A blind answer names no team and carries no registry, so every item would read as
         # unowned and be dropped. Say so instead, and send the same items next week.
@@ -875,7 +877,7 @@ def send_debt_digest(repo: Repo, mode: str) -> list[str]:
     if integration is None:
         logger.info("visual_review.debt_digest_no_slack_integration", team_id=repo.team_id)
         return []
-    channels_by_name = fetch_channel_map(integration)
+    channels_by_name = fetch_channel_map(integration, source="visual_review")
 
     rendered: list[str] = []
     for post in posts:
@@ -926,7 +928,7 @@ def _send_one(
     if delivery is None:
         return ""
 
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="visual_review")
     try:
         thread_ts = post_with_join(
             slack, delivery.channel_id, post.lead.blocks, post.lead.text, channel_name=delivery.channel_name

@@ -7,9 +7,9 @@ import {
     IconEllipsis,
     IconExternal,
     IconSearch,
-    IconTrends,
     IconSidebarClose,
     IconSidebarOpen,
+    IconTrends,
 } from '@posthog/icons'
 import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
 
@@ -54,6 +54,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -192,11 +193,10 @@ interface InboxDetailFrameProps {
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
  * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
  * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The summary's title stands alone; the priority, the size of the change, and
- * the created/updated times head the "Files changed" tab, where a reviewer weighs the change. The
- * status and actionability chips stay off the page because the inbox section the report came from
- * already says what they said. The rail can be hidden (a persisted preference) so the report column,
- * and above all the diff, takes the full width.
+ * "Report summary" header. The status section collects the report and pull request state. The
+ * summary's title stands alone; the priority, the size of the change, and the created/updated times
+ * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
+ * persisted preference) so the report column, and above all the diff, takes the full width.
  * AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({
@@ -409,6 +409,7 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
+                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -416,7 +417,6 @@ export function InboxDetailFrame({
                                 title="Observation"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('observation')}
-                                rightSlot={hideRailButton}
                             >
                                 <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
                             </DetailSection>
@@ -427,7 +427,6 @@ export function InboxDetailFrame({
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={primaryMetric ? undefined : hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />

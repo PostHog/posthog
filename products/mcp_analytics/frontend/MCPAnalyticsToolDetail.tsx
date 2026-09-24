@@ -42,6 +42,8 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { McpDateFilter } from './components/McpDateFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
@@ -507,7 +509,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         pinnedInterval,
         incompleteTail,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+    const { selectFailure, setDateFilter, loadAllSections } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
@@ -539,6 +541,33 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
+
+            <div className="flex flex-wrap items-center gap-3 px-4 pb-2">
+                <McpSharedFilters
+                    pageKey="mcp-tool-detail"
+                    dataAttrPrefix="mcp-tool-detail"
+                    onRefresh={loadAllSections}
+                    refreshing={
+                        summaryLoading ||
+                        descriptionsLoading ||
+                        dailyStatsLoading ||
+                        failureBucketsLoading ||
+                        sampleIntentRowsLoading ||
+                        intentCoverageLoading ||
+                        neighborsBeforeRowsLoading ||
+                        neighborsAfterRowsLoading ||
+                        byHarnessRowsLoading ||
+                        topUserRowsLoading
+                    }
+                >
+                    <McpDateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={setDateFilter}
+                        dataAttr="mcp-tool-detail-date-filter"
+                    />
+                </McpSharedFilters>
+            </div>
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />

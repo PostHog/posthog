@@ -3523,6 +3523,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
 
+        [insightsModel.actionTypes.insightSaved]: ({ shortId }: { shortId: InsightShortId }) => {
+            for (const tile of values.insightTiles) {
+                if (tile.insight?.short_id === shortId) {
+                    actions.refreshDashboardItem({ tile })
+                }
+            }
+        },
         [insightsModel.actionTypes.duplicateInsightSuccess]: () => {
             // TODO this is a bit hacky, but we need to reload the dashboard to get the new insight
             // TODO when duplicated from a dashboard we should carry the context so only one logic needs to reload

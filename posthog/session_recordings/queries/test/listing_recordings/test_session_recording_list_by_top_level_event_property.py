@@ -2,7 +2,9 @@ from datetime import timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from unittest import skipIf
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -159,6 +161,10 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     )
     @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_can_filter_for_flags(self, _name: str, properties: dict, expected: list[str]) -> None:
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 

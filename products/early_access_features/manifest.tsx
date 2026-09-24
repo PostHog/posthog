@@ -22,7 +22,9 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     },
     redirects: {},

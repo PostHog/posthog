@@ -99,6 +99,7 @@ export function createMockQuery(
     initializationResult: vi.fn().mockResolvedValue({}),
     reconnectMcpServer: vi.fn().mockResolvedValue(undefined),
     toggleMcpServer: vi.fn().mockResolvedValue(undefined),
+    readMcpResource: vi.fn().mockResolvedValue({ contents: [] }),
     supportedAgents: vi.fn().mockResolvedValue([]),
     stopTask: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),

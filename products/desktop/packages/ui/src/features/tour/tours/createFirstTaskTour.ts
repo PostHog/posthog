@@ -1,9 +1,5 @@
 import type { TourDefinition } from "@posthog/core/tour/types";
-import {
-  builderHog,
-  explorerHog,
-  happyHog,
-} from "@posthog/ui/assets/hedgehogs";
+import { hoggiePng } from "@posthog/shared/hoggies";
 
 export const createFirstTaskTour: TourDefinition = {
   id: "create-first-task",
@@ -12,14 +8,14 @@ export const createFirstTaskTour: TourDefinition = {
     {
       id: "folder-picker",
       target: "folder-picker",
-      hogSrc: explorerHog,
+      hogSrc: hoggiePng("office-worker")!,
       message: "Pick a repo to work with. This tells me where your code lives!",
       advanceOn: { type: "action" },
     },
     {
       id: "task-editor",
       target: "task-input-editor",
-      hogSrc: builderHog,
+      hogSrc: hoggiePng("traffic-controller")!,
       message:
         "Describe what you want to build or fix. Be as specific as you like!",
       advanceOn: { type: "action" },
@@ -27,7 +23,7 @@ export const createFirstTaskTour: TourDefinition = {
     {
       id: "submit-button",
       target: "task-input-submit",
-      hogSrc: happyHog,
+      hogSrc: hoggiePng("rocket")!,
       message: "Hit send or press Enter to launch your first agent!",
       advanceOn: { type: "click" },
     },

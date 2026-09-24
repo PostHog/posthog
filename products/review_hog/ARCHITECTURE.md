@@ -408,7 +408,7 @@ only separates the fleet's Modal cost from user-driven runs.
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
-rest — **OpenAI Codex `gpt-5.6-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
+rest — **OpenAI Codex `gpt-6-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
 report's **review tier**. The pins are per **report**, not per process: each `ReviewReport` persists a **review
 arm** (adapter / model / effort / permission mode) plus the tier it was chosen from (`review_tier`, and for agent
 PRs the Signals priority that placed it there, `review_signal_priority`), decided once at report creation and kept
@@ -429,10 +429,10 @@ The cheaper arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfoo
 but run the default arm. `load_review_arm` → `resolve_review_arm` honors a persisted arm only while it stays a
 registry-supported combo — anything else falls back to the default (full-strength) pins and stamps
 `review_arm_fallback` on the run's analytics events. Chunking, dedup, and the validator stay on Claude at fixed
-pins; the resolution stage runs the validator's model (`claude-opus-5` @ xhigh). One per-turn override sits on top
+pins; the resolution stage runs the validator's model (`claude-opus-5-5` @ xhigh). One per-turn override sits on top
 of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MODE_FLASH`; the UI trigger's
 `run_mode=flash`) runs both sandbox seats — the perspective wave with its blind-spot sweep, and the validator — on
-one arm, `FLASH_ARM` (`gpt-5.6-luna`, Codex with `full-access`), for that turn only.
+one arm, `FLASH_ARM` (`gpt-6-luna`, Codex with `full-access`), for that turn only.
 `flash_arm_for_effort` selects the acting user's saved `medium` (default) or `xhigh` effort, snapshotted when the turn starts.
 The preference applies to automatic, UI, and CLI Flash requests.
 The report's tier and arm are untouched, so the PR's next normal trigger reviews normally; `review_arm_for_mode` / `validation_arm_for_mode`
@@ -512,7 +512,7 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   `{ mode, settings: { model, reasoning_effort } }` as the per-turn `collaborationMode` (codex applies a provided
   collaboration mode as is and ignores the turn's `effort` param when one is sent, so the pinned effort has to ride
   along here or every turn runs at the model's default effort — this is the line that applies a tier's effort to
-  `gpt-5.6-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
+  `gpt-6-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
   adapter). Startup validation (`bin.ts` + `isSupportedReasoningEffort`) checks the model/effort combo against the
   registry, but **not** that the gateway actually serves the model. The sandbox reviewer path has no allow-list fallback:
   `_doInitializeSession` → `createAcpConnection` passes the pinned `model` straight to codex (no `gatewayModels`, so

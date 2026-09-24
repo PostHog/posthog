@@ -20,12 +20,12 @@ describe('userLogic', () => {
             ...window.POSTHOG_APP_CONTEXT,
             current_user: userWithLightTheme,
         } as any
-        initKeaTests()
         useMocks({
             get: {
                 '/api/users/@me/': () => [200, userWithLightTheme],
             },
         })
+        initKeaTests()
         userLogic.mount()
     })
 
@@ -103,9 +103,11 @@ describe('userLogic', () => {
 
         beforeEach(() => {
             updateUserSpy = jest.spyOn(userLogic.actions, 'updateUser')
+            useMocks({ patch: { '/api/users/@me/': [200, userWithLightTheme] } })
         })
 
-        afterEach(() => {
+        afterEach(async () => {
+            await expectLogic(userLogic).toFinishAllListeners()
             updateUserSpy.mockRestore()
         })
 

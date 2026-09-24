@@ -6,7 +6,9 @@ use super::{
     closed, object, required, string, ParseError, MAX_PREDICATES, PROPERTY_FIELDS, TARGETING_FIELDS,
 };
 use crate::properties::property_matching::to_semver_representation;
-use crate::properties::property_models::OperatorType;
+use crate::properties::property_models::{
+    CompiledRegex, OperatorType, ESTIMATED_COMPILED_REGEX_BYTES,
+};
 use crate::properties::relative_date::parse_relative_date_parts;
 use crate::utils::json_size::estimate_json_heap_size;
 
@@ -16,6 +18,7 @@ pub struct PersonPredicate {
     pub value: Option<Value>,
     pub operator: OperatorType,
     pub negation: bool,
+    pub compiled_regex: Option<CompiledRegex>,
 }
 
 impl fmt::Debug for PersonPredicate {
@@ -101,16 +104,30 @@ impl PersonPredicate {
         }
         let value = property.get("value").filter(|value| !value.is_null());
         validate_value(operator, value)?;
+        // An invalid pattern is a deferred evaluation error, not a parse error.
+        let compiled_regex =
+            matches!(operator, OperatorType::Regex | OperatorType::NotRegex).then(|| {
+                value
+                    .and_then(Value::as_str)
+                    .map_or(CompiledRegex::InvalidPattern, CompiledRegex::new)
+            });
         Ok(Self {
             key: key.to_owned(),
             value: value.cloned(),
             operator,
             negation,
+            compiled_regex,
         })
     }
 
     pub(super) fn estimated_heap_bytes(&self) -> usize {
-        self.key.capacity() + self.value.as_ref().map_or(0, estimate_json_heap_size)
+        self.key.capacity()
+            + self.value.as_ref().map_or(0, estimate_json_heap_size)
+            + if matches!(self.compiled_regex, Some(CompiledRegex::Compiled(_))) {
+                ESTIMATED_COMPILED_REGEX_BYTES
+            } else {
+                0
+            }
     }
 }
 

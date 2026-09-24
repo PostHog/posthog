@@ -34,6 +34,9 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
 
+Whole-notebook runs stop when their notebook is deleted, including while a cell is running.
+If cell dispatch fails after its retry budget, the run records the failure and stops any child execution already submitted.
+
 ## Reusable widgets
 
 The reusable catalog fields, demo data, input bindings, and pending reviews share one schema migration: `notebooks.0022_reusable_widgets`, after `0021_kernelruntime_sandbox_end`.
@@ -123,6 +126,17 @@ New notebooks place the typing caret in the title, including when opened through
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 **Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
+
+**BTW** opens a separate PostHog AI conversation for side questions in a sidebar beside the notebook.
+When the notebook area is too narrow for both, the conversation opens in a modal.
+Resizing between these layouts keeps the conversation and any unsent question.
+It is the second option in the notebook's `/` menu, after **Ask AI**, and the last action in the text selection toolbar and a component block's **More actions** menu.
+The conversation receives a snapshot of the notebook and any selected content from when BTW was opened, including unsaved changes at that time.
+Later notebook edits do not update that snapshot; replies are not inserted into the notebook.
+The agent is instructed to answer without edits, but BTW does not enforce a separate read-only tool permission policy.
+Sent messages are saved in PostHog AI history separately from the notebook.
+Closing BTW or refreshing the page closes the panel; reopen the saved conversation from PostHog AI history.
+It requires the same AI data processing consent as **Ask AI**.
 Inline notebook artifacts update the open notebook without saving a second copy, even when the tool requests a save.
 Full-notebook replacements preserve the retained question when **Keep question with answer** is on.
 Standalone AI notebook saves preserve Markdown separators and live MDX cells, including `<SQLV2 />` and `<Widget />`, while resolving visualization references.

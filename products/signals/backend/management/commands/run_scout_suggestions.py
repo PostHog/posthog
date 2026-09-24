@@ -2,7 +2,9 @@
 
 `--team-id` runs the headless scan inline (bypassing the planner and its cap) and prints the
 stored batch. `--plan` prints what the coordinator would dispatch on the next tick under the
-current `signals-scout-suggestions` flag payload, without dispatching anything.
+current `signals-scout-suggestions` flag payload, without dispatching anything. `--plan` runs
+the dispatch-time activity check too, so it stamps `low_activity` on the projects it rules out,
+exactly as the tick would.
 """
 
 from __future__ import annotations
@@ -21,10 +23,12 @@ from products.signals.backend.scout_harness.suggestions import (
     plan_suggestion_runs,
     read_suggestion_settings,
     reserved_scout_names,
+    select_teams_to_scan,
     stamp_requested,
     visible_items,
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions
+from products.signals.backend.temporal.agentic.scout_suggestions import SUGGESTIONS_OVERSELECT_FACTOR
 
 
 class Command(BaseCommand):
@@ -38,11 +42,16 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         settings = read_suggestion_settings()
         if options["plan"]:
-            planned = plan_suggestion_runs(settings)
+            cap = settings.max_children_per_tick
+            planned = plan_suggestion_runs(settings, limit=cap * SUGGESTIONS_OVERSELECT_FACTOR)
+            selection = select_teams_to_scan(planned, settings, limit=cap)
             self.stdout.write(f"settings: {settings}")
-            self.stdout.write(f"planned {len(planned)} team(s):")
-            for run in planned:
+            self.stdout.write(f"planned {len(selection.dispatch)} team(s):")
+            for run in selection.dispatch:
                 self.stdout.write(f"  team {run.team_id} (tier {run.tier})")
+            self.stdout.write(f"skipped {len(selection.skipped_team_ids)} team(s) as low_activity:")
+            for team_id in selection.skipped_team_ids:
+                self.stdout.write(f"  team {team_id}")
             return
 
         if options["team_id"] is None:

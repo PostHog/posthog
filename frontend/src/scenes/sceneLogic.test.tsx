@@ -172,6 +172,28 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
 
+    it.each([
+        ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
+        [
+            'the project-prefixed test health path',
+            (projectId: number) => `/project/${projectId}/engineering-analytics/test-health`,
+            () => urls.engineeringAnalyticsTests(),
+        ],
+        ['the health path', () => '/engineering-analytics/health', () => urls.engineeringAnalyticsDeploys()],
+    ])('redirects %s without dropping scope or hash', async (_label, oldPath, newPath) => {
+        const projectId = teamLogic.values.currentTeamId
+        router.actions.push(
+            oldPath(projectId),
+            { source: 'source-1', repo: 'PostHog/posthog' },
+            { panel: 'max:inspect' }
+        )
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(newPath())
+        expect(router.values.location.pathname).toEqual(`/project/${projectId}${newPath()}`)
+        expect(router.values.searchParams).toMatchObject({ source: 'source-1', repo: 'PostHog/posthog' })
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
     // The change password form emails this link to a user who is already signed in.
     it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
         const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')

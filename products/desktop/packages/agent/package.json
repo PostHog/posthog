@@ -130,7 +130,8 @@
     }
   },
   "bin": {
-    "agent-server": "./dist/server/bin.js"
+    "agent-server": "./dist/server/bin.js",
+    "agent-smoke": "./dist/smoke/bin.js"
   },
   "type": "module",
   "keywords": [
@@ -169,7 +170,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.1.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.270",
+    "@anthropic-ai/claude-agent-sdk": "0.3.280",
     "@anthropic-ai/sdk": "0.109.0",
     "@earendil-works/pi-agent-core": "catalog:",
     "@earendil-works/pi-ai": "catalog:",

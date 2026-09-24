@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -30,6 +31,7 @@ from posthog.hogql_queries.access_controlled_resources import (
     queried_access_controlled_resources,
 )
 
+from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -268,12 +270,46 @@ class TestQueriedAccessControlledResources(BaseTest):
         # hit skips that resolution, so the user's table denials must partition the key.
         assert result == {"warehouse_view", "warehouse_table", "external_data_source"}
 
+    @parameterized.expand(
+        [
+            (
+                "system table behind two views",
+                {"notebook_view": "select * from system.notebooks", "outer_view": "select * from notebook_view"},
+                "select * from outer_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                "views that reference each other",
+                {"view_a": "select * from view_b", "view_b": "select * from view_a"},
+                "select * from view_a",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
+        ]
+    )
+    def test_view_definitions_are_walked(self, _name, views, sql, expected):
+        for name, definition in views.items():
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
+            )
+        assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(
             HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks"), self.team
         )
         assert result == {"warehouse_table", "notebook", "external_data_source"}
+
+    def test_bypassed_scope_drops_only_its_own_fallback_parent(self):
+        # The map has a single entry, so a second one is patched in: a principal that bypasses one child's
+        # access control must still partition on the fallback parent of a child it does not bypass.
+        self._create_warehouse_table("my_warehouse_table")
+        query = HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks")
+        with patch.dict(RESOURCE_FALLBACK_MAP, {"notebook": "dashboard"}):
+            result = queried_access_controlled_resources(
+                query, self.team, bypassed_scopes=frozenset({"warehouse_table"})
+            )
+        assert result == {"warehouse_table", "notebook", "dashboard"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(

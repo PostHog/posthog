@@ -1,5 +1,6 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -9,6 +10,7 @@ import { Breadcrumb } from '~/types'
 import { engineeringAnalyticsAuthorWorkflowCosts } from '../generated/api'
 import type { WorkflowCostApi } from '../generated/api.schemas'
 import { DeliveryScope } from '../lib/deliveryScope'
+import { withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
 export interface AuthorLogicProps {
@@ -26,6 +28,7 @@ export interface authorLogicValues {
     handle: string
     sourceId: string | null
     workflowCosts: WorkflowCostApi[]
+    workflowCostsFailed: boolean
     workflowCostsLoading: boolean
 }
 
@@ -46,7 +49,7 @@ export interface authorLogicMeta {
         sourceId: (arg: string | null) => string | null
         handle: (arg: string) => string
         deliveryScope: (handle: string) => DeliveryScope
-        breadcrumbs: (handle: string) => Breadcrumb[]
+        breadcrumbs: (handle: string, sourceId: string | null, searchParams: Record<string, any>) => Breadcrumb[]
     }
 }
 
@@ -78,6 +81,10 @@ export const authorLogic = kea<authorLogicType>([
         ],
     })),
 
+    reducers({
+        workflowCostsFailed: [false, { loadWorkflowCosts: () => false, loadWorkflowCostsFailure: () => true }],
+    }),
+
     listeners(({ actions }) => ({
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadWorkflowCosts()
@@ -93,18 +100,22 @@ export const authorLogic = kea<authorLogicType>([
         // Memoized, so the delivery logics keyed by this scope see one stable object per author.
         deliveryScope: [(s) => [s.handle], (handle: string): DeliveryScope => ({ kind: 'author', author: handle })],
         breadcrumbs: [
-            (_, p) => [p.handle],
-            (handle: string): Breadcrumb[] => [
+            (s) => [s.handle, s.sourceId, router.selectors.searchParams],
+            (
+                handle: string,
+                sourceId: string | null,
+                searchParams: Record<string, string | undefined>
+            ): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: urls.engineeringAnalytics(),
+                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {
                     key: 'EngineeringAnalyticsPullRequests',
                     name: 'Pull requests',
-                    path: urls.engineeringAnalyticsPullRequestList(),
+                    path: withScope(urls.engineeringAnalyticsPullRequestList(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 { key: ['EngineeringAnalyticsAuthor', handle], name: handle, iconType: 'health' },
