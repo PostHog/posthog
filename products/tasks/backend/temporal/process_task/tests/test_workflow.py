@@ -2247,7 +2247,7 @@ class TestProcessTaskWorkflowUnit:
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     @pytest.mark.parametrize(
-        "event, origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, expected_kwargs",
+        "event, origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, turn_succeeded, expected_status, expected_kwargs",
         [
             (
                 process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
@@ -2255,6 +2255,7 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2264,6 +2265,7 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
                 "failed",
                 {"timed_out_inactivity": True},
             ),
@@ -2275,6 +2277,7 @@ class TestProcessTaskWorkflowUnit:
                 True,
                 1,
                 None,
+                False,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2286,6 +2289,7 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 0,
                 None,
+                False,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2296,6 +2300,7 @@ class TestProcessTaskWorkflowUnit:
                 "workflow",
                 False,
                 1,
+                False,
                 False,
                 "failed",
                 {"error_message": AGENT_LOST_ERROR_MESSAGE, "timed_out_inactivity": True},
@@ -2308,6 +2313,7 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 False,
+                False,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2317,6 +2323,7 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
@@ -2326,6 +2333,37 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
+                "failed",
+                {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
+            ),
+            (
+                process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
+                "signal_report",
+                True,
+                1,
+                True,
+                True,
+                "completed",
+                {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
+            ),
+            (
+                process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
+                "signal_report",
+                False,
+                1,
+                True,
+                True,
+                "failed",
+                {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
+            ),
+            (
+                process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
+                "signal_report",
+                True,
+                1,
+                True,
+                False,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
@@ -2339,13 +2377,12 @@ class TestProcessTaskWorkflowUnit:
         pr_progress_emitted,
         ci_repetitions,
         end_of_turn_received,
+        turn_succeeded,
         expected_status,
         expected_kwargs,
     ):
-        # The wall-clock cap is a failure for every origin; the inactivity timeout only fails for
-        # onboarding runs that delivered nothing and workflow runs whose turn never closed, because
-        # other origins resume from the timed-out run and a PR-bearing onboarding run already
-        # succeeded.
+        # A report implementation that delivered a PR and finished its turn can complete when its
+        # watcher reaches the wall-clock cap. Other wall-clock exits still fail.
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
@@ -2388,6 +2425,8 @@ class TestProcessTaskWorkflowUnit:
 
         async def wait_for_event():
             workflow._end_of_turn_received = end_of_turn_received
+            workflow._agent_active = False if end_of_turn_received is True else None
+            workflow._last_turn_succeeded = turn_succeeded
             return event
 
         monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)

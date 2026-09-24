@@ -42,6 +42,8 @@ curl -s localhost:8000/pooling -H 'content-type: application/json' -d '{"model":
 
 The answer is under `data.answers`, in Kev's format for either model, with `data.probabilities_raw` alongside for parity checks. JevK5 takes at most 16 options per question and 16,384 tokens per prompt, and refuses more.
 
+The AI gateway states the day counts between the dates in a state when a request sets `date_facts` (PostHog/ai-gateway#505), before any host sees it, so this plugin does no date preprocessing of its own.
+
 ### Batching
 
 vLLM's scheduler is the request pool, so this package adds none of its own. Each question becomes its own engine request, and every request waits in the engine's in-memory queue. At each step, the scheduler packs waiting rows from all callers into one forward pass, up to `--max-num-batched-tokens` tokens, and splits a row longer than the remainder across steps (chunked prefill). A row is prefill only: it finishes in the step that computes its last token, and it frees its slot in that step. A burst of requests therefore becomes a few full steps, not one step per request.

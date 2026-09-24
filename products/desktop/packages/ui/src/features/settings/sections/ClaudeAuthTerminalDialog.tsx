@@ -8,9 +8,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
+import {
+  AuthTerminalPanel,
+  type AuthTerminalStatus,
+} from "@posthog/ui/features/settings/components/AuthTerminalPanel";
 import { destroyTerminalSession } from "@posthog/ui/features/terminal/destroyShellTerminal";
-import { Terminal } from "@posthog/ui/features/terminal/Terminal";
-import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
@@ -22,11 +24,6 @@ interface ClaudeAuthTerminalDialogProps {
   onClose: () => void;
   onFinished: () => void;
 }
-
-const SURFACE = {
-  dark: { body: "#131316", chrome: "#1c1c21", text: "#e6e6e6" },
-  light: { body: "#f2f3ee", chrome: "#e7e9e1", text: "#3a4036" },
-} as const;
 
 const COPY = {
   "setup-token": {
@@ -53,28 +50,12 @@ const COPY = {
   },
 } as const;
 
-type Status = "running" | "checking" | "done" | "failed";
-
-const PILL: Record<Status, { dot: string; label: string }> = {
-  running: {
-    dot: "animate-pulse bg-(--amber-9) motion-reduce:animate-none",
-    label: "Running",
-  },
-  checking: {
-    dot: "animate-pulse bg-(--gray-9) motion-reduce:animate-none",
-    label: "Checking",
-  },
-  done: { dot: "bg-(--green-9)", label: "Done" },
-  failed: { dot: "bg-(--red-9)", label: "Failed" },
-};
-
 export function ClaudeAuthTerminalDialog({
   action,
   onClose,
   onFinished,
 }: ClaudeAuthTerminalDialogProps): ReactElement {
   const hostTRPC = useHostTRPC();
-  const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const [started, setStarted] = useState(action !== "logout");
   const {
     data: terminal,
@@ -108,9 +89,8 @@ export function ClaudeAuthTerminalDialog({
   })();
 
   const copy = COPY[action];
-  const surface = isDarkMode ? SURFACE.dark : SURFACE.light;
 
-  const status = ((): Status => {
+  const status = ((): AuthTerminalStatus => {
     if (terminalError) return "failed";
     if (!stopped) return "running";
     if (verified === undefined) return "checking";
@@ -169,39 +149,13 @@ export function ClaudeAuthTerminalDialog({
             </span>
           ) : null}
           {started && terminal ? (
-            <div
-              className="overflow-hidden rounded-(--radius-3) border border-(--gray-6) shadow-sm"
-              style={{ backgroundColor: surface.body, color: surface.text }}
-            >
-              <div
-                className="flex items-center justify-between border-black/10 border-b px-3 py-1.5"
-                style={{ backgroundColor: surface.chrome }}
-              >
-                <span className="flex items-center gap-2 font-mono text-[11px] opacity-80">
-                  <span aria-hidden>❯</span>
-                  {copy.command}
-                </span>
-                <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide opacity-70">
-                  <span
-                    className={`inline-block h-1.5 w-1.5 rounded-full ${PILL[status].dot}`}
-                    aria-hidden
-                  />
-                  {PILL[status].label}
-                </span>
-              </div>
-              <div className="h-44">
-                <Terminal
-                  sessionId={sessionId}
-                  persistenceKey={sessionId}
-                  cwd={terminal.cwd}
-                  command={terminal.command}
-                  additionalEnv={terminal.additionalEnv}
-                  unsetEnv={terminal.unsetEnv}
-                  sensitive
-                  onExit={handleExit}
-                />
-              </div>
-            </div>
+            <AuthTerminalPanel
+              sessionId={sessionId}
+              commandLabel={copy.command}
+              status={status}
+              terminal={terminal}
+              onExit={handleExit}
+            />
           ) : null}
         </DialogBody>
         <DialogFooter className="items-center justify-between gap-3">
