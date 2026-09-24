@@ -92,13 +92,13 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
 }
 
 const roundBreakdownSeriesTotal = (total: number, selectedYAxis: SelectedYAxis): number | null => {
-    const decimalPlaces = selectedYAxis.settings.formatting?.decimalPlaces
-    if (decimalPlaces == null) {
+    const formatting = selectedYAxis.settings.formatting
+    if (formatting?.decimalPlaces == null || formatting.style === 'short') {
         return total
     }
 
     try {
-        return parseFloat(total.toFixed(decimalPlaces))
+        return parseFloat(total.toFixed(formatting.decimalPlaces))
     } catch {
         return null
     }

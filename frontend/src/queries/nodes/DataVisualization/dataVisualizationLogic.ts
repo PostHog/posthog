@@ -1537,7 +1537,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                     }
 
                                     const decimalPlaces = series.settings.formatting?.decimalPlaces
-                                    if (decimalPlaces != null) {
+                                    if (decimalPlaces != null && series.settings.formatting?.style !== 'short') {
                                         const parsed = parseFloat(n[column.dataIndex])
                                         if (Number.isNaN(parsed)) {
                                             return showNullsAsZero ? 0 : null
@@ -1721,7 +1721,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                                 const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
-                                if (column.settings?.formatting?.decimalPlaces != null) {
+                                if (
+                                    column.settings?.formatting?.decimalPlaces != null &&
+                                    column.settings.formatting.style !== 'short'
+                                ) {
                                     return {
                                         value,
                                         formattedValue: formatDataWithSettings(

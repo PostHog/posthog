@@ -746,6 +746,32 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('ignores retained decimal places under the short style for chart and table values', async () => {
+        const settings: AxisSeriesSettings = { formatting: { style: 'short', decimalPlaces: 0 } }
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                chartSettings: { yAxis: [{ column: 'value', settings }] },
+                tableSettings: { columns: [{ column: 'value', settings }] },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Float64']],
+            results: [[12.345]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            yData: [expect.objectContaining({ data: [12.345] })],
+            tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
+        })
+    })
+
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
         [
             'formats zero decimal places under the none style',

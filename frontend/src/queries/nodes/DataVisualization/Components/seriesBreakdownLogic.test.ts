@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeriesSettings, DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const testUniqueKey = 'testUniqueKey'
@@ -374,7 +374,18 @@ describe('seriesBreakdownLogic', () => {
         }
     )
 
-    it('rounds breakdown series values to zero decimal places after summing each bucket', async () => {
+    it.each<{ name: string; formatting: AxisSeriesSettings['formatting']; expected: number[] }>([
+        {
+            name: 'rounds breakdown series values to zero decimal places after summing each bucket',
+            formatting: { decimalPlaces: 0 },
+            expected: [42, 12, 1],
+        },
+        {
+            name: 'ignores retained decimal places under the short style',
+            formatting: { style: 'short', decimalPlaces: 0 },
+            expected: [42.195, 11.7, 0.98],
+        },
+    ])('$name', async ({ formatting, expected }) => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
 
@@ -401,13 +412,13 @@ describe('seriesBreakdownLogic', () => {
         builtDataVizLogic.actions.clearAxis()
         builtDataVizLogic.actions.updateXSeries('event')
         builtDataVizLogic.actions.addYSeries('total_count')
-        builtDataVizLogic.actions.updateSeriesIndex(0, 'total_count', { formatting: { decimalPlaces: 0 } })
+        builtDataVizLogic.actions.updateSeriesIndex(0, 'total_count', { formatting })
 
         logic.actions.addSeriesBreakdown('browser')
 
         await expectLogic(logic).toMatchValues({
             seriesBreakdownData: expect.objectContaining({
-                seriesData: [expect.objectContaining({ name: 'Safari', data: [42, 12, 1] })],
+                seriesData: [expect.objectContaining({ name: 'Safari', data: expected })],
             }),
         })
     })
