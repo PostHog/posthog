@@ -540,10 +540,8 @@ TASK_RUN_TERMINATION_REASON_MARKERS = (
 
 
 def _task_run_termination_reason(state: dict | None) -> str | None:
-    """The marker naming how a run ended, or None when it ended on its own."""
-    if not isinstance(state, dict):
-        return None
-    return next((marker for marker in TASK_RUN_TERMINATION_REASON_MARKERS if state.get(marker)), None)
+    markers = state or {}
+    return next((marker for marker in TASK_RUN_TERMINATION_REASON_MARKERS if markers.get(marker)), None)
 
 
 def _task_run_log_url(run: TaskRun) -> str | None:

@@ -77,7 +77,6 @@ from products.tasks.backend.facade.run_config import (
 logger = logging.getLogger(__name__)
 
 TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
-TASK_RUN_TERMINATION_REASON_CHOICES = list(TASK_RUN_TERMINATION_REASON_MARKERS)
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -510,7 +509,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
         help_text="Latest summary for this task, including a summary inherited from an earlier run.",
     )
     termination_reason = serializers.ChoiceField(
-        choices=TASK_RUN_TERMINATION_REASON_CHOICES,
+        choices=list(TASK_RUN_TERMINATION_REASON_MARKERS),
         allow_null=True,
         required=False,
         help_text=(
