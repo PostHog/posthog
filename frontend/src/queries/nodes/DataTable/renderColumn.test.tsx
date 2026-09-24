@@ -142,6 +142,22 @@ describe('renderColumn', () => {
         )
     })
 
+    it('skips a hidden column when it picks the one to link', () => {
+        const select = ['properties.email', 'created_at', 'id']
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select },
+            hiddenColumns: ['properties.email'],
+        }) as DataTableNode
+        const record = ['someone@example.com', '2026-01-01T00:00:00Z', PERSON_UUID]
+
+        render(<Provider>{renderColumn('created_at', record[1], record, 0, 1, query)}</Provider>)
+
+        expect(screen.getByRole('link').getAttribute('href')).toEqual(
+            expect.stringContaining(urls.personByUUID(PERSON_UUID))
+        )
+    })
+
     it('leaves a url cell with its own link rather than nesting two anchors', () => {
         const select = ['properties.$initial_current_url', 'id']
         const query = setLatestVersionsOnQuery({

@@ -90,10 +90,14 @@ function personProfileFallbackUrl(
     if (personUuidIndex === -1) {
         return undefined
     }
-    // The table drops hidden context columns before it renders, so the fallback follows the
-    // columns a person can see rather than everything the query selects.
+    // The table drops hidden columns before it renders, so the fallback follows the columns a
+    // person can see rather than everything the query selects.
     const names = select
-        .filter((column) => !getContextColumn(column, context?.columns).queryContextColumn?.hidden)
+        .filter(
+            (column) =>
+                !query.hiddenColumns?.includes(column) &&
+                !getContextColumn(column, context?.columns).queryContextColumn?.hidden
+        )
         .map((column) => removeExpressionComment(column))
     if (names.some((name) => PERSON_LINK_COLUMNS.includes(name))) {
         return undefined
