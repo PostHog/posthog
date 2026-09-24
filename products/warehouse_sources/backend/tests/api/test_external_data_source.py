@@ -2452,8 +2452,7 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
         assert response.json()["message"].startswith("Invalid source config")
-        assert "'private_key'" in response.json()["message"]
-        assert "'private_key_id'" in response.json()["message"]
+        assert "not a complete Google Cloud service account key" in response.json()["message"]
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_create_external_data_source_bigquery_returns_400_on_credentials_rejected_during_schema_discovery(
