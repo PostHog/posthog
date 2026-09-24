@@ -346,6 +346,7 @@ rules:
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
+                              |SharedTaskArtifact
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalReport
@@ -772,6 +773,7 @@ rules:
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
+                        |SharedTaskArtifact
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalReport
