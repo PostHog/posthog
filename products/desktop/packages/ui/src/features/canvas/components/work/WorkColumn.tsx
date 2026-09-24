@@ -559,7 +559,6 @@ export function WorkColumn() {
                               optionValue={item.key}
                               channelId={channelIdOf(item)}
                               spaceName={spaceNameFor(item)}
-                              withPrStatus={false}
                               isActive={item.key === activeKey}
                               isSelected={inSelection}
                               actions={actions}
