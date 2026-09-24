@@ -48,10 +48,10 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if before_raw is not None:
             before = datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        page_size = limit if limit is not None else getattr(self.paginator, "default_limit", None)
         # The paginator slices this list, so ClickHouse must return every row up to the end of the
         # requested page. The extra row tells the paginator that a next page exists.
-        fetch_limit = offset + page_size + 1 if page_size is not None else None
+        page_size = limit if limit is not None else self.paginator.default_limit
+        fetch_limit = offset + page_size + 1
 
         type_filter = [PluginLogEntryType[t] for t in (request.GET.getlist("type_filter", []))]
         data = fetch_plugin_log_entries(
