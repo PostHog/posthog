@@ -228,9 +228,14 @@ export const terminalLogic = kea<terminalLogicType>([
     reducers({
         environment: [
             'posthog-linux-wasm' as TerminalEnvironment,
+            { persist: true },
             { setEnvironment: (_, { environment }) => environment },
         ],
-        sandboxSize: ['small' as TerminalSandboxSizeEnumApi, { setSandboxSize: (_, { sandboxSize }) => sandboxSize }],
+        sandboxSize: [
+            'small' as TerminalSandboxSizeEnumApi,
+            { persist: true },
+            { setSandboxSize: (_, { sandboxSize }) => sandboxSize },
+        ],
         confirmation: [
             null as TerminalConfirmation | null,
             { setConfirmation: (_, { confirmation }) => confirmation, stop: () => null },
@@ -454,8 +459,11 @@ export const terminalLogic = kea<terminalLogicType>([
             ) {
                 return
             }
-            if (!cache.session || cache.modalRuntime) {
+            if (!cache.session) {
                 return
+            }
+            if (cache.modalRuntime) {
+                cache.disposables.dispose('modal-terminal')
             }
             cache.projectId = projectId
             if (values.environment === 'modal') {
@@ -463,9 +471,9 @@ export const terminalLogic = kea<terminalLogicType>([
                 const runtime = new ModalTerminalRuntime(
                     String(projectId),
                     (bytes) => cache.session?.view.write(bytes),
-                    () => {
+                    (message) => {
                         if (cache.modalRuntime === runtime && !disposables.isDisposed) {
-                            actions.setError('The sandbox connection closed. Stop the terminal and start it again.')
+                            actions.setError(message)
                             actions.setStatus('error')
                         }
                     }
@@ -476,7 +484,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 const agent: TerminalAgent = { write: (data) => runtime.write(data), read: () => runtime.read() }
                 disposables.add(
                     () => () => {
-                        void runtime.stop().catch(() => undefined)
+                        runtime.disconnect()
                         if (cache.modalRuntime === runtime) {
                             cache.modalRuntime = null
                         }
@@ -497,7 +505,7 @@ export const terminalLogic = kea<terminalLogicType>([
                     }
                 } catch {
                     if (cache.modalRuntime === runtime && !disposables.isDisposed && values.status !== 'stopping') {
-                        actions.setError('Could not start the Modal sandbox. Stop the terminal and try again.')
+                        actions.setError('Could not connect to the Modal sandbox. Try reconnecting.')
                         actions.setStatus('error')
                     }
                 }
@@ -647,7 +655,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 }
             }
         },
-        stop: async () => {
+        stop: async ({ preserveRunRequested }) => {
             const disposables = cache.disposables
             disposables.dispose('terminal')
             disposables.dispose('boot-timeout')
@@ -655,7 +663,11 @@ export const terminalLogic = kea<terminalLogicType>([
             if (runtime) {
                 actions.setStatus('stopping')
                 try {
-                    await runtime.stop()
+                    if (preserveRunRequested) {
+                        runtime.disconnect()
+                    } else {
+                        await runtime.stop()
+                    }
                     if (!disposables.isDisposed && cache.modalRuntime === runtime) {
                         cache.modalRuntime = null
                         disposables.dispose('modal-terminal')

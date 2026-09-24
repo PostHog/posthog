@@ -40,6 +40,7 @@ jest.mock('./ModalTerminalRuntime', () => ({
     ModalTerminalRuntime: jest.fn().mockImplementation(() => ({
         start: jest.fn(async (size) => size),
         stop: jest.fn(async () => {}),
+        disconnect: jest.fn(),
         write: jest.fn(),
         resize: jest.fn(),
         read: jest.fn(() => ''),
@@ -67,6 +68,7 @@ describe('terminal lifecycle', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         mockFolderFor.mockReset().mockResolvedValue(null)
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: true })
@@ -106,22 +108,20 @@ describe('terminal lifecycle', () => {
         expect(window.posthogTerminal).toBeUndefined()
     })
 
-    it.each([false, true])('waits for Modal cleanup on project changes, with explicit Stop: %s', async (stop) => {
+    it.each([false, true])('preserves the Modal sandbox on project changes, with explicit Stop: %s', async (stop) => {
         terminalLogic.actions.setEnvironment('modal')
         terminalLogic.actions.attach(document.createElement('div'))
         terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         const runtime = jest.mocked(ModalTerminalRuntime).mock.results[0].value
-        let finishStop!: () => void
-        runtime.stop.mockReturnValue(new Promise<void>((resolve) => (finishStop = resolve)))
         const nextProjectId = MOCK_DEFAULT_TEAM.id + 1
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: nextProjectId })
-        expect(terminalLogic.values.status).toBe('stopping')
+        expect(runtime.disconnect).toHaveBeenCalled()
+        expect(runtime.stop).not.toHaveBeenCalled()
         expect(ModalTerminalRuntime).toHaveBeenCalledTimes(1)
         if (stop) {
             terminalLogic.actions.stop()
         }
-        finishStop()
         await waitFor(() => expect(terminalLogic.values.status).toBe(stop ? 'idle' : 'ready'))
         expect(ModalTerminalRuntime).toHaveBeenCalledTimes(stop ? 1 : 2)
         if (!stop) {
@@ -131,6 +131,29 @@ describe('terminal lifecycle', () => {
                 expect.any(Function)
             )
         }
+    })
+
+    it('reconnects and remounts without deleting the Modal sandbox', async () => {
+        terminalLogic.actions.setEnvironment('modal')
+        terminalLogic.actions.setSandboxSize('high_memory')
+        terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const first = jest.mocked(ModalTerminalRuntime).mock.results[0].value
+        jest.mocked(ModalTerminalRuntime).mock.calls[0][2]('Disconnected')
+        expect(terminalLogic.values.status).toBe('error')
+        terminalLogic.actions.start()
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        expect(first.disconnect).toHaveBeenCalled()
+        expect(first.stop).not.toHaveBeenCalled()
+        const second = jest.mocked(ModalTerminalRuntime).mock.results[1].value
+        terminalLogic.unmount()
+        expect(second.disconnect).toHaveBeenCalled()
+        expect(second.stop).not.toHaveBeenCalled()
+        terminalLogic.mount()
+        expect(terminalLogic.values.environment).toBe('modal')
+        expect(terminalLogic.values.sandboxSize).toBe('high_memory')
+        expect(terminalLogic.values.status).toBe('idle')
     })
 
     it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {

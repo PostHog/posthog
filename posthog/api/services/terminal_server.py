@@ -31,7 +31,7 @@ class TerminalHandler(WebSocketHandler):
             self.close(1008, "Authentication required")
             return
         if self.application.settings.get("terminal_connected"):
-            self.close(1008, "The terminal is already connected")
+            self.close(4409, "The terminal is already connected")
             return
         self.application.settings["terminal_connected"] = True
         pid, descriptor = pty.fork()

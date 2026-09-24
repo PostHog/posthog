@@ -74,7 +74,7 @@ class TerminalSandboxService:
                     record = json.loads(existing)
                     try:
                         sandbox = sandbox_class.get_by_id(record["sandbox_id"])
-                        if sandbox.is_running() and record["size"] == size:
+                        if sandbox.is_running():
                             credentials = sandbox.create_preview_connect_credentials(
                                 8080, {"team_id": self.team_id, "user_id": self.user_id}
                             )

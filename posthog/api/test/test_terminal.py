@@ -48,16 +48,20 @@ class TestTerminalSandboxService(SimpleTestCase):
         self.service.stop(session["id"])
         self.sandbox.destroy.assert_called_once()
 
-    def test_changing_size_replaces_the_existing_sandbox(self) -> None:
+    def test_size_changes_apply_only_after_explicitly_stopping_the_sandbox(self) -> None:
         first = self.service.start("small")
         second = self.service.start("large")
-        assert first["id"] != second["id"]
-        assert second["sandbox_size"] == "large"
-        self.sandbox.destroy.assert_called_once()
-        assert self.provider.create.call_count == 2
+        assert second == first
+        self.sandbox.destroy.assert_not_called()
+        assert self.provider.create.call_count == 1
         with self.assertRaises(NotFound):
-            self.service.stop(first["id"])
-        assert self.sandbox.destroy.call_count == 1
+            self.service.stop("another-session")
+        self.sandbox.destroy.assert_not_called()
+        self.service.stop(first["id"])
+        third = self.service.start("large")
+        assert third["sandbox_size"] == "large"
+        assert third["id"] != first["id"]
+        assert self.provider.create.call_count == 2
 
     @parameterized.expand([(1, 3), (2, 2)])
     def test_sessions_are_scoped_to_project_and_owner(self, team_id: int, user_id: int) -> None:

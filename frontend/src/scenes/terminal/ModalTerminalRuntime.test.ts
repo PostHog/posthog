@@ -21,7 +21,7 @@ describe('ModalTerminalRuntime', () => {
 
     afterEach(() => jest.restoreAllMocks())
 
-    it('connects with a scoped token and transports input, Unicode output, and dimensions', async () => {
+    it.each(['stop', 'disconnect', 'conflict'])('transports shell data and cleans up with %s', async (cleanup) => {
         jest.mocked(terminalCreate).mockResolvedValue(session)
         const socket = {
             readyState: WebSocket.OPEN,
@@ -29,6 +29,7 @@ describe('ModalTerminalRuntime', () => {
             close: jest.fn(),
             onopen: null as (() => void) | null,
             onmessage: null as ((event: { data: ArrayBuffer }) => void) | null,
+            onclose: null as ((event: { code: number }) => void) | null,
         }
         const connect = jest.spyOn(window, 'WebSocket').mockImplementation(() => socket as unknown as WebSocket)
         Object.assign(connect, { OPEN: socket.readyState })
@@ -57,10 +58,18 @@ describe('ModalTerminalRuntime', () => {
         socket.onmessage?.({ data: bytes.slice(8).buffer })
         expect(runtime.read()).toBe('hello 😀')
         expect(output).toHaveBeenCalledTimes(2)
-        await runtime.stop()
+        if (cleanup === 'conflict') {
+            socket.onclose?.({ code: 4409 })
+            await runtime.stop()
+        } else if (cleanup === 'disconnect') {
+            runtime.disconnect()
+        } else {
+            await runtime.stop()
+        }
         socket.onmessage?.({ data: bytes.buffer })
         expect(output).toHaveBeenCalledTimes(2)
         expect(socket.close).toHaveBeenCalled()
+        expect(terminalDestroy).toHaveBeenCalledTimes(cleanup === 'stop' ? 1 : 0)
     })
 
     it('destroys a sandbox that finishes provisioning after Stop, without opening a socket', async () => {

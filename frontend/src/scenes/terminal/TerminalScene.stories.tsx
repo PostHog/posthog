@@ -54,6 +54,8 @@ const meta: Meta<typeof TerminalScene> = {
     component: TerminalScene,
     parameters: { layout: 'padded', featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL] },
     beforeEach: ({ parameters }) => {
+        localStorage.removeItem('scenes.terminal.terminalLogic.environment')
+        localStorage.removeItem('scenes.terminal.terminalLogic.sandboxSize')
         if (parameters.liveRuntime) {
             return
         }

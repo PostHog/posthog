@@ -148,10 +148,14 @@ export function TerminalView({
                     type="primary"
                     onClick={start}
                     loading={starting}
-                    disabledReason={active ? 'The terminal is already running' : undefined}
+                    disabledReason={active && status !== 'error' ? 'The terminal is already running' : undefined}
                     data-attr="terminal-start"
                 >
-                    {environment === 'modal' ? 'Start sandbox' : 'Start Linux'}
+                    {environment === 'modal'
+                        ? status === 'error'
+                            ? 'Reconnect sandbox'
+                            : 'Start sandbox'
+                        : 'Start Linux'}
                 </LemonButton>
                 <LemonButton
                     size="xsmall"

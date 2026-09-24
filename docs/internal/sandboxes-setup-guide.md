@@ -440,7 +440,9 @@ Select **Modal sandbox**, open the size control to choose Small (1 CPU, 2 GB), B
 The sandbox provides a standalone Linux filesystem with notebook Python packages and Node.js; the browser terminal's `/posthog` mount and `ph` commands are not available there.
 
 Each user can have one terminal sandbox per project.
-Starting again reconnects to that sandbox; choosing a different size replaces it.
+Starting again reconnects to that sandbox at its existing size; stop it first to create one with a different size.
+Leaving the terminal page or changing projects disconnects the shell and preserves the sandbox files.
+After a connection failure, click **Reconnect sandbox** to reconnect without deleting the files.
 **Stop** destroys the sandbox and its files.
 The provider enforces a one-hour lifetime even if the browser closes or cleanup fails.
 Shell connections use sandbox-scoped Modal connect tokens over WebSockets.

@@ -16,7 +16,7 @@ export class ModalTerminalRuntime {
     constructor(
         private projectId: string,
         private onOutput: (bytes: Uint8Array) => void,
-        private onClose: () => void
+        private onClose: (message: string) => void
     ) {}
 
     async start(size: TerminalSandboxSizeEnumApi): Promise<TerminalSandboxSizeEnumApi> {
@@ -34,7 +34,7 @@ export class ModalTerminalRuntime {
         await new Promise<void>((resolve, reject) => {
             let connected = false
             const timeout = setTimeout(() => {
-                reject(new Error('The sandbox connection timed out. Stop the terminal and try again.'))
+                reject(new Error('The sandbox connection timed out. Try reconnecting.'))
                 socket.close()
             }, 30_000)
             socket.onopen = () => {
@@ -58,16 +58,23 @@ export class ModalTerminalRuntime {
             }
             socket.onerror = () => {
                 clearTimeout(timeout)
-                reject(new Error('Could not connect to the Modal sandbox. Stop the terminal and try again.'))
+                reject(new Error('Could not connect to the Modal sandbox. Try reconnecting.'))
                 socket.close()
             }
-            socket.onclose = () => {
+            socket.onclose = ({ code }) => {
                 clearTimeout(timeout)
+                if (code === 4409) {
+                    this.request = null
+                }
                 if (!connected) {
                     reject(new Error('The sandbox connection closed before it was ready.'))
                 }
                 if (!this.stopped) {
-                    this.onClose()
+                    this.onClose(
+                        code === 4409
+                            ? 'This sandbox is open in another tab. Close that terminal before reconnecting.'
+                            : 'The sandbox disconnected. Reconnect to resume using its files.'
+                    )
                 }
             }
         })
@@ -95,6 +102,11 @@ export class ModalTerminalRuntime {
 
     read(): string {
         return this.output
+    }
+
+    disconnect(): void {
+        this.stopped = true
+        this.socket?.close()
     }
 
     stop(): Promise<void> {
