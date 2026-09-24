@@ -425,7 +425,7 @@ class InstanceMetadata:
     instance_tag: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OrgReport(UsageReportCounters):
     date: str
     organization_id: str

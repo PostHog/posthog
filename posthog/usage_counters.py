@@ -264,11 +264,12 @@ class UsageCounterService:
 
     def get_legacy(
         self, counter: UsageCounter, begin: datetime, end: datetime, *, caller: UsageCounterCaller = "daily_report"
-    ) -> list[tuple[int, int]]:
+    ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- Legacy query contract: (team_id, count).
         if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
             return self._quota_events_query(begin, end, count_distinct=False)
         return self._queries[counter](begin, end)
 
+    # nosemgrep: tuple-return-prefer-dataclass -- Report consumers require the legacy (team_id, count) rows.
     def _fetch_legacy(self, plan: UsageCounterPlan) -> dict[str, list[tuple[int, int]]]:
         counts: dict[str, list[tuple[int, int]]] = {}
         for counter, mode in plan.modes.items():
