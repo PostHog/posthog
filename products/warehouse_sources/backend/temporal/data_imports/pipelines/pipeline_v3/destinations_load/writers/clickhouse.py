@@ -309,6 +309,13 @@ class ClickHouseDestinationWriter:
 
         client = await self._make_client()
         with closing(client):
+            if run.is_full_refresh:
+                live = await asyncio.to_thread(self._existing_table, client, run.table_name)
+                if live is not None and is_published_by(live.comment, run.schema_id, run.run_uuid):
+                    # A stop between the exchange and the drop leaves the previous run's table under
+                    # the staging name, and it may not fit this batch's keys or column types.
+                    return BatchWriteOutcome(rows_written=0)
+
             async for batch in batches:
                 if batch.num_rows == 0:
                     continue
@@ -369,8 +376,8 @@ class ClickHouseDestinationWriter:
         live = self._existing_table(client, ctx.table_name)
 
         if live is not None and is_published_by(live.comment, ctx.schema_id, ctx.run_uuid):
-            # Already published. A replayed final batch staged its rows again, or an earlier attempt
-            # stopped between the exchange and the drop, which left the old data under this name.
+            # Already published. An earlier attempt stopped between the exchange and the drop, which
+            # left the previous run's table under the staging name.
             self._drop_if_owned(client, staging, ctx.schema_id)
             return
 

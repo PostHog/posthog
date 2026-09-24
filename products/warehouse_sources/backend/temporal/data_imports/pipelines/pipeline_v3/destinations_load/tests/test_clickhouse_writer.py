@@ -173,13 +173,14 @@ class TestFullRefresh:
         assert _read(client, database) == [(1, "a"), (2, "b"), (3, "c")]
         assert _tables(client, database) == {TABLE}
 
+    @pytest.mark.parametrize("second_run_keys", [(), ("id",)])
     async def test_a_run_that_stopped_after_the_exchange_publishes_on_replay(
-        self, database: str, client: ClickHouseClient
+        self, second_run_keys: tuple[str, ...], database: str, client: ClickHouseClient
     ) -> None:
         first = _ctx(database, "full_refresh", run_uuid="run-a1")
         await _deliver(LocalClickHouseWriter(first), first, 0, _rows([1, 2], ["a", "b"]), final=True)
 
-        second = _ctx(database, "full_refresh", run_uuid="run-b1")
+        second = _ctx(database, "full_refresh", primary_keys=second_run_keys, run_uuid="run-b1")
         writer = LocalClickHouseWriter(second)
         await writer.write_batch(
             _batches(_rows([3], ["c"])), DestinationBatchContext(run=second, batch_index=0, is_final_batch=True)
