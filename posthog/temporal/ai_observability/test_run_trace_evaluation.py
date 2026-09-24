@@ -507,7 +507,8 @@ class TestRunHogEvalOverRecentTraces:
         assert rewritten_condition.left.chain == ["input"]
 
     @time_machine.travel(FROZEN_NOW, tick=False)
-    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self, output_type: str):
         team = MagicMock(spec=Team)
         user = MagicMock()
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
@@ -518,7 +519,9 @@ class TestRunHogEvalOverRecentTraces:
             ]
         )
         bytecode = compile_hog(
-            "return target.type == 'trace' and length(evaluation_events) == 2",
+            "return length(evaluation_events) / 4"
+            if output_type == "numeric"
+            else "return target.type == 'trace' and length(evaluation_events) == 2",
             "destination",
         )
 
@@ -541,6 +544,8 @@ class TestRunHogEvalOverRecentTraces:
                     condition_filter=None,
                     sample_count=1,
                     allows_na=False,
+                    output_type=output_type,
+                    output_config={"min": 0, "max": 1} if output_type == "numeric" else {},
                     window_seconds=120,
                 )
 
@@ -559,7 +564,11 @@ class TestRunHogEvalOverRecentTraces:
         assert runner_kwargs["query"].traceId == "trace-123"
         assert runner_kwargs["query"].dateRange.date_from == (trigger_timestamp - TRACE_EVENTS_LOOKBACK).isoformat()
         assert runner_kwargs["query"].dateRange.date_to == (trigger_timestamp + timedelta(seconds=120)).isoformat()
-        assert results[0].verdict is True
+        if output_type == "numeric":
+            assert results[0].score == 0.5
+            assert results[0].verdict is None
+        else:
+            assert results[0].verdict is True
         assert results[0].input_preview == "first"
         assert results[0].output_preview == "two"
 

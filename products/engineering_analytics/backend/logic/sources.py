@@ -115,6 +115,10 @@ class GitHubTables:
     issue_events_team_requests: bool = False
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
     repository: str = ""
+    # The source these tables came from, already filtered by the caller's per-source warehouse RBAC.
+    # A read outside the warehouse that needs the repository's credential takes it from this source
+    # alone, so it can never reach a credential of a source the caller may not use.
+    source_id: str = ""
 
 
 def resolve_github_tables(
@@ -187,6 +191,7 @@ def resolve_github_tables(
                 reviews=tables.get(REVIEWS_SCHEMA),
                 issue_events_team_requests=candidate.tables.issue_events_team_requests,
                 repository=candidate.repository,
+                source_id=candidate.source_id,
             )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
@@ -381,6 +386,7 @@ class _RepoCandidate(NamedTuple):
     # a bare row has no repo to attribute it to); the parsed ``owner/repo`` for a qualified repo.
     repository: str
     tables: _RepoTables
+    source_id: str
 
 
 def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> Iterator[_RepoCandidate]:
@@ -410,7 +416,7 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
         by_repo = _synced_tables_by_repo(team=team, source=source)
         for repo_key in sorted(by_repo, key=order_key):
             repository = display if repo_key == legacy_key else repo_key
-            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key])
+            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key], source_id=str(source.id))
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:

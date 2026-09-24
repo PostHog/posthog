@@ -20,7 +20,7 @@ from .ai.human_outcome import maybe_record_human_outcome
 from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import ConversationDeliveryPart, EmailOutboxMessage, SigningSecret, Ticket
-from .models.constants import Channel
+from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from .services.delivery import enqueue_slack_body_delivery
 from .services.messages import visible_ticket_messages
 from .tasks.email import send_email_reply
@@ -57,9 +57,23 @@ def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> 
     author_type = item_context.get("author_type")
     if created_by_id and author_type != "customer":
         return True
-    if author_type == "AI":
+    # No created_by: only these authors are team replies. A workflow message with any other
+    # type would be stored and never delivered.
+    if author_type in ("AI", WORKFLOW_AUTHOR_TYPE):
         return True
     return False
+
+
+def _unattributed_author_name(item_context: dict | None) -> str:
+    """Name shown to the customer when a reply has no PostHog user.
+
+    A workflow reply is not the assistant. Using the AI bot name here would tell the
+    customer the assistant wrote a message a workflow sent.
+    """
+    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+    if author_type == WORKFLOW_AUTHOR_TYPE:
+        return "Support"
+    return AI_BOT_DISPLAY_NAME
 
 
 AI_BOT_DISPLAY_NAME = "AI assistant"
@@ -163,7 +177,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         # New message: update denormalized stats
         is_team_message = (created_by_id and author_type != "customer") or (
-            author_type == "AI" and not _is_private_message(item_context)
+            author_type in ("AI", WORKFLOW_AUTHOR_TYPE) and not _is_private_message(item_context)
         )
 
         update_fields = {
@@ -201,10 +215,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                     capture_exception(e, {"ticket_id": item_id})
 
             # Customer-facing analytics (to customer's project)
-            if is_team_message:
+            if is_team_message and author_type != WORKFLOW_AUTHOR_TYPE:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
                 capture_message_sent(ticket, comment_id, content or "", author=author)
-            else:
+            elif not is_team_message:
                 author = None
                 capture_message_received(ticket, comment_id, content or "")
 
@@ -283,7 +297,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
             # (private messages weren't counted in the first place)
             if not is_private:
                 author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-                is_team_message = created_by_id and author_type != "customer"
+                is_team_message = (created_by_id and author_type != "customer") or author_type == WORKFLOW_AUTHOR_TYPE
 
                 # Use Greatest to prevent negative counts from race conditions or data inconsistencies
                 update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
@@ -484,7 +498,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
             else:
-                author_name = AI_BOT_DISPLAY_NAME
+                author_name = _unattributed_author_name(item_context)
 
             # Shared channels are written to via Graph (the bot connector can't post
             # there); standard channels keep using the bot connector reply path.
@@ -572,7 +586,7 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
             else:
-                author_name = AI_BOT_DISPLAY_NAME
+                author_name = _unattributed_author_name(item_context)
 
             cast(Any, post_reply_to_github).delay(
                 ticket_id=str(ticket.id),
