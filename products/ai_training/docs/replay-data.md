@@ -14,12 +14,15 @@ The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
+- At or after **Monday, 2026-09-21 at 17:00 UTC** (18:00 in Europe/London): v3 keeps the v2 identifiers and keys, and stores its objects in the v3 buckets under `rrweb_3/` and the `/v3/` dataset paths.
 - The ML mirror drops a session if its ID is not UUIDv7 or its start year is beyond 9999.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
 Their replay blocks, images, and metadata use separate storage paths.
 The version applies to the whole session, including a session that crosses the cutoff.
+An image reference carries the dataset version of the session that collected it, so a v3 session's images are v3 whatever their month, and the image lanes never read a session ID.
+The three lanes require `AI_RESEARCH_REPLAY_S3_BUCKET` at startup, because a v3 session or image has no other place to go.
 
 ## Consent
 
@@ -46,11 +49,20 @@ A team has one image key per session start month.
 KMS wraps each key it holds with an encryption context that binds the team, the session or month, and the purpose.
 A sealed session key authenticates the same context.
 A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.
-Payload encryption uses XSalsa20-Poly1305.
+The replay lane that serves playback encrypts a block with XSalsa20-Poly1305, which is a different format: nothing this lane writes uses it.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 The envelope seals the raw payload with AES-256-GCM.
-Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
-The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
+Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace.
+An envelope takes one of two shapes, and where it is stored decides which.
+An object body is a binary frame: the ASCII magic `AISR03`, the length of the additional authenticated data as a 16-bit big-endian integer, those bytes themselves, the 12-byte nonce, then the sealed bytes followed by the 16-byte tag.
+The frame carries those bytes verbatim, so a reader passes them to AES-GCM as they are rather than rebuilding the canonical JSON and risking a re-serialization mismatch.
+A reader must still decode that context and check it equals the object it asked for, because one team month key seals every image object in a flush and the context is the only thing that tells them apart: a reader that skips the check authenticates a shard where it expected an index, or one image's location where it expected another's.
+A reader must also bound the frame before it slices, because the magic and the length sit outside the authenticated data.
+A parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
+The `frame` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes. It carries the whole frame and also each part on its own: the additional authenticated data as text, the nonce, the sealed bytes, the tag, the brotli body, and the decompressed data.
+The framed context names a `codec`, which tells a reader how to expand the plaintext.
+An `rrweb` block uses `brotli` at quality 9. Each lane declares its own codec, so this lane never produces snappy. It reads a block rarely and keeps it for months, so it stores fewer bytes instead.
+An image object uses `none`, because an image already arrives compressed.
 A sealed session key row carries `sealed_key` and `key_nonce`, and carries no `wrapped_key`.
 HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with an empty salt and the info string `ml-session-key-wrap`.
 AES-256-GCM then seals the session key under that wrapping key.
@@ -172,6 +184,9 @@ A session that crosses a month boundary stays in its start month, including late
 | Inline image indexes | `scrubbed-images/v2/<month>/<team>/index/`                  | Team and session month                   |
 | URL images           | `scrubbed-images/v2/<month>/<team>/url/<hash>`              | Team and session month                   |
 
+A v3 session uses the same layout in the v3 buckets: blocks under `rrweb_3/<month>/`, and the metadata catalog, the evaluation index and every image path with `/v3/` in place of `/v2/`.
+A reader finds the bucket of a block in its `block_url`, and resolves an `image:v3:` or `imageurl:v3:` reference in the v3 images bucket under the `/v3/` paths.
+
 Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
 URLs, block locations, and replay indexes are inside that payload.
 Neither the catalog nor its encrypted payload includes a distinct-ID field.
@@ -193,13 +208,15 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>`.
+A reference names its dataset version: `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>` for a v2 session, `image:v3:...` and `imageurl:v3:...` for a v3 session. The version is part of the reference, so the fetch frontier and every dedup cache treat a v3 reference as new even when a v2 session already stored the same image, and the v3 dataset gets its own copy.
 Images do not deduplicate across teams or session months.
 Kafka records between the ML lanes travel in cleartext; only objects in S3 are sealed, and stored scrubbed images use team image keys.
 Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
 Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
+The image scrubber hands the images it scrubbed to a write lane every 30 seconds or when its buffer is full, writes them while it scrubs the next batches, and writes the shard groups of one hand-off concurrently.
+The offsets of a hand-off are stored after its writes complete, in hand-off order, so a failed write stops every later store and the pod replays from the last stored offset.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 Its URL history expires eight days after the end of the session's UTC month.
@@ -226,6 +243,8 @@ New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 - `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
+- `S3_BUCKET` names the v3 bucket, which holds only AISR03 frames. A session that started at or after the v3 cutoff writes there, and v2 keeps its own bucket. The mirror, the sink and the image scrubber stop at startup when it is empty.
+- `S3_V3_PREFIX` selects the block prefix inside the v3 bucket and defaults to `rrweb_3`. Each dataset version has its own prefix, so a bucket policy grants only the versions it holds.
 
 The v2 producer requires `AI_RESEARCH_REPLAY_KEY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
 Missing values stop startup before it consumes Kafka messages.

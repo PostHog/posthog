@@ -49,9 +49,10 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
@@ -303,7 +304,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, TimeSensitiveActionPermission]
+    # Refreshing the cached repository list and dismissing a pending install request change no access.
+    time_sensitive_exclude_actions = ["github_repos_refresh", "github_install_requests_destroy"]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
 
@@ -423,16 +426,27 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
-        # Notify GitHub to uninstall the App, but only if no other PostHog team or user
-        # still relies on this installation (uninstalling breaks it for everyone sharing it).
+        audit = GitHubAudit.personal(integration, user)
+        remaining = UserGitHubIntegration.installation_reference_count(
+            installation_id, exclude_user_integration_id=integration.id
+        )
+        audit.record("disconnect_started", last_reference=remaining == 0)
         try:
-            UserGitHubIntegration.uninstall_if_last_reference(
-                installation_id, exclude_user_integration_id=integration.id
+            outcome = (
+                UserGitHubIntegration.uninstall_app_installation_status(installation_id)
+                if remaining == 0
+                else "skipped"
             )
+            audit.record("uninstall_completed", outcome=outcome)
         except Exception as e:
             capture_exception(e)
-
-        integration.delete()
+            audit.record("uninstall_completed", outcome="failed", failure_type=type(e).__name__)
+        try:
+            integration.delete()
+        except Exception as exc:
+            audit.record("disconnect_failed", stage="personal_deletion", failure_type=type(exc).__name__)
+            raise
+        audit.record("credential_deleted", after_commit=True, reason="personal_disconnect")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -627,6 +641,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                         flow=FlowKind.OAUTH_DISCOVER,
                         user_id=user.id,
                         connect_from=connect_from,
+                        originating_organization_id=team.organization_id if team else None,
                     ),
                 )
                 return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
@@ -646,6 +661,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 flow=FlowKind.PERSONAL_INSTALL,
                 user_id=user.id,
                 connect_from=str(connect_from) if connect_from else None,
+                # The resolved team can be a Desktop-selected project outside the current organization.
+                originating_organization_id=team.organization_id if team else None,
             ),
         )
         return Response(
@@ -897,6 +914,7 @@ def _attempt_app_oauth_fast_path(
             user_id=user.id,
             installation_id=team_installation_id,
             connect_from=connect_from,
+            originating_organization_id=team.organization_id,
         ),
     )
     return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})

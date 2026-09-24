@@ -68,7 +68,7 @@ export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogic
             loadEventIngestionRestrictions: async () => {
                 try {
                     const response = await api.get(
-                        `api/environments/${values.currentTeamIdStrict}/event_ingestion_restrictions/`
+                        `api/projects/${values.currentTeamIdStrict}/event_ingestion_restrictions/`
                     )
                     // api.get resolves to null on non-JSON responses (204, CDN error pages, etc.) — coerce to []
                     return Array.isArray(response) ? response : []

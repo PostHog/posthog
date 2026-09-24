@@ -1583,8 +1583,11 @@ def _capture_run_finished(
 
 def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
-    # by the agent's close-out, and `update()` skips the full model refresh.
-    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(summary=summary)
+    # by the agent's close-out, and `update()` skips the full model refresh. `updated_at` is stamped
+    # by hand because `auto_now` runs in `save()`, which this path deliberately skips.
+    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(
+        summary=summary, updated_at=timezone.now()
+    )
     # Stamped here rather than at each emit/edit site so the flags are computed once, from the
     # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
     # a stamp failure never costs the summary write that already landed above.

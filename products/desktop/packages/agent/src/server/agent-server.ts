@@ -15,6 +15,7 @@ import {
   RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
+import type { SpanContext } from "@opentelemetry/api";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -240,6 +241,21 @@ export function buildCloudSessionSystemPrompt(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function budgetSnapshotFromUsageUpdate(
+  message: unknown,
+): Record<string, unknown> | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { method, params } = message as {
+    method?: unknown;
+    params?: { budget?: unknown };
+  };
+  if (method !== POSTHOG_NOTIFICATIONS.USAGE_UPDATE) return undefined;
+  const budget = params?.budget;
+  return typeof budget === "object" && budget !== null
+    ? (budget as Record<string, unknown>)
+    : undefined;
 }
 
 export function isTurnCompleteNotification(message: unknown): boolean {
@@ -1114,6 +1130,12 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
+      // An abort during initialization leaves the root span open with no session
+      // to carry it, and the caller exits the process as soon as this returns.
+      await withTimeout(
+        this.initializingTelemetry?.shutdown() ?? Promise.resolve(),
+        5_000,
+      );
     } finally {
       this.server?.close();
       this.server = null;
@@ -1129,6 +1151,10 @@ export class AgentServer {
    * the multi-hour inactivity timeout. Best-effort and self-contained so it can
    * run from a process-level handler with no session context.
    */
+  private get agentVersion(): string {
+    return this.config.version ?? packageJson.version;
+  }
+
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
@@ -1148,6 +1174,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          state: { agent_version: this.agentVersion },
         },
       );
     } catch (updateError) {
@@ -1370,6 +1397,7 @@ export class AgentServer {
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
             ...(messageId ? { messageId } : {}),
+            budgetSteerMode: this.budgetSteerMode(),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -1844,9 +1872,9 @@ export class AgentServer {
           },
         },
       });
-      await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.initializingTelemetry?.shutdown();
       await this.cleanupInitializingConnection();
       this.initializingConnection = null;
       this.initializingTelemetry = undefined;
@@ -1956,13 +1984,24 @@ export class AgentServer {
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
+    this.lastBudgetSnapshot = undefined;
+    this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
 
+    const telemetry = this.createRunTelemetry(
+      payload,
+      deviceInfo,
+      runtimeAdapter,
+    );
+    this.initializingTelemetry = telemetry;
+
     const gatewayEnv = this.configureEnvironment({
+      runSpanContext: telemetry?.getRunSpanContext(),
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
@@ -2063,13 +2102,6 @@ export class AgentServer {
       getApiKey: () => this.config.apiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${this.config.version ?? packageJson.version}`,
     });
-
-    const telemetry = this.createRunTelemetry(
-      payload,
-      deviceInfo,
-      runtimeAdapter,
-    );
-    this.initializingTelemetry = telemetry;
 
     const logWriter = new SessionLogWriter({
       posthogAPI,
@@ -2208,6 +2240,7 @@ export class AgentServer {
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
+      budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
@@ -2424,9 +2457,12 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
-        ...(isBenjaminEnabled() && {
-          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
-        }),
+        state: {
+          agent_version: this.agentVersion,
+          ...(isBenjaminEnabled() && {
+            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+          }),
+        },
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -4242,6 +4278,10 @@ export class AgentServer {
     );
   }
 
+  private budgetSteerMode(): "publish" | "wrap_up" {
+    return this.shouldAutoPublishCloudChanges() ? "publish" : "wrap_up";
+  }
+
   /**
    * Apply settings from run state before the first turn when launch config is
    * incomplete, and return the host-context blocks that prompt needs for them.
@@ -4572,6 +4612,7 @@ export class AgentServer {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
@@ -4625,6 +4666,7 @@ export class AgentServer {
   }
 
   private configureEnvironment({
+    runSpanContext,
     isInternal = false,
     originProduct,
     signalReportId,
@@ -4642,6 +4684,7 @@ export class AgentServer {
     prewarmed,
     executionEnvironment,
   }: {
+    runSpanContext?: SpanContext;
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
@@ -4699,6 +4742,9 @@ export class AgentServer {
     // path sets them as `model_providers.posthog.http_headers` instead, so we
     // also expose the record form below.
     const gatewayProperties = {
+      // Gateway headers live for the session, so correlate with its enclosing run.
+      task_run_trace_id: runSpanContext?.traceId,
+      task_run_span_id: runSpanContext?.spanId,
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,
@@ -5444,6 +5490,9 @@ export class AgentServer {
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = null;
+    this.lastBudgetSnapshot = undefined;
+    this.lastPersistedBudgetKey = undefined;
+    this.budgetPersistInFlightKey = undefined;
     this.session = null;
   }
 
@@ -5491,10 +5540,53 @@ export class AgentServer {
       payload.task_id,
       payload.run_id,
       this.logger,
+      this.lastBudgetSnapshot && { budget_guard: this.lastBudgetSnapshot },
     );
   }
 
+  private lastBudgetSnapshot: Record<string, unknown> | undefined;
+  private lastPersistedBudgetKey: string | undefined;
+  private budgetPersistInFlightKey: string | undefined;
+
+  private persistBudgetSnapshotIfChanged(
+    budget: Record<string, unknown>,
+  ): void {
+    const payload = this.session?.payload;
+    if (!payload) return;
+    const key = JSON.stringify([payload.run_id, budget.stage, budget.steers]);
+    if (
+      key === this.lastPersistedBudgetKey ||
+      key === this.budgetPersistInFlightKey
+    ) {
+      return;
+    }
+    this.budgetPersistInFlightKey = key;
+    this.posthogAPI
+      .updateTaskRun(
+        payload.task_id,
+        payload.run_id,
+        { state: { budget_guard: budget } },
+        AbortSignal.timeout(30_000),
+      )
+      .then(() => {
+        this.lastPersistedBudgetKey = key;
+      })
+      .catch((error: unknown) => {
+        this.logger.debug("Failed to persist the budget snapshot", { error });
+      })
+      .finally(() => {
+        if (this.budgetPersistInFlightKey === key) {
+          this.budgetPersistInFlightKey = undefined;
+        }
+      });
+  }
+
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    const budget = budgetSnapshotFromUsageUpdate(message);
+    if (budget) {
+      this.lastBudgetSnapshot = budget;
+      this.persistBudgetSnapshotIfChanged(budget);
+    }
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;
@@ -5572,7 +5664,7 @@ export class AgentServer {
       this.session?.sseController ?? this.initializingSseController;
     if (controller) {
       this.sendSseEvent(controller, event);
-    } else {
+    } else if (!this.eventStreamSender) {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of
       // `this.session` assignment) or before its SSE controller attaches.

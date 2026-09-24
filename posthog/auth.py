@@ -36,11 +36,7 @@ from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.utils import (
-    ACTIVITY_LOG_INTENT_HEADER,
-    ACTIVITY_LOG_INTENT_MAX_LENGTH,
-    activity_storage,
-)
+from posthog.models.activity_logging.utils import activity_storage, record_agent_intent
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -60,14 +56,17 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.oauth_provenance import is_interactive_desktop_grant
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.signals.backend.facade.activity_client import resolve_scout_client_tag
 
 
@@ -189,6 +188,18 @@ class SessionAuthentication(authentication.SessionAuthentication):
             user, auth = auth_result
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
+            try:
+                security_shadow_check(
+                    SecuritySubject(
+                        email=user.email,
+                        user_uuid=str(user.uuid),
+                        ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                    ),
+                    SecuritySurface.APP,
+                    call_site="session",
+                )
+            except Exception:
+                structlog_logger.exception("security_shadow_check_site_failed", call_site="session")
 
             return (user, auth)
 
@@ -346,6 +357,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             # request cycle (e.g. authenticate() called directly) the thread-local would leak.
             if activity_storage.is_request_scoped():
                 activity_storage.set_user(personal_api_key_object.user)
+                record_agent_intent(request)
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
@@ -903,21 +915,18 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
 
 def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
-    """Record a trusted task binding, or intent from a Desktop OAuth application.
+    """Record the intent the caller states, and a task binding when the token carries one.
 
-    Intent is self-reported. Only the token binding can supply a verified task id.
-    Attribution is extra detail on an audit row, so an error here must not fail the request.
+    Only the token binding can supply a verified task id, so a token without one records the
+    intent alone. Attribution is extra detail on an audit row, so an error here must not fail
+    the request.
     """
     try:
-        if access_token.sandbox_task_id is None and not is_interactive_desktop_grant(request, access_token):
-            return
         if access_token.sandbox_task_id is not None:
             activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
-        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
-        if intent:
-            activity_storage.set_agent_intent(intent)
     except Exception as e:
         capture_exception(e)
+    record_agent_intent(request)
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
@@ -1117,6 +1126,7 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
         )
         if activity_storage.is_request_scoped():
             activity_storage.set_user(personal_api_key.user)
+            record_agent_intent(request)
         return personal_api_key.user, None
 
 
@@ -1566,7 +1576,11 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Webhook integration not found or disabled.")
 
         django_request = getattr(request, "_request", request)
-        raw_body = django_request.body.decode()
+        try:
+            raw_body = django_request.body.decode()
+        except UnicodeDecodeError:
+            # The signed input is text, so a body that is not UTF-8 cannot carry a valid signature.
+            raise AuthenticationFailed("Invalid webhook signature.")
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
         expected = hmac_sha256_signature(signing_secret, hmac_input.encode())

@@ -197,6 +197,7 @@ export {
   buildDiscussReportPrompt,
   buildLocalCodeSnapshotPrompt,
   CODE_CONTEXT_DISCLOSURE,
+  NO_CHECKOUT_DISCLOSURE,
 } from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
@@ -232,6 +233,7 @@ export {
   formatMention,
   splitMentionSegments,
 } from "./mentions";
+export { supports1MContext, supportsFastMode } from "./model-catalog";
 export {
   customModelMeta,
   DEFAULT_OPTION_META_KEY,
@@ -280,11 +282,16 @@ export {
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   createPiToolCallRecord,
+  formatMcpToolLabel,
+  formatPiMcpToolName,
   isPiToolName,
   PI_TOOL_KIND_BY_NAME,
+  type PiMcpCallDetails,
   type PiToolCallInput,
   type PiToolCallRecord,
   type PiToolName,
+  parsePiMcpCallDetails,
+  readPiMcpCallDetails,
 } from "./pi-tool-call";
 export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
@@ -296,13 +303,12 @@ export {
 } from "./pr-urls";
 export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
+  type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
   getCapabilityLadder,
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
   type SupportedReasoningEffort,
-  supports1MContext,
-  supportsFastMode,
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
@@ -388,11 +394,12 @@ export {
   posthogToolMeta,
   readAgentToolName,
   readMcpInstallationId,
+  readMcpProxyCallDetails,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
-export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
+export { TranscriptBoundaries } from "./transcript-neutral-messages";
 export { TypedEventEmitter } from "./typed-event-emitter";
 export {
   isSafeExternalUrl,

@@ -2107,7 +2107,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
                         const batch = allIds.slice(i, i + BATCH_SIZE)
-                        const response = await api.create(`api/environments/${teamId}/persons/batch_by_distinct_ids/`, {
+                        const response = await api.create(`api/projects/${teamId}/persons/batch_by_distinct_ids/`, {
                             distinct_ids: batch,
                         })
 

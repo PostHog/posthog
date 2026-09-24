@@ -25,6 +25,7 @@ from posthog.egress.github.transport import (
     raise_if_github_rate_limited,
 )
 from posthog.egress.limiter.policies import Priority
+from posthog.github.merge_queue import MergeQueueState
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
@@ -122,6 +123,72 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         response.json.return_value = body
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
             assert github.has_pull_request_comment("example/repo", 1, "<!-- replacement -->") is expected
+
+    @parameterized.expand(
+        [
+            ("incomplete", 200, [], False),
+            ("error_status", 502, {"message": "Bad gateway"}, True),
+            ("malformed", 200, {"error": "unavailable"}, True),
+        ]
+    )
+    def test_merge_queue_state_refuses_a_partial_read(self, _name, status_code, body, complete) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = body
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            with pytest.raises(GitHubIntegrationError):
+                github.get_pull_request_merge_queue_state("example/repo", 1)
+
+    @parameterized.expand(
+        [
+            ("stacked", 200, [{"head": {"repo": {"full_name": "Example/Repo"}}}], True),
+            ("not_stacked", 200, [], False),
+            ("fork_only", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], False),
+            ("fork_only_page_then_incomplete", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], "partial"),
+            ("error_status", 502, {"message": "Bad gateway"}, None),
+        ]
+    )
+    def test_stacked_pull_request_read_never_guesses(self, _name, status_code, body, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = body
+        complete = expected != "partial"
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            if expected in (None, "partial"):
+                with pytest.raises(GitHubIntegrationError):
+                    github.has_open_pull_request_with_base("example/repo", "feature")
+            else:
+                assert github.has_open_pull_request_with_base("example/repo", "feature") is expected
+
+    @parameterized.expand(
+        [
+            ("merge_queue_state", lambda github: github.get_pull_request_merge_queue_state("../victim/repo", 1)),
+            ("stacked_read", lambda github: github.has_open_pull_request_with_base("..%2Fvictim/repo", "feature")),
+        ]
+    )
+    def test_unsafe_repository_never_reaches_github(self, _name, read) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        with (
+            patch.object(github, "_installation_authenticated_get") as single,
+            patch.object(github, "_installation_authenticated_get_pages") as pages,
+        ):
+            with pytest.raises(GitHubIntegrationError):
+                read(github)
+        single.assert_not_called()
+        pages.assert_not_called()
+
+    def test_merge_queue_state_reads_the_trunk_comment(self) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=200)
+        response.json.return_value = [
+            {"user": {"login": "someone"}, "body": "LGTM"},
+            {
+                "user": {"login": "trunk-io[bot]", "type": "Bot"},
+                "body": "🧪 Running tests on this pull request. https://app.trunk.io/example-org/merge-queue/x/1",
+            },
+        ]
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], True)):
+            assert github.get_pull_request_merge_queue_state("example/repo", 1) == MergeQueueState.TESTING
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -807,6 +874,39 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
+        # The search is ordered by id, so an exhausted first installation would otherwise hide a
+        # healthy later one that covers the repository.
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        covering = self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, True]):
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        assert result.integration.id == covering.id
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
+        self, _name, error
+    ):
+        # No other installation answered, so the caller has to hear why rather than read it as
+        # "this team has no integration for the repository".
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, False]):
+            with pytest.raises(type(error)):
+                GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+
+    @parameterized.expand(
+        [
             ("owner_repo", "PostHog/posthog", "https://api.github.com/repos/PostHog/posthog/pulls/123"),
             ("bare_repo", "posthog", "https://api.github.com/repos/PostHog/posthog/pulls/123"),
         ]
@@ -891,6 +991,57 @@ class TestGitHubIntegrationModel(BaseTest):
         sent_query = mock_request.call_args.kwargs["params"]["q"]
         assert sent_query == 'repo:PostHog/posthog "crash  repo:microsoft/vscode" in:title type:issue'
 
+    def test_search_issues_retrieves_an_issue_by_number(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "number": 42,
+            "title": "Checkout failed",
+            "html_url": "https://github.com/PostHog/posthog/issues/42",
+        }
+
+        with patch.object(github, "api_request", return_value=mock_response) as mock_request:
+            results = github.search_issues("posthog", "#42")
+
+        assert results == [
+            {
+                "id": "42",
+                "title": "Checkout failed",
+                "url": "https://github.com/PostHog/posthog/issues/42",
+                "external_context": {"repository": "posthog", "number": 42},
+            }
+        ]
+        assert mock_request.call_args.args == ("GET", "/repos/PostHog/posthog/issues/42")
+
+    def test_search_issues_falls_back_to_title_search_when_number_is_not_found(self):
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        not_found_response = MagicMock(status_code=404)
+        search_response = MagicMock(status_code=200)
+        search_response.json.return_value = {
+            "items": [
+                {
+                    "number": 84,
+                    "title": "Migration for #42",
+                    "html_url": "https://github.com/PostHog/posthog/issues/84",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                }
+            ]
+        }
+
+        with patch.object(github, "api_request", side_effect=[not_found_response, search_response]) as mock_request:
+            results = github.search_issues("posthog", "#42")
+
+        assert [result["id"] for result in results] == ["84"]
+        assert mock_request.call_count == 2
+        assert mock_request.call_args.args == ("GET", "/search/issues")
+        assert mock_request.call_args.kwargs["params"]["q"] == 'repo:PostHog/posthog "#42" in:title type:issue'
+
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
@@ -957,6 +1108,58 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice"])
         assert result["success"] is False
         assert result["status_code"] == 422
+
+    def test_add_pull_request_labels_posts_to_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = [{"name": "self-driving"}]
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
+        assert result == {"success": True, "labels": ["self-driving"]}
+        # Labels go through the issues endpoint, not /pulls.
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/labels"
+        assert mock_post.call_args.kwargs["json_body"] == {"labels": ["self-driving"]}
+
+    def test_add_pull_request_labels_creates_a_label_the_repository_lacks(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        refused = MagicMock(status_code=422, text="Validation Failed")
+        created = MagicMock(status_code=201)
+        applied = MagicMock(status_code=200)
+        applied.json.return_value = [{"name": "self-driving"}]
+        with patch.object(
+            github, "_installation_authenticated_post", side_effect=[refused, created, applied]
+        ) as mock_post:
+            result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
+        assert result == {"success": True, "labels": ["self-driving"]}
+        assert mock_post.call_args_list[1].args[0] == "https://api.github.com/repos/PostHog/posthog/labels"
+        assert mock_post.call_args_list[1].kwargs["json_body"] == {"name": "self-driving"}
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("all_blank", ["", None, "   "]),
+            # GitHub caps a label name at 50 characters, so a longer one is a caller mistake.
+            ("too_long", ["l" * 51]),
+        ]
+    )
+    def test_add_pull_request_labels_skips_github_when_there_is_nothing_to_apply(self, _name: str, labels: list):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_post") as mock_post:
+            result = github.add_pull_request_labels("PostHog/posthog", 123, labels)
+        assert result == {"success": True, "labels": []}
+        mock_post.assert_not_called()
+
+    def test_add_pull_request_labels_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=403, text="Forbidden")
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response):
+            result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
+        assert result["success"] is False
+        assert result["status_code"] == 403
 
     @parameterized.expand(
         [

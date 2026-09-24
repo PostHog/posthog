@@ -780,6 +780,8 @@ class TestQuarantineRequestValidation(SimpleTestCase):
 class _StubCurated:
     def __init__(self, rows: list[tuple[Any, ...]]) -> None:
         self.repository = "PostHog/posthog"
+        self.team = None
+        self.source_id = ""
         self._rows = rows
         self.sql = ""
 
@@ -817,10 +819,13 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
     def test_rollup_never_counts_more_tests_than_it_returns(self, _name: str, row_count: int, truncated: bool) -> None:
         curated = _StubCurated(self._rows(row_count))
 
-        def place(_repository: str, tests: list[Any]) -> RepoOwnershipResult:
+        def place(_repository: str, tests: list[Any], **_kwargs: Any) -> RepoOwnershipResult:
             return RepoOwnershipResult(tests=[PlacedTest(path="p", owner_team="team-a")] * len(tests), resolved=True)
 
-        with mock.patch(f"{_TRUNK_QUARANTINE}.resolve_test_ownership", side_effect=place):
+        with (
+            mock.patch(f"{_TRUNK_QUARANTINE}.resolve_test_ownership", side_effect=place),
+            mock.patch(f"{_TRUNK_QUARANTINE}.repo_files"),
+        ):
             debt = query_trunk_quarantine_debt(
                 curated=curated,  # type: ignore[arg-type]
                 ttl_days=30,
