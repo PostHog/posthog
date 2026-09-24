@@ -1,7 +1,6 @@
 # shellcheck shell=bash
-# Sourced by every wrapper in this directory. The wrapper's file name is the base name of the binary it starts, so
-# every wrapper is the same two lines. Each version directory carries its own copy of this file, because a deployed
-# version must not depend on files outside it.
+# Sourced by every wrapper in this directory after the wrapper sets UDF_NAME to the base name of its binary. Each
+# version directory carries its own copy of this file, because a deployed version must not depend on files outside it.
 
 # ClickHouse starts a wrapper with copies of its open files, including client connections. A connection stays open
 # while any copy of it is open, so a long-running UDF process keeps a connection open after the server closes it,
@@ -14,8 +13,8 @@ for fd_path in /proc/$$/fd/*; do
     fi
 done
 
+: "${UDF_NAME:?the wrapper must set UDF_NAME before it sources run_udf.sh}"
 DIR_NAME=$(dirname "$0")
-UDF_NAME=$(basename "$0")
 
 TEMP_DIR=$(mktemp -d -p /tmp "${UDF_NAME}_XXXXXXXXXX")
 trap 'rm -rf "$TEMP_DIR"; exit' 0

@@ -1,2 +1,3 @@
 #!/bin/bash
+UDF_NAME=json_strip_empty_strings_and_nulls_udf
 . "$(dirname "$0")/run_udf.sh"
