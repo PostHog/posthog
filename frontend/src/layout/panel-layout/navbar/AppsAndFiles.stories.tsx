@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -108,10 +110,20 @@ const meta: Meta<typeof SidebarStory> = {
                     const params = new URL(req.url).searchParams
                     const parent = params.get('parent')
                     const search = params.get('search')?.toLowerCase() ?? ''
+                    const type = search
+                        .split(' ')
+                        .find((part) => part.startsWith('type:'))
+                        ?.slice(5)
+                    const query = search
+                        .split(' ')
+                        .filter((part) => !part.includes(':'))
+                        .join(' ')
                     const results = files.filter((file) =>
                         parent !== null
                             ? file.path.split('/').slice(0, -1).join('/') === parent
-                            : file.type !== 'folder' && file.path.toLowerCase().includes(search)
+                            : file.type !== 'folder' &&
+                              (!type || file.type === type) &&
+                              file.path.toLowerCase().includes(query)
                     )
                     return [200, { results, count: results.length, next: null, has_more: false }]
                 },
@@ -138,6 +150,12 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Apps: Story = {}
 export const Files: Story = { args: { tab: 'files' } }
+export const FilesOptions: Story = {
+    ...Files,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Files options'))
+    },
+}
 export const Chat: Story = {
     args: { tab: 'chat' },
     decorators: [
@@ -163,6 +181,7 @@ export const Chat: Story = {
     ],
 }
 export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
+export const FilesFiltered: Story = { args: { tab: 'files', search: 'type:notebook' } }
 export const FilesNoResults: Story = { args: { tab: 'files', search: 'nothing-matches' } }
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
