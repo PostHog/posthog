@@ -58,7 +58,8 @@ class TerminalHandler(WebSocketHandler):
             while True:
                 output = await self.stream.read_bytes(65536, partial=True)
                 await self.write_message(output, binary=True)
-        except (StreamClosedError, WebSocketClosedError):
+        # After the shell exits, an inline PTY read can raise EIO instead of StreamClosedError.
+        except (StreamClosedError, WebSocketClosedError, OSError):
             self.close()
 
     async def on_message(self, message: str | bytes) -> None:
