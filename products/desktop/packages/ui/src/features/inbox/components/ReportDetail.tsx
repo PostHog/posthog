@@ -16,6 +16,7 @@ import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/Repor
 import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { ReportRoutingSection } from "./routing/ReportRoutingSection";
 
 interface ReportDetailProps {
   reportId: string;
@@ -100,6 +101,7 @@ export function ReportDetailContent({
         showDismiss={false}
       >
         <ReportReviewersSection report={report} />
+        <ReportRoutingSection reportId={report.id} />
         <ReportRunsSection report={report} />
         <ReportActivitySection
           reportId={report.id}

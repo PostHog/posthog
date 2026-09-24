@@ -776,7 +776,6 @@ export type InboxReportCloseMethod =
   | "unmount";
 
 export type InboxReportActionType =
-  | "undo_snooze"
   | "dismiss"
   | "resolve"
   | "restore"
@@ -803,7 +802,6 @@ export type InboxReportActionType =
   | "create_canvas";
 
 export type InboxReportActionSurface =
-  | "shortlist"
   | "detail_pane"
   | "detail_footer"
   | "toolbar"
@@ -826,7 +824,13 @@ export type InboxReportActionFailureCode =
   | "task_creation_failed"
   | "unexpected_error";
 
-export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
+export type InboxReviewerScope =
+  | "for-you"
+  | "entire-project"
+  | "teammate"
+  | "team"
+  | "domain"
+  | "unclassified";
 
 export interface InboxTriageStartedProperties {
   /** Correlates one Desktop triage run across its start, actions, and end. */
@@ -1777,7 +1781,6 @@ export const ANALYTICS_EVENTS = {
 
   // Inbox events
   INBOX_VIEWED: "Inbox viewed",
-  INBOX_REPORTS_IMPRESSED: "Inbox reports impressed",
   INBOX_REPORT_OPENED: "Inbox report opened",
   INBOX_REPORT_CLOSED: "Inbox report closed",
   INBOX_REPORT_ACTION: "Inbox report action",
@@ -1998,23 +2001,6 @@ export type EventPropertyMap = {
 
   // Inbox events
   [ANALYTICS_EVENTS.INBOX_VIEWED]: InboxViewedProperties;
-  [ANALYTICS_EVENTS.INBOX_REPORTS_IMPRESSED]: {
-    inbox_client: "desktop";
-    tab: "for_you_pilot";
-    scope: "for-you";
-    list_size: number;
-    total_count: number | null;
-    has_active_filters: false;
-    impression_count: number;
-    impressions: {
-      report_id: string;
-      rank: number;
-      priority: string | null;
-      actionability: string | null;
-      status: string;
-      is_suggested_reviewer: boolean;
-    }[];
-  };
   [ANALYTICS_EVENTS.INBOX_REPORT_OPENED]: InboxReportOpenedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_CLOSED]: InboxReportClosedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_ACTION]: InboxReportActionProperties;
@@ -2105,7 +2091,6 @@ export type EventPropertyMap = {
  */
 const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_VIEWED,
-  ANALYTICS_EVENTS.INBOX_REPORTS_IMPRESSED,
   ANALYTICS_EVENTS.INBOX_REPORT_OPENED,
   ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,
   ANALYTICS_EVENTS.INBOX_REPORT_ACTION,

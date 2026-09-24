@@ -14,6 +14,7 @@ import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/ut
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
 import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
+import { ReportRoutingSection } from "./routing/ReportRoutingSection";
 
 interface PullRequestDetailProps {
   reportId: string;
@@ -100,6 +101,7 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
         evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
       >
         <ReportReviewersSection report={report} />
+        <ReportRoutingSection reportId={report.id} />
       </InboxDetailFrame>
     </ReportChatLayout>
   );

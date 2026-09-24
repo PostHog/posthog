@@ -16,6 +16,10 @@ const REPORT_TAB_TOTAL = 75;
 const mockGetSignalReports = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
+
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({
     getSignalReports: mockGetSignalReports,

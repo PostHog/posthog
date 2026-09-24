@@ -6672,12 +6672,14 @@ export namespace Schemas {
     };
     export type Response12 = {
         columns?: (Array<unknown> | null) | undefined;
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6697,9 +6699,11 @@ export namespace Schemas {
             | undefined;
     };
     export type Response13 = {
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7898,12 +7902,14 @@ export namespace Schemas {
     export type MarketingAnalyticsOrderByEnum = "ASC" | "DESC";
     export type MarketingAnalyticsTableQueryResponse = {
         columns?: (Array<unknown> | null) | undefined;
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7966,9 +7972,11 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type MarketingAnalyticsAggregatedQueryResponse = {
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -16174,6 +16182,189 @@ export namespace Schemas {
         count: number;
         results: Array<PersonRecord>;
     }>;
+    export type SignalProductDomain = {
+        /**
+         * Stable product-domain ID. Renaming preserves personal rules.
+         */
+        id: string;
+        /**
+         * Name of the capability that needs attention.
+         */
+        name: string;
+        /**
+         * Responsibility boundaries, including examples and exclusions.
+         */
+        description: string;
+        owning_role_id?: (string | null) | undefined;
+        /**
+         * Responsible team's current display name.
+         */
+        owning_role_name: string | null;
+        archived?: boolean | undefined;
+        /**
+         * Definition revision used to detect stale routing and previews.
+         */
+        revision: number;
+    };
+    export type SignalDomainPreference = {
+        /**
+         * Personal routing preference ID.
+         */
+        id: string;
+        /**
+         * The domain this rule applies to.
+         */
+        domain: SignalProductDomain & unknown;
+        /**
+         * Whether to exclude this user from automatic suggestions for the domain.
+         */
+        excluded: boolean;
+        /**
+         * Preference version; older cleanup operations stop after a change.
+         */
+        revision: number;
+        /**
+         * When this preference last changed.
+         */
+        updated_at: string;
+    };
+    export type PaginatedSignalDomainPreferenceList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<SignalDomainPreference>;
+    };
+    export type PaginatedSignalProductDomainList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<SignalProductDomain>;
+    };
+    /**
+     * * `preparing` - Preparing preview
+     * * `preview` - Preview
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     * * `undoing` - Undoing
+     * * `undone` - Undone
+     * * `cancelled` - Rule changed
+     */
+    export type SignalRoutingBatchStatusEnum =
+        | "preparing"
+        | "preview"
+        | "pending"
+        | "running"
+        | "complete"
+        | "failed"
+        | "undoing"
+        | "undone"
+        | "cancelled";
+    export type SignalRoutingBatch = {
+        /**
+         * Operation ID used to apply, inspect, retry, or undo this preview.
+         */
+        id: string;
+        /**
+         * The product domain matched by this operation.
+         */
+        domain_id: string;
+        /**
+         * Preview, cleanup, or undo progress.
+         *
+         * * `preparing` - Preparing preview
+         * * `preview` - Preview
+         * * `pending` - Pending
+         * * `running` - Running
+         * * `complete` - Complete
+         * * `failed` - Failed
+         * * `undoing` - Undoing
+         * * `undone` - Undone
+         * * `cancelled` - Rule changed
+         */
+        status: SignalRoutingBatchStatusEnum & unknown;
+        /**
+         * Number of report suggestions included in the saved preview.
+         */
+        total: number;
+        /**
+         * Suggestions removed by this operation.
+         */
+        changed: number;
+        /**
+         * Reports preserved because the user has taken ownership.
+         */
+        skipped_claims: number;
+        /**
+         * Reports skipped because subsequent edits or rules superseded the operation.
+         */
+        skipped_changes: number;
+        /**
+         * Stable failure category, empty when no failure occurred.
+         */
+        error: string;
+        /**
+         * When the preview snapshot was created.
+         */
+        created_at: string;
+        /**
+         * Most recent operation update.
+         */
+        updated_at: string;
+    };
+    export type PaginatedSignalRoutingBatchList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<SignalRoutingBatch>;
+    };
+    /**
+     * * `pending` - Pending
+     * * `removed` - Removed
+     * * `claimed` - Active ownership
+     * * `changed` - Changed since preview
+     * * `restored` - Restored
+     * * `cancelled` - Cancelled before removal
+     */
+    export type SignalRoutingBatchChangeStatusEnum =
+        | "pending"
+        | "removed"
+        | "claimed"
+        | "changed"
+        | "restored"
+        | "cancelled";
+    export type SignalRoutingBatchReport = {
+        /**
+         * Report included in this preview.
+         */
+        report_id: string;
+        /**
+         * Current report title.
+         */
+        title: string;
+        /**
+         * Outcome for this report in the operation.
+         *
+         * * `pending` - Pending
+         * * `removed` - Removed
+         * * `claimed` - Active ownership
+         * * `changed` - Changed since preview
+         * * `restored` - Restored
+         * * `cancelled` - Cancelled before removal
+         */
+        status: SignalRoutingBatchChangeStatusEnum & unknown;
+        /**
+         * Whether the preference owner currently owns active work on this report.
+         */
+        has_active_claim: boolean;
+    };
+    export type PaginatedSignalRoutingBatchReportList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<SignalRoutingBatchReport>;
+    };
     /**
      * * `acp` - ACP
      * * `pi` - Pi
@@ -18435,6 +18626,15 @@ export namespace Schemas {
         total_size: number | null;
         event_count: number | null;
     }>;
+    export type PatchedSignalProductDomain = Partial<{
+        id: string;
+        name: string;
+        description: string;
+        owning_role_id: string | null;
+        owning_role_name: string | null;
+        archived: boolean;
+        revision: number;
+    }>;
     /**
      * * `popover` - popover
      * * `widget` - widget
@@ -19512,17 +19712,103 @@ export namespace Schemas {
          */
         event_count: number | null;
     };
-    export type SignalReportSnoozeRequest = {
+    export type SignalDomainPreferenceWrite = {
         /**
-         * Hide from your For you shortlist for seven days. False undoes this.
+         * Product domain in this project.
          */
-        snoozed: boolean;
+        domain_id: string;
+        /**
+         * Enable or disable this personal rule. Enabling here affects future routing without a backlog operation.
+         */
+        excluded: boolean;
     };
-    export type SignalReportSnoozeResponse = {
+    export type SignalDomainPreview = {
         /**
-         * When this personal snooze expires, or null after undo.
+         * Domain whose existing suggestions should be previewed for removal.
          */
-        snoozed_until: string | null;
+        domain_id: string;
+    };
+    export type SignalPersonalCorrection = {
+        /**
+         * Whether an explicit per-report Not me correction is active for the current user.
+         */
+        excluded: boolean;
+        /**
+         * Whether this user still owns active work on the report; removing a suggestion does not release it.
+         */
+        has_active_claim: boolean;
+    };
+    /**
+     * * `human` - Human correction
+     * * `agent` - Report classification
+     * * `code` - Repository ownership
+     */
+    export type SignalReportRoutingSourceEnum = "human" | "agent" | "code";
+    export type SignalReportRouting = {
+        /**
+         * Primary product domain; null when unclassified.
+         */
+        domain: SignalProductDomain | null;
+        /**
+         * Persistent responsible team assignment.
+         */
+        owning_role_id: string | null;
+        /**
+         * Responsible team's current name.
+         */
+        owning_role_name: string | null;
+        /**
+         * Where this routing decision came from.
+         *
+         * * `human` - Human correction
+         * * `agent` - Report classification
+         * * `code` - Repository ownership
+         */
+        source: SignalReportRoutingSourceEnum & unknown;
+        /**
+         * Evidence supporting the routing decision.
+         */
+        explanation: string;
+        /**
+         * Whether automatic classification must preserve this correction.
+         */
+        human_override: boolean;
+        /**
+         * Only accepted primary domains affect personal domain rules.
+         */
+        accepted: boolean;
+    };
+    export type SignalReportRoutingState = {
+        /**
+         * Current accepted or proposed domain/team routing.
+         */
+        routing: SignalReportRouting | null;
+        /**
+         * The current user's correction and active ownership.
+         */
+        personal: SignalPersonalCorrection;
+    };
+    export type SignalRoutingCorrection = {
+        /**
+         * Primary product domain in this project, or null to leave it unclassified.
+         */
+        domain_id: string | null;
+        owning_role_id?: (string | null) | undefined;
+        explanation?: string | undefined;
+    };
+    export type SignalRoutingRole = {
+        /**
+         * Organization role ID representing a responsible team.
+         */
+        id: string;
+        /**
+         * Team display name.
+         */
+        name: string;
+        /**
+         * Whether the current user belongs to this team and can access the project.
+         */
+        is_member: boolean;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -21463,6 +21749,193 @@ export namespace Endpoints {
         };
         responses: { 204: unknown };
     };
+    export type get_Signals_domains_list = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/domains/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ limit: number; offset: number }>;
+            path: { project_id: string };
+        };
+        responses: { 200: Schemas.PaginatedSignalProductDomainList };
+    };
+    export type post_Signals_domains_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/domains/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string };
+
+            body: Schemas.SignalProductDomain;
+        };
+        responses: { 201: Schemas.SignalProductDomain };
+    };
+    export type get_Signals_domains_teams_list = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/domains/teams/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string };
+        };
+        responses: { 200: Array<Schemas.SignalRoutingRole> };
+    };
+    export type get_Signals_domains_retrieve = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/domains/{id}/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+        };
+        responses: { 200: Schemas.SignalProductDomain };
+    };
+    export type put_Signals_domains_update = {
+        method: "PUT";
+        path: "/api/projects/{project_id}/signals/domains/{id}/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+
+            body: Schemas.SignalProductDomain;
+        };
+        responses: { 200: Schemas.SignalProductDomain };
+    };
+    export type patch_Signals_domains_partial_update = {
+        method: "PATCH";
+        path: "/api/projects/{project_id}/signals/domains/{id}/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+
+            body: Schemas.PatchedSignalProductDomain;
+        };
+        responses: { 200: Schemas.SignalProductDomain };
+    };
+    export type get_Signals_reports_routing_list = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/reports/{report_id}/routing/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string; report_id: string };
+        };
+        responses: { 200: Schemas.SignalReportRoutingState };
+    };
+    export type post_Signals_reports_routing_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/reports/{report_id}/routing/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string; report_id: string };
+
+            body: Schemas.SignalRoutingCorrection;
+        };
+        responses: { 200: Schemas.SignalReportRoutingState };
+    };
+    export type post_Signals_reports_routing_not_me_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/reports/{report_id}/routing/not_me/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string; report_id: string };
+        };
+        responses: { 200: Schemas.SignalReportRoutingState };
+    };
+    export type post_Signals_reports_routing_restore_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/reports/{report_id}/routing/restore/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string; report_id: string };
+        };
+        responses: { 200: Schemas.SignalReportRoutingState };
+    };
+    export type get_Signals_routing_batches_list = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/routing_batches/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ limit: number; offset: number }>;
+            path: { project_id: string };
+        };
+        responses: { 200: Schemas.PaginatedSignalRoutingBatchList };
+    };
+    export type get_Signals_routing_batches_retrieve = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/routing_batches/{id}/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+        };
+        responses: { 200: Schemas.SignalRoutingBatch };
+    };
+    export type post_Signals_routing_batches_apply_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/routing_batches/{id}/apply/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+        };
+        responses: { 200: Schemas.SignalRoutingBatch };
+    };
+    export type get_Signals_routing_batches_reports_list = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/routing_batches/{id}/reports/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ limit: number; offset: number }>;
+            path: { id: string; project_id: string };
+        };
+        responses: { 200: Schemas.PaginatedSignalRoutingBatchReportList };
+    };
+    export type post_Signals_routing_batches_retry_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/routing_batches/{id}/retry/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+        };
+        responses: { 200: Schemas.SignalRoutingBatch };
+    };
+    export type post_Signals_routing_batches_undo_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/routing_batches/{id}/undo/";
+        requestFormat: "json";
+        parameters: {
+            path: { id: string; project_id: string };
+        };
+        responses: { 200: Schemas.SignalRoutingBatch };
+    };
+    export type get_Signals_routing_preferences_list = {
+        method: "GET";
+        path: "/api/projects/{project_id}/signals/routing_preferences/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ limit: number; offset: number }>;
+            path: { project_id: string };
+        };
+        responses: { 200: Schemas.PaginatedSignalDomainPreferenceList };
+    };
+    export type post_Signals_routing_preferences_preview_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/routing_preferences/preview/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string };
+
+            body: Schemas.SignalDomainPreview;
+        };
+        responses: { 201: Schemas.SignalRoutingBatch };
+    };
+    export type post_Signals_routing_preferences_set_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/signals/routing_preferences/set/";
+        requestFormat: "json";
+        parameters: {
+            path: { project_id: string };
+
+            body: Schemas.SignalDomainPreferenceWrite;
+        };
+        responses: { 200: Schemas.SignalDomainPreference };
+    };
     export type get_Surveys_retrieve = {
         method: "GET";
         path: "/api/projects/{project_id}/surveys/{id}/";
@@ -21809,17 +22282,6 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.UserGithubLogin };
     };
-    export type post_Signals_reports_snooze_create = {
-        method: "POST";
-        path: "/api/projects/{project_id}/signals/reports/{id}/snooze/";
-        requestFormat: "json";
-        parameters: {
-            path: { id: string; project_id: string };
-
-            body: Schemas.SignalReportSnoozeRequest;
-        };
-        responses: { 200: Schemas.SignalReportSnoozeResponse };
-    };
 
     // </Endpoints>
 }
@@ -21850,6 +22312,14 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/persons/": Endpoints.get_Persons_list;
         "/api/projects/{project_id}/persons/{id}/": Endpoints.get_Persons_retrieve;
         "/api/projects/{project_id}/session_recordings/{id}/": Endpoints.get_Session_recordings_retrieve;
+        "/api/projects/{project_id}/signals/domains/": Endpoints.get_Signals_domains_list;
+        "/api/projects/{project_id}/signals/domains/teams/": Endpoints.get_Signals_domains_teams_list;
+        "/api/projects/{project_id}/signals/domains/{id}/": Endpoints.get_Signals_domains_retrieve;
+        "/api/projects/{project_id}/signals/reports/{report_id}/routing/": Endpoints.get_Signals_reports_routing_list;
+        "/api/projects/{project_id}/signals/routing_batches/": Endpoints.get_Signals_routing_batches_list;
+        "/api/projects/{project_id}/signals/routing_batches/{id}/": Endpoints.get_Signals_routing_batches_retrieve;
+        "/api/projects/{project_id}/signals/routing_batches/{id}/reports/": Endpoints.get_Signals_routing_batches_reports_list;
+        "/api/projects/{project_id}/signals/routing_preferences/": Endpoints.get_Signals_routing_preferences_list;
         "/api/projects/{project_id}/surveys/{id}/": Endpoints.get_Surveys_retrieve;
         "/api/projects/{project_id}/surveys/{id}/stats/": Endpoints.get_Surveys_stats_retrieve;
         "/api/projects/{project_id}/tasks/": Endpoints.get_Tasks_list;
@@ -21873,6 +22343,7 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/insights/{id}/": Endpoints.put_Insights_update;
         "/api/projects/{project_id}/persons/{id}/": Endpoints.put_Persons_update;
         "/api/projects/{project_id}/session_recordings/{id}/": Endpoints.put_Session_recordings_update;
+        "/api/projects/{project_id}/signals/domains/{id}/": Endpoints.put_Signals_domains_update;
         "/api/projects/{project_id}/surveys/{id}/": Endpoints.put_Surveys_update;
         "/api/projects/{project_id}/tasks/{id}/": Endpoints.put_Tasks_update;
         "/api/users/{uuid}/": Endpoints.put_Users_update;
@@ -21893,6 +22364,7 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/insights/{id}/": Endpoints.patch_Insights_partial_update;
         "/api/projects/{project_id}/persons/{id}/": Endpoints.patch_Persons_partial_update;
         "/api/projects/{project_id}/session_recordings/{id}/": Endpoints.patch_Session_recordings_partial_update;
+        "/api/projects/{project_id}/signals/domains/{id}/": Endpoints.patch_Signals_domains_partial_update;
         "/api/projects/{project_id}/surveys/{id}/": Endpoints.patch_Surveys_partial_update;
         "/api/projects/{project_id}/tasks/{id}/": Endpoints.patch_Tasks_partial_update;
         "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/": Endpoints.patch_Tasks_runs_partial_update;
@@ -21926,10 +22398,18 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/hog_flows/{id}/run/": Endpoints.post_Hog_flows_run_create;
         "/api/projects/{project_id}/hog_flows/{id}/schedules/": Endpoints.post_Hog_flows_schedules_create;
         "/api/projects/{project_id}/persons/batch_by_distinct_ids/": Endpoints.post_Persons_batch_by_distinct_ids_create;
+        "/api/projects/{project_id}/signals/domains/": Endpoints.post_Signals_domains_create;
+        "/api/projects/{project_id}/signals/reports/{report_id}/routing/": Endpoints.post_Signals_reports_routing_create;
+        "/api/projects/{project_id}/signals/reports/{report_id}/routing/not_me/": Endpoints.post_Signals_reports_routing_not_me_create;
+        "/api/projects/{project_id}/signals/reports/{report_id}/routing/restore/": Endpoints.post_Signals_reports_routing_restore_create;
+        "/api/projects/{project_id}/signals/routing_batches/{id}/apply/": Endpoints.post_Signals_routing_batches_apply_create;
+        "/api/projects/{project_id}/signals/routing_batches/{id}/retry/": Endpoints.post_Signals_routing_batches_retry_create;
+        "/api/projects/{project_id}/signals/routing_batches/{id}/undo/": Endpoints.post_Signals_routing_batches_undo_create;
+        "/api/projects/{project_id}/signals/routing_preferences/preview/": Endpoints.post_Signals_routing_preferences_preview_create;
+        "/api/projects/{project_id}/signals/routing_preferences/set/": Endpoints.post_Signals_routing_preferences_set_create;
         "/api/projects/{project_id}/tasks/": Endpoints.post_Tasks_create;
         "/api/projects/{project_id}/tasks/{id}/run/": Endpoints.post_Tasks_run_create;
         "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/": Endpoints.post_Tasks_runs_analyze_create;
-        "/api/projects/{project_id}/signals/reports/{id}/snooze/": Endpoints.post_Signals_reports_snooze_create;
     };
 };
 

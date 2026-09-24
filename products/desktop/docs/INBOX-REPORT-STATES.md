@@ -2,12 +2,12 @@
 
 The report banner distinguishes a waiting report from an active investigation:
 
-| State | Banner | Investigation spinner |
-| --- | --- | --- |
-| `potential` | Waiting for new signals | No |
-| `potential` with dismissal reason `already_fixed` | Dismissed until new signals | No |
-| `candidate` | Waiting to investigate | No |
-| `in_progress` | Agent investigating | Yes |
+| State                                             | Banner                      | Investigation spinner |
+| ------------------------------------------------- | --------------------------- | --------------------- |
+| `potential`                                       | Waiting for new signals     | No                    |
+| `potential` with dismissal reason `already_fixed` | Dismissed until new signals | No                    |
+| `candidate`                                       | Waiting to investigate      | No                    |
+| `in_progress`                                     | Agent investigating         | Yes                   |
 
 Choosing **Already fixed** in the Dismiss dialog pauses the report. It returns to
 `potential` and can return to the inbox when new matching signals arrive. This
@@ -30,8 +30,17 @@ Dismissal updates the report immediately. A success message appears after the
 server confirms the change. If the request fails, the previous report state is
 restored and an error message appears.
 
-## Relevance pilot
+## Personal ownership and shared scopes
 
-With `signals-relevance-pilot` enabled, the Reports inbox opens a personal shortlist of up to five reports. The backend selects P0–P2 reports suggested to the caller that need a decision or have a known-open PR ready for review, ordered by priority then recency. Each card gives its selection reason and links to the existing report detail to investigate, answer a question, or review the PR. **Browse all reports** opens the wider queue with the project scope.
+With `signals-current-ownership` enabled, report details and Inbox settings expose
+ownership controls. **Not me** removes your suggestion and saves a report-level
+exclusion. It leaves the report state and work you already claimed unchanged.
 
-**Not now** hides a report from only the caller's shortlist for seven days; **Undo** restores its eligibility. This is separate from the existing shared snooze that asks the pipeline to reconsider a report. It changes neither shared report state nor reviewers. The pilot reuses the ordinary report list and adds a personal snooze API, so deploy the backend before enabling the Desktop flag. Leave the flag off until then. Existing impression and report-action analytics distinguish this surface with `for_you_pilot` and `shortlist`; completion and qualitative usefulness matter more than clicks.
+A domain exclusion starts with a preview of affected reports. Confirming saves
+the rule for future suggestions and cleans up existing suggestions. The preview
+shows claimed work that cleanup will preserve. Undo restores only removals from
+that operation that have not changed since; later edits and rules take priority.
+
+Team, product-domain, and unclassified scopes keep reports discoverable after
+personal exclusions. Shared domain/team corrections are separate from private
+preferences. Deploy the ownership API before enabling these Desktop controls.
