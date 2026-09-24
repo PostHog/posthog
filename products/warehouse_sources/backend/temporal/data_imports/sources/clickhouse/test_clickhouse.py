@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Table
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
@@ -679,6 +680,9 @@ class TestClickHouseSourceNonRetryableErrors:
             # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
             "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
             "Table default.some_dropped_table not found or has no columns",
+            # The incremental cursor or a row filter names a column the source table no
+            # longer has — renamed or dropped after the schema was configured.
+            "Configured columns no longer exist in bi.vip_data: Dep Freq Day",
             # UNKNOWN_TYPE (code 50) — a column type ClickHouse can't serialize to Arrow,
             # e.g. an AggregateFunction state column on an aggregating materialized view.
             "Received ClickHouse exception, code: 50 (for url https://host:8443)\n Code: 50. "
@@ -1159,23 +1163,91 @@ class TestGetSchemas:
 class TestGetTable:
     """Tests `_get_table`, used by the sync path to build the SELECT column list."""
 
-    def _make_mock_client(self, cols_rows, engine: str | None = "MergeTree"):
+    def _make_mock_client(self, cols_rows, engine: str | None = "MergeTree", describe_rows=None):
         client = MagicMock()
-        cols_result = MagicMock()
-        cols_result.result_rows = cols_rows
-        engine_result = MagicMock()
-        engine_result.result_rows = [(engine,)] if engine is not None else []
-        client.query.side_effect = [cols_result, engine_result]
+
+        def query(sql, *args, **kwargs):
+            result = MagicMock()
+            if "system.tables" in sql:
+                result.result_rows = [(engine,)] if engine is not None else []
+            elif sql.startswith("DESCRIBE"):
+                result.result_rows = describe_rows or []
+            else:
+                result.result_rows = cols_rows
+            return result
+
+        client.query.side_effect = query
         return client
 
     def test_excludes_alias_and_ephemeral_columns_from_query(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
-
         client = self._make_mock_client([("id", "UInt64")])
         ch_module._get_table(client, "default", "events")
 
-        cols_query = client.query.call_args_list[0].args[0]
+        cols_query = next(c.args[0] for c in client.query.call_args_list if "system.columns" in c.args[0])
         assert "default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in cols_query
+
+    @parameterized.expand([("View",), ("LiveView",), ("WindowView",)])
+    def test_view_columns_come_from_the_view_body(self, engine):
+        # `system.columns` keeps the name a view was created with, so a column renamed in an
+        # underlying table would otherwise be projected under its ghost name and fail the
+        # sync with UNKNOWN_IDENTIFIER (code 47).
+        client = self._make_mock_client(
+            [("id", "UInt64"), ("dep_freq", "String")],
+            engine=engine,
+            describe_rows=[("id", "UInt64"), ("Dep Freq Day", "String")],
+        )
+
+        table = ch_module._get_table(client, "bi", "vip_data")
+
+        assert [column.name for column in table.columns] == ["id", "Dep Freq Day"]
+        assert table.type == "view"
+
+    def test_materialized_view_columns_come_from_system_columns(self):
+        client = self._make_mock_client([("id", "UInt64")], engine="MaterializedView")
+
+        table = ch_module._get_table(client, "bi", "rollup")
+
+        assert [column.name for column in table.columns] == ["id"]
+        assert table.type == "materialized_view"
+
+
+class TestValidateQueryIdentifiers:
+    """Tests `_validate_query_identifiers`, the guard on the configured cursor and row filters."""
+
+    def _make_table(self):
+        return Table(
+            name="vip_data",
+            parents=("bi",),
+            columns=[ClickHouseColumn("id", "UInt64", nullable=False)],
+            type="view",
+        )
+
+    def test_passes_when_every_configured_column_exists(self):
+        table = self._make_table()
+        row_filters = [ValidatedRowFilter(column="id", operator=">", value=1, category=ColumnTypeCategory.INTEGER)]
+
+        ch_module._validate_query_identifiers(table, "id", row_filters)
+
+    @parameterized.expand(
+        [
+            ("cursor", "Dep Freq Day", None),
+            (
+                "row_filter",
+                None,
+                [
+                    ValidatedRowFilter(
+                        column="Dep Freq Day", operator="=", value="x", category=ColumnTypeCategory.STRING
+                    )
+                ],
+            ),
+        ]
+    )
+    def test_names_the_missing_column(self, _name, incremental_field, row_filters):
+        with pytest.raises(ValueError) as error:
+            ch_module._validate_query_identifiers(self._make_table(), incremental_field, row_filters)
+
+        assert "Dep Freq Day" in str(error.value)
+        assert "bi.vip_data" in str(error.value)
 
 
 class TestSourceClassValidateCredentials:
