@@ -1,4 +1,3 @@
-# fixture for dockerfile-secret-build-arg
 FROM debian:bookworm-slim
 
 # ruleid: dockerfile-secret-build-arg
@@ -15,6 +14,12 @@ ARG GH_PAT
 
 # ruleid: dockerfile-secret-build-arg
 ARG API_KEY=placeholder
+
+# ruleid: dockerfile-secret-build-arg
+ARG OPENAI_API_KEY
+
+# ruleid: dockerfile-secret-build-arg
+ARG SSH_PRIVATE_KEY
 
 # ruleid: dockerfile-secret-build-arg
 ARG TOKEN
