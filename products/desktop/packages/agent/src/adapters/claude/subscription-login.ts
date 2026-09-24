@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { shellQuote } from "../../utils/shell-quote";
 import {
   applyMachineClaudeAuth,
   type MachineClaudeAuth,
@@ -11,13 +12,6 @@ export type ClaudeAuthAction = "login" | "logout" | "setup-token";
 export interface ClaudeAuthTerminalCommand {
   command: string;
   env: { set: Record<string, string>; unset: string[] };
-}
-
-function shellQuote(value: string): string {
-  if (process.platform === "win32") {
-    return `"${value.replaceAll('"', '\\"')}"`;
-  }
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 export function claudeAuthTerminalCommand(

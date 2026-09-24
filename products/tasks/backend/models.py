@@ -47,6 +47,7 @@ from products.tasks.backend.feature_flags import (
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
 )
+from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -790,8 +791,6 @@ class Task(DeletedMetaFields, models.Model):
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
-            if state.get("claude_model_access") == "own-subscription":
-                state["claude_subscription_user_id"] = acting_user_id or task.created_by_id
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             carry_config_snapshot = (
                 task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
@@ -824,6 +823,9 @@ class Task(DeletedMetaFields, models.Model):
             # Every run creation flows through here, so this is where team/user default AI run
             # preferences apply when the caller didn't pin a runtime selection.
             task._apply_ai_run_defaults(state, acting_user_id)
+            model_access = resolve_model_access(state)
+            if model_access.adapter is not None:
+                state[f"{model_access.adapter}_subscription_user_id"] = acting_user_id or task.created_by_id
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
 
