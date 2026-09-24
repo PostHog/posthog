@@ -344,9 +344,8 @@ class TestWorldBankSourceTransport:
         manager.load_state.assert_not_called()
 
     def test_indicator_data_names_the_code_the_observation_path_refuses(self) -> None:
-        # The path answers 400 for a code it can't resolve, and the request is identical on every
-        # attempt. Unclassified it escapes as a raw HTTPError, which spends the activity's whole
-        # retry budget and reads as a PostHog defect rather than a code the user has to change.
+        # Unclassified, a 400 escapes as a raw HTTPError: the activity's whole retry budget spent
+        # on a request that can never succeed, and a message naming no code.
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
@@ -368,7 +367,10 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank.make_tracked_session"
         ) as MockSession:
             MockSession.return_value.get.side_effect = responses
-            return validate_credentials(codes, "v2")
+            result = validate_credentials(codes, "v2")
+
+        self.probed_urls = [call.args[0] for call in MockSession.return_value.get.call_args_list]
+        return result
 
     def test_rejects_an_empty_code_list(self) -> None:
         ok, error = validate_credentials([], "v2")
@@ -387,17 +389,10 @@ class TestValidateCredentials:
     def test_probes_the_endpoint_the_sync_walks(self) -> None:
         # The indicator catalog is a wider set than the observation path, so a catalog probe
         # passes codes the sync then fails on.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _http_response(_payload([{"date": "2024", "value": 1}]))
-            ok, error = validate_credentials(["SP.POP.TOTL"], "v2")
+        ok, error = self._validate(["SP.POP.TOTL"], [_http_response(_payload([{"date": "2024", "value": 1}]))])
 
         assert (ok, error) == (True, None)
-        assert (
-            MockSession.return_value.get.call_args.args[0]
-            == "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL"
-        )
+        assert self.probed_urls == ["https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL"]
 
     @pytest.mark.parametrize(
         "refusal",

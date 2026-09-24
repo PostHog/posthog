@@ -103,8 +103,8 @@ The API has no "changed since" filter, and the World Bank revises historical val
             # A code list that is empty or over the cap can't be fixed by retrying.
             "World Bank source misconfigured": "Check the indicator codes on this source: the list is empty or has more codes than a single source can sync.",
             # The other failure mode for a bad code: the observation path answers HTTP 400 rather
-            # than an error envelope. `_indicator_data_pages` already raises this naming the code,
-            # so None keeps that text instead of replacing it with a message that can't.
+            # than an error envelope. That raise already names the code, and None is what keeps
+            # that text instead of replacing it with a message that can't.
             INDICATOR_CODE_REJECTED_PREFIX: None,
         }
 
