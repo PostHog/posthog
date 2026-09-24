@@ -45,10 +45,18 @@ const SEND_STATUS_TAG: Record<string, LemonTagType> = {
  * The recipients of one run. Each run binds its own broadcastSentLogic (keyed on the run id), so
  * expanding a second run loads that run's sends instead of replacing the first one's.
  */
-function RunRecipients({ workflowId, runId }: { workflowId: string; runId: string }): JSX.Element {
+function RunRecipients({
+    workflowId,
+    runId,
+    runCreatedAt,
+}: {
+    workflowId: string
+    runId: string
+    runCreatedAt: string
+}): JSX.Element {
     return (
         <div className="bg-surface-secondary border-t px-4 py-3 w-0 min-w-full">
-            <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId }}>
+            <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId, runCreatedAt }}>
                 <RunRecipientsTable workflowId={workflowId} />
             </BindLogic>
         </div>
@@ -65,6 +73,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         recipientCount,
         recipientSearch,
         hasMoreRecipients,
+        runPastRetention,
     } = useValues(broadcastSentLogic)
     const { loadSends, loadMoreSends, setStatusFilter, selectInvocation, setRecipientSearch } =
         useActions(broadcastSentLogic)
@@ -72,6 +81,10 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
     useEffect(() => {
         loadSends()
     }, [loadSends])
+
+    const noSendsMessage = runPastRetention
+        ? "Recipient details are kept for 30 days after sending, so this run's list is no longer available."
+        : 'No sends recorded for this run yet.'
 
     const columns: LemonTableColumns<MessageAsset> = [
         {
@@ -122,9 +135,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
     if (!sendsLoading && recipientCount === 0 && !recipientSearch && !statusFilter) {
         return (
             <span className="text-sm text-muted">
-                {sendsFailed
-                    ? "Couldn't load recipients. Refresh the page to try again."
-                    : 'No sends recorded for this run yet.'}
+                {sendsFailed ? "Couldn't load recipients. Refresh the page to try again." : noSendsMessage}
             </span>
         )
     }
@@ -177,7 +188,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                         ? "Couldn't load recipients. Change the search or filter to try again, or refresh the page."
                         : recipientSearch || statusFilter
                           ? 'No recipients match. Clear the search or filter to see everyone.'
-                          : 'No sends recorded for this run yet.'
+                          : noSendsMessage
                 }
             />
             {hasMoreRecipients && !sendsFailed ? (
@@ -230,7 +241,9 @@ function RunsTable({
             columns={columns}
             nouns={['run', 'runs']}
             expandable={{
-                expandedRowRender: (job) => <RunRecipients workflowId={workflowId} runId={job.id} />,
+                expandedRowRender: (job) => (
+                    <RunRecipients workflowId={workflowId} runId={job.id} runCreatedAt={job.created_at} />
+                ),
                 rowExpandable: (job) => !!job.id,
                 // A table inside a table runs out of room first. Dropping the indent cell gives the
                 // recipients back the width the toggle column would otherwise take.
