@@ -211,7 +211,8 @@ def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
     """Every reader below describes config format 1; a row in another format is left unjudged."""
     kept = []
     for flag in flags:
-        if detect_config_format(flag.filters).kind == "v1":
+        filters = flag.filters
+        if filters is None or (isinstance(filters, dict) and detect_config_format(filters).kind == "v1"):
             kept.append(flag)
         else:
             logger.info("stale_feature_flags_skipped_unsupported_config", flag_id=flag.id, team_id=flag.team_id)

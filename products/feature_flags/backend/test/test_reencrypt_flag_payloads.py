@@ -127,6 +127,14 @@ class TestReencryptFlagPayloads(BaseTest):
             has_encrypted_payloads=True,
             filters={"version": 2, "rules": [], "payloads": {"true": token}},
         )
+        not_an_object = FeatureFlag.objects.create(
+            team=other_team,
+            key="list-filters",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters=["version"],
+        )
         v1_flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY)
 
         with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
@@ -139,4 +147,6 @@ class TestReencryptFlagPayloads(BaseTest):
         v1_flag.refresh_from_db()
         assert _codec(NEW_KEY).decrypt(v1_flag.filters["payloads"]["true"].encode("utf-8")).decode("utf-8") == PAYLOAD
         skips = [log for log in logs if log["event"] == "reencrypt_flag_payloads.skip_unsupported_config"]
-        assert [(log["flag_id"], log["team_id"]) for log in skips] == [(unsupported.id, other_team.id)]
+        assert sorted((log["flag_id"], log["team_id"]) for log in skips) == sorted(
+            [(unsupported.id, other_team.id), (not_an_object.id, other_team.id)]
+        )

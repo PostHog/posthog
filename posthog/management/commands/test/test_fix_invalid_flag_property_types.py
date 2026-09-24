@@ -23,7 +23,10 @@ class TestFixInvalidFlagPropertyTypes(BaseTest):
             team=other_team, key="object-groups", created_by=self.user, filters={"groups": {"properties": "junk"}}
         )
         mixed_groups = FeatureFlag.objects.create(
-            team=self.team, key="mixed-groups", created_by=self.user, filters={"groups": [*invalid_groups, "junk"]}
+            team=self.team,
+            key="mixed-groups",
+            created_by=self.user,
+            filters={"groups": [*invalid_groups, "junk", {"properties": [{"key": "plan", "type": ["event"]}]}]},
         )
 
         out = StringIO()
@@ -38,7 +41,8 @@ class TestFixInvalidFlagPropertyTypes(BaseTest):
         mixed_groups.refresh_from_db()
         assert mixed_groups.filters["groups"][0]["properties"][0]["type"] == "person"
         assert mixed_groups.filters["groups"][1] == "junk"
+        assert mixed_groups.filters["groups"][2]["properties"][0]["type"] == ["event"]
         assert f"Flag id={unsupported.id} team_id={other_team.id} key='v2-flag': config format is not 1, skipped" in (
             out.getvalue()
         )
-        assert "2 properties fixed, 0 unfixable, 1 flags skipped" in out.getvalue()
+        assert "2 properties fixed, 1 unfixable, 1 flags skipped" in out.getvalue()

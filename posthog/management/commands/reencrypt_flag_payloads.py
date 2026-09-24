@@ -67,7 +67,8 @@ class Command(BaseCommand):
 
     def _skip_unsupported(self, flag: FeatureFlag) -> bool:
         """Only config format 1 stores ``payloads``; never touch a document in another format."""
-        if detect_config_format(flag.filters).kind == "v1":
+        filters = flag.filters
+        if filters is None or (isinstance(filters, dict) and detect_config_format(filters).kind == "v1"):
             return False
         logger.warning("reencrypt_flag_payloads.skip_unsupported_config", flag_id=flag.id, team_id=flag.team_id)
         return True

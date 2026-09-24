@@ -66,8 +66,8 @@ class Command(BaseCommand):
                 for prop_idx, prop in enumerate(properties):
                     prop_type = prop.get("type") if isinstance(prop, dict) else None
 
-                    if prop_type and prop_type not in VALID_PROPERTY_TYPES:
-                        if prop_type in TYPE_FIXES:
+                    if prop_type and (not isinstance(prop_type, str) or prop_type not in VALID_PROPERTY_TYPES):
+                        if isinstance(prop_type, str) and prop_type in TYPE_FIXES:
                             new_type = TYPE_FIXES[prop_type]
                             self.stdout.write(
                                 f"{label}: group[{group_idx}].properties[{prop_idx}].type '{prop_type}' -> '{new_type}'"
