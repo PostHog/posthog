@@ -722,6 +722,9 @@ jobs:
             # or the quarantine that Visual Review applies, so a flaky story can fail a fork PR
             # that changes nothing visible. --partial because a shard renders only part of the
             # baseline, so a baseline missing from the shard is not a removal.
+            # The PR controls frontend/snapshots.yml and verify cannot check the HMAC offline, so
+            # this catches honest drift, not a forged baseline. Visual Review drops entries with a
+            # bad signature, so the merge queue still catches a forged one.
             # !cancelled() keeps the check after a test-runner failure. A failed CLI build
             # fails this step too, so a fork PR never passes unverified.
             - name: Verify snapshots against the baseline offline

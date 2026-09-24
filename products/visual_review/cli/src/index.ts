@@ -498,6 +498,12 @@ async function runVerify(options: VerifyOptions): Promise<number> {
 
     const scanned = scanDirectory(dirPath)
 
+    const baselineHashes = readBaselineHashes(baselinePath)
+    if (Object.keys(baselineHashes).length === 0) {
+        console.error('No baseline hashes found — run `vr submit` on a PR first')
+        return 1
+    }
+
     if (scanned.length === 0) {
         // A shard whose story files all skip their screenshot writes no PNG, and that is not a mismatch.
         if (options.partial) {
@@ -505,12 +511,6 @@ async function runVerify(options: VerifyOptions): Promise<number> {
             return 0
         }
         console.error('No PNGs found in directory')
-        return 1
-    }
-
-    const baselineHashes = readBaselineHashes(baselinePath)
-    if (Object.keys(baselineHashes).length === 0) {
-        console.error('No baseline hashes found — run `vr submit` on a PR first')
         return 1
     }
 
