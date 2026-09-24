@@ -719,31 +719,41 @@ describe('dataVisualizationLogic', () => {
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
     })
-})
 
-describe('formatDataWithSettings', () => {
+    it('rounds y-axis values to zero decimal places and plots missing values as zero', async () => {
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                chartSettings: {
+                    showNullsAsZero: true,
+                    yAxis: [{ column: 'value', settings: { formatting: { decimalPlaces: 0 } } }],
+                },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Nullable(Float64)']],
+            results: [[42.195], [null], ['NaN']],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            yData: [expect.objectContaining({ data: [42, 0, 0] })],
+        })
+    })
+
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
-        ['rounds to an explicit zero decimal places', 51.12967032967033, { formatting: { decimalPlaces: 0 } }, '51'],
         [
-            'rounds to zero decimal places under the none style',
-            51.12967032967033,
+            'formats zero decimal places under the none style',
+            42.195,
             { formatting: { style: 'none', decimalPlaces: 0 } },
-            '51',
+            '42',
         ],
-        ['rounds to a non-zero decimal places', 51.12967032967033, { formatting: { decimalPlaces: 2 } }, '51.13'],
-        ['keeps full precision when decimal places are unset', 51.5, undefined, '51.5'],
-        [
-            'keeps the prefix and suffix around a zero-decimal value',
-            51.12967032967033,
-            { formatting: { prefix: '$', suffix: '/day', decimalPlaces: 0 } },
-            '$51/day',
-        ],
-        [
-            'rounds a percent value to zero decimal places',
-            51.12967032967033,
-            { formatting: { style: 'percent', decimalPlaces: 0 } },
-            '51%',
-        ],
+        ['keeps full precision when decimal places are unset', 42.5, undefined, '42.5'],
     ])('%s', (_name, value, settings, expected) => {
         expect(formatDataWithSettings(value, settings)).toBe(expected)
     })

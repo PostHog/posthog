@@ -521,22 +521,6 @@ describe('SqlLineGraph', () => {
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
             expect(tooltip.value('a')).toBe(expected)
         })
-
-        it.each([
-            { name: 'a null', gapValue: null },
-            { name: 'an unparseable value', gapValue: 'NaN' },
-        ])('plots $name as zero on a zero-decimal column when showNullsAsZero is set', async ({ gapValue }) => {
-            renderLine(
-                {
-                    yAxis: [{ column: 'a', settings: { formatting: { decimalPlaces: 0 } } }],
-                    showNullsAsZero: true,
-                },
-                lineFixture([{ name: 'a', valueAt: (i) => (i === HOVER ? gapValue : (i + 1) * 100) }])
-            )
-
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
-            expect(tooltip.value('a')).toBe('0')
-        })
     })
 
     describe('custom series label', () => {
