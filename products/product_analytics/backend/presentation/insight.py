@@ -1905,7 +1905,8 @@ class InsightViewSet(
                 return queryset
             # `order` is a vestigial nullable column with no index, so sorting on it forces a full
             # scan and sort of the project. `-last_modified_at` is covered by dashboarditem_team_lmod_idx.
-            return queryset.order_by("-last_modified_at")
+            # `-pk` breaks ties so paginated pages stay stable when timestamps collide.
+            return queryset.order_by("-last_modified_at", "-pk")
 
         if order == "-last_viewed_at":
             return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
