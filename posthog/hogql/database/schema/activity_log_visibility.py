@@ -18,6 +18,9 @@ from posthog.hogql.parser import parse_expr
 # (see `_TRANSITIVE_SYSTEM_TABLE_SCOPES`) — a cache hit returns before these predicates ever print.
 CANVASES_TABLE = "system.canvases"
 _LOOP_ROWS_HIDDEN = "NOT (scope = 'Loop')"
+# `restrict_task_activity` allows the tasks a user may see, computed from live channel visibility.
+# There is no `system.tasks` table to defer that to, so Task rows are dropped like Loop rows.
+_TASK_ROWS_HIDDEN = "NOT (scope = 'Task')"
 _CANVAS_ROWS_HIDDEN = "NOT (scope = 'Canvas')"
 # `toString` on the canvas id is load-bearing. `item_id` is a String holding the id of whatever object
 # the row is about, and most of those are numeric (`11510926` for an insight), while a canvas id is a
@@ -50,7 +53,12 @@ def activity_log_visibility_policy_version() -> str:
         {
             "shape": _POLICY_SHAPE,
             "rules": [[rule["scope"], sorted(rule["activities"])] for rule in activity_visibility_restrictions],
-            "scope_predicates": [_LOOP_ROWS_HIDDEN, _CANVAS_ROWS_HIDDEN, _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES],
+            "scope_predicates": [
+                _LOOP_ROWS_HIDDEN,
+                _TASK_ROWS_HIDDEN,
+                _CANVAS_ROWS_HIDDEN,
+                _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES,
+            ],
         },
         sort_keys=True,
     )
@@ -72,7 +80,8 @@ def activity_visibility_predicates(canvases_readable: bool) -> tuple[Expr, ...]:
       keys on `was_impersonated`, and exposing that column would itself disclose the impersonation the
       rule exists to hide. Over-excluding costs nothing: login rows carry `team_id=None` (see
       `log_login_activity`), so the mandatory team guard already puts them out of reach.
-    - Loop rows are dropped outright, and Canvas rows follow `system.canvases`, per the note above.
+    - Loop and Task rows are dropped outright, and Canvas rows follow `system.canvases`, per the note
+      above.
 
     `canvases_readable` says whether `system.canvases` is in the caller's schema. When the canvas
     resource is denied outright the table is removed (see `_apply_system_table_access`), and a
@@ -93,5 +102,6 @@ def activity_visibility_predicates(canvases_readable: bool) -> tuple[Expr, ...]:
         for rule in activity_visibility_restrictions
     ]
     compiled.append(parse_expr(_LOOP_ROWS_HIDDEN))
+    compiled.append(parse_expr(_TASK_ROWS_HIDDEN))
     compiled.append(parse_expr(_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES if canvases_readable else _CANVAS_ROWS_HIDDEN))
     return tuple(compiled)
