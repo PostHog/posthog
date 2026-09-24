@@ -17,6 +17,8 @@ export interface QueuedMessageListProps {
     steerDisabledReason?: string
     /** The staged messages wait on the user, not on the agent — say so instead of looking like a queue. */
     held?: boolean
+    /** Reports an open row editor, so the consumer can hold a send that would ship the pre-edit text. */
+    onEditingChange?: (editing: boolean) => void
 }
 
 interface QueuedMessageItemProps {
@@ -122,9 +124,17 @@ export function QueuedMessageList({
     steerPending = false,
     steerDisabledReason,
     held = false,
+    onEditingChange,
 }: QueuedMessageListProps): JSX.Element | null {
     const [editingId, setEditingId] = useState<string | null>(null)
     const [collapsed, setCollapsed] = useState(false)
+    // A row can leave while its editor is open — a flush clears the queue, and the consumer may drop a row
+    // of its own. Holding a stale id would keep the send button disabled against an editor nobody can see.
+    const editing = editingId !== null && messages.some((message) => message.id === editingId)
+
+    useEffect(() => {
+        onEditingChange?.(editing)
+    }, [editing, onEditingChange])
 
     if (messages.length === 0) {
         return null
@@ -137,7 +147,11 @@ export function QueuedMessageList({
                     size="xsmall"
                     type="tertiary"
                     data-attr="run-queue-toggle"
-                    onClick={() => setCollapsed(!collapsed)}
+                    // Collapsing hides the editor, so close it first rather than leaving it open off screen.
+                    onClick={() => {
+                        setCollapsed(!collapsed)
+                        setEditingId(null)
+                    }}
                     icon={
                         <IconChevronDown
                             className={cn(
@@ -164,9 +178,7 @@ export function QueuedMessageList({
                         data-attr="run-queue-steer"
                         onClick={onSteer}
                         loading={steerPending}
-                        disabledReason={
-                            steerDisabledReason ?? (editingId ? 'Save or cancel your edit first' : undefined)
-                        }
+                        disabledReason={steerDisabledReason ?? (editing ? 'Save or cancel your edit first' : undefined)}
                         tooltip="Sends without waiting for the agent to finish this turn."
                         sideIcon={<KeyboardShortcut escape />}
                     >
@@ -174,21 +186,25 @@ export function QueuedMessageList({
                     </LemonButton>
                 )}
             </div>
-            {!collapsed &&
-                messages.map((message) => (
-                    <QueuedMessageItem
-                        key={message.id}
-                        message={message}
-                        isEditing={editingId === message.id}
-                        onEdit={() => setEditingId(message.id)}
-                        onCancel={() => setEditingId(null)}
-                        onSave={(id, content) => {
-                            onUpdate(id, content)
-                            setEditingId(null)
-                        }}
-                        onRemove={onRemove}
-                    />
-                ))}
+            {/* Capped so a fast typist can't grow the banner until it pushes the composer off screen. */}
+            {!collapsed && (
+                <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+                    {messages.map((message) => (
+                        <QueuedMessageItem
+                            key={message.id}
+                            message={message}
+                            isEditing={editingId === message.id}
+                            onEdit={() => setEditingId(message.id)}
+                            onCancel={() => setEditingId(null)}
+                            onSave={(id, content) => {
+                                onUpdate(id, content)
+                                setEditingId(null)
+                            }}
+                            onRemove={onRemove}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

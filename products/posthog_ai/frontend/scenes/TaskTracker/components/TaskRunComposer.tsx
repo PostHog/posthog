@@ -77,6 +77,7 @@ export function TaskRunComposer({
         setMode,
         steerQueue,
         submitAfterConsent,
+        setQueueEditing,
     } = useActions(runInteractionLogic(logicProps))
 
     useEffect(() => {
@@ -136,9 +137,16 @@ export function TaskRunComposer({
                             onUpdate={updateQueuedMessage}
                             onRemove={removeQueuedMessage}
                             onSteer={steerQueue}
-                            steerDisabledReason={!canSend && !isSubmitting ? 'Wait for the agent to start' : undefined}
+                            steerDisabledReason={
+                                isTerminal
+                                    ? 'This run has finished. Your next message starts a new run and takes these with it.'
+                                    : !canSend && !isSubmitting
+                                      ? 'Wait for the agent to start'
+                                      : undefined
+                            }
                             steerPending={steerPending || isSubmitting || !!cancellationState}
                             held={queueHeld}
+                            onEditingChange={setQueueEditing}
                         />
                     </Composer.Banner>
                 )}

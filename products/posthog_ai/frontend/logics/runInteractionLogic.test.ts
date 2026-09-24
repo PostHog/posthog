@@ -836,14 +836,15 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([])
     })
 
-    it('sends the held message together with the next one the user submits', async () => {
-        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+    it('sends a message held by a stop together with the next one the user submits', async () => {
         setThinking(true)
         logic.actions.enqueueMessage('first follow-up')
-        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        logic.actions.requestCancellation()
         expect(logic.values.queueHeld).toBe(true)
 
+        // The stop lands and the turn ends, so the run is idle again when the user types.
         setThinking(false)
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
         logic.actions.setComposerFormValues({ draft: 'are you there?' })
         await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
 
@@ -852,6 +853,66 @@ describe('runInteractionLogic', () => {
         )
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.queueHeld).toBe(false)
+    })
+
+    it('holds an unconfirmed send as its own rows until the user asks for it again', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        setThinking(true)
+        logic.actions.enqueueMessage('first')
+        logic.actions.enqueueMessage('second')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+
+        // The send may have reached the agent, so the rows come back as they were rather than as one blob.
+        expect(logic.values.queuedMessages.map((message) => message.content)).toEqual(['first', 'second'])
+        expect(logic.values.queueHeld).toBe(true)
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+
+        // Typing more must not re-deliver them: only an explicit send may repeat an unconfirmed message.
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'third' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('carries staged rows into the run a terminal send starts', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('staged while running')
+        setStatus('completed')
+        stream.actions.handleTerminalStatus({ status: 'completed' })
+
+        logic.actions.setComposerFormValues({ draft: 'and now this' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'staged while running\n\nand now this' }),
+            expect.anything()
+        )
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('waits for an open row editor before draining on turn completion', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('half-written')
+        logic.actions.setQueueEditing(true)
+
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        logic.actions.setQueueEditing(false)
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+            jsonrpc: '2.0',
+            method: 'user_message',
+            params: { content: 'half-written', steer: true },
+        })
     })
 
     it('edits and removes staged messages', async () => {
