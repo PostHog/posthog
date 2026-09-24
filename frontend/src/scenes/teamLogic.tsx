@@ -94,7 +94,7 @@ export async function completeProductOnboarding(
     teamId: TeamType['id'] | string,
     { product_type, intent_context }: ProductOnboardingCompleteProperties
 ): Promise<TeamType | null> {
-    return await api.update(`api/environments/${teamId}/complete_product_onboarding`, {
+    return await api.update(`api/projects/${teamId}/complete_product_onboarding`, {
         product_type,
         intent_context,
     })
@@ -383,14 +383,14 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     try {
-                        return await api.get('api/environments/@current')
+                        return await api.get('api/projects/@current')
                     } catch {
                         return values.currentTeam
                     }
                 },
                 refreshCurrentTeam: async () => {
                     try {
-                        const team = await api.get('api/environments/@current')
+                        const team = await api.get('api/projects/@current')
                         return team?.id === values.currentTeam?.id ? team : values.currentTeam
                     } catch {
                         return values.currentTeam
@@ -411,8 +411,8 @@ export const teamLogic = kea<teamLogicType>([
 
                     let patchedTeam: TeamType | TeamPublicType
                     if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
-                        // Renames go through /api/projects, which mirrors the name onto the passthrough
-                        // team server-side. /api/environments is deprecated, don't add calls to it
+                        // Renames go through the project id, because that mirrors the name onto the
+                        // passthrough team server-side. Every other patch goes through the team id.
                         const patchedProject = await api.update<ProjectType>(
                             `api/projects/${values.currentTeam.project_id}`,
                             { name: payload.name }
@@ -422,7 +422,7 @@ export const teamLogic = kea<teamLogicType>([
                         actions.loadCurrentProjectSuccess(patchedProject)
                         patchedTeam = { ...values.currentTeam, name: patchedProject.name }
                     } else {
-                        patchedTeam = await api.update(`api/environments/${values.currentTeam.id}`, payload)
+                        patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
                         breakpoint()
                     }
 
@@ -499,12 +499,12 @@ export const teamLogic = kea<teamLogicType>([
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 // Project API Token
-                resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
                 // Feature Flags Secure API Token
                 rotateSecretToken: async () =>
-                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
+                    await api.update(`api/projects/${values.currentTeamId}/rotate_secret_token`, {}),
                 deleteSecretTokenBackup: async () =>
-                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
+                    await api.update(`api/projects/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  * Also, we refresh the list of custom products to show the possible new entry in the sidebar after we've added the intent.
@@ -674,7 +674,7 @@ export const teamLogic = kea<teamLogicType>([
         },
         deleteTeam: async ({ team }) => {
             try {
-                await api.delete(`api/environments/${team.id}`)
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
                 actions.deleteTeamSuccess()
             } catch {

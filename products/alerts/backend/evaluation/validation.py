@@ -21,6 +21,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql_queries.validation.validate_query import first_query_rule_violation
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
@@ -117,6 +121,9 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
 
     if ctx.detector_config is not None and is_non_time_series_trend(trends_query):
         raise ValueError("Anomaly detection isn't supported for non time series trends")
+
+    if (ctx.detector_config or {}).get("type") == "llm" and _has_breakdown(trends_query):
+        raise ValueError("The AI detector does not support breakdown insights yet")
 
     if ctx.parsed_condition.type in (
         AlertConditionType.RELATIVE_INCREASE,
@@ -320,7 +327,8 @@ def validate_alert_config(
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
-    Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``.
+    Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``. Whether
+    the insight itself can run is a separate question, answered by ``validate_alert_insight_query``.
     """
     if not calculation_interval or not isinstance(calculation_interval, str):
         raise ValueError(f"Invalid calculation interval: {calculation_interval}")
@@ -350,6 +358,7 @@ def validate_alert_config(
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:
         raise ValueError(f"Unsupported alert config type: {config}")
+
     validator(
         _AlertConfigValidationContext(
             config=config if isinstance(config, dict) else {},
@@ -361,3 +370,17 @@ def validate_alert_config(
             detector_config=detector_config,
         )
     )
+
+
+def validate_alert_insight_query(query: dict, *, team: Team, user: User | None) -> None:
+    """Check the insight an alert points at against the query runner's own validation rules.
+
+    Raises ValueError like ``validate_alert_config``, so a caller handles both the same way. It is
+    separate because it answers a different question from different inputs: the alert configuration
+    is validated from dicts alone, while these rules need the team and the user that the query would
+    run as. Reading the runner's rules rather than copying them keeps this in step with what the
+    query will accept, for every insight kind.
+    """
+    violation = first_query_rule_violation(query, team=team, user=user)
+    if violation is not None:
+        raise ValueError(f"Alert's insight can't run: {violation.message}")

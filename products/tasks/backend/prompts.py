@@ -120,8 +120,8 @@ git show --stat HEAD | grep -E '\.[^/]+/skills/' && echo "FAIL: skills files com
 3. If you can't configure them automatically, do not commit anything in this step - instead write
    down in your notes which variables are needed and what values they must be set to,
    for use in the PR description in Step 4.
-4. You should know the project API token from the PostHog MCP server context. If you don't have
-   it, run the `projects-get` MCP tool to fetch it.
+4. Run the `project-get` MCP tool to fetch the project API token. It is the only tool that
+   returns the token; the session context and `projects-get` leave it out.
 
 **Checkpoint:** exactly one of the following is true:
 

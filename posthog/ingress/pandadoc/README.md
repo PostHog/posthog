@@ -31,6 +31,11 @@ PandaDoc batches several events into one body, so one request becomes one delive
 A bad signature answers 404 instead of 403, so a prober cannot tell a wrong secret from an unknown route.
 A missing secret answers 404 too, and neither rejection carries a body, because the reason would hand back what the status code withholds.
 
+`retry_status` is 500, which is what this endpoint answered before it moved here, and PandaDoc redelivers after a non-2xx.
+So a consumer that raised, a forward that never landed, and a consumer the request budget skipped all cost the request its receipt, and the delivery comes back rather than being lost.
+The 500 is reachable only after a valid signature, so it withholds the endpoint's existence exactly as the two 404s above do.
+A redelivery replays the whole batched body against the consumer, which is why the consumer carries its own idempotency.
+
 ## Consumers
 
 `legal_documents_signatures`, declared in `products/legal_documents/backend/webhook_consumers.py`.

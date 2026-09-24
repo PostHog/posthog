@@ -5,10 +5,12 @@ import {
   type ExecutionMode,
   getConfigOptionByCategory,
   isSupportedReasoningEffort,
+  isTerminalStatus,
   type PrAuthorshipMode,
   type SupportedReasoningEffort,
 } from "@posthog/shared";
 import type { TaskRun } from "@posthog/shared/domain-types";
+import { harnessForModelValue } from "../task-detail/configOptions";
 
 /**
  * Pure derivations of a cloud run's options from the host run state / session
@@ -98,21 +100,41 @@ export function getCloudRuntimeOptions(
   );
   const modeOption = getConfigOptionByCategory(session.configOptions, "mode");
   const previousMode = previousRun?.state?.initial_permission_mode;
-
+  const model =
+    typeof modelOption?.currentValue === "string"
+      ? modelOption.currentValue
+      : (previousRun?.model ?? undefined);
+  const isResume = session.isCloud && isTerminalStatus(session.cloudStatus);
+  const adapter =
+    (isResume && model
+      ? harnessForModelValue(modelOption, model)
+      : undefined) ??
+    session.adapter ??
+    previousRun?.runtime_adapter ??
+    undefined;
+  const adapterChanged =
+    adapter !== (session.adapter ?? previousRun?.runtime_adapter);
+  const reasoningLevel =
+    typeof thoughtLevelOption?.currentValue === "string"
+      ? thoughtLevelOption.currentValue
+      : adapterChanged
+        ? undefined
+        : (previousRun?.reasoning_effort ?? undefined);
   return {
-    adapter: session.adapter ?? previousRun?.runtime_adapter ?? undefined,
-    model:
-      typeof modelOption?.currentValue === "string"
-        ? modelOption.currentValue
-        : (previousRun?.model ?? undefined),
+    adapter,
+    model,
     reasoningLevel:
-      typeof thoughtLevelOption?.currentValue === "string"
-        ? thoughtLevelOption.currentValue
-        : (previousRun?.reasoning_effort ?? undefined),
+      isResume &&
+      adapter &&
+      model &&
+      reasoningLevel &&
+      !isSupportedReasoningEffort(adapter, model, reasoningLevel)
+        ? undefined
+        : reasoningLevel,
     initialPermissionMode:
       typeof modeOption?.currentValue === "string"
         ? (modeOption.currentValue as ExecutionMode)
-        : typeof previousMode === "string"
+        : !adapterChanged && typeof previousMode === "string"
           ? (previousMode as ExecutionMode)
           : undefined,
   };

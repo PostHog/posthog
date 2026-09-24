@@ -2,7 +2,7 @@ import '~/scenes/dashboard/DashboardItems.scss'
 
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { DashboardPlacement, DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, InsightColor } from '~/types'
 
 import { ButtonTileCard } from './ButtonTileCard'
 
@@ -26,7 +26,7 @@ const makeButtonTile = (
         transparentBackground?: boolean
         color?: InsightColor | null
     } = {}
-): DashboardTile<QueryBasedInsightModel> => {
+): DashboardTile => {
     return {
         id: 1,
         button_tile: {

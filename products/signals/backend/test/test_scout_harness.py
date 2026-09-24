@@ -378,7 +378,11 @@ class TestReportChartsSection(SimpleTestCase):
         assert block is not None
         charts = json.loads(block.group(1))
 
-        assert [c["query"]["kind"] for c in charts] == ["InsightVizNode", "DataVisualizationNode"]
+        assert [c["query"]["kind"] for c in charts] == [
+            "InsightVizNode",
+            "DataVisualizationNode",
+            "DataVisualizationNode",
+        ]
         for chart in charts:
             ReportChart.model_validate(chart)
 
@@ -391,6 +395,17 @@ class TestReportChartsSection(SimpleTestCase):
 
         assert sql_chart["chartSettings"]["xAxis"]["column"]
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
+
+    def test_multi_dimension_sql_example_names_its_breakdown_column(self) -> None:
+        # Naming only the axes on a query grouped by two dimensions draws every row of a day at its
+        # own x position, so the line zigzags. The breakdown column is what pivots them into series.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        sql_chart = json.loads(block.group(1))[2]["query"]
+
+        breakdown_column = sql_chart["chartSettings"]["seriesBreakdownColumn"]
+        assert breakdown_column
+        assert breakdown_column != sql_chart["chartSettings"]["xAxis"]["column"]
 
 
 class TestPromptCacheablePrefix(SimpleTestCase):
@@ -480,6 +495,69 @@ class TestCheckoutSection(SimpleTestCase):
 
         assert "full commit history" in section
         assert "git blame" in section
+
+
+class TestCloseOutTaskSummary(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal", []),
+            ("report_both", ["emit_report", "edit_report"]),
+            ("report_emit_only", ["emit_report"]),
+            ("report_edit_only", ["edit_report"]),
+        ]
+    )
+    def test_close_out_asks_for_the_run_row_summary_on_every_channel(
+        self, _name: str, allowed_tools: list[str]
+    ) -> None:
+        # The run row is what a reader sees without opening the transcript, and the harness only
+        # writes it when the scout calls the tool. Each channel renders its own close-out step, so
+        # a channel that drops the instruction leaves its scouts with a blank run row and nothing
+        # in the rendered prompt to show why.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-close-out",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+
+        close_out_step = next(line for line in prompt.splitlines() if "**Close out.**" in line)
+        writing_summary = prompt.split("# Writing the summary")[1].split("\n# ")[0]
+        how_to_call_tools = prompt.split("# How to call tools")[1].split("\n# ")[0]
+
+        assert "task_summary_update" in close_out_step
+        assert "task_summary_update" in writing_summary
+        # The close-out tool is a harness tool, not a PostHog MCP tool. Without the qualified name
+        # in both sections, the "every tool goes through mcp__posthog__exec" rule sends the scout
+        # to search a catalog the tool was never in, and the run row stays blank.
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID in writing_summary
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID in how_to_call_tools
+
+
+class TestCloseOutSummaryToolContract(SimpleTestCase):
+    _HARNESS_ROOT = Path(__file__).parents[3] / "desktop/packages/harness/src/extensions"
+
+    def test_prompt_names_the_tool_the_harness_registers(self) -> None:
+        # The prompt hardcodes the qualified tool id the scout calls. The harness owns both halves
+        # of that id, so a rename there leaves scouts calling a tool that no longer exists, with
+        # nothing in Python to catch it.
+        registry = (self._HARNESS_ROOT / "local-tools/registry.ts").read_text()
+        task_summary = (self._HARNESS_ROOT / "task-system-prompt/task-summary.ts").read_text()
+        server_name = re.search(r'LOCAL_TOOLS_MCP_NAME = "([^"]+)"', registry)
+        tool_name = re.search(r'TASK_SUMMARY_TOOL_NAME = "([^"]+)"', task_summary)
+        assert server_name and tool_name, "the harness constants moved — update this contract"
+
+        assert scout_prompt._TASK_SUMMARY_TOOL == tool_name.group(1)
+        assert scout_prompt._TASK_SUMMARY_TOOL_ID == f"mcp__{server_name.group(1)}__{tool_name.group(1)}"
 
 
 class TestPromptCrossReferences(SimpleTestCase):
@@ -860,6 +938,9 @@ class TestPromptBuilder(BaseTest):
         # scout would otherwise pay on a fresh team.
         assert "Then: orient on this project" in prompt
         assert "scout-project-profile-get" in prompt
+        assert "summary.emit_eligibility.can_emit" in prompt
+        assert "For `scout_emit_disabled`, continue the investigation without emitting findings or reports." in prompt
+        assert "Do not close out early because of this dry-run setting." in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
@@ -1321,13 +1402,14 @@ class TestPromptBuilder(BaseTest):
         assert "signals-scout-inbox-validation" in prompt
         section = prompt[prompt.index("Follow up on your own past work") :]
         assert resurface_tool in section.split("# ")[0]
-        # Same fail-closed rule for the durable half of the loop: a report check hangs on a report,
-        # which only a report-channel scout holds. Naming it to a signal-channel run would point it
-        # at a report it never has.
-        if allowed_tools:
-            assert "inbox-report-checks-create" in section.split("# ")[0]
+        # Same fail-closed rule for the durable half of the loop: the check endpoints refuse a run
+        # whose skill does not list `edit_report`, so only such a scout is pointed at them.
+        if "edit_report" in allowed_tools:
+            assert "scout-report-check-create" in section.split("# ")[0]
+            # A check written in error stays on the report unless the scout knows it can withdraw it.
+            assert "scout-report-check-cancel" in section.split("# ")[0]
         else:
-            assert "inbox-report-checks" not in prompt
+            assert "scout-report-check" not in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

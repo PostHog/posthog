@@ -7,10 +7,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
+    NO_PARTNER_PROGRAM_MESSAGE,
     DubCursorPaginator,
     DubLinksScopePaginator,
     DubResumeConfig,
@@ -21,7 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub im
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import DUB_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
+    DUB_ENDPOINTS,
+    ENDPOINTS,
+    PARTNER_PROGRAM_ENDPOINTS,
+)
 
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:
@@ -235,6 +241,42 @@ class TestScrubLinkPassword:
         assert _scrub_link_password(row) == row
 
 
+def _drive_source(
+    endpoint: str,
+    manager: MagicMock,
+    responses: list[Response],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Drive ``dub_source`` with a mocked HTTP session; returns per-request params and yielded rows."""
+    sent_params: list[dict[str, Any]] = []
+    response_iter = iter(responses)
+
+    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+        sent_params.append(dict(request.params or {}))
+        return next(response_iter)
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
+    ) as MockSession:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+
+        source_response = dub_source(
+            api_key="dub_test",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        rows = list(cast(Iterable[Any], source_response.items()))
+        return sent_params, rows
+
+
 class TestDubSourceResumeBehavior:
     def _drive(
         self,
@@ -244,33 +286,14 @@ class TestDubSourceResumeBehavior:
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
     ) -> list[dict[str, Any]]:
-        """Drive ``dub_source`` with a mocked HTTP session; returns per-request params."""
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = dub_source(
-                api_key="dub_test",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-            list(cast(Iterable[Any], source_response.items()))
-            return sent_params
+        sent_params, _ = _drive_source(
+            endpoint,
+            manager,
+            responses,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        return sent_params
 
     def test_cursor_endpoint_saves_cursor_after_each_non_terminal_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -361,6 +384,31 @@ class TestDubSourceResumeBehavior:
         assert sent_params[0]["page"] == 7
 
 
+class TestPartnerProgramTablesWithoutAProgram:
+    # Dub resolves the workspace's default partner program before reading any of these lists,
+    # so a workspace without one gets this 404 on the table's own list endpoint.
+    _NOT_FOUND = {"error": {"code": "not_found", "message": "Program not found"}}
+
+    @pytest.mark.parametrize("endpoint", PARTNER_PROGRAM_ENDPOINTS)
+    def test_404_ends_the_table_instead_of_failing_the_sync(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        sent_params, rows = _drive_source(endpoint, manager, [_make_http_response(self._NOT_FOUND, 404)])
+
+        assert len(sent_params) == 1
+        assert rows == []
+
+    def test_404_elsewhere_still_fails(self) -> None:
+        # The tolerance is scoped to the partner-program tables; a 404 anywhere else is a real
+        # error and must not be swallowed into an empty table.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with pytest.raises(HTTPError):
+            _drive_source("customers", manager, [_make_http_response(self._NOT_FOUND, 404)])
+
+
 class TestMakeSession:
     def test_disables_sample_capture(self) -> None:
         # Every Dub path (sync + both credential probes) builds its session here. Dub payloads
@@ -431,6 +479,25 @@ class TestCredentialValidation:
             return_value=self._mock_session(response),
         ):
             assert check_endpoint_access("dub_test", "click_events") == "Requires a Business plan or higher."
+
+    @pytest.mark.parametrize("endpoint", PARTNER_PROGRAM_ENDPOINTS)
+    def test_check_endpoint_access_reads_404_on_partner_tables_as_no_program(self, endpoint: str) -> None:
+        # Dub answers these with a bare "Program not found", which reads as a broken connector
+        # to a user who never had a partner program.
+        response = _make_http_response({"error": {"code": "not_found", "message": "Program not found"}}, 404)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
+            return_value=self._mock_session(response),
+        ):
+            assert check_endpoint_access("dub_test", endpoint) == NO_PARTNER_PROGRAM_MESSAGE
+
+    def test_check_endpoint_access_leaves_other_tables_reachable_on_404(self) -> None:
+        response = _make_http_response({"error": {"code": "not_found", "message": "Program not found"}}, 404)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
+            return_value=self._mock_session(response),
+        ):
+            assert check_endpoint_access("dub_test", "customers") is None
 
     @pytest.mark.parametrize("status_code", [200, 429, 500])
     def test_check_endpoint_access_only_denials_block(self, status_code: int) -> None:

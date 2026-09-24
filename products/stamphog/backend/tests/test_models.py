@@ -1,13 +1,18 @@
+import importlib
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.db import IntegrityError
+from django.apps import apps
+from django.db import IntegrityError, router
 
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 
@@ -113,3 +118,56 @@ class TestReviewRunModel(StamphogTeamScopedTestMixin, APIBaseTest):
 
         results = list(ReviewRun.objects.for_team(self.team.id))
         assert results == [mine]
+
+
+class TestInstallationMigrations(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def _run_migration(self, module_name: str, function_name: str) -> None:
+        module = importlib.import_module(f"products.stamphog.backend.migrations.{module_name}")
+        schema_editor = SimpleNamespace(connection=SimpleNamespace(alias=router.db_for_write(StamphogRepoConfig)))
+        getattr(module, function_name)(apps, schema_editor)
+
+    def test_backfill_keeps_every_repository_addable_before_the_cleanup_deletes_unused_rows(self) -> None:
+        # The cleanup deletes rows a sync created and nobody turned on. The backfill must first copy
+        # their repositories into the snapshot, or those repositories can never be added again.
+        rows = {
+            name: StamphogRepoConfig.objects.unscoped().create(
+                team_id=self.team.id,
+                repository=name,
+                installation_id=installation_id,
+                enabled=enabled,
+                connected_by_user_id=connector,
+            )
+            for name, installation_id, enabled, connector in [
+                ("acme/reviewed", "1", True, 5),
+                ("acme/unused", "1", False, 7),
+                ("acme/with-history", "1", False, None),
+                ("acme/placeholder", "", False, None),
+                ("acme/label-mode", "1", False, None),
+            ]
+        }
+        StamphogRepoConfig.objects.unscoped().filter(id=rows["acme/label-mode"].id).update(review_mode="label")
+        for day, name in enumerate(rows, start=1):
+            StamphogRepoConfig.objects.unscoped().filter(id=rows[name].id).update(
+                updated_at=datetime(2026, 1, day, tzinfo=UTC)
+            )
+        _make_pull_request(self.team, rows["acme/with-history"])
+
+        # Twice, because bin/migrate retries a migration that failed part of the way.
+        self._run_migration("0008_backfill_installations", "backfill_installations")
+        self._run_migration("0008_backfill_installations", "backfill_installations")
+        self._run_migration("0009_delete_unused_repo_configs", "delete_unused_repo_configs")
+
+        installation = StamphogInstallation.objects.unscoped().get(team_id=self.team.id)
+        assert installation.installation_id == "1"
+        assert installation.repositories == ["acme/label-mode", "acme/reviewed", "acme/unused", "acme/with-history"]
+        # The newest non-null connector, which the newer row with no connector does not overwrite.
+        assert installation.connected_by_user_id == 7
+        remaining = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id)
+        assert sorted(remaining.values_list("repository", flat=True)) == [
+            "acme/label-mode",
+            "acme/placeholder",
+            "acme/reviewed",
+            "acme/with-history",
+        ]

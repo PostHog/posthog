@@ -67,6 +67,7 @@ import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
 import { pendingTaskPromptStoreApi } from "../../../shell/pendingTaskPromptStore";
+import { shouldFocusOnBackgroundClick } from "../../../utils/backgroundClick";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -212,6 +213,7 @@ interface TaskInputProps {
    * picker can hold shut mid-submit, like every other chip in the row.
    */
   spaceSelector?: (props: { disabled: boolean }) => ReactNode;
+  heading?: ReactNode;
 }
 
 export function TaskInput({
@@ -243,6 +245,7 @@ export function TaskInput({
   onSuggestionSelect,
   onContextChipClick,
   spaceSelector,
+  heading,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
@@ -966,6 +969,7 @@ export function TaskInput({
 
   useWarmTask({
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
+    codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -976,9 +980,10 @@ export function TaskInput({
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     agentRuntime: runtime,
-    runtimeAdapter: adapter ?? null,
+    runtimeAdapter: adapter ?? "claude",
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
+    permissionMode: currentExecutionMode,
     sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
     customImageId: cloudIds.customImageId ?? null,
   });
@@ -1391,7 +1396,11 @@ export function TaskInput({
 
   const handleContainerClick = useCallback((e: React.MouseEvent) => {
     if (!e.currentTarget.contains(e.target as Node)) return;
-    if ((e.target as HTMLElement).closest(FOCUSABLE_SELECTOR)) return;
+    if (
+      !shouldFocusOnBackgroundClick(e.target as HTMLElement, FOCUSABLE_SELECTOR)
+    ) {
+      return;
+    }
     editorRef.current?.focus();
   }, []);
 
@@ -1428,15 +1437,24 @@ export function TaskInput({
                 // Note: this is NOT tied to `editorIsEmpty` — the input keeps its
                 // position as the user types so the box doesn't jump down when the
                 // suggestions fade out (and back in when the prompt is cleared).
-                top: suggestions && suggestions.length > 0 ? "38%" : "50%",
+                top: heading
+                  ? "34%"
+                  : suggestions && suggestions.length > 0
+                    ? "38%"
+                    : "50%",
                 transform: "translate(-50%, -50%)",
               }}
               className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
+              {heading}
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                className={
+                  heading
+                    ? "min-w-0 gap-1"
+                    : "absolute bottom-full left-0 mb-2 min-w-0 gap-1"
+                }
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 {/* One group, so changing the location does not unmount the

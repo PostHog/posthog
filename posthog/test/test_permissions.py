@@ -37,6 +37,7 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     PostHogFeatureFlagPermission,
+    get_authenticator_client,
 )
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -1287,6 +1288,37 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
         self.assertEqual(response.status_code, 403)  # Forbidden - user not in org
 
 
+SESSION_CALLER = {"credential_type": "session", "client_id": "posthog"}
+
+
+class TestAuthenticatorClient(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("session", None, SESSION_CALLER),
+            (
+                "personal key",
+                PersonalAPIKeyAuthentication(),
+                {"credential_type": "personal_api_key", "client_id": "personal_api_key"},
+            ),
+            (
+                "project secret key",
+                ProjectSecretAPIKeyAuthentication(),
+                {"credential_type": "project_secret_key", "client_id": "project_secret_key"},
+            ),
+        ]
+    )
+    def test_names_the_caller(self, _name, authenticator, expected):
+        self.assertEqual(get_authenticator_client(authenticator), expected)
+
+    def test_an_oauth_caller_is_its_registered_application(self):
+        authenticator = OAuthAccessTokenAuthentication()
+        authenticator.access_token = OAuthAccessToken(application=OAuthApplication(client_id="app_client_id"))
+
+        self.assertEqual(
+            get_authenticator_client(authenticator), {"credential_type": "oauth", "client_id": "app_client_id"}
+        )
+
+
 class TestPostHogFeatureFlagPermission(BaseTest):
     def setUp(self):
         super().setUp()
@@ -1326,8 +1358,8 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertEqual(
             kwargs["group_properties"],
             {
-                "organization": {"id": str(self.organization.id)},
-                "project": {"id": str(self.team.id)},
+                "organization": {**SESSION_CALLER, "id": str(self.organization.id)},
+                "project": {**SESSION_CALLER, "id": str(self.team.id)},
             },
         )
 
@@ -1345,14 +1377,38 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertTrue(self.permission.has_permission(request, view))
         kwargs = mock_ff.call_args[1]
         self.assertEqual(kwargs["groups"], {"organization": str(self.organization.id)})
-        self.assertEqual(kwargs["group_properties"], {"organization": {"id": str(self.organization.id)}})
+        self.assertEqual(
+            kwargs["group_properties"], {"organization": {**SESSION_CALLER, "id": str(self.organization.id)}}
+        )
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_denies_when_flag_disabled(self, mock_ff):
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_credential_caller_is_named_apart_from_the_app(self, mock_ff):
+        request = self._create_mock_request()
+        request.successful_authenticator = PersonalAPIKeyAuthentication()
+        view = self._create_mock_view(flag="my-flag")
+
+        self.assertTrue(self.permission.has_permission(request, view))
+
+        caller = {"credential_type": "personal_api_key", "client_id": "personal_api_key"}
+        kwargs = mock_ff.call_args[1]
+        # Both channels: a flag aggregated by a group reads group properties and never a person's.
+        self.assertEqual(kwargs["person_properties"], caller)
+        self.assertEqual(kwargs["group_properties"]["organization"], {**caller, "id": str(self.organization.id)})
+
+    @parameterized.expand(
+        [
+            ("the flag is off", False),
+            # A flag key nothing has created, and a flag service that cannot answer, both come
+            # back as None. Neither is a yes, so neither opens the view.
+            ("the flag does not exist", None),
+        ]
+    )
+    def test_denies_unless_the_flag_says_yes(self, _, flag_value):
         request = self._create_mock_request()
         view = self._create_mock_view(flag="my-flag")
 
-        result = self.permission.has_permission(request, view)
+        with patch("posthoganalytics.feature_enabled", return_value=flag_value):
+            result = self.permission.has_permission(request, view)
 
         self.assertFalse(result)
         # DRF passes both onto the 403 body. The code lets a client tell a not-yet-ingested

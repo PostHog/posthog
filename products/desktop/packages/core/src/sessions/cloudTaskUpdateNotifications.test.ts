@@ -766,6 +766,9 @@ describe("cloud task update notifications", () => {
       totalEntryCount: 1,
     });
     expect(harness.notifyPermissionRequest).toHaveBeenCalledTimes(1);
+    // A request replayed out of a snapshot is what opening the session shows
+    // the reader, so it must leave the activity clock where it was.
+    expect(harness.markActivity).not.toHaveBeenCalled();
 
     harness.sendUpdate({
       taskId: TASK_ID,
@@ -776,5 +779,6 @@ describe("cloud task update notifications", () => {
       options: [],
     });
     expect(harness.notifyPermissionRequest).toHaveBeenCalledTimes(2);
+    expect(harness.markActivity).toHaveBeenCalledTimes(1);
   });
 });

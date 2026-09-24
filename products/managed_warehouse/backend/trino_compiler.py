@@ -58,6 +58,7 @@ class PreparedTrinoCompiler:
                 filters=query.filters,
                 variables=query.variables,
                 modifiers=query.modifiers,
+                limit_top_select=False,
                 include_hogql=include_hogql,
             )
         except TrinoLoweringError as error:
@@ -299,6 +300,7 @@ def compile_hogql_to_trino_sql(
         team=team,
         user=user,
         enable_select_queries=True,
+        limit_top_select=False,
         modifiers=query_modifiers,
         # Match the access-controlled database above instead of widening it during resolution.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -315,6 +317,7 @@ def compile_hogql_to_trino_sql(
             team=team,
             user=user,
             enable_select_queries=True,
+            limit_top_select=False,
             modifiers=query_modifiers,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,

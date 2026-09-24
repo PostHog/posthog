@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -94,6 +94,75 @@ export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
 })
 
 /**
+ * Snapshots that keep getting tolerated, counted across baselines, most manual tolerations first. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story. With no parameters this is the weekly debt digest's rule (3 or more tolerations by a person or agent in 30 days), except that quarantined snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; start here to find flaky stories worth fixing, then read one snapshot's history with the per-snapshot tools.
+ */
+export const VisualReviewReposTolerationPileupsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visualReviewReposTolerationPileupsRetrieveQueryIncludeQuarantinedDefault = true
+export const visualReviewReposTolerationPileupsRetrieveQueryLimitDefault = 100
+export const visualReviewReposTolerationPileupsRetrieveQueryLimitMax = 500
+
+export const visualReviewReposTolerationPileupsRetrieveQueryMinAutomaticTolerationsMax = 10000
+
+export const visualReviewReposTolerationPileupsRetrieveQueryMinTolerationsDefault = 3
+export const visualReviewReposTolerationPileupsRetrieveQueryMinTolerationsMax = 100
+
+export const visualReviewReposTolerationPileupsRetrieveQueryRunTypeMax = 64
+
+export const visualReviewReposTolerationPileupsRetrieveQueryWindowDaysDefault = 30
+export const visualReviewReposTolerationPileupsRetrieveQueryWindowDaysMax = 90
+
+export const VisualReviewReposTolerationPileupsRetrieveQueryParams = () => zod.object({
+    include_quarantined: zod
+        .boolean()
+        .default(visualReviewReposTolerationPileupsRetrieveQueryIncludeQuarantinedDefault)
+        .describe(
+            'Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. Set to false to see only piles nobody has acted on yet.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visualReviewReposTolerationPileupsRetrieveQueryLimitMax)
+        .default(visualReviewReposTolerationPileupsRetrieveQueryLimitDefault)
+        .describe('Maximum number of snapshots to return. `total` and `truncated` say whether more matched.'),
+    min_automatic_tolerations: zod
+        .number()
+        .min(1)
+        .max(visualReviewReposTolerationPileupsRetrieveQueryMinAutomaticTolerationsMax)
+        .optional()
+        .describe(
+            "Also list a snapshot when it collected at least this many automatic tolerations in the window. An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; many of them still mean the story is unstable. Omit to ignore automatic tolerations when deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion."
+        ),
+    min_tolerations: zod
+        .number()
+        .min(1)
+        .max(visualReviewReposTolerationPileupsRetrieveQueryMinTolerationsMax)
+        .default(visualReviewReposTolerationPileupsRetrieveQueryMinTolerationsDefault)
+        .describe(
+            "List a snapshot when a person or agent tolerated it at least this many times in the window. The default, 3, is the weekly debt digest's rule. Lower it to see snapshots that are starting to pile up, raise it to see only the worst ones."
+        ),
+    run_type: zod
+        .string()
+        .min(1)
+        .max(visualReviewReposTolerationPileupsRetrieveQueryRunTypeMax)
+        .optional()
+        .describe('Only list snapshots of this run type, for example `storybook` or `playwright`.'),
+    window_days: zod
+        .number()
+        .min(1)
+        .max(visualReviewReposTolerationPileupsRetrieveQueryWindowDaysMax)
+        .default(visualReviewReposTolerationPileupsRetrieveQueryWindowDaysDefault)
+        .describe('How many days back to count tolerations. Defaults to 30.'),
+})
+
+/**
  * List runs in this repo, optionally filtered by review state and free-text search.
  */
 export const VisualReviewReposRunsListParams = () => zod.object({
@@ -162,8 +231,8 @@ export const VisualReviewRunsRetrieveParams = () => zod.object({
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
  * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
- * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
- * which gives a quarantined story a baseline entry without lifting the quarantine.
+ * snapshot too: a quarantined snapshot approved here is committed by finalize, which
+ * updates a quarantined story's baseline entry without lifting the quarantine.
  */
 export const VisualReviewRunsApproveCreateParams = () => zod.object({
     id: zod.string(),
@@ -197,7 +266,7 @@ export const VisualReviewRunsApproveCreateBody = () => zod.object({
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
  * any still-pending changed/new snapshot is approved first; quarantined snapshots are
- * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * skipped, but a quarantined snapshot approved by identifier is still committed.
  * With commit_to_github=false the server returns the signed baseline YAML instead of
  * committing it.
  */

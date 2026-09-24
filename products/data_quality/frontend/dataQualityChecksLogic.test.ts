@@ -6,21 +6,15 @@ import { expectLogic } from '~/test/keaTestUtils'
 
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import {
-    dataCatalogMetricsChecksList,
-    dataCatalogMetricsChecksHealthRetrieve,
-    dataCatalogMetricsCheckSuiteRunsList,
-    warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
-    warehouseSavedQueriesCheckSuiteRunsList,
-    warehouseSavedQueriesCheckSuiteRunsRetrieve,
-    warehouseSavedQueriesChecksDestroy,
-    warehouseSavedQueriesChecksHealthRetrieve,
-    warehouseSavedQueriesChecksList,
-    warehouseSavedQueriesChecksPartialUpdate,
-    warehouseSavedQueriesChecksRunAllCreate,
-    warehouseSavedQueriesChecksRunCreate,
-    warehouseTablesCheckSuiteRunsList,
-    warehouseTablesChecksHealthRetrieve,
-    warehouseTablesChecksList,
+    dataQualityChecksDestroy,
+    dataQualityChecksHealthList,
+    dataQualityChecksList,
+    dataQualityChecksPartialUpdate,
+    dataQualityChecksRunCreate,
+    dataQualityRunsCheckRunsList,
+    dataQualityRunsCreate,
+    dataQualityRunsList,
+    dataQualityRunsRetrieve,
 } from './generated/api'
 import type { DataQualityCheckApi, DataQualitySuiteRunApi } from './generated/api.schemas'
 import { CheckTypeEnumApi } from './generated/api.schemas'
@@ -52,33 +46,18 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => ({
 }))
 
 jest.mock('./generated/api', () => ({
-    dataCatalogMetricsChecksList: jest.fn(),
-    dataCatalogMetricsChecksHealthRetrieve: jest.fn(),
-    dataCatalogMetricsCheckSuiteRunsList: jest.fn(),
-    warehouseSavedQueriesChecksList: jest.fn(),
-    warehouseSavedQueriesChecksCreate: jest.fn(),
-    warehouseSavedQueriesChecksPartialUpdate: jest.fn(),
-    warehouseSavedQueriesChecksDestroy: jest.fn(),
-    warehouseSavedQueriesChecksRunCreate: jest.fn(),
-    warehouseSavedQueriesChecksRunAllCreate: jest.fn(),
-    warehouseSavedQueriesChecksRunsList: jest.fn(),
-    warehouseSavedQueriesChecksCheckTypesList: jest.fn(),
-    warehouseSavedQueriesChecksHealthRetrieve: jest.fn(),
-    warehouseSavedQueriesCheckSuiteRunsList: jest.fn(),
-    warehouseSavedQueriesCheckSuiteRunsRetrieve: jest.fn(),
-    warehouseSavedQueriesCheckSuiteRunsCheckRunsList: jest.fn(),
-    warehouseTablesChecksList: jest.fn(),
-    warehouseTablesChecksCreate: jest.fn(),
-    warehouseTablesChecksPartialUpdate: jest.fn(),
-    warehouseTablesChecksDestroy: jest.fn(),
-    warehouseTablesChecksRunCreate: jest.fn(),
-    warehouseTablesChecksRunAllCreate: jest.fn(),
-    warehouseTablesChecksRunsList: jest.fn(),
-    warehouseTablesChecksCheckTypesList: jest.fn(),
-    warehouseTablesChecksHealthRetrieve: jest.fn(),
-    warehouseTablesCheckSuiteRunsList: jest.fn(),
-    warehouseTablesCheckSuiteRunsRetrieve: jest.fn(),
-    warehouseTablesCheckSuiteRunsCheckRunsList: jest.fn(),
+    dataQualityChecksList: jest.fn(),
+    dataQualityChecksCreate: jest.fn(),
+    dataQualityChecksPartialUpdate: jest.fn(),
+    dataQualityChecksDestroy: jest.fn(),
+    dataQualityChecksRunCreate: jest.fn(),
+    dataQualityChecksRunsList: jest.fn(),
+    dataQualityChecksCheckTypesList: jest.fn(),
+    dataQualityChecksHealthList: jest.fn(),
+    dataQualityRunsList: jest.fn(),
+    dataQualityRunsCreate: jest.fn(),
+    dataQualityRunsRetrieve: jest.fn(),
+    dataQualityRunsCheckRunsList: jest.fn(),
 }))
 
 const VIEW_PROPS: DataQualityChecksLogicProps = { subjectType: 'view', subjectId: 'view-1' }
@@ -129,27 +108,11 @@ describe('dataQualityChecksLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         silenceKeaLoadersErrors()
-        ;(warehouseSavedQueriesChecksList as jest.Mock).mockResolvedValue({ results: [buildCheck()] })
-        ;(warehouseTablesChecksList as jest.Mock).mockResolvedValue({ results: [] })
-        ;(warehouseSavedQueriesChecksHealthRetrieve as jest.Mock).mockResolvedValue({
-            health: 'healthy',
-            checks_total: 1,
-            checks_failing: 0,
-        })
-        ;(warehouseTablesChecksHealthRetrieve as jest.Mock).mockResolvedValue({
-            health: 'unknown',
-            checks_total: 0,
-            checks_failing: 0,
-        })
-        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
-        ;(warehouseTablesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
-        ;(dataCatalogMetricsChecksList as jest.Mock).mockResolvedValue({ results: [] })
-        ;(dataCatalogMetricsChecksHealthRetrieve as jest.Mock).mockResolvedValue({
-            health: 'unknown',
-            checks_total: 0,
-            checks_failing: 0,
-        })
-        ;(dataCatalogMetricsCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [buildCheck()] })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([
+            { health: 'healthy', checks_total: 1, checks_failing: 0 },
+        ])
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [] })
     })
 
     afterEach(() => {
@@ -158,27 +121,21 @@ describe('dataQualityChecksLogic', () => {
         logic?.unmount()
     })
 
-    it.each<[DataQualityChecksLogicProps, jest.Mock, jest.Mock]>([
-        [
-            { subjectType: 'metric', subjectId: 'metric-1' },
-            dataCatalogMetricsChecksList as jest.Mock,
-            warehouseTablesChecksList as jest.Mock,
-        ],
-        [VIEW_PROPS, warehouseSavedQueriesChecksList as jest.Mock, warehouseTablesChecksList as jest.Mock],
-        [
-            { subjectType: 'table', subjectId: 'table-1' },
-            warehouseTablesChecksList as jest.Mock,
-            warehouseSavedQueriesChecksList as jest.Mock,
-        ],
-    ])('routes requests to the %o subject family', async (props, expected, notExpected) => {
+    it.each<DataQualityChecksLogicProps>([
+        { subjectType: 'metric', subjectId: 'metric-1' },
+        VIEW_PROPS,
+        { subjectType: 'table', subjectId: 'table-1' },
+    ])('narrows the project-wide routes to its own %o subject', async (props) => {
         await mountLogic(props)
 
-        expect(expected).toHaveBeenCalledWith('1', props.subjectId, { limit: 100 })
-        expect(notExpected).not.toHaveBeenCalled()
+        const subject = { subject_type: props.subjectType, subject_uuid: props.subjectId }
+        expect(dataQualityChecksList).toHaveBeenCalledWith('1', { ...subject, limit: 100 })
+        expect(dataQualityChecksHealthList).toHaveBeenCalledWith('1', subject)
+        expect(dataQualityRunsList).toHaveBeenCalledWith('1', { ...subject, limit: 20 })
     })
 
     it('keeps a failed metric check load distinct from an empty result and can retry', async () => {
-        ;(dataCatalogMetricsChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        ;(dataQualityChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
         await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
         expect(logic.values.checksLoadError).toBe('Service unavailable')
         expect(logic.values.checksLoaded).toBe(false)
@@ -190,7 +147,7 @@ describe('dataQualityChecksLogic', () => {
 
     it('keeps the loaded checks when a later refresh fails', async () => {
         await mountLogic()
-        ;(warehouseSavedQueriesChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        ;(dataQualityChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
         logic.actions.loadChecks()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -200,7 +157,7 @@ describe('dataQualityChecksLogic', () => {
     })
 
     it('fails closed without a toast when the subject is forbidden', async () => {
-        ;(warehouseSavedQueriesChecksList as jest.Mock).mockRejectedValue(forbidden())
+        ;(dataQualityChecksList as jest.Mock).mockRejectedValue(forbidden())
 
         await mountLogic()
 
@@ -211,13 +168,13 @@ describe('dataQualityChecksLogic', () => {
     // A failed history request leaves the loader's empty default behind, which the table would
     // otherwise present as "no check runs yet" - a claim the request never established.
     it('marks the run history as failed, and clears that once a retry succeeds', async () => {
-        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockRejectedValue(new Error('boom'))
+        ;(dataQualityRunsList as jest.Mock).mockRejectedValue(new Error('boom'))
 
         await mountLogic()
 
         expect(logic.values.suiteRuns).toEqual([])
         expect(logic.values.suiteRunsError).toBe(true)
-        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [] })
 
         await expectLogic(logic, () => {
             logic.actions.loadSuiteRuns()
@@ -227,31 +184,29 @@ describe('dataQualityChecksLogic', () => {
     })
 
     it('drops the deleted row and refreshes health', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        ;(dataQualityChecksDestroy as jest.Mock).mockResolvedValue(undefined)
         await mountLogic()
 
         logic.actions.deleteCheck('check-1')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.checks).toEqual([])
-        expect(warehouseSavedQueriesChecksHealthRetrieve).toHaveBeenCalledTimes(2)
+        expect(dataQualityChecksHealthList).toHaveBeenCalledTimes(2)
     })
 
     it('patches only the enabled flag when a check is toggled', async () => {
-        ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck({ enabled: false }))
+        ;(dataQualityChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck({ enabled: false }))
         await mountLogic()
 
         logic.actions.toggleCheckEnabled('check-1', false)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(warehouseSavedQueriesChecksPartialUpdate).toHaveBeenCalledWith('1', 'view-1', 'check-1', {
-            enabled: false,
-        })
+        expect(dataQualityChecksPartialUpdate).toHaveBeenCalledWith('1', 'check-1', { enabled: false })
         expect(logic.values.enabledChecksCount).toEqual(0)
     })
 
     it('skips polling and refreshes when a run comes back already finished', async () => {
-        ;(warehouseSavedQueriesChecksRunCreate as jest.Mock).mockResolvedValue(
+        ;(dataQualityChecksRunCreate as jest.Mock).mockResolvedValue(
             buildSuiteRun({ status: 'completed', checks_passed: 2 })
         )
         await mountLogic()
@@ -260,8 +215,8 @@ describe('dataQualityChecksLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isSuiteRunning).toBe(false)
-        expect(warehouseSavedQueriesCheckSuiteRunsRetrieve).not.toHaveBeenCalled()
-        expect(warehouseSavedQueriesChecksList).toHaveBeenCalledTimes(2)
+        expect(dataQualityRunsRetrieve).not.toHaveBeenCalled()
+        expect(dataQualityChecksList).toHaveBeenCalledTimes(2)
         // pluralize() joins the count to the noun with a non-breaking space.
         expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0checks passed')
     })
@@ -269,20 +224,20 @@ describe('dataQualityChecksLogic', () => {
     it('reloads the run history after completion when it was empty', async () => {
         // An empty history must still refresh after a run finishes, rather than stay on
         // "No runs yet", so the reload cannot be conditional on the list having rows.
-        ;(warehouseSavedQueriesChecksRunCreate as jest.Mock).mockResolvedValue(
+        ;(dataQualityChecksRunCreate as jest.Mock).mockResolvedValue(
             buildSuiteRun({ status: 'completed', checks_passed: 1 })
         )
         await mountLogic()
-        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockClear()
+        ;(dataQualityRunsList as jest.Mock).mockClear()
 
         logic.actions.runCheck('check-1')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledTimes(1)
+        expect(dataQualityRunsList).toHaveBeenCalledTimes(1)
     })
 
     it('says nothing ran when run all matches no enabled check', async () => {
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ status: 'empty' }))
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ status: 'empty' }))
         await mountLogic()
 
         logic.actions.runAll()
@@ -293,8 +248,8 @@ describe('dataQualityChecksLogic', () => {
     })
 
     it('reloads the checks once the polled run finishes', async () => {
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
-        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock)
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock)
             .mockResolvedValueOnce(buildSuiteRun())
             .mockResolvedValue(buildSuiteRun({ status: 'completed', checks_passed: 1, checks_failed: 1 }))
         await mountLogic()
@@ -312,9 +267,9 @@ describe('dataQualityChecksLogic', () => {
     it('ignores a stale poll after a newer run has replaced the active one', async () => {
         // A retrieve can still be in flight when a second run starts. The stale terminal response
         // must not finish the old run and dispose the newer run's poll.
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ id: 'suite-1' }))
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ id: 'suite-1' }))
         let resolveRetrieve: (run: DataQualitySuiteRunApi) => void = () => {}
-        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockReturnValue(
+        ;(dataQualityRunsRetrieve as jest.Mock).mockReturnValue(
             new Promise<DataQualitySuiteRunApi>((resolve) => {
                 resolveRetrieve = resolve
             })
@@ -341,7 +296,7 @@ describe('dataQualityChecksLogic', () => {
         // Two starts can be in flight at once: the pending guard is per check, and "Run all" is not
         // blocked by it. A slower earlier request must not replace the run the panel is tracking.
         let resolveFirst: (run: DataQualitySuiteRunApi) => void = () => {}
-        ;(warehouseSavedQueriesChecksRunCreate as jest.Mock)
+        ;(dataQualityChecksRunCreate as jest.Mock)
             .mockReturnValueOnce(
                 new Promise<DataQualitySuiteRunApi>((resolve) => {
                     resolveFirst = resolve
@@ -363,29 +318,27 @@ describe('dataQualityChecksLogic', () => {
 
     it('reloads an expanded suite run detail once the run finishes', async () => {
         // A suite adopted mid-flight can be expanded while it is still running, caching partial rows.
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
-        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock)
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock)
             .mockResolvedValueOnce(buildSuiteRun())
             .mockResolvedValue(buildSuiteRun({ status: 'completed', checks_passed: 1 }))
-        ;(warehouseSavedQueriesCheckSuiteRunsCheckRunsList as jest.Mock).mockResolvedValue([])
+        ;(dataQualityRunsCheckRunsList as jest.Mock).mockResolvedValue([])
         await mountLogic()
 
         await startRunUnderFakeTimers()
         logic.actions.loadSuiteRunCheckRuns('suite-1')
         await drainListeners()
-        const whileRunning = (warehouseSavedQueriesCheckSuiteRunsCheckRunsList as jest.Mock).mock.calls.length
+        const whileRunning = (dataQualityRunsCheckRunsList as jest.Mock).mock.calls.length
 
         await advancePoll(3000)
         await advancePoll(3000)
 
-        expect((warehouseSavedQueriesCheckSuiteRunsCheckRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(
-            whileRunning
-        )
+        expect((dataQualityRunsCheckRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(whileRunning)
     })
 
     it('stops polling a run that never finishes', async () => {
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
-        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun())
         await mountLogic()
 
         await startRunUnderFakeTimers()
@@ -397,18 +350,16 @@ describe('dataQualityChecksLogic', () => {
 
         expect(logic.values.pollTimedOut).toBe(true)
         expect(logic.values.isSuiteRunning).toBe(false)
-        const pollsBeforeGivingUp = (warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length
+        const pollsBeforeGivingUp = (dataQualityRunsRetrieve as jest.Mock).mock.calls.length
         await advancePoll(15000)
-        expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(
-            pollsBeforeGivingUp
-        )
+        expect((dataQualityRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeGivingUp)
     })
 
     it('stops polling a run whose retrieve keeps failing', async () => {
         // A request that keeps rejecting (e.g. a 500 or the flag turned off mid-run) must still honor
         // the 15 minute cap instead of retrying forever and leaving the panel stuck running.
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
-        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockRejectedValue(new Error('boom'))
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockRejectedValue(new Error('boom'))
         await mountLogic()
 
         await startRunUnderFakeTimers()
@@ -420,41 +371,40 @@ describe('dataQualityChecksLogic', () => {
 
         expect(logic.values.pollTimedOut).toBe(true)
         expect(logic.values.isSuiteRunning).toBe(false)
-        const pollsBeforeGivingUp = (warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length
+        const pollsBeforeGivingUp = (dataQualityRunsRetrieve as jest.Mock).mock.calls.length
         await advancePoll(15000)
-        expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(
-            pollsBeforeGivingUp
-        )
+        expect((dataQualityRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeGivingUp)
     })
 
     it('stops polling and denies access when a poll is forbidden', async () => {
         // A permanent 403 mid-run (flag off, or query access revoked) should take the access-denied
         // path at once rather than retrying until the 15 minute cap.
-        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
-        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockRejectedValue(forbidden())
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockRejectedValue(forbidden())
         await mountLogic()
 
         await startRunUnderFakeTimers()
         await advancePoll(3000)
 
         expect(logic.values.accessDenied).toBe(true)
-        const pollsBeforeDenied = (warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length
+        const pollsBeforeDenied = (dataQualityRunsRetrieve as jest.Mock).mock.calls.length
         await advancePoll(15000)
-        expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeDenied)
+        expect((dataQualityRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeDenied)
     })
 
     it('adopts a run that was already in flight on mount, without a second request', async () => {
-        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
 
         await mountLogic()
 
         // Adoption reads the newest row of the history this logic already loads, so mounting hits
         // the list endpoint once rather than twice.
-        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledTimes(1)
+        expect(dataQualityRunsList).toHaveBeenCalledTimes(1)
         expect(logic.values.isSuiteRunning).toBe(true)
     })
 
     it('adopts the run the first metric check schedules once the worker writes it', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
         await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
         expect(logic.values.checks).toEqual([])
 
@@ -463,7 +413,7 @@ describe('dataQualityChecksLogic', () => {
         await drainListeners()
         expect(logic.values.isSuiteRunning).toBe(false)
 
-        ;(dataCatalogMetricsCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
         await advancePoll(2000)
 
         expect(logic.values.isSuiteRunning).toBe(true)
@@ -471,13 +421,13 @@ describe('dataQualityChecksLogic', () => {
 
     it('does not look for a scheduled run after a first check on a warehouse subject', async () => {
         await mountLogic({ subjectType: 'table', subjectId: 'table-1' })
-        const listCallsAfterMount = (warehouseTablesCheckSuiteRunsList as jest.Mock).mock.calls.length
+        const listCallsAfterMount = (dataQualityRunsList as jest.Mock).mock.calls.length
 
         jest.useFakeTimers()
         logic.actions.upsertCheck(buildCheck())
         await advancePoll(2000)
 
-        expect((warehouseTablesCheckSuiteRunsList as jest.Mock).mock.calls.length).toEqual(listCallsAfterMount)
+        expect((dataQualityRunsList as jest.Mock).mock.calls.length).toEqual(listCallsAfterMount)
     })
 
     // kea-test-utils waits on real timers, so the polling tests settle listeners by draining

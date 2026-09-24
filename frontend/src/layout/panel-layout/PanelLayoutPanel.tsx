@@ -11,6 +11,7 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
@@ -20,6 +21,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
 interface PanelLayoutPanelProps {
+    layout?: 'panel' | 'inline'
     /** Names the panel in the DOM, so click maps and analytics can scope to one second-level nav. */
     panelName: string
     searchPlaceholder?: string
@@ -27,7 +29,7 @@ interface PanelLayoutPanelProps {
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
-    sortDropdown?: React.ReactNode
+    panelMenuItems?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
@@ -60,11 +62,12 @@ const panelLayoutPanelVariants = cva({
 
 export function PanelLayoutPanel({
     panelName,
+    layout = 'panel',
     searchField,
     panelActionsNewSceneLayout,
     children,
     filterDropdown,
-    sortDropdown,
+    panelMenuItems,
 }: PanelLayoutPanelProps): JSX.Element {
     const { setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const { isLayoutNavCollapsed, panelWidth: computedPanelWidth, panelWillHide } = useValues(panelLayoutLogic)
@@ -80,11 +83,13 @@ export function PanelLayoutPanel({
     const panelContents = (
         <nav
             className={cn(
-                panelLayoutPanelVariants({
-                    isLayoutNavCollapsed,
-                    isMobileLayout,
-                    panelWillHide,
-                })
+                layout === 'inline'
+                    ? 'flex flex-col h-full min-h-0'
+                    : panelLayoutPanelVariants({
+                          isLayoutNavCollapsed,
+                          isMobileLayout,
+                          panelWillHide,
+                      })
             )}
             ref={containerRef}
             data-attr={`nav-panel-${panelName}`}
@@ -95,29 +100,32 @@ export function PanelLayoutPanel({
                     'bg-surface-tertiary'
                 )}
             >
-                {searchField || filterDropdown || sortDropdown ? (
+                {searchField || filterDropdown || panelMenuItems ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
-                            {searchField ?? null}
+                            <div className={layout === 'inline' ? 'flex-1 min-w-0' : 'contents'}>
+                                {searchField ?? null}
+                            </div>
 
-                            <div className="flex gap-px">
-                                {filterDropdown || sortDropdown ? (
-                                    <div className="flex gap-px">
-                                        {filterDropdown ?? null}
-                                        {sortDropdown ?? null}
-                                    </div>
-                                ) : null}
+                            <div className={cn('flex gap-px', layout === 'inline' && 'shrink-0')}>
+                                {filterDropdown ?? null}
 
-                                {validPanelActions && validPanelActions.length > 0 && (
+                                {(panelMenuItems || !!validPanelActions?.length) && (
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <ButtonPrimitive iconOnly>
+                                            <ButtonPrimitive
+                                                iconOnly
+                                                aria-label="More file options"
+                                                data-attr="tree-panel-options-button"
+                                            >
                                                 <IconEllipsis className="text-tertiary size-3" />
                                             </ButtonPrimitive>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent side="bottom" align="start">
+                                            {panelMenuItems}
+                                            {panelMenuItems && !!validPanelActions?.length && <DropdownMenuSeparator />}
                                             <DropdownMenuGroup>
-                                                {validPanelActions.map((action) => (
+                                                {validPanelActions?.map((action) => (
                                                     <DropdownMenuItem key={action['data-attr']} asChild>
                                                         <ButtonPrimitive menuItem {...action} size="base">
                                                             {action.children}
@@ -129,17 +137,19 @@ export function PanelLayoutPanel({
                                     </DropdownMenu>
                                 )}
 
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        closePanel()
-                                    }}
-                                    tooltip="Close panel"
-                                    iconOnly
-                                    data-attr="tree-panel-close-panel-button"
-                                    size="sm"
-                                >
-                                    <IconX className="text-tertiary size-3" />
-                                </ButtonPrimitive>
+                                {layout === 'panel' && (
+                                    <ButtonPrimitive
+                                        onClick={() => {
+                                            closePanel()
+                                        }}
+                                        tooltip="Close panel"
+                                        iconOnly
+                                        data-attr="tree-panel-close-panel-button"
+                                        size="sm"
+                                    >
+                                        <IconX className="text-tertiary size-3" />
+                                    </ButtonPrimitive>
+                                )}
                             </div>
                         </div>
                     </>
@@ -149,6 +159,10 @@ export function PanelLayoutPanel({
             </div>
         </nav>
     )
+
+    if (layout === 'inline') {
+        return panelContents
+    }
 
     return (
         <ResizableElement

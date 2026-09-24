@@ -4,7 +4,7 @@ const { mockSessionStore, mockTokenStore, mockApiKey, mockSessionScopedStores, m
     () => ({
         mockSessionStore: new Map<string, unknown>(),
         mockTokenStore: new Map<string, unknown>(),
-        mockApiKey: { scopes: ['*'], scoped_teams: [] },
+        mockApiKey: { scopes: ['*'], scoped_teams: [], is_impersonated: undefined as boolean | undefined },
         mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
         // Records the keys passed to every session-scoped refreshTtl call (only the
         // session cache refreshes, so any recorded call is a session refresh).
@@ -87,8 +87,6 @@ vi.mock('@/hono/request-context', () => {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
                         getApiKey: vi.fn(async () => mockApiKey),
                         getAiConsentGiven: vi.fn(async () => undefined),
-                        getOrFetchGroupTypes: vi.fn(async () => undefined),
-                        getEnvironmentPrompt: vi.fn(async () => undefined),
                         getAvailableFeatures: vi.fn(async () => undefined),
                     },
                 })),
@@ -149,6 +147,15 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockSessionScopedStores.clear()
         mockRefreshTtlCalls.length = 0
         mockApiKey.scopes = ['*']
+        mockApiKey.is_impersonated = undefined
+    })
+
+    it.each([true, false, undefined])('passes token impersonation=%s to analytics', async (impersonated) => {
+        mockApiKey.is_impersonated = impersonated
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(result.isImpersonated).toBe(impersonated === true)
     })
 
     it.each([
@@ -533,5 +540,13 @@ describe('RequestStateResolver MCP client contexts', () => {
                 ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
                 : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
         )
+    })
+
+    it('merges request excludeTools into catalog filter options', async () => {
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps({ excludeTools: ['docs-search'] }))
+
+        expect(getFilteredTools.mock.calls[0]?.[0]?.excludeTools).toEqual(expect.arrayContaining(['docs-search']))
     })
 })

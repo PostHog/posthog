@@ -23,6 +23,10 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
+// The server-resolved default model/effort for this user in this project (their own preference over
+// the project default). A host that launches a run on the user's behalf reads it to tell whether a
+// stored default will apply, because a model sent with the run overrides one.
+export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 

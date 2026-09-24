@@ -21,7 +21,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from
 import { MergeMode, PersonMergeCallFailedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, isFoldRequest } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
 export const personhogStoreFlushCounter = new Counter({
@@ -711,7 +711,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // sequential path, where each event gets its own durability
         // decision. The trigger id marks a fold request, so a single-pair
         // fold aborts the same way instead of dodging every guard.
-        if (request.sources.length > 1 || request.triggerSourceDistinctId !== undefined) {
+        if (isFoldRequest(request)) {
             const overLimit = result.results.some((source) => source.outcome === 'skipped_move_limit')
             const conflicted = result.results.some(
                 (source) => source.outcome === 'skipped_conflict' || source.settled === false

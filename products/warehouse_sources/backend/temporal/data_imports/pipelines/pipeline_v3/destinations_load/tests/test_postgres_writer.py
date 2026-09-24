@@ -17,10 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
     PostgresDestinationWriter,
     UnrelatedTableExistsError,
-    _owned_marker,
     _scoped_identifier,
     merge_stage_name,
     staging_table_name,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
+    owned_marker,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -434,6 +436,23 @@ class TestIncremental:
         finally:
             _drop(dsn, table_name)
 
+    async def test_a_batch_carrying_one_key_twice_keeps_the_last_row(self, dsn, table_name) -> None:
+        # Nothing upstream promises a staged batch holds each key once: sources re-yield a page
+        # after a crash and CDC carries several events for one row. Postgres answers
+        # `ON CONFLICT DO UPDATE` over two rows of one key with "cannot affect row a second
+        # time", and it answers the same way on every retry.
+        ctx = _ctx(table_name, "incremental", primary_keys=("id",))
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            await writer.write_batch(
+                _batches(_rows(["stale", "latest"], [1, 1])),
+                DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True),
+            )
+
+            assert _read(dsn, table_name) == [(1, "latest")]
+        finally:
+            _drop(dsn, table_name)
+
     async def test_a_new_source_column_is_added_rather_than_dropped(self, dsn, table_name) -> None:
         ctx = _ctx(table_name, "incremental", primary_keys=("id",))
         writer = LocalPostgresWriter(ctx, dsn)
@@ -705,7 +724,7 @@ class TestMergeConstraints:
         # this table, so the writer has to add one before it can merge into it.
         with psycopg.connect(dsn, autocommit=True) as conn:
             conn.execute(f'CREATE TABLE "{table_name}" (id BIGINT, name TEXT)')
-            conn.execute(f"COMMENT ON TABLE \"{table_name}\" IS '{_owned_marker('schema')}'")
+            conn.execute(f"COMMENT ON TABLE \"{table_name}\" IS '{owned_marker('schema')}'")
 
         ctx = _ctx(table_name, "incremental", primary_keys=("id",))
         writer = LocalPostgresWriter(ctx, dsn)

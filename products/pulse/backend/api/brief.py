@@ -277,7 +277,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             BriefConfig.objects.for_team(self.team_id)
             .filter(created_by=cast(User, self.request.user))
             .select_related("created_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
         # Lists hide soft-deleted configs; detail routes keep them reachable so a
         # PATCH {"deleted": false} can restore one.
@@ -328,7 +328,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             ProductBrief.objects.for_team(self.team_id)
             .filter(created_by=cast(User, self.request.user))
             .select_related("created_by", "config")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
 
     def get_throttles(self) -> list[BaseThrottle]:

@@ -28,6 +28,7 @@ class _FakeResumableManager:
     def __init__(self, state: PersonaResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[PersonaResumeConfig] = []
+        self.cleared = 0
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -37,6 +38,9 @@ class _FakeResumableManager:
 
     def save_state(self, data: PersonaResumeConfig) -> None:
         self.saved.append(data)
+
+    def clear_state(self) -> None:
+        self.cleared += 1
 
 
 class TestFormatDatetimeZ:
@@ -293,6 +297,51 @@ class TestResume:
         _collect(manager, monkeypatch, [{"data": [], "links": {"next": None}}])
         # First request on resume must carry the saved page[after] cursor.
         assert "page[after]=inq_saved" in manager.fetched_urls[0]  # type: ignore[attr-defined]
+
+    def test_clears_the_cursor_once_the_walk_completes(self, monkeypatch: Any) -> None:
+        pages = [
+            {
+                "data": [{"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}],
+                "links": {"next": None},
+            }
+        ]
+        manager = _FakeResumableManager()
+        _collect(manager, monkeypatch, pages)
+        assert manager.cleared == 1
+
+    def test_keeps_the_cursor_when_the_walk_does_not_finish(self, monkeypatch: Any) -> None:
+        # A run cut short by a worker restart must leave its checkpoint behind, so the next attempt
+        # resumes mid-window instead of re-walking from the last completed watermark.
+        pages = iter(
+            [
+                {
+                    "data": [
+                        {"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}
+                    ],
+                    "links": {"next": "/api/v1/inquiries?page[after]=inq_1"},
+                }
+            ]
+        )
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            try:
+                return next(pages)
+            except StopIteration:
+                raise PersonaRetryableError("worker went away")
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+
+        manager = _FakeResumableManager()
+        with pytest.raises(PersonaRetryableError):
+            for _ in get_rows(
+                api_key="persona_test",
+                endpoint="inquiries",
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            ):
+                pass
+
+        assert manager.cleared == 0
 
 
 def _verifications(count: int, prefix: str) -> list[dict]:

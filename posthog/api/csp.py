@@ -2,7 +2,7 @@ import re
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog.exceptions import generate_exception_response
 from posthog.models.utils import uuid7
 from posthog.sampling import sample_on_property
+from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
@@ -72,9 +73,51 @@ def sample_csp_report(properties: dict, percent: float, add_metadata: bool = Fal
     return should_ingest_report
 
 
+# Reports carry the URL of the document they came from, and auth routes embed live
+# credentials as path segments (password reset, 2FA reset, email verification, invite and
+# sharing links), so storing a URL verbatim would put redeemable tokens into events. A
+# violation report repeats the document URL as its source file and, for a same-origin
+# resource, its blocked URL. Query strings are dropped wholesale, and a path segment is
+# masked when it is token-shaped: 16+ URL-safe characters that include a digit or mix upper and
+# lower case. That matches Django auth tokens, UUIDs and base64url tokens such as sharing tokens,
+# which can lack a digit, but not route names, which are lowercase. The check reads the decoded
+# segment, because a link rewriter can percent-encode a token character and Django still decodes
+# the path before it checks the token.
+_TOKEN_LIKE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]{16,}")
+
+
+def _is_token_like(segment: str) -> bool:
+    segment = unquote(segment)
+    if not _TOKEN_LIKE_PATH_SEGMENT.fullmatch(segment):
+        return False
+    return any(c.isdigit() for c in segment) or (segment.lower() != segment and segment.upper() != segment)
+
+
+def sanitize_report_url(url: object) -> Optional[str]:
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    path = "/".join("<redacted>" if _is_token_like(segment) else segment for segment in parts.path.split("/"))
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+_REPORT_URI_URL_KEYS = frozenset({"document-uri", "referrer", "blocked-uri", "source-file"})
+_REPORT_TO_URL_KEYS = frozenset({"documentURL", "document-uri", "referrer", "blockedURL", "blocked-uri", "sourceFile"})
+# The endpoint also accepts report-to items that carry report-uri field names beside `type`
+# rather than inside `body`, so the envelope can hold any of these.
+_REPORT_ENVELOPE_URL_KEYS = _REPORT_TO_URL_KEYS | _REPORT_URI_URL_KEYS | {"url"}
+
+
+def _with_sanitized_urls(report: dict, url_keys: frozenset[str]) -> dict:
+    return {key: sanitize_report_url(value) if key in url_keys else value for key, value in report.items()}
+
+
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
 def parse_report_uri(data: dict) -> dict:
-    report_uri_data = data["csp-report"]
+    report_uri_data = _with_sanitized_urls(data["csp-report"], _REPORT_URI_URL_KEYS)
 
     report_uri_data["script-sample"] = escape(report_uri_data.get("script-sample") or "")
 
@@ -93,22 +136,23 @@ def parse_report_uri(data: dict) -> dict:
         "source_file": report_uri_data.get("source-file"),
         "status_code": report_uri_data.get("status-code"),
         "script_sample": report_uri_data.get("script-sample"),
-        # Keep the raw report for debugging
-        "raw_report": data,
+        # Keep the raw report for debugging, but not its unsanitized urls.
+        "raw_report": {**data, "csp-report": report_uri_data},
     }
     return properties
 
 
 # https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody
 def parse_report_to(data: dict) -> dict:
-    report_to_data = data.get("body", {})
+    report_to_data = _with_sanitized_urls(data.get("body", {}), _REPORT_TO_URL_KEYS)
+    envelope = _with_sanitized_urls(data, _REPORT_ENVELOPE_URL_KEYS)
     user_agent = data.get("user_agent") or report_to_data.get("user-agent")
 
     report_to_data["sample"] = escape(report_to_data.get("sample") or "")
     report_to_data["script-sample"] = escape(report_to_data.get("sample") or "")
     properties = {
         "report_type": data.get("type"),
-        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
+        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or envelope.get("url"),
         "referrer": report_to_data.get("referrer"),
         "violated_directive": report_to_data.get("effectiveDirective")
         or report_to_data.get("violated-directive"),  # Inferring from effectiveDirective
@@ -122,8 +166,8 @@ def parse_report_to(data: dict) -> dict:
         "status_code": report_to_data.get("statusCode"),
         "script_sample": report_to_data.get("sample"),
         "user_agent": user_agent,
-        # Keep the raw report for debugging
-        "raw_report": data,
+        # Keep the raw report for debugging, but not its unsanitized urls.
+        "raw_report": {**envelope, "body": report_to_data},
     }
     return properties
 
@@ -139,35 +183,12 @@ def is_crash_report(data: dict) -> bool:
     return "type" in data and data["type"] == "crash"
 
 
-# Crash reports carry the crashed document's URL, and auth routes embed live credentials
-# as path segments (password reset, 2FA reset, email verification, invite and sharing
-# links), so storing the URL verbatim would put redeemable tokens into events. Query
-# strings are dropped wholesale, and a path segment is masked when it is token-shaped:
-# 16+ URL-safe characters including a digit, which matches Django auth tokens, UUIDs,
-# and sharing tokens but not route names.
-_TOKEN_LIKE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]{16,}")
-
-
-def sanitize_crash_report_url(url: object) -> Optional[str]:
-    if not isinstance(url, str) or not url:
-        return None
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return None
-    path = "/".join(
-        "<redacted>" if _TOKEN_LIKE_PATH_SEGMENT.fullmatch(segment) and any(c.isdigit() for c in segment) else segment
-        for segment in parts.path.split("/")
-    )
-    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
-
-
 def parse_crash_report(data: dict) -> dict:
     body = data.get("body")
     if not isinstance(body, dict):
         # A malformed body still leaves the envelope's signal: the tab crashed.
         body = {}
-    document_url = sanitize_crash_report_url(data.get("url"))
+    document_url = sanitize_report_url(data.get("url"))
     return {
         "reason": body.get("reason") or "unknown",
         "id": body.get("crashId"),
@@ -187,7 +208,9 @@ def parse_crash_report(data: dict) -> dict:
 MAX_CRASH_REPORT_AGE_MS = 7 * 24 * 3600 * 1000
 
 
-def build_crash_event(props: dict, distinct_id: str, session_id: str, user_agent: Optional[str]) -> dict:
+def build_crash_event(
+    props: dict, distinct_id: str, session_id: str, user_agent: Optional[str], ip: Optional[str] = None
+) -> dict:
     timestamp = datetime.now(UTC)
     age_ms = props.get("age_ms")
     if isinstance(age_ms, (int, float)) and 0 <= age_ms <= MAX_CRASH_REPORT_AGE_MS:
@@ -204,16 +227,30 @@ def build_crash_event(props: dict, distinct_id: str, session_id: str, user_agent
             "$current_url": props["$browser_crash_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": props.get("$browser_crash_user_agent") or user_agent,
+            **_ip_property(ip),
             **props,
         },
     }
+
+
+# capture-rs records 127.0.0.1 for every internal capture, so the event carries the browser's
+# address as `$ip`. Ingestion keeps an explicit `$ip` and still drops it for teams that anonymize IPs.
+def _ip_property(ip: Optional[str]) -> dict:
+    return {"$ip": ip} if ip else {}
 
 
 class CSPReportTooLarge(Exception):
     pass
 
 
-def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
+def build_csp_event(
+    props: dict,
+    distinct_id: str,
+    session_id: str,
+    version: str,
+    user_agent: Optional[str],
+    ip: Optional[str] = None,
+) -> dict:
     props = {f"$csp_{k}": v for k, v in props.items()}
 
     return {
@@ -226,6 +263,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
             "$current_url": props["$csp_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": user_agent,
+            **_ip_property(ip),
             **props,
         },
     }
@@ -275,6 +313,7 @@ def process_csp_report(request):
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
         user_agent = request.headers.get("User-Agent")
+        ip = get_ip_address(request)
 
         try:
             sample_rate = request.GET.get("sample_rate", 1.0)
@@ -305,6 +344,7 @@ def process_csp_report(request):
                     session_id,
                     version,
                     user_agent,
+                    ip,
                 ),
                 None,
             )
@@ -328,8 +368,8 @@ def process_csp_report(request):
             # Crash reports skip sampling: they are rare and each one is a dead tab, so
             # applying the CSP sample rate would silently discard most of the signal.
             events = [
-                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
-            ] + [build_crash_event(prop, distinct_id, session_id, user_agent) for prop in crash_props]
+                build_csp_event(prop, distinct_id, session_id, version, user_agent, ip) for prop in sampled_violations
+            ] + [build_crash_event(prop, distinct_id, session_id, user_agent, ip) for prop in crash_props]
 
             if not events:
                 logger.warning(

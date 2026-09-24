@@ -7,8 +7,8 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import (
     SignalReport,
@@ -451,7 +451,7 @@ class TestDirectlyResponsibleIndividual:
         return github
 
     def _team_x(self, github: MagicMock) -> None:
-        github.list_team_members.return_value = {"success": True, "logins": ["bob", "dave", "stranger"]}
+        github.list_team_members.return_value = {"success": True, "logins": ["Bob", "dave", "stranger"]}
 
     def _claim(
         self, team, report, users: dict, *, kind: str, login: str, automation_branch: str | None = "auto"
@@ -566,26 +566,26 @@ class TestDirectlyResponsibleIndividual:
     @pytest.mark.parametrize(
         ("reviewers", "team_by_path", "members", "claimant", "expected_owner"),
         [
-            (["alice"], {"a.py": "team-x", "b.py": "team-x", "c.py": "team-y"}, {"success": True}, None, "dave"),
-            (["bob"], {"a.py": "team-x"}, {"success": True}, None, "bob"),
-            (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "carol"), "dave"),
-            (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "bob"), "dave"),
+            (["alice"], {"a.py": "team-x", "b.py": "team-x", "c.py": "team-y"}, {"success": True}, None, "stranger"),
+            (["bob"], {"a.py": "team-x"}, {"success": True}, None, "stranger"),
+            (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "carol"), "stranger"),
+            (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "bob"), "stranger"),
             (["alice"], {"a.py": "team-x"}, {"success": True}, ("user", "carol"), "carol"),
             (["alice"], None, {"success": True}, None, "alice"),
             (["alice"], {"a.py": UNOWNED_TEAM}, {"success": True}, None, "alice"),
             (["alice"], {"a.py": "team-x"}, {"success": False, "status_code": 403}, None, "alice"),
-            (["alice"], {"a.py": "team-y"}, {"success": True}, None, "alice"),
+            (["alice"], {"a.py": "team-z"}, {"success": True}, None, "alice"),
         ],
         ids=[
-            "random_member_of_the_majority_team",
-            "a_suggested_member_comes_before_a_random_one",
+            "random_member_of_the_majority_team_without_a_posthog_account",
+            "a_suggested_member_gets_no_priority_in_the_team",
             "a_task_claim_outside_the_team_does_not_rank",
             "a_task_claim_inside_the_team_does_not_reorder_it",
             "a_person_who_chose_the_work_outranks_the_team",
             "no_owners_files_uses_reviewers",
             "unowned_files_use_reviewers",
             "unreadable_team_uses_reviewers",
-            "team_without_org_members_uses_reviewers",
+            "team_without_members_uses_reviewers",
         ],
     )
     def test_the_owning_team_supplies_the_owner(
@@ -606,7 +606,7 @@ class TestDirectlyResponsibleIndividual:
             ownership.return_value = PathOwnership(team_by_path=team_by_path, registry={}, resolved=True)
         github = self._github(existing_assignees=[], assignable=None)
         github.list_pull_request_files.return_value = {"success": True, "paths": list(team_by_path or ["a.py"])}
-        logins_by_team = {"team-x": ["bob", "dave", "stranger"], "team-y": ["stranger"]}
+        logins_by_team = {"team-x": ["Bob", "dave", "Stranger"], "team-y": ["stranger"], "team-z": []}
         github.list_team_members.side_effect = lambda _org, slug: {**members, "logins": logins_by_team[slug]}
 
         with patch(

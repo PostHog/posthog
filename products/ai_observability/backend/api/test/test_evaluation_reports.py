@@ -802,7 +802,14 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertFalse(report.deleted)
         self.assertEqual(EvaluationReport.objects.filter(deleted=False).count(), 1)
 
-    def test_runs_action_returns_paginated_shape(self):
+    @parameterized.expand(
+        [
+            ("boolean", None),
+            ("numeric_rule_removed", {}),
+            ("numeric_rule_cleared", {"passing_rule": None}),
+        ]
+    )
+    def test_runs_action_returns_paginated_shape(self, _name: str, output_config: dict[str, object] | None) -> None:
         report = self._create_report()
         EvaluationReportRun.objects.create(
             report=report,
@@ -811,6 +818,9 @@ class TestEvaluationReportApi(APIBaseTest):
             period_start=timezone.now() - dt.timedelta(hours=1),
             period_end=timezone.now(),
         )
+        if output_config is not None:
+            Evaluation.objects.filter(id=self.evaluation.id).update(output_type="numeric", output_config=output_config)
+
         response = self.client.get(f"{self.base_url}{report.id}/runs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
@@ -818,6 +828,13 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertIn("count", body)
         self.assertEqual(body["count"], 1)
         self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(self.client.get(f"{self.base_url}{report.id}/").status_code, status.HTTP_200_OK)
+        self.assertIn(str(report.id), {item["id"] for item in self.client.get(self.base_url).json()["results"]})
+        if output_config is not None:
+            self.assertFalse(EvaluationReport.objects.deliverable().filter(id=report.id).exists())
+            self.assertEqual(
+                self.client.post(f"{self.base_url}{report.id}/generate/").status_code, status.HTTP_400_BAD_REQUEST
+            )
 
     # The /runs/ and /generate/ custom @actions have to declare required_scopes explicitly;
     # without them the default scope resolver returns None for non-CRUD action names and PAK

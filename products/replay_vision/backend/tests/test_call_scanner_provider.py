@@ -398,13 +398,14 @@ async def test_signal_timestamps_use_recording_duration(
     )
     signal = SignalFinding(
         problem_type="bug",
+        headline="Blank dialog blocks the editor",
         start_time=0,
         end_time=0,
         url="https://example.com/editor",
         description="A blank dialog covers the editor and prevents input.",
         confidence=0.9,
     )
-    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9)
+    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9, thumbnail_t=7)
     client = _FakeClient(
         [_Resp(text=core.model_dump_json())]
         + [
@@ -435,7 +436,47 @@ async def test_signal_timestamps_use_recording_duration(
         )
     assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
     assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
+    # The pick rides the core answer, so no turn of its own is spent on it.
+    assert outcome.thumbnail_video_s == 7
     assert len(client.models.calls) == 1 + len(end_times)
+
+
+@pytest.mark.asyncio
+async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing() -> None:
+    # A provider blip on the last, optional turn used to fail the whole paid-for scan.
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
+    ]
+
+    class _ExplodingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise RuntimeError("provider is down")
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([_Resp(text='{"verdict":"yes"}')])
+    client.models = _ExplodingModels([_Resp(text='{"verdict":"yes"}')])
+
+    out = await _run(client, steps)
+
+    assert "summary" in out
+    assert "media" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
+    steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
+
+    class _ExplodingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            raise RuntimeError("provider is down")
+
+    client = _FakeClient([])
+    client.models = _ExplodingModels([])
+
+    with pytest.raises(RuntimeError):
+        await _run(client, steps)
 
 
 @pytest.mark.asyncio
@@ -649,15 +690,11 @@ class TestVerifyPositives:
             calls.append({"steps": [step.name for step in steps], "cache_name": cache_name})
             # Collect rather than assert: the verify draw runs inside an `except Exception` that turns any
             # error into `draw_failed`, so an assertion raised here would pass the test instead of failing it.
-            unchecked_steps.extend(
-                step.name
-                for step in steps
-                if step.name != "signals" and not (step.required and step.validate is not None)
-            )
+            unchecked_steps.extend(step.name for step in steps if step.required and step.validate is None)
             answer = next(pending)
             if isinstance(answer, Exception):
                 raise answer
-            return {step.name: self._answer(answer) for step in steps if step.name != "signals"}
+            return {step.name: self._answer(answer) for step in steps if step.required}
 
         async def fake_delete(*_: Any) -> None:
             calls.append("delete_cache")

@@ -2,8 +2,7 @@
 // window vs the previous window", a comparison of exactly two values, so the graphic is two labeled
 // horizontal bars on a shared zero-based scale rather than a time series: the daily buckets behind
 // these metrics are noise at this grain. Rates use a pass/fail split bar per window, where the
-// status colors are the data; a duration card can pin a p90 tick on each bar to show the tail on
-// the same scale as the median.
+// status colors are the data.
 
 import { ReactNode } from 'react'
 
@@ -11,11 +10,12 @@ import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { DoraBand, DoraBenchmark } from '../lib/doraBenchmark'
 import { percent } from '../lib/format'
 import { ComparisonBarRow } from './ComparisonBarRow'
-import { DeltaBadge, percentChange, pointChange, type TileBenchmark } from './MetricTile'
+import { DeltaBadge, percentChange, pointChange } from './MetricTile'
 
-const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
+const BENCHMARK_EDGE_CLASS: Record<DoraBand, string> = {
     elite: 'border-l-success',
     high: 'border-l-purple',
     medium: 'border-l-warning',
@@ -40,8 +40,6 @@ function ComparisonRow({
     formatValue,
     share,
     current,
-    marker,
-    markerLabel,
 }: {
     label: string
     value: number
@@ -50,32 +48,15 @@ function ComparisonRow({
     /** Render the value as a pass/fail split of the whole bar instead of a length. */
     share: boolean
     current: boolean
-    marker?: number | null
-    markerLabel?: string
 }): JSX.Element {
     if (share) {
         return (
-            <ComparisonBarRow label={label} value={formatValue(value)} fraction={1}>
+            <ComparisonBarRow label={label} value={value} formatValue={formatValue}>
                 <PassFailSplit rate={value} />
             </ComparisonBarRow>
         )
     }
-    return (
-        <ComparisonBarRow
-            label={label}
-            value={formatValue(value)}
-            fraction={max > 0 ? value / max : 0}
-            muted={!current}
-            marker={
-                marker != null && max > 0
-                    ? {
-                          fraction: marker / max,
-                          tooltip: markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined,
-                      }
-                    : null
-            }
-        />
-    )
+    return <ComparisonBarRow label={label} value={value} max={max} formatValue={formatValue} muted={!current} />
 }
 
 export function WindowComparisonCard({
@@ -89,9 +70,6 @@ export function WindowComparisonCard({
     deltaPrecision,
     tooltip,
     benchmark,
-    marker,
-    markerPrevious,
-    markerLabel,
     loading = false,
     emptyText,
 }: {
@@ -110,16 +88,12 @@ export function WindowComparisonCard({
     deltaPrecision?: number
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
-    benchmark?: TileBenchmark | null
-    /** A companion figure (e.g. p90) pinned as a tick on each magnitude bar, on the same scale as
-     *  the value. Ignored in `share` mode, which has no scale to pin against. */
-    marker?: number | null
-    markerPrevious?: number | null
-    markerLabel?: string
+    /** Where the value lands on its DORA ladder: a colored left edge plus the ladder in the title tooltip. */
+    benchmark?: DoraBenchmark | null
     loading?: boolean
     emptyText: string
 }): JSX.Element {
-    const max = Math.max(...[value, previousValue, marker, markerPrevious].map((number) => number ?? 0))
+    const max = Math.max(value ?? 0, previousValue ?? 0)
     const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
     const tooltipContent = benchmark ? (
         <div className="flex flex-col gap-1">
@@ -167,8 +141,6 @@ export function WindowComparisonCard({
                             formatValue={formatValue}
                             share={share}
                             current
-                            marker={marker}
-                            markerLabel={markerLabel}
                         />
                         {previousValue != null && (
                             <ComparisonRow
@@ -178,8 +150,6 @@ export function WindowComparisonCard({
                                 formatValue={formatValue}
                                 share={share}
                                 current={false}
-                                marker={markerPrevious}
-                                markerLabel={markerLabel}
                             />
                         )}
                     </div>

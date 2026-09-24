@@ -374,11 +374,11 @@ database "posthog" {
     }
   }
 
-  patch_table "kafka_trace_spans_avro" {
+  patch_table "kafka_metrics_avro4" {
     engine "kafka" {
-      collection           = "warpstream_traces"
-      topic_list           = "clickhouse_traces"
-      group_name           = "clickhouse-traces-avro"
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro4"
       format               = "Avro"
       num_consumers        = 4
       skip_broken_messages = 100

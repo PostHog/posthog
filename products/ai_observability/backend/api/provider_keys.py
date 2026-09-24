@@ -347,7 +347,9 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         )
         instance.delete()
 
-    @action(detail=True, methods=["post"])
+    # Write scope, not read: this persists the key's state and spends the customer's
+    # provider quota on a live call with their credential.
+    @action(detail=True, methods=["post"], required_scopes=["llm_provider_key:write"])
     @llma_track_latency("llma_provider_keys_validate")
     @monitor(feature=None, endpoint="llma_provider_keys_validate", method="POST")
     def validate(self, request: Request, **_kwargs) -> Response:
@@ -405,14 +407,16 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
     @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
     def dependent_configs(self, request: Request, **_kwargs) -> Response:
         """Get evaluations using this key and alternative keys for replacement."""
         instance = self.get_object()
 
-        model_configs = LLMModelConfiguration.objects.filter(provider_key=instance).prefetch_related("evaluations")
+        model_configs = LLMModelConfiguration.objects.filter(
+            provider_key=instance, team_id=self.team_id
+        ).prefetch_related("evaluations")
 
         evaluations = []
         for config in model_configs:

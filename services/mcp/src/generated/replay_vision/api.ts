@@ -1057,6 +1057,17 @@ export const VisionScannersAffectedCohortCreateBody = () => zod
             .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
             .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
             .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        verdict: zod
+            .union([
+                zod
+                    .enum(['yes', 'no', 'inconclusive'])
+                    .describe('\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'
+            ),
         tag: zod
             .string()
             .max(visionScannersAffectedCohortCreateBodyTagMax)
@@ -1153,6 +1164,12 @@ export const VisionScannersImpactRetrieveQueryParams = () => zod.object({
         .nullish()
         .describe(
             'Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.'
+        ),
+    verdict: zod
+        .union([zod.literal('yes'), zod.literal('no'), zod.literal('inconclusive'), zod.literal(null)])
+        .nullish()
+        .describe(
+            'Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'
         ),
     window_days: zod
         .number()
@@ -1979,6 +1996,10 @@ export const VisionScannersEstimateCreateBody = () => zod
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const VisionScannersInlineScanCreateParams = () => zod.object({
     project_id: zod
@@ -2018,7 +2039,7 @@ export const VisionScannersInlineScanCreateBody = () => zod
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
             ),
         scanner_config: zod
             .unknown()
@@ -2133,7 +2154,9 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .min(1)
         .max(visionScannersWatchFeedRetrieveQueryLimitMax)
         .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
-        .describe('Feed items to return, at most 50. The feed is bounded, not paginated.'),
+        .describe(
+            'Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.'
+        ),
     scanner_ids: zod
         .string()
         .min(1)

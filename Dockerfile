@@ -94,7 +94,8 @@ ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e2
 # directory to fall back on: without these the release is created with no link back to the code it
 # was built from, and the CLI skips the metadata silently because --release-name/--release-version
 # already let it create the release. The CLI treats empty values as absent, so local builds that
-# pass none of these behave as before.
+# pass none of these behave as before. In the CD workflow the release usually exists already, created
+# with the same metadata before the build, and this stage only looks it up by name and version.
 ARG GITHUB_ACTIONS
 ARG GITHUB_SHA
 ARG GITHUB_REF_NAME
@@ -200,10 +201,11 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     # uv sync validates workspace membership even with --no-dev, so every workspace member must be
-    # present in the build context. tools/owners is also a real install source here: posthog-owners
+    # present in the build context. packages/owners-yaml is also a real install source here: owners-yaml
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
-    --mount=type=bind,source=tools/owners,target=tools/owners \
+    --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
+    --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
     uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -359,6 +361,14 @@ USER posthog
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
+# The error tracking release this build belongs to. The CD workflow creates the release before the
+# build and passes its id in (see "Resolve error tracking release" in
+# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
+# $release_id on every event, so a backend exception resolves to the same release as the frontend
+# bundles. Empty in every other build, which the SDK treats as unset.
+ARG POSTHOG_RELEASE_ID
+ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
+
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
@@ -404,11 +414,11 @@ COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
-# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
+# differs from the installation of owners-yaml into the venv as a library: the sandbox receives
 # files copied into a checkout, and not an import.
-COPY --chown=posthog:posthog tools/owners tools/owners/
-RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+COPY --chown=posthog:posthog packages/owners-yaml packages/owners-yaml/
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d packages/owners-yaml/owners_yaml
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.

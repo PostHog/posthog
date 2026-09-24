@@ -3,7 +3,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 export async function deleteWithUndo<T extends Record<string, any>>({
     undo = false,
@@ -51,9 +51,9 @@ export async function deleteInsightWithUndo({
 }: {
     undo?: boolean
     endpoint: string
-    object: QueryBasedInsightModel
-    idField?: keyof QueryBasedInsightModel
-    callback?: (undo: boolean, object: QueryBasedInsightModel) => void
+    object: InsightModel
+    idField?: keyof InsightModel
+    callback?: (undo: boolean, object: InsightModel) => void
 }): Promise<void> {
     try {
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {

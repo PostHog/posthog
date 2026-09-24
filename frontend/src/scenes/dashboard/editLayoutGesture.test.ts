@@ -2,9 +2,11 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import {
+    EDIT_MODE_GESTURE_THRESHOLD_PX,
     continueDragGestureInEditMode,
     continueResizeGestureInEditMode,
     resolveResizeHandleDirection,
+    whenPressBecomesDrag,
 } from 'scenes/dashboard/editLayoutGesture'
 
 describe('editLayoutGesture', () => {
@@ -34,6 +36,68 @@ describe('editLayoutGesture', () => {
         })
     })
 
+    describe('whenPressBecomesDrag', () => {
+        const press = { clientX: 100, clientY: 100 } as ReactMouseEvent
+
+        const drag = (toX: number, toY: number, buttons: number = 1): void => {
+            window.dispatchEvent(new MouseEvent('mousemove', { clientX: toX, clientY: toY, buttons }))
+        }
+
+        it.each([
+            ['released without moving', 100, 100],
+            ['a one pixel twitch', 101, 100],
+            ['just short of the threshold', 100 + EDIT_MODE_GESTURE_THRESHOLD_PX - 1, 100],
+            ['just short of the threshold on the diagonal', 105, 105],
+        ])('leaves %s as a click', (_case, toX, toY) => {
+            const onDragStarted = jest.fn()
+
+            whenPressBecomesDrag(press, onDragStarted)
+            drag(toX, toY)
+            window.dispatchEvent(new MouseEvent('mouseup'))
+
+            expect(onDragStarted).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['horizontally', 100 + EDIT_MODE_GESTURE_THRESHOLD_PX, 100],
+            ['vertically', 100, 100 + EDIT_MODE_GESTURE_THRESHOLD_PX],
+            ['on the diagonal', 110, 110],
+        ])('starts the drag once the pointer travels %s', (_case, toX, toY) => {
+            const onDragStarted = jest.fn()
+
+            whenPressBecomesDrag(press, onDragStarted)
+            drag(toX, toY)
+
+            expect(onDragStarted).toHaveBeenCalledTimes(1)
+            const crossing = onDragStarted.mock.calls[0][0] as MouseEvent
+            expect(crossing.clientX).toBe(toX)
+            expect(crossing.clientY).toBe(toY)
+        })
+
+        it('starts the drag only once however far the pointer keeps moving', () => {
+            const onDragStarted = jest.fn()
+
+            whenPressBecomesDrag(press, onDragStarted)
+            drag(150, 150)
+            drag(200, 200)
+
+            expect(onDragStarted).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['the button is released', () => window.dispatchEvent(new MouseEvent('mouseup'))],
+            ['the release happened outside the window, so no mouseup arrived', () => drag(300, 300, 0)],
+        ])('stops watching the pointer once %s', (_case, endPress) => {
+            const onDragStarted = jest.fn()
+
+            whenPressBecomesDrag(press, onDragStarted)
+            endPress()
+            drag(300, 300)
+
+            expect(onDragStarted).not.toHaveBeenCalled()
+        })
+    })
+
     describe('gesture continuation', () => {
         let rafQueue: FrameRequestCallback[]
         let grid: HTMLDivElement
@@ -49,6 +113,9 @@ describe('editLayoutGesture', () => {
 
         const pressEvent = (target: Element, clientX: number = 150, clientY: number = 100): ReactMouseEvent =>
             ({ target, clientX, clientY, button: 0 }) as unknown as ReactMouseEvent
+
+        const moveEvent = (clientX: number, clientY: number): MouseEvent =>
+            new MouseEvent('mousemove', { clientX, clientY })
 
         beforeEach(() => {
             rafQueue = []
@@ -84,7 +151,7 @@ describe('editLayoutGesture', () => {
         it('replays the mousedown on the matching resize handle once it renders', () => {
             const onHandleMouseDown = jest.fn()
 
-            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n')
+            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n', moveEvent(150, 12))
             flushFrames() // handle not rendered yet — keeps waiting
 
             const handle = mountResizeHandle('n')
@@ -101,7 +168,7 @@ describe('editLayoutGesture', () => {
         it('does not replay if the mouse button is released before the handle renders', () => {
             const onHandleMouseDown = jest.fn()
 
-            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n')
+            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n', moveEvent(150, 12))
             window.dispatchEvent(new MouseEvent('mouseup'))
 
             const handle = mountResizeHandle('n')
@@ -114,7 +181,7 @@ describe('editLayoutGesture', () => {
         it('gives up after the frame budget if edit mode never renders', () => {
             const onHandleMouseDown = jest.fn()
 
-            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n')
+            continueResizeGestureInEditMode(pressEvent(gridItem, 150, 0), 'n', moveEvent(150, 12))
             flushFrames(15)
 
             const handle = mountResizeHandle('n')
@@ -128,7 +195,7 @@ describe('editLayoutGesture', () => {
             const onDragHandleMouseDown = jest.fn()
             cardMeta.addEventListener('mousedown', onDragHandleMouseDown)
 
-            continueDragGestureInEditMode(pressEvent(cardMeta, 50, 20))
+            continueDragGestureInEditMode(pressEvent(cardMeta, 50, 20), moveEvent(62, 20))
             flushFrames() // grid still in view mode — keeps waiting
             expect(onDragHandleMouseDown).not.toHaveBeenCalled()
 
@@ -139,6 +206,24 @@ describe('editLayoutGesture', () => {
             const replayed = onDragHandleMouseDown.mock.calls[0][0] as MouseEvent
             expect(replayed.clientX).toBe(50)
             expect(replayed.clientY).toBe(20)
+        })
+
+        it('replays the travel that already happened so the drag starts from the press origin', () => {
+            const onDragHandleMouseDown = jest.fn()
+            const onDocumentMouseMove = jest.fn()
+            cardMeta.addEventListener('mousedown', onDragHandleMouseDown)
+            document.addEventListener('mousemove', onDocumentMouseMove)
+
+            continueDragGestureInEditMode(pressEvent(cardMeta, 50, 20), moveEvent(80, 45))
+            grid.className = 'react-grid-layout dashboard-edit-mode'
+            flushFrames()
+            document.removeEventListener('mousemove', onDocumentMouseMove)
+
+            const replayedPress = onDragHandleMouseDown.mock.calls[0][0] as MouseEvent
+            expect([replayedPress.clientX, replayedPress.clientY]).toEqual([50, 20])
+            expect(onDocumentMouseMove).toHaveBeenCalledTimes(1)
+            const replayedMove = onDocumentMouseMove.mock.calls[0][0] as MouseEvent
+            expect([replayedMove.clientX, replayedMove.clientY]).toEqual([80, 45])
         })
     })
 })

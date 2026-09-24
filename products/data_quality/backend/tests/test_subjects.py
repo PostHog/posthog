@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 
@@ -13,7 +13,7 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.subject_access import readable_subjects, subject_metadata
-from products.data_quality.backend.logic.subjects import resolve_subject, subject_column_type
+from products.data_quality.backend.logic.subjects import resolve_subject, selectable_subjects, subject_column_type
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -109,6 +109,56 @@ class TestSubjectResolver(BaseTest):
 
         assert not resolve_subject(other_team.id, SubjectType.TABLE, table.id).exists
 
+    def test_a_curated_tables_columns_are_offered_under_the_names_hogql_resolves(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="stripe_source",
+            connection_id="stripe_connection",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_charge",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/x",
+            external_data_source=source,
+            columns={
+                "id": {"clickhouse": "String"},
+                "amount": {"clickhouse": "Nullable(Int64)"},
+                "customer": {"clickhouse": "String"},
+                "created": {"clickhouse": "Int64"},
+                "_dlt_id": {"clickhouse": "String"},
+            },
+        )
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+
+        offered = next(
+            subject for subject in selectable_subjects(self.team.id, {SubjectType.TABLE}) if subject.id == str(table.id)
+        )
+
+        assert set(offered.columns) == {"id", "amount", "customer_id", "created_at"}
+        assert offered.columns["amount"] == "Nullable(Int64)"
+        assert all(name in database.get_table("stripe_charge").fields for name in offered.columns)
+        assert subject_column_type(self.team.id, SubjectType.TABLE, table.id, "customer_id") == "String"
+        assert subject_column_type(self.team.id, SubjectType.TABLE, table.id, "customer") is None
+
+    def test_an_uncurated_tables_columns_keep_their_names_without_the_sync_plumbing(self) -> None:
+        table = self._table("postgres_orders")
+        table.columns = {
+            "id": {"clickhouse": "Int64"},
+            "customer": {"clickhouse": "String"},
+            "_dlt_id": {"clickhouse": "String"},
+            "_dlt_load_id": {"clickhouse": "String"},
+        }
+        table.save(update_fields=["columns"])
+
+        offered = next(
+            subject for subject in selectable_subjects(self.team.id, {SubjectType.TABLE}) if subject.id == str(table.id)
+        )
+
+        assert set(offered.columns) == {"id", "customer"}
+        assert subject_column_type(self.team.id, SubjectType.TABLE, table.id, "customer") == "String"
+
 
 class TestReadableSubjectSnapshot(BaseTest):
     def _table(
@@ -152,9 +202,12 @@ class TestReadableSubjectSnapshot(BaseTest):
         catalog_excluded = {table.id for table in tables if not database.has_table(table.name)}
         readable = readable_subjects(self.team.id, set())
         snapshot_excluded = {table.id for table in tables} - readable.table_ids
+        offered = {UUID(subject.id) for subject in selectable_subjects(self.team.id, {SubjectType.TABLE})}
+        offered_excluded = {table.id for table in tables} - offered
 
         assert catalog_excluded == {backing_table.id, direct_table.id}
         assert snapshot_excluded == catalog_excluded
+        assert offered_excluded == catalog_excluded
 
     def test_a_soft_deleted_views_backing_table_stays_out_of_the_snapshot(self) -> None:
         view, backing_table = self._materialized_view()

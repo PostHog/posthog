@@ -101,10 +101,12 @@ class ObjectMediaPreviewViewSet(
             return (
                 queryset.filter(event_definition_id=event_definition_id)
                 .select_related("uploaded_media", "exported_asset", "event_definition")
-                .order_by("-updated_at")
+                .order_by("-updated_at", "-id")
             )
 
-        return queryset.select_related("uploaded_media", "exported_asset", "event_definition").order_by("-updated_at")
+        return queryset.select_related("uploaded_media", "exported_asset", "event_definition").order_by(
+            "-updated_at", "-id"
+        )
 
     @action(methods=["GET"], detail=False, url_path="preferred_for_event")
     def preferred_for_event(self, request, *args, **kwargs):
@@ -125,7 +127,7 @@ class ObjectMediaPreviewViewSet(
                 uploaded_media__isnull=False,
             )
             .select_related("uploaded_media", "event_definition")
-            .order_by("-updated_at")
+            .order_by("-updated_at", "-id")
             .first()
         )
 
@@ -141,7 +143,7 @@ class ObjectMediaPreviewViewSet(
                 exported_asset__isnull=False,
             )
             .select_related("exported_asset", "event_definition")
-            .order_by("-updated_at")
+            .order_by("-updated_at", "-id")
             .first()
         )
 

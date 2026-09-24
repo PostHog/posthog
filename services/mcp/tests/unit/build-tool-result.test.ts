@@ -10,6 +10,7 @@ import {
     isToolCallPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -353,6 +354,40 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
 })
 
 describe('buildToolResultPayload — non-query use cases', () => {
+    it.each([
+        { results: [{ id: 1 }], next: null, count: 1, previous: null },
+        { results: [], next: null, count: 0, previous: null },
+        { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
+    ])('unwraps optimized lists but preserves JSON and widget data: %j', (handlerResult) => {
+        for (const outputFormat of ['optimized', 'json'] as const) {
+            const payload = buildToolResultPayload({
+                handlerResult,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+
+            expect(payload.content[0]!.text).toBe(
+                outputFormat === 'json' ? JSON.stringify(handlerResult) : formatResponse(handlerResult.results)
+            )
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
+        }
+    })
+
+    it.each([
+        { results: [{ id: 1 }], query: { kind: 'HogQLQuery' } },
+        { results: [{ id: 1 }], next: null, previous: null, status: 'ready' },
+        { results: 'not a list', next: null, count: 1, previous: null },
+    ])('preserves non-pagination result objects: %j', (handlerResult) => {
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolName: 'mock-tool',
+            params: { output_format: 'json' },
+        })
+
+        expect(JSON.parse(payload.content[0]!.text)).toEqual(handlerResult)
+    })
+
     it('preserves array handler results', () => {
         const result = [{ id: 'template-1' }]
         Object.defineProperty(result, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {

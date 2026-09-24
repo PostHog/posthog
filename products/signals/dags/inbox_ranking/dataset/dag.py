@@ -951,7 +951,6 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         MODEL_DATA_TABLE,
         TITLE_EMBEDDINGS_TABLE,
     ],
-    partitions_def=partition_def,
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH.

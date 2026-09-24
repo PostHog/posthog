@@ -14,7 +14,7 @@
         },
         "limit": {
             "default": 20,
-            "description": "Feed items to return, at most 50. The feed is bounded, not paginated.",
+            "description": "Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.",
             "maximum": 50,
             "minimum": 1,
             "type": "number"

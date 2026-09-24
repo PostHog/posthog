@@ -8,7 +8,11 @@ import { userLogic } from 'scenes/userLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { MCPSessionDetail } from '../sessions/MCPSessionDetail'
-import { MCP_ANALYTICS_USEFULNESS_SURVEY_ID, MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from './constants'
+import {
+    MCP_ANALYTICS_USEFULNESS_SURVEY_ID,
+    MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
+    MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT,
+} from './constants'
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 import { MCPAnalyticsFeedbackPrompt } from './MCPAnalyticsFeedbackPrompt'
 
@@ -161,4 +165,9 @@ export const ContextualCopy: Story = {
             followUpQuestion: 'What did you find, or what was missing?',
         },
     },
+}
+
+export const Dashboard: Story = {
+    ...Narrow,
+    args: { prompt: MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT },
 }

@@ -8,6 +8,7 @@ import { castBooleanToString } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withAgentNote,
+    withTextProjection,
     omitResponseFields,
     stripNullFields,
     type WithPostHogUrl,
@@ -472,20 +473,23 @@ const visionObservationsList = (): ToolBase<
                     session_id: params.session_id,
                 },
             })
-            return withAgentNote(
-                await withPostHogUrl(
-                    context,
-                    {
-                        ...result,
-                        results: await Promise.all(
-                            (result.results ?? []).map((item) =>
-                                withPostHogUrl(context, item, `/replay/${item.session_id}`)
-                            )
-                        ),
-                    },
-                    '/replay'
+            return withTextProjection(
+                withAgentNote(
+                    await withPostHogUrl(
+                        context,
+                        {
+                            ...result,
+                            results: await Promise.all(
+                                (result.results ?? []).map((item) =>
+                                    withPostHogUrl(context, item, `/replay/${item.session_id}`)
+                                )
+                            ),
+                        },
+                        '/replay'
+                    ),
+                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+                ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
         },
     })
@@ -694,6 +698,9 @@ const visionScannersAffectedCohortCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.window_days !== undefined) {
             body['window_days'] = params.window_days
+        }
+        if (params.verdict !== undefined) {
+            body['verdict'] = params.verdict
         }
         if (params.tag !== undefined) {
             body['tag'] = params.tag
@@ -1165,6 +1172,7 @@ const visionScannersImpactGet = (): ToolBase<
                 max_score: params.max_score,
                 min_score: params.min_score,
                 tag: params.tag,
+                verdict: params.verdict,
                 window_days: params.window_days,
             },
         })
@@ -1195,6 +1203,7 @@ const visionScannersImpactRetrieve = (): ToolBase<
                 max_score: params.max_score,
                 min_score: params.min_score,
                 tag: params.tag,
+                verdict: params.verdict,
                 window_days: params.window_days,
             },
         })
@@ -1396,20 +1405,23 @@ const visionScannersObservationsList = (): ToolBase<
                     verdict: params.verdict,
                 },
             })
-            return withAgentNote(
-                await withPostHogUrl(
-                    context,
-                    {
-                        ...result,
-                        results: await Promise.all(
-                            (result.results ?? []).map((item) =>
-                                withPostHogUrl(context, item, `/replay/${item.session_id}`)
-                            )
-                        ),
-                    },
-                    '/replay'
+            return withTextProjection(
+                withAgentNote(
+                    await withPostHogUrl(
+                        context,
+                        {
+                            ...result,
+                            results: await Promise.all(
+                                (result.results ?? []).map((item) =>
+                                    withPostHogUrl(context, item, `/replay/${item.session_id}`)
+                                )
+                            ),
+                        },
+                        '/replay'
+                    ),
+                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and it is what `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and it is what `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
+                ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
         },
     })

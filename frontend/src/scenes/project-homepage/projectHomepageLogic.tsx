@@ -6,7 +6,7 @@ import { MaxContextInput } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, InsightModel, QueryBasedInsightModel } from '~/types'
+import { Breadcrumb, InsightModel } from '~/types'
 
 import type { Node } from '../../queries/schema/schema-general'
 
@@ -16,7 +16,7 @@ export interface projectHomepageLogicValues {
     breadcrumbs: Breadcrumb[]
     expandedInsightIds: Set<string>
     maxContext: MaxContextInput[]
-    recentInsights: QueryBasedInsightModel[]
+    recentInsights: InsightModel[]
     recentInsightsLoading: boolean
 }
 
@@ -31,10 +31,10 @@ export interface projectHomepageLogicActions {
         errorObject?: any
     }
     loadRecentInsightsSuccess: (
-        recentInsights: QueryBasedInsightModel<Node<Record<string, any>>>[],
+        recentInsights: InsightModel<Node<Record<string, any>>>[],
         payload?: any
     ) => {
-        recentInsights: QueryBasedInsightModel<Node<Record<string, any>>>[]
+        recentInsights: InsightModel<Node<Record<string, any>>>[]
         payload?: any
     }
     toggleInsightExpanded: (insightShortId: string) => {
@@ -69,11 +69,11 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
 
     loaders(({ values }) => ({
         recentInsights: [
-            [] as QueryBasedInsightModel[],
+            [] as InsightModel[],
             {
                 loadRecentInsights: async () => {
                     const insights = await api.get<InsightModel[]>(
-                        `api/environments/${values.currentProjectId}/insights/my_last_viewed`
+                        `api/projects/${values.currentProjectId}/insights/my_last_viewed`
                     )
                     return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                 },

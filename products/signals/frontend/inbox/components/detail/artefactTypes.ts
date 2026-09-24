@@ -67,6 +67,20 @@ export interface RelatedToContent {
     report_id?: string
 }
 
+export interface ReportLinkContent {
+    kind?: string
+    report_id?: string
+    reason?: string | null
+}
+
+export const REPORT_LINK_KIND_LABELS: Record<string, string> = {
+    depends_on: 'Depends on',
+    part_of: 'Part of',
+    follow_up_of: 'Follow-up of',
+    duplicate_of: 'Duplicate of',
+    recurrence_of: 'Recurrence of',
+}
+
 export interface CodeReviewContent {
     repository?: string
     head_sha?: string
@@ -91,6 +105,31 @@ export interface CheckResultContent {
     baseline_value?: number | null
     threshold?: string | null
     run_id?: string | null
+}
+
+/** What every entry in a check's life carries. Mirrors `CheckLifecycleEntry` in `artefact_schemas.py`. */
+export interface CheckLifecycleContent {
+    check_id?: string
+    kind?: string
+    title?: string
+}
+
+export interface CheckScheduledContent extends CheckLifecycleContent {
+    rationale?: string
+    next_run_at?: string
+    arms_on_resolve?: boolean
+    soak_minutes?: number | null
+    skill_name?: string | null
+    runs?: number
+}
+
+export interface CheckExpiredContent extends CheckLifecycleContent {
+    expired_at?: string
+    last_run_at?: string | null
+}
+
+export interface CheckCancelledContent extends CheckLifecycleContent {
+    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research'
 }
 
 export interface TitleChangeContent {
@@ -157,8 +196,12 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     title_change: 'Title edited',
     summary_change: 'Summary edited',
     related_to: 'Related report',
+    report_link: 'Report linked',
     code_review: 'Code review',
     check_result: 'Follow-up check',
+    check_scheduled: 'Follow-up check scheduled',
+    check_expired: 'Follow-up check expired',
+    check_cancelled: 'Follow-up check cancelled',
     implementation_decision: 'Open PR assessed',
     implementation_replacement: 'Replacement started',
     implementation_handover: 'Replacement outcome',
