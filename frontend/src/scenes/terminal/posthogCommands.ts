@@ -21,6 +21,7 @@ import { insightsList, insightsRetrieve } from 'products/product_analytics/front
 
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 import { RUN_HELP, TerminalCommands } from './terminalCommands'
+import { HOGQL_FLAGS, HOGQL_HELP, terminalHogqlQuery } from './terminalHogql'
 import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
 import { terminalQueryTable } from './terminalSql'
 
@@ -53,6 +54,8 @@ ph <command> --json -            Read arguments from stdin
 ph refresh                       Reload the project tree and connected tool catalog
 run <file.sql>                    Run SQL and print a Markdown table
 run --help                       Show SQL export formats and examples
+hogql [options] ["SQL"]           Run SQL from an argument, stdin, or an interactive prompt
+hogql --help                      Show query options and output formats
 ph open [path]                   Open a project file or folder in PostHog (defaults to .)
 
 Examples:
@@ -374,6 +377,29 @@ export class PosthogCommands {
 
     async execute(argv: string[], cwd: string): Promise<unknown> {
         const [name = 'help', ...rest] = argv
+        if (name === 'hogql') {
+            if (rest.length === 1 && ['--help', '-h'].includes(rest[0])) {
+                return HOGQL_HELP
+            }
+            if (rest.length !== 2 || rest[0] !== '--json') {
+                throw new Error('Use hogql "SQL" or run hogql --help for examples.')
+            }
+            const request = z
+                .object({ query: z.string(), argv: z.array(z.string()).max(1000) })
+                .strict()
+                .parse(JSON.parse(rest[1]))
+            const { query, format } = terminalHogqlQuery(request.query, request.argv)
+            if (teamLogic.values.currentTeamId !== Number(this.projectId) || this.signal.aborted) {
+                throw new Error('The current project changed. Restart the terminal before running SQL.')
+            }
+            const result = await performQuery(query, { signal: this.signal }, 'force_blocking')
+            // With `explain` or `modifiers.debug`, a failed query returns `error` instead of throwing.
+            // JSON output shows that field, but a table would hide it behind an empty result.
+            if (format !== 'json' && result.error) {
+                throw new Error(result.error)
+            }
+            return format === 'json' ? result : terminalQueryTable(result, format)
+        }
         if (name === '_complete') {
             const [position, prefix = '', previous, commandName] = rest
             if (position === '1' || (position === '2' && commandName === 'help')) {
@@ -388,6 +414,7 @@ export class PosthogCommands {
                         'tools',
                         'refresh',
                         'run',
+                        'hogql',
                         'open',
                         ...Object.keys(aliases),
                         ...this.commands.keys(),
@@ -402,13 +429,15 @@ export class PosthogCommands {
                     ? []
                     : commandName === 'run'
                       ? ['--help', '--markdown', '--json', '--csv', '--tsv']
-                      : [
-                            '--help',
-                            '--json',
-                            ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
-                                (key) => `--${key}`
-                            ),
-                        ]
+                      : commandName === 'hogql'
+                        ? HOGQL_FLAGS
+                        : [
+                              '--help',
+                              '--json',
+                              ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
+                                  (key) => `--${key}`
+                              ),
+                          ]
                 return flags
                     .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
                     .sort()
@@ -474,6 +503,9 @@ export class PosthogCommands {
             }
             if (rest[0] === 'run') {
                 return RUN_HELP
+            }
+            if (rest[0] === 'hogql') {
+                return HOGQL_HELP
             }
             const tool = await this.find(rest[0])
             const { invoke: _, ...description } = tool

@@ -1,5 +1,7 @@
 import { waitFor } from '@testing-library/react'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { performQuery } from '~/queries/query'
@@ -58,7 +60,7 @@ describe('PostHog terminal commands', () => {
         ['--csv', 'answer\n42'],
         ['--tsv', 'answer\n42'],
         ['--json', { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: true }],
-    ])('runs local SQL with %s output', async (format, expected) => {
+    ])('runs SQL from files and hogql with %s output', async (format, expected) => {
         jest.mocked(performQuery).mockResolvedValue({
             columns: ['answer'],
             results: [[42]],
@@ -66,11 +68,112 @@ describe('PostHog terminal commands', () => {
             hasMore: true,
         })
         expect(await commands.execute(['run', '/tmp/report.sql', 'select 42 as answer', format], cwd)).toEqual(expected)
+        expect(
+            await commands.execute(
+                ['hogql', '--json', JSON.stringify({ query: 'select 42 as answer', argv: [format] })],
+                cwd
+            )
+        ).toEqual(expected)
         expect(performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ kind: 'HogQLQuery', query: 'select 42 as answer' }),
             expect.objectContaining({ signal: expect.any(AbortSignal) }),
             'force_blocking'
         )
+    })
+
+    it.each(['--markdown', '--csv', '--tsv'])(
+        'fails hogql %s output when a debug query returns an error',
+        async (format) => {
+            jest.mocked(performQuery).mockResolvedValue({ columns: [], results: [], error: 'Unknown table missing' })
+            const request = { query: 'select * from missing', argv: [format, '--modifiers', '{"debug":true}'] }
+            await expect(commands.execute(['hogql', '--json', JSON.stringify(request)], cwd)).rejects.toThrow(
+                'Unknown table missing'
+            )
+        }
+    )
+
+    it('passes connection options and JSON fields without changing the SQL or losing response metadata', async () => {
+        const result = {
+            columns: ['answer'],
+            results: [[42]],
+            hasMore: false,
+            explain: ['Query plan'],
+            timings: { total: 1 },
+        }
+        jest.mocked(performQuery).mockResolvedValue(result)
+        const query = 'select {value} as answer'
+        const argv = [
+            '--connection-id',
+            'example-connection',
+            '--raw',
+            '--name',
+            'Example query',
+            '--values',
+            '{"value":42}',
+            '--filters',
+            '{"dateRange":{"date_from":"-7d"}}',
+            '--variables',
+            '{}',
+            '--modifiers',
+            '{"timings":true}',
+            '--field',
+            'explain=true',
+            '--json',
+        ]
+        expect(await commands.execute(['hogql', '--json', JSON.stringify({ query, argv })], cwd)).toEqual(result)
+        expect(performQuery).toHaveBeenCalledWith(
+            {
+                kind: 'HogQLQuery',
+                query,
+                connectionId: 'example-connection',
+                sendRawQuery: true,
+                name: 'Example query',
+                values: { value: 42 },
+                filters: { dateRange: { date_from: '-7d' } },
+                variables: {},
+                modifiers: { timings: true },
+                explain: true,
+                tags: { productKey: 'sql_editor', scene: 'Terminal' },
+            },
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            'force_blocking'
+        )
+    })
+
+    it.each([
+        ['', [], 'query is empty'],
+        ['select 1', ['--json', '--csv'], 'Choose one output format'],
+        ['select 1', ['--connection-id'], 'Missing value'],
+        ['select 1', ['--values', '{'], 'Invalid JSON'],
+        ['select 1', ['--filters', '[]'], 'requires a JSON object'],
+        ['select 1', ['--field', 'kind="HogQuery"'], 'other than kind or query'],
+        ['select 1', ['--field', 'query="select 2"'], 'other than kind or query'],
+        ['select 1', ['--raw'], 'Raw SQL requires --connection-id'],
+        ['select 1', ['--field', 'sendRawQuery=true'], 'Raw SQL requires --connection-id'],
+        ['select 1', ['--unknown'], 'Unknown option'],
+    ])('rejects invalid hogql input %j %j before executing a query', async (query, argv, message) => {
+        await expect(commands.execute(['hogql', '--json', JSON.stringify({ query, argv })], cwd)).rejects.toThrow(
+            message
+        )
+        expect(performQuery).not.toHaveBeenCalled()
+    })
+
+    it.each(['stopped', 'changed project'])('blocks hogql after the terminal has %s', async (state) => {
+        const controller = new AbortController()
+        commands = new PosthogCommands('42', controller.signal, filesystem, navigate)
+        if (state === 'stopped') {
+            controller.abort()
+        } else {
+            teamLogic.values.currentTeamId = 43
+        }
+        try {
+            await expect(
+                commands.execute(['hogql', '--json', JSON.stringify({ query: 'select 1', argv: [] })], cwd)
+            ).rejects.toThrow('current project changed')
+            expect(performQuery).not.toHaveBeenCalled()
+        } finally {
+            teamLogic.values.currentTeamId = 42
+        }
     })
 
     it.each(['--csv', '--tsv'])(
@@ -107,6 +210,8 @@ describe('PostHog terminal commands', () => {
             '--json'
         )
         expect(await commands.execute(['_complete', '3', '', '--json', 'notebook-create'], cwd)).toBe('')
+        expect(await commands.execute(['_complete', '2', 'hog', 'help', 'help'], cwd)).toBe('hogql')
+        expect(await commands.execute(['_complete', '2', '--con', 'hogql', 'hogql'], cwd)).toBe('--connection-id')
         for (const command of ['help', 'tools', 'refresh', 'open']) {
             expect(await commands.execute(['_complete', '2', '--', command, command], cwd)).toBe('')
         }

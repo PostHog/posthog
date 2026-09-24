@@ -1,4 +1,5 @@
 import { MAX_TERMINAL_FILE_BYTES, TerminalFilesystem } from './terminalFilesystem'
+import { HOGQL_SCRIPT } from './terminalHogql'
 
 const OPEN_SCRIPT = String.raw`#!/bin/sh
 set -eu
@@ -190,6 +191,7 @@ export class TerminalCommands {
         const bin = filesystem.directory('bin', filesystem.root)
         filesystem.text('ph', bin, PH_SCRIPT)
         filesystem.text('run', bin, RUN_SCRIPT)
+        filesystem.text('hogql', bin, HOGQL_SCRIPT)
         filesystem.text('shellrc', bin, SHELL_RC)
         filesystem.text('open', bin, OPEN_SCRIPT)
     }
