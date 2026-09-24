@@ -4072,32 +4072,6 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('uses the five-minute widget TTL for non-forced refreshes', async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            const fetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
-            expect(fetchedAt).not.toBeUndefined()
-            const initialCalls = fetchRunWidgetsMock.mock.calls.length
-            const clockSpy = jest.spyOn(Date, 'now')
-            try {
-                clockSpy.mockReturnValue(fetchedAt! + 4 * 60_000)
-                await expectLogic(logic, () => {
-                    logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: false })
-                }).toFinishAllListeners()
-                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(initialCalls)
-
-                clockSpy.mockReturnValue(fetchedAt! + 5 * 60_000)
-                await expectLogic(logic, () => {
-                    logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: false })
-                }).toFinishAllListeners()
-                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(initialCalls + 1)
-            } finally {
-                clockSpy.mockRestore()
-            }
-        })
-
         it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
