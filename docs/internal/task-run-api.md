@@ -77,6 +77,10 @@ Workflow summaries are visible only to the task owner or its authorized sandbox 
 Shared workflow stream events always set `task_summary` to `null`.
 Other task streams include the effective summary.
 
+## Wall-clock completion after a pull request
+
+A signal report implementation run can finish its work and stay open to watch the pull request for follow-up activity. If that watcher reaches the run's wall-clock limit after the pull request was observed, the last agent turn succeeded, and no work is pending, the run completes. Its `state.timed_out_wall_clock` marker records why monitoring stopped. A limit reached during active or pending work still fails the run.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.
