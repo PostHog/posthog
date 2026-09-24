@@ -83,7 +83,7 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
     try {
         const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
 
-        if (selectedYAxis.settings.formatting?.decimalPlaces) {
+        if (selectedYAxis.settings.formatting?.decimalPlaces != null) {
             const parsed = parseFloat(
                 (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
             )

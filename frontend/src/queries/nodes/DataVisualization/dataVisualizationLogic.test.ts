@@ -5,7 +5,12 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import {
+    AxisSeriesSettings,
+    DataVisualizationLogicProps,
+    dataVisualizationLogic,
+    formatDataWithSettings,
+} from './dataVisualizationLogic'
 
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
@@ -713,5 +718,33 @@ describe('dataVisualizationLogic', () => {
         })
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
+})
+
+describe('formatDataWithSettings', () => {
+    it.each<[string, number, AxisSeriesSettings | undefined, string | null]>([
+        ['rounds to an explicit zero decimal places', 51.12967032967033, { formatting: { decimalPlaces: 0 } }, '51'],
+        [
+            'rounds to zero decimal places under the none style',
+            51.12967032967033,
+            { formatting: { style: 'none', decimalPlaces: 0 } },
+            '51',
+        ],
+        ['rounds to a non-zero decimal places', 51.12967032967033, { formatting: { decimalPlaces: 2 } }, '51.13'],
+        ['keeps full precision when decimal places are unset', 51.5, undefined, '51.5'],
+        [
+            'keeps the prefix and suffix around a zero-decimal value',
+            51.12967032967033,
+            { formatting: { prefix: '$', suffix: '/day', decimalPlaces: 0 } },
+            '$51/day',
+        ],
+        [
+            'rounds a percent value to zero decimal places',
+            51.12967032967033,
+            { formatting: { style: 'percent', decimalPlaces: 0 } },
+            '51%',
+        ],
+    ])('%s', (_name, value, settings, expected) => {
+        expect(formatDataWithSettings(value, settings)).toBe(expected)
     })
 })
