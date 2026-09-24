@@ -33,6 +33,12 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             [{ from: 'trigger_node', to: 'exit_node' }],
             false,
         ],
+        [
+            'an extra path around the email',
+            [trigger(), email(), exit],
+            [...edges, { from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+            false,
+        ],
     ])('opens %s in the wizard: %s', (_, actions, flowEdges, expected) => {
         expect(canEditInWizard(actions, flowEdges)).toBe(expected)
     })

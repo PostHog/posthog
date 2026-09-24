@@ -59,13 +59,15 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
         return false
     }
     const recipient = email.config?.inputs?.email?.value?.to?.email
-    const connected = (from?: string, to?: string): boolean =>
-        (edges ?? []).some((edge) => edge.from === from && edge.to === to)
+    // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
+    // that skips the email.
+    const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
         trigger.config?.filters?.audience_type !== 'accounts' &&
         (!recipient || recipient === DEFAULT_RECIPIENT) &&
-        connected(trigger.id, email.id) &&
-        connected(email.id, exit.id)
+        paths.size === 2 &&
+        paths.has(`${trigger.id}->${email.id}`) &&
+        paths.has(`${email.id}->${exit.id}`)
     )
 }
 
