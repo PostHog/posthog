@@ -54,7 +54,7 @@ def team(organization):
 def destination(team):
     """Fixture providing an BatchExportDestination for testing."""
     dest = BatchExportDestination.objects.create(
-        type="S3",
+        type="AwsS3",
         config={
             "bucket_name": "bucket",
             "region": "us-east-1",
@@ -467,7 +467,7 @@ async def test_finish_batch_export_run_produces_failed_internal_event(activity_e
         "batch_export_run_id": str(run_id),
         "data_interval_start": start.isoformat(),
         "data_interval_end": end.isoformat(),
-        "destination_type": "S3",
+        "destination_type": "AwsS3",
         "error": "Oh No!",
     }
 
@@ -596,7 +596,7 @@ async def test_start_batch_export_run_produces_failed_billing_internal_event(act
         "batch_export_run_id": str(run.id),
         "data_interval_start": start.isoformat(),
         "data_interval_end": end.isoformat(),
-        "destination_type": "S3",
+        "destination_type": "AwsS3",
         "error": "Over billing limit",
     }
 
@@ -607,11 +607,11 @@ async def test_start_batch_export_run_produces_failed_billing_internal_event(act
 @pytest.mark.parametrize(
     "destination_type,model,deleted,billable",
     [
-        (BatchExportDestination.Destination.S3, BatchExport.Model.EVENTS, False, True),
+        (BatchExportDestination.Destination.AWS_S3, BatchExport.Model.EVENTS, False, True),
         (BatchExportDestination.Destination.HTTP, BatchExport.Model.EVENTS, False, False),
         (BatchExportDestination.Destination.WORKFLOWS, BatchExport.Model.EVENTS, False, False),
-        (BatchExportDestination.Destination.S3, BatchExport.Model.EVENTS, True, False),
-        (BatchExportDestination.Destination.S3, BatchExport.Model.HOGQL, False, False),
+        (BatchExportDestination.Destination.AWS_S3, BatchExport.Model.EVENTS, True, False),
+        (BatchExportDestination.Destination.AWS_S3, BatchExport.Model.HOGQL, False, False),
     ],
 )
 def test_usage_is_reported_only_for_what_the_nightly_report_bills(
