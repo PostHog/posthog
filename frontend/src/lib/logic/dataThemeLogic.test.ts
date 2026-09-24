@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { BRAND_DATA_COLORS, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
+import { BRAND_DATA_COLORS, BRAND_PASTEL_DATA_COLORS, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -55,6 +55,7 @@ describe('dataThemeLogic', () => {
     it.each([
         [false, 1, '#111111'],
         [true, 1, BRAND_DATA_COLORS[0]],
+        ['pastel', 1, BRAND_PASTEL_DATA_COLORS[0]],
         [true, 2, '#222222'],
     ])('with brand flag %s, theme %s resolves preset-1 to %s', async (flagOn, themeId, expected) => {
         window.POSTHOG_RENDER_QUERY_PAYLOAD = {
