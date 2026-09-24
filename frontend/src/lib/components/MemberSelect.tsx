@@ -3,13 +3,12 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
 
-import { MemberSelectRow } from './MemberSelectRow'
+import { MemberSelectOptions } from './MemberSelectOptions'
 
 export type MemberSelectProps = {
     defaultLabel?: string
@@ -87,13 +86,6 @@ export function MemberSelect({
     }
 
     const members = showPopover && !options ? selectableMembers(excludedMembers, propToCompare) : []
-    const displayedOptions =
-        options && !optionSearch && me
-            ? [...options].sort(
-                  (first, second) => Number(second.uuid === me.user.uuid) - Number(first.uuid === me.user.uuid)
-              )
-            : options
-
     return (
         <LemonDropdown
             closeOnClickInside={false}
@@ -113,74 +105,20 @@ export function MemberSelect({
                             onChange={changeSearch}
                             fullWidth
                         />
-                        <ul className="deprecated-space-y-px">
-                            {extraOptions.map((option) => (
-                                <li key={option.label}>
-                                    <LemonButton
-                                        fullWidth
-                                        role="menuitem"
-                                        size="small"
-                                        onClick={() => {
-                                            closeAfterSelection()
-                                            option.onClick()
-                                        }}
-                                    >
-                                        {option.label}
-                                    </LemonButton>
-                                </li>
-                            ))}
-                            {allowNone && (
-                                <li>
-                                    <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
-                                        {defaultLabel}
-                                    </LemonButton>
-                                </li>
-                            )}
-
-                            {members.map((member) => (
-                                <MemberSelectRow
-                                    key={member.user.uuid}
-                                    member={member}
-                                    isYou={member.user.uuid === me?.user.uuid}
-                                    onClick={() => _onChange(member.user)}
-                                />
-                            ))}
-
-                            {displayedOptions?.map((option) => (
-                                <li key={option.uuid}>
-                                    <LemonButton
-                                        fullWidth
-                                        role="menuitem"
-                                        size="small"
-                                        icon={
-                                            <ProfilePicture
-                                                size="md"
-                                                user={{ first_name: option.name, email: option.email }}
-                                            />
-                                        }
-                                        onClick={() => {
-                                            closeAfterSelection()
-                                            onSelectOption?.(option.uuid, option.name || option.email)
-                                        }}
-                                    >
-                                        <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                                            <span className="min-w-0 flex-1 truncate">
-                                                {option.name || option.email}
-                                            </span>
-                                            <span className="shrink-0 text-secondary">{option.trailing}</span>
-                                        </span>
-                                    </LemonButton>
-                                </li>
-                            ))}
-
-                            {(options ? optionsLoading : membersLoading) ? (
-                                <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                            ) : (options ?? members).length === 0 ? (
-                                <div className="p-2 text-secondary italic truncate border-t">
-                                    {searchValue ? <span>No matches</span> : <span>No users</span>}
-                                </div>
-                            ) : null}
-                        </ul>
+                        <MemberSelectOptions
+                            extraOptions={extraOptions}
+                            allowNone={allowNone}
+                            defaultLabel={defaultLabel}
+                            members={members}
+                            currentUserUuid={me?.user.uuid}
+                            options={options}
+                            optionsLoading={optionsLoading}
+                            membersLoading={membersLoading}
+                            searchValue={searchValue}
+                            onChange={_onChange}
+                            onSelectOption={onSelectOption}
+                            onClose={closeAfterSelection}
+                        />
                     </div>
                 ) : null
             }
