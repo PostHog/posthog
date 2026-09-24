@@ -63,7 +63,7 @@ export interface wizardCloudRunLogicActions {
         startedAt: string
         taskId: string
     } // activeCloudRunLogic
-    loadIntegrations: () => any // integrationsLogic
+    loadIntegrations: (_?: any) => any // integrationsLogic
     reportOnboardingCloudRunQueued: (props: { repository: string; runId: string; taskId: string }) => {
         repository: string
         runId: string
