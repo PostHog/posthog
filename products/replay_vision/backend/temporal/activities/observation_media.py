@@ -71,7 +71,12 @@ def _pick_video_time_s(
 async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
     """Pick the frame to cut and create the `is_system` PNG asset the Node activity uploads into."""
     media_inputs = inputs
-    asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+    try:
+        asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+    except ExportedAsset.DoesNotExist as error:
+        raise ApplicationError(
+            f"Analysis asset {media_inputs.analysis_asset_id} is gone", non_retryable=True
+        ) from error
     if not asset.content_location:
         # The analysis render is long finished by now, so an empty location is a lost object, not a race.
         raise ApplicationError(f"Analysis asset {asset.id} has no rendered object", non_retryable=True)

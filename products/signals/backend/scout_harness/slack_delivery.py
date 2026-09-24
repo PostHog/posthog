@@ -280,7 +280,7 @@ def post_scout_emission_to_slack(
 
     blocks, fallback = build_scout_slack_message(emission)
     blocks.extend(_scout_invite_footer(integration, scout_team_id=emission.team_id, channel_id=channel_id))
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     client = slack.client
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
@@ -715,7 +715,7 @@ def post_scout_report_to_slack(
         integration_id=integration_id,
         project_id=report.team.project_id,
     )
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     client = slack.client
     lead_blocks = [
         *messages.lead_blocks,
