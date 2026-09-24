@@ -168,8 +168,6 @@ tools:
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
         exclude_params:
-            # Only a push may claim a workflow for code or say where its file lives; the API refuses
-            # either from an agent, so offering the fields only invites a failed call.
             - managed_by
             - source_repository
             - source_path
@@ -489,8 +487,6 @@ tools:
             - status
             - actions
             - edges
-            # An agent must not be able to release a workflow a repository owns and then edit it, and
-            # it cannot know where the file lives either. The API refuses both anyway.
             - managed_by
             - source_repository
             - source_path

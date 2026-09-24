@@ -15,11 +15,6 @@ function SourcePart({ label, url }: { label: string; url: string | undefined }):
     )
 }
 
-/**
- * One line that says where a code-managed workflow comes from: the file, the repository and the ref
- * of the last push. Each part is linked when the host is one we can link, and left out when the row
- * does not record it. Renders nothing for a workflow this app owns.
- */
 export function CodeManagedSource({
     workflow,
     className,

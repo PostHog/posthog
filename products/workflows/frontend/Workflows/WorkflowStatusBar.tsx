@@ -43,7 +43,6 @@ export function WorkflowStatusBar({
     const showWorkflowStatus = !props.editTemplateId
     const historyWorkflowId = props.id && props.id !== 'new' ? props.id : null
     const isActive = originalWorkflow.status === 'active'
-    // Edits to a code-managed workflow never become a draft, because only a push changes it.
     const isEditingDraftOfLive = isActive && !isCodeManaged && (hasStagedDraft || hasUnsavedChanges)
 
     return (
