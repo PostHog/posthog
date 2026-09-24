@@ -77,7 +77,7 @@ graph LR
     CUR --> EP
     EP --> MCP["MCP tools<br/>enabled subset in mcp/tools.yaml"]
     EP --> UI["UI scenes"]
-    CUR --> WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures<br/>for insights + SQL"]
+    CUR --> WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction<br/>for insights + SQL"]
 ```
 
 - Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).

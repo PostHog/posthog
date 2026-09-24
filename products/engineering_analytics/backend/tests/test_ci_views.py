@@ -13,8 +13,12 @@ from posthog.clickhouse.client import sync_execute
 
 from products.engineering_analytics.backend.facade.warehouse_views import get_expected_warehouse_views
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
-from products.engineering_analytics.backend.logic.sources import WORKFLOW_JOBS_SCHEMA, WORKFLOW_RUNS_SCHEMA
-from products.engineering_analytics.backend.logic.views import ci_failures, ci_job_history, job_costs
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+)
+from products.engineering_analytics.backend.logic.views import ci_failures, ci_job_history, job_costs, pr_friction
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -339,7 +343,7 @@ class TestExpectedWarehouseViews(BaseTest):
     """The facade must expose all three views together for a qualifying GitHub source, and nothing
     for a team without one — so a consumer sees a coherent set, never a partial one."""
 
-    def _qualifying_source(self) -> ExternalDataSource:
+    def _qualifying_source(self, *, with_pull_requests: bool = False) -> ExternalDataSource:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="gh",
@@ -348,7 +352,10 @@ class TestExpectedWarehouseViews(BaseTest):
             source_type=ExternalDataSourceType.GITHUB,
             prefix=GITHUB_SOURCE_PREFIX,
         )
-        for schema_name, endpoint in ((WORKFLOW_RUNS_SCHEMA, "workflow_runs"), (WORKFLOW_JOBS_SCHEMA, "workflow_jobs")):
+        endpoints = [(WORKFLOW_RUNS_SCHEMA, "workflow_runs"), (WORKFLOW_JOBS_SCHEMA, "workflow_jobs")]
+        if with_pull_requests:
+            endpoints.append((PULL_REQUESTS_SCHEMA, "pull_requests"))
+        for schema_name, endpoint in endpoints:
             table = DataWarehouseTable.objects.create(
                 team=self.team,
                 name=f"{GITHUB_SOURCE_PREFIX}github_{endpoint}",
@@ -369,3 +376,13 @@ class TestExpectedWarehouseViews(BaseTest):
         self._qualifying_source()
         names = {view.name for view in get_expected_warehouse_views(self.team)}
         assert names == {job_costs.VIEW_NAME, ci_job_history.VIEW_NAME, ci_failures.VIEW_NAME}
+
+    def test_pull_request_snapshot_adds_the_materialized_friction_view(self) -> None:
+        self._qualifying_source(with_pull_requests=True)
+        materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}
+        assert materialized == {
+            job_costs.VIEW_NAME: False,
+            ci_job_history.VIEW_NAME: False,
+            ci_failures.VIEW_NAME: False,
+            pr_friction.VIEW_NAME: True,
+        }

@@ -285,6 +285,7 @@ class ExpectedWarehouseView:
     name: str
     query: str
     fields: dict[str, FieldOrTable]
+    materialized: bool = False
 
 
 @dataclass(frozen=True)
