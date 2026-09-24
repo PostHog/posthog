@@ -1279,26 +1279,50 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
-    def test_post_rejects_system_generated_code_review_type(self):
-        # code_review receipts are written only by the ReviewHog workflow; accepting them through the
-        # API would let a caller fabricate review receipts for reviews that never ran. The payload is
-        # schema-valid on purpose — the rejection must be type-based, not a validation accident.
+    @parameterized.expand(
+        [
+            (
+                "code_review",
+                {
+                    "review_report_id": "11111111-1111-1111-1111-111111111111",
+                    "repository": "posthog/posthog",
+                    "head_sha": "abc123",
+                    "head_branch": "feat",
+                    "base_branch": "master",
+                    "outcome": "published",
+                },
+            ),
+            (
+                "ranking_score",
+                {
+                    "scored_at": "2026-01-02T03:04:05Z",
+                    "manifest_version": "2026-01-02",
+                    "served_key": "tabular@2026-01-01",
+                    "results": {
+                        "tabular@2026-01-01": {
+                            "model_name": "tabular",
+                            "model_version": "2026-01-01",
+                            "model_kind": "xgboost",
+                            "roles": ["served"],
+                            "feature_schema_version": 1,
+                            "status": "scored",
+                            "scores": {"open": 0.42},
+                        }
+                    },
+                },
+            ),
+        ]
+    )
+    def test_post_rejects_system_generated_type(self, artefact_type, content):
+        # These types are written only by the pipeline that produces them: the ReviewHog workflow for
+        # a code_review receipt, the scoring sweep for a ranking_score. Accepting them through the API
+        # would let a caller fabricate a review that never ran or a probability no model produced. Each
+        # payload is schema-valid on purpose, so the rejection must be type-based rather than a
+        # validation accident.
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            data=json.dumps(
-                {
-                    "artefact_type": "code_review",
-                    "content": {
-                        "review_report_id": "11111111-1111-1111-1111-111111111111",
-                        "repository": "posthog/posthog",
-                        "head_sha": "abc123",
-                        "head_branch": "feat",
-                        "base_branch": "master",
-                        "outcome": "published",
-                    },
-                }
-            ),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
