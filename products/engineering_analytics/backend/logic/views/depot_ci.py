@@ -41,6 +41,12 @@ def _id_to_int(column: str) -> str:
     return f"toInt(arraySum({digits}))"
 
 
+def _conclusion(status: str) -> str:
+    # Depot's terminal statuses in GitHub's conclusion vocabulary. `cancelled` and `skipped` are
+    # already the same word in both.
+    return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
+
+
 def _attempts_with_ids(attempts_table: str) -> str:
     # Filtered in their own SELECT because the outer SELECTs alias the decoded ids over the raw
     # column names, and ClickHouse would resolve a WHERE there against the aliases. A push run's id
@@ -59,7 +65,7 @@ def _runs(attempts_table: str) -> str:
             any(head_sha) AS head_sha,
             NULL AS head_branch,
             'completed' AS status,
-            multiIf(any(run_status) = 'finished', 'success', any(run_status) = 'failed', 'failure', any(run_status)) AS conclusion,
+            {_conclusion("any(run_status)")} AS conclusion,
             any(run_created_at) AS created_at,
             any(run_started_at) AS run_started_at,
             any(run_finished_at) AS updated_at,
@@ -82,13 +88,14 @@ def _jobs(attempts_table: str) -> str:
             if(ifNull(job_display_name, '') != '', job_display_name, job_key) AS name,
             workflow_name,
             if(ifNull(attempt_finished_at, '') != '', 'completed', 'in_progress') AS status,
-            attempt_conclusion AS conclusion,
+            {_conclusion("attempt_status")} AS conclusion,
             head_sha,
             NULL AS head_branch,
             '{_DEFAULT_SANDBOX_LABELS}' AS labels,
             sandbox_id AS runner_name,
             NULL AS runner_group_name,
-            attempt_created_at AS created_at,
+            -- Depot reports no queue time for an attempt, so it counts as created when it starts.
+            attempt_started_at AS created_at,
             attempt_started_at AS started_at,
             attempt_finished_at AS completed_at,
             NULL AS steps

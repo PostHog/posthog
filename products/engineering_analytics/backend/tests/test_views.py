@@ -243,7 +243,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [])
 
         def attempt(
-            attempt_id: str, attempt: int, conclusion: str, started: str, finished: str, *, run_id: str = "427q556wmn"
+            attempt_id: str, attempt: int, status: str, started: str, finished: str, *, run_id: str = "427q556wmn"
         ) -> dict[str, str | int]:
             return {
                 "run_id": run_id,
@@ -259,8 +259,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "job_display_name": "Product tests (experiments)" if attempt_id != "b82nsv77wl" else "",
                 "attempt_id": attempt_id,
                 "attempt": attempt,
-                "attempt_conclusion": conclusion,
-                "attempt_created_at": started,
+                "attempt_status": status,
                 "attempt_started_at": started,
                 "attempt_finished_at": finished,
                 "sandbox_id": "sandbox",
@@ -270,14 +269,14 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "depot_job_attempts",
             DEPOT_JOB_ATTEMPTS_COLUMNS,
             [
-                attempt("zf6sbbn2wh", 1, "failure", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
-                attempt("3v4pbsqvfc", 2, "success", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
-                attempt("b82nsv77wl", 1, "success", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z"),
+                attempt("zf6sbbn2wh", 1, "failed", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
+                attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
+                attempt("b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z"),
                 # A push run's id carries a prefix outside the base-30 alphabet, so it has no GitHub run id.
                 attempt(
                     "q28m5dl5rg",
                     1,
-                    "success",
+                    "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
                     run_id="ps_59s92fgx6c",
