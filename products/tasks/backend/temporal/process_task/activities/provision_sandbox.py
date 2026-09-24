@@ -11,7 +11,6 @@ from django.utils import timezone
 
 import posthoganalytics
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
@@ -55,6 +54,7 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
+    parse_requested_sandbox_template,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -183,12 +183,24 @@ class CheckoutBranchInSandboxInput:
     used_snapshot: bool
 
 
+# Kept in sync with products/desktop/scripts/wait-cloud-task-bootstrap.sh, which the agent
+# runs to block on the build and read its result.
+DESKTOP_BOOTSTRAP_STATE_DIR = "/tmp/posthog-desktop-bootstrap"
+DESKTOP_BOOTSTRAP_WAIT_SCRIPT = "scripts/wait-cloud-task-bootstrap.sh"
+DESKTOP_BOOTSTRAP_TIMEOUT_SECONDS = 15 * 60
+
+
 def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
-    """Build Desktop workspace exports from the task's checked-out source.
+    """Start building Desktop workspace exports from the task's checked-out source.
 
     The dev-stack image warms pnpm's content-addressed store but deliberately does
     not retain checkout-specific node_modules or dist directories. Prepare only the
     internal PostHog checkout that uses that image, after its final branch is in place.
+
+    The build runs detached so the agent does not wait for it before its first turn.
+    Most tasks never touch Desktop, and the ones that do wait on the state directory
+    through `pnpm bootstrap:cloud-task:wait`. A failed launch is logged and not raised,
+    because the agent can still run the bootstrap itself.
     """
     if (
         not ctx.desktop_workspace_warm_enabled
@@ -199,18 +211,43 @@ def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: San
         return
 
     repo_path = f"{sandbox_repo_path(repository)}/products/desktop"
-    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
-    result = sandbox.execute(
-        f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
-        timeout_seconds=10 * 60,
+    state_dir = shlex.quote(DESKTOP_BOOTSTRAP_STATE_DIR)
+    # `timeout` replaces the deadline the blocking exec used to enforce. Its exit code is
+    # renamed into place so the wait script never reads a partial file.
+    build = (
+        f"timeout -k 30 {DESKTOP_BOOTSTRAP_TIMEOUT_SECONDS} pnpm bootstrap:cloud-task > {state_dir}/log 2>&1 & "
+        f"echo $! > {state_dir}/build.pid; wait $!; "
+        f"echo $? > {state_dir}/exit.tmp && mv {state_dir}/exit.tmp {state_dir}/exit"
     )
+    # Exit 3 skips a branch without the wait script, because its agent cannot wait on the build.
+    # A retried clone activity recloned the tree under any running build, so stop that build first.
+    # `timeout` leads its own process group, hence the second kill.
+    # setsid detaches the build because the sandbox runtime reaps exec children on return.
+    launch = (
+        f"cd {shlex.quote(repo_path)} || exit 1; "
+        f"[ -f {DESKTOP_BOOTSTRAP_WAIT_SCRIPT} ] || exit 3; "
+        f"if [ -f {state_dir}/launcher.pid ] && [ ! -f {state_dir}/exit ]; then "
+        f'kill -TERM "$(cat {state_dir}/launcher.pid)" 2>/dev/null; '
+        f'kill -TERM -- "-$(cat {state_dir}/build.pid 2>/dev/null)" 2>/dev/null; fi; '
+        f"rm -rf {state_dir} && mkdir -p {state_dir} && date +%s > {state_dir}/started || exit 1; "
+        f"setsid sh -c {shlex.quote(build)} > /dev/null 2>&1 < /dev/null & "
+        f"echo $! > {state_dir}/launcher.pid"
+    )
+    try:
+        result = sandbox.execute(launch, timeout_seconds=30)
+    except Exception as e:
+        logger.warning("desktop_bootstrap_launch_failed", extra={"run_id": ctx.run_id, "error": str(e)})
+        return
+    if result.exit_code == 3:
+        emit_agent_log(ctx.run_id, "debug", "Skipped Desktop workspace preparation: branch has no wait script")
+        return
     if result.exit_code != 0:
-        output = (result.stderr or result.stdout)[-2_000:]
-        raise ApplicationError(
-            f"Failed to prepare Desktop workspace: {output}",
-            type="DesktopCloudTaskBootstrapError",
-            non_retryable=True,
+        logger.warning(
+            "desktop_bootstrap_launch_failed",
+            extra={"run_id": ctx.run_id, "exit_code": result.exit_code, "stderr": result.stderr[-500:]},
         )
+        return
+    emit_agent_log(ctx.run_id, "debug", "Started Desktop workspace preparation in the background")
 
 
 @dataclass
@@ -616,6 +653,35 @@ def _build_sandbox_tags(
     return {key: str(value) for key, value in tags.items() if value is not None}
 
 
+def _requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """The template the run's state asks for. Unknown values and ``VM_BASE`` are fatal."""
+    try:
+        return parse_requested_sandbox_template(value)
+    except ValueError as e:
+        raise TaskInvalidStateError(
+            f"Invalid sandbox template {value!r}",
+            {"sandbox_template": value},
+            cause=e,
+        )
+
+
+def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTemplate) -> SandboxTemplate:
+    """VM routing forces ``VM_BASE``, which carries none of a custom template's tooling.
+
+    Silently dropping the requested template would provision an agent without the
+    libraries its task depends on, so the combination fails instead.
+    """
+    if not use_vm_sandbox:
+        return requested
+    if requested != SandboxTemplate.DEFAULT_BASE:
+        raise TaskInvalidStateError(
+            f"Sandbox template {requested.value!r} cannot run on the VM runtime",
+            {"sandbox_template": requested.value},
+            cause=ValueError("custom sandbox template on a VM-routed run"),
+        )
+    return SandboxTemplate.VM_BASE
+
+
 @activity.defn
 @asyncify
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
@@ -627,6 +693,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
     ):
         has_repo = bool(ctx.repositories)
         repository = ctx.repository
+        run_state = parse_run_state(ctx.state)
+        sandbox_template = _requested_sandbox_template(run_state.sandbox_template)
 
         snapshot = None
         used_snapshot = False
@@ -634,9 +702,10 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
-        # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
+        # drop a custom base image or a non-default template. Resume snapshots were taken from
+        # this task's own sandbox.
         snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
-        if snapshot_integration_id is not None:
+        if snapshot_integration_id is not None and sandbox_template == SandboxTemplate.DEFAULT_BASE:
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -677,7 +746,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
-        run_state = parse_run_state(ctx.state)
         # VM and gVisor both resume from snapshots. A run's stored snapshot kind
         # determines the restore mechanism; the rollout flag only chooses the
         # kind of new snapshot created after this run.
@@ -792,9 +860,15 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
         resource_overrides = ctx.sandbox_resource_overrides()
+        # Read from the run context, not the prepare output: a prepare activity claimed by an
+        # older worker during a rolling deploy would hand over an output without the template.
+        template = _effective_sandbox_template(
+            use_vm_sandbox=use_vm_sandbox,
+            requested=_requested_sandbox_template(parse_run_state(ctx.state).sandbox_template),
+        )
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            template=template,
             workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
@@ -805,6 +879,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
 

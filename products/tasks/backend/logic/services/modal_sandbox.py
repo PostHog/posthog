@@ -126,6 +126,7 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
 SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
+SANDBOX_AUTORESEARCH_IMAGE = "ghcr.io/posthog/posthog-sandbox-autoresearch"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 
 # SLIM_BASE has no registry image and no CD publish pipeline — it's built inline by Modal
@@ -341,6 +342,7 @@ LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
     SandboxTemplate.VM_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm"),
     SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"),
+    SandboxTemplate.AUTORESEARCH_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
@@ -355,7 +357,8 @@ LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cp
 LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
 
 
-_image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
+# One entry per registry-backed template, so a worker serving every template evicts nothing.
+_image_ref_cache: TTLCache = TTLCache(maxsize=8, ttl=300)
 _image_ref_lock = threading.Lock()
 
 
@@ -448,7 +451,9 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 
 # Templates whose image bundles the agent-server at /scripts and can therefore
 # take a live local dist overlay in DEBUG. Add new agent-server-bearing templates here.
-AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
+AGENT_SERVER_TEMPLATES = frozenset(
+    {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE, SandboxTemplate.AUTORESEARCH_BASE}
+)
 
 
 @dataclass(frozen=True)
@@ -612,7 +617,8 @@ def _build_canvas_template_image() -> modal.Image:
     )
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=4, ttl=300)
+# One entry per template, so a worker serving every template evicts nothing.
+_template_image_cache: TTLCache = TTLCache(maxsize=8, ttl=300)
 _template_image_lock = threading.Lock()
 
 
@@ -631,6 +637,7 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
         SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
         SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+        SandboxTemplate.AUTORESEARCH_BASE: SANDBOX_AUTORESEARCH_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -663,6 +670,7 @@ def resolve_template_base_image_reference(template: SandboxTemplate) -> str | No
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
         SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
         SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+        SandboxTemplate.AUTORESEARCH_BASE: SANDBOX_AUTORESEARCH_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Template does not use a registry image: {template}")

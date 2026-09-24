@@ -443,11 +443,8 @@ class TestWarmTaskSandbox(APIBaseTest):
             ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
-    def test_warm_endpoint_forwards_the_report_and_the_desktop_gate_outcome(
-        self, _name, decision, entitled, mock_warm, _mock_warm_enabled
-    ):
+    def test_warm_endpoint_forwards_the_report_and_the_desktop_gate_outcome(self, _name, decision, entitled, mock_warm):
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)

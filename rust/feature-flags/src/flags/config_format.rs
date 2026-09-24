@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::api::errors::FlagError;
 use crate::flags::config_v2;
+use crate::flags::feature_flag_list::UndecodableDocument;
 use crate::flags::flag_models::FlagFilters;
 use crate::metrics::consts::FLAG_V2_PARSE_COUNTER;
 
@@ -100,23 +101,42 @@ impl FlagFilters {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn decode_filters(value: Value) -> Result<FlagFilters, serde_json::Error> {
-    decode_raw_filters(serde_json::value::to_raw_value(&value)?)
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub(crate) struct FilterDecodeError {
+    pub(crate) error: serde_json::Error,
+    pub(crate) document: UndecodableDocument,
 }
 
-pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, serde_json::Error> {
+#[cfg(test)]
+pub(crate) fn decode_filters(value: Value) -> Result<FlagFilters, FilterDecodeError> {
+    let raw = serde_json::value::to_raw_value(&value).expect("a Value always serializes");
+    decode_raw_filters(raw)
+}
+
+pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, FilterDecodeError> {
     let (format, document) = match serde_json::from_str::<FilterDocument<true>>(raw.get()) {
         Ok(decoded) => (decoded.format, Ok(decoded.document)),
         Err(error) => {
             // An unrepresentable number must stay a per-flag v2 failure. Only
             // failed Value reads need another scan to recover the discriminator.
-            let probe = serde_json::from_str::<FilterDocument<false>>(raw.get())?;
+            let probe =
+                serde_json::from_str::<FilterDocument<false>>(raw.get()).map_err(|error| {
+                    FilterDecodeError {
+                        error,
+                        document: UndecodableDocument::NotAnObject,
+                    }
+                })?;
             (probe.format, Err(error))
         }
     };
     if format == ConfigFormat::V1 {
-        serde_json::from_value(Value::Object(document?))
+        document
+            .and_then(|document| serde_json::from_value(Value::Object(document)))
+            .map_err(|error| FilterDecodeError {
+                error,
+                document: UndecodableDocument::UnreadableV1Object,
+            })
     } else {
         let parsed_v2 = (format == ConfigFormat::V2).then(|| {
             config_v2::validate_raw_document(&raw)?;

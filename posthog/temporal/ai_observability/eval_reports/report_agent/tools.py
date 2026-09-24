@@ -35,11 +35,13 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     Citation,
     EvalReportGenerationStatus,
     ReportSection,
-    calculate_boolean_pass_rate,
+    calculate_pass_rate,
     calculate_result_rates,
+    citation_wrappers,
     normalize_metrics_payload,
     normalize_report_content_payload,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.state import REPORT_RUN_HANDLE_KEY
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
     SESSION_ID_ALLOWLIST_KEY,
@@ -70,7 +72,7 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 # excludes only the backtick, so the run to the next one is unambiguous and the
 # scan stays linear. A class that also matched the surrounding whitespace makes
 # every split of a whitespace run a candidate, and the agent writes the input.
-_BACKTICKED_TOKEN_RE = re.compile(r"`+([^`]*)`+")
+_BACKTICKED_TOKEN_RE = re.compile(r"`` `([^`]*)` ``|`+([^`]*)`+")
 
 # Match a canonical UUID anywhere it is used as a whole token. Opaque IDs are not
 # UUID-shaped, so the guard also checks the session's handled-ID allowlists.
@@ -128,17 +130,48 @@ def _is_allowlisted(state: dict, allowlist_key: str, value: str) -> bool:
 
 
 def _handled_ids(state: dict) -> set[str]:
-    """Return every target ID this run's queries returned, across both allowlists.
+    """Return every identifier this run handed the agent: target IDs and run handles.
 
     The agent state and the finished agent result are the same mapping, so the
     in-loop guard and the final validation key on one definition of a handled ID.
+    A run handle is not UUID-shaped, so without it here the guard reads a backticked
+    handle as prose and ships an internal token to the reader.
     """
     handled: set[str] = set()
     for allowlist_key in (TRACE_ID_ALLOWLIST_KEY, SESSION_ID_ALLOWLIST_KEY):
         allowlist = state.get(allowlist_key)
         if isinstance(allowlist, list):
             handled.update(value for value in allowlist if isinstance(value, str))
+    handles = state.get(REPORT_RUN_HANDLE_KEY)
+    if isinstance(handles, dict):
+        handled.update(handle for handle in handles if isinstance(handle, str))
     return handled
+
+
+def _report_run_handle(state: dict, run_id: str) -> str:
+    """Return the short handle the agent uses for a past run, minting one on first sight.
+
+    A run UUID looks like a citable ID to the model but can never be cited, so handing it
+    over invites backticked prose the guard then has to treat as a dead identifier.
+    """
+    handles = state.get(REPORT_RUN_HANDLE_KEY)
+    if not isinstance(handles, dict):
+        return run_id
+    for handle, known_run_id in handles.items():
+        if known_run_id == run_id:
+            return handle
+    handle = f"run_{len(handles) + 1}"
+    handles[handle] = run_id
+    return handle
+
+
+def _resolve_report_run_handle(state: dict, handle: str) -> str | None:
+    """Return the run UUID a handle stands for, or None when the handle is unknown."""
+    handles = state.get(REPORT_RUN_HANDLE_KEY)
+    if isinstance(handles, dict) and handle in handles:
+        return handles[handle]
+    # A raw UUID still resolves, so a run started before handles existed keeps working.
+    return handle if _UUID_RE.fullmatch(handle or "") else None
 
 
 def _report_run_target_filter(evaluation_target: str) -> Q:
@@ -177,7 +210,9 @@ _TARGET_LOOKUP_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 def _definition_from_state(state: dict) -> tuple[str, EvaluationReportOutcomeDefinition]:
     """Resolve the report's output type and outcome definition. The only reader of the state's polarity."""
     output_type = state.get("output_type") or "boolean"
-    return output_type, get_outcome_definition(output_type, true_is_failure=bool(state.get("true_is_failure")))
+    return output_type, get_outcome_definition(
+        output_type, true_is_failure=bool(state.get("true_is_failure")), output_config=state.get("output_config")
+    )
 
 
 def _summary_select_sql(definition: EvaluationReportOutcomeDefinition) -> str:
@@ -368,6 +403,7 @@ def _fetch_period_summary(
             AND timestamp < {{ts_end}}
         """,
         placeholders={
+            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -389,8 +425,10 @@ def _period_summary_dict(
         "result_counts": result_counts,
         "result_rates": result_rates,
     }
-    if output_type == "boolean":
-        summary["pass_rate"] = calculate_boolean_pass_rate(result_counts, empty_as_none=empty_rates_as_none)
+    if output_type in ("boolean", "numeric"):
+        summary["pass_rate"] = calculate_pass_rate(
+            result_counts, empty_as_none=empty_rates_as_none or output_type == "numeric"
+        )
     return summary
 
 
@@ -470,6 +508,7 @@ def get_result_distribution_over_time(
         ORDER BY bucket
         """,
         placeholders={
+            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -511,6 +550,7 @@ def list_all_eval_results(
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     shared_placeholders = {
+        **definition.query_placeholders,
         "evaluation_id": ast.Constant(value=evaluation_id),
         "ts_start": ast.Constant(value=ts_start),
         "ts_end": ast.Constant(value=ts_end),
@@ -566,7 +606,9 @@ def list_all_eval_results(
     for row in rows:
         target_id = str(row[0]) if row[0] else "?"
         outcome = definition.label_for(row[1], row[2]) or "?"
-        score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
+        score = ""
+        if isinstance(row[3], int | float):
+            score = f" ({row[3]})" if output_type == "numeric" else f" ({row[3]:.2f})"
         fields = [f"{outcome}{score}", target_id]
         if output_type != "sentiment":
             reasoning = (row[4] or "")[:max_reasoning_length]
@@ -591,13 +633,13 @@ def sample_eval_results(
 ) -> str:
     """Sample evaluation runs with target ID and outcome.
 
-    Boolean results include reasoning. Sentiment results include scores without
-    classifier reasoning and can be ordered by score.
+    Boolean and numeric results include reasoning. Score ordering returns the worst
+    numeric scores or the highest-confidence sentiment labels first.
 
     Args:
         outcome: "all" or one of the output type's supported outcomes
         limit: Maximum number of results to return (default 50)
-        order_by: "recent" or "score"; score ordering is only available for sentiment
+        order_by: "recent" or "score"; score ordering supports numeric and sentiment results
     """
     limit = min(max(1, limit), 500)
     team_id = state["team_id"]
@@ -606,9 +648,18 @@ def sample_eval_results(
     ts_end = _ch_ts(state["period_end"])
     output_type, definition = _definition_from_state(state)
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
-    if order_by == "score" and output_type != "sentiment":
-        return json.dumps({"error": "Score ordering is only available for sentiment results"})
-    order_clause = "ORDER BY score DESC, timestamp DESC" if order_by == "score" else "ORDER BY timestamp DESC"
+    if order_by == "score" and output_type not in ("sentiment", "numeric"):
+        return json.dumps({"error": "Score ordering is only available for sentiment and numeric results"})
+    score_direction = (
+        "ASC"
+        if definition.numeric_config
+        and definition.numeric_config.passing_rule
+        and definition.numeric_config.passing_rule.operator == "gte"
+        else "DESC"
+    )
+    order_clause = (
+        f"ORDER BY score {score_direction}, timestamp DESC" if order_by == "score" else "ORDER BY timestamp DESC"
+    )
 
     # Whitelisted filter fragment: outcome predicates come only from the trusted
     # outcome definition, never directly from the LLM-controlled argument.
@@ -640,6 +691,7 @@ def sample_eval_results(
         LIMIT {{limit}}
         """,
         placeholders={
+            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -655,9 +707,9 @@ def sample_eval_results(
             target_id_key: str(row[0]) if row[0] else "",
             "outcome": definition.label_for(row[1], row[3]),
         }
-        if output_type == "sentiment":
+        if output_type in ("sentiment", "numeric"):
             entry["score"] = row[4]
-        else:
+        if output_type != "sentiment":
             entry["reasoning"] = row[2] or ""
         result.append(entry)
 
@@ -777,7 +829,9 @@ def sample_generation_details(
 
 
 def _label_generation_evals(
-    eval_rows: Sequence[Sequence[object]], detector_evaluation_ids: Container[str]
+    eval_rows: Sequence[Sequence[object]],
+    detector_evaluation_ids: Container[str],
+    numeric_output_configs: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Label every evaluation on one generation, each by its own polarity."""
     labeled = []
@@ -785,18 +839,22 @@ def _label_generation_evals(
         output_type = str(row[1]) if row[1] else "boolean"
         evaluation_id = str(row[0]) if row[0] else ""
         try:
-            definition = get_outcome_definition(output_type, true_is_failure=evaluation_id in detector_evaluation_ids)
+            definition = get_outcome_definition(
+                output_type,
+                true_is_failure=evaluation_id in detector_evaluation_ids,
+                output_config=(numeric_output_configs or {}).get(evaluation_id),
+            )
         except ValueError:
             continue
-        raw_result = row[3] if output_type == "sentiment" else row[2]
+        raw_result = row[7] if output_type == "numeric" else row[3] if output_type == "sentiment" else row[2]
         entry = {
             "evaluation_id": evaluation_id,
             "output_type": output_type,
             "outcome": definition.label_for(raw_result, row[6]),
             "reasoning": row[5] or "",
         }
-        if output_type == "sentiment":
-            entry["score"] = row[4]
+        if output_type in ("sentiment", "numeric"):
+            entry["score"] = row[7] if output_type == "numeric" else row[4]
         labeled.append(entry)
     return labeled
 
@@ -900,7 +958,8 @@ def get_generation_detail(
             properties.$ai_sentiment_label as sentiment_label,
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_evaluation_reasoning as reasoning,
-            properties.$ai_evaluation_applicable as applicable
+            properties.$ai_evaluation_applicable as applicable,
+            toFloat(properties.$ai_evaluation_numeric_result) as numeric_score
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_target_event_id = {generation_id}
@@ -912,7 +971,9 @@ def get_generation_detail(
         placeholders=shared_placeholders,
     )
 
-    evals = _label_generation_evals(eval_rows, set(state.get("detector_evaluation_ids") or []))
+    evals = _label_generation_evals(
+        eval_rows, set(state.get("detector_evaluation_ids") or []), state.get("numeric_output_configs")
+    )
 
     result: dict = {
         "generation_id": str(row[0]) if row[0] else "",
@@ -1286,7 +1347,8 @@ def list_recent_report_runs(
 ) -> str:
     """List metadata for previous report runs of this evaluation.
 
-    Returns a compact index: run_id, period, title, outcome rates, total runs.
+    Returns a compact index: run_id (a short handle, not a UUID), period, title,
+    outcome rates, total runs.
     No full content — use this to discover which past runs look interesting,
     then call `get_report_run(run_id)` to pull the full narrative for the ones
     worth reading. This two-step pattern keeps context small when scanning a
@@ -1333,7 +1395,7 @@ def list_recent_report_runs(
         normalized_metrics = normalize_metrics_payload({**metadata, **metrics})
         output_type = normalized_metrics["output_type"]
         entry = {
-            "run_id": str(run.id),
+            "run_id": _report_run_handle(state, str(run.id)),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "title": content.get("title", ""),
@@ -1343,7 +1405,7 @@ def list_recent_report_runs(
         }
         if "result_rates" in normalized_metrics:
             entry["result_rates"] = normalized_metrics["result_rates"]
-        if output_type == "boolean" and "pass_rate" in normalized_metrics:
+        if output_type in ("boolean", "numeric") and "pass_rate" in normalized_metrics:
             entry["pass_rate"] = normalized_metrics["pass_rate"]
         result.append(entry)
 
@@ -1362,17 +1424,18 @@ def get_report_run(
     sections, citations, metrics).
 
     Args:
-        run_id: The report run UUID, from list_recent_report_runs.
+        run_id: The run handle from list_recent_report_runs, e.g. "run_1".
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
-    if not _UUID_RE.fullmatch(run_id or ""):
-        return json.dumps({"error": "Invalid run_id format"})
+    resolved_run_id = _resolve_report_run_handle(state, run_id)
+    if resolved_run_id is None:
+        return json.dumps({"error": f"Unknown run handle {run_id!r}. Use one returned by list_recent_report_runs."})
 
     # Scope to the current evaluation so the agent can't read runs from another eval.
     evaluation_id = state["evaluation_id"]
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
-    runs = EvaluationReportRun.objects.filter(id=run_id, report__evaluation_id=evaluation_id)
+    runs = EvaluationReportRun.objects.filter(id=resolved_run_id, report__evaluation_id=evaluation_id)
     runs = runs.filter(_report_run_target_filter(evaluation_target))
     runs = runs.filter(_completed_report_run_filter())
     try:
@@ -1385,7 +1448,7 @@ def get_report_run(
 
     return json.dumps(
         {
-            "run_id": str(run.id),
+            "run_id": _report_run_handle(state, str(run.id)),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "content": content,
@@ -1440,6 +1503,7 @@ def get_top_outcome_reasons(
         LIMIT {{limit}}
         """,
         placeholders={
+            **definition.query_placeholders,
             "evaluation_id": ast.Constant(value=evaluation_id),
             "ts_start": ast.Constant(value=ts_start),
             "ts_end": ast.Constant(value=ts_end),
@@ -1492,23 +1556,54 @@ def set_title(
     return f"Title set: {clean!r}"
 
 
+def _span_token(match: re.Match[str]) -> str:
+    """The candidate identifier inside an inline-code span, whichever branch matched.
+
+    The `` `id` `` wrapper the renderer links holds backticks of its own, so it needs a
+    branch to itself. The general branch stops at the inner pair and skips over the ID.
+    """
+    inner = match.group(1) if match.group(1) is not None else match.group(2)
+    return inner.strip()
+
+
 def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> list[str]:
     """Return backticked IDs in `text` that no report renderer turns into a link.
 
-    A renderer links only an exactly-cited ID wrapped in one pair of backticks. An
+    A renderer links an exactly-cited ID in any wrapper `citation_wrappers` names. An
     ID is any backticked token the session handled (its query allowlists) or a
     canonical UUID; other backticked spans are prose and stay untouched.
     """
     cited_ids = {citation.cited_id() for citation in citations}
     dead: list[str] = []
     for match in _BACKTICKED_TOKEN_RE.finditer(text):
-        token = match.group(1).strip()
-        if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
-            continue
-        links = token in cited_ids and match.group(0) == f"`{token}`"
-        if not links and token not in dead:
+        token = _span_token(match)
+        if _is_dead_id_span(match.group(0), token, cited_ids, handled_ids) and token not in dead:
             dead.append(token)
     return dead
+
+
+def _is_dead_id_span(span: str, token: str, cited_ids: Container[str], handled_ids: Container[str]) -> bool:
+    """Is this inline-code span an ID that no report renderer turns into a link?"""
+    if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
+        return False
+    return not (token in cited_ids and span in citation_wrappers(token))
+
+
+def strip_dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> str:
+    """Unwrap every dead backticked ID in `text`, leaving the ID as plain prose.
+
+    This is what the tool errors ask the agent to do itself. Applying it before delivery
+    keeps a whole report's analysis instead of trading it for a deterministic stub.
+    """
+    cited_ids = {citation.cited_id() for citation in citations}
+
+    def unwrap(match: re.Match[str]) -> str:
+        token = _span_token(match)
+        if _is_dead_id_span(match.group(0), token, cited_ids, handled_ids):
+            return token
+        return match.group(0)
+
+    return _BACKTICKED_TOKEN_RE.sub(unwrap, text)
 
 
 def _dead_backticked_ids_in_report(
@@ -1588,7 +1683,7 @@ def add_section(
         return (
             f"Error: the following backticked IDs will not render as citation links: {preview}. "
             "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
-            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
+            "An ID you read in a prior report belongs to another period and cannot be cited here. Remove its backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"

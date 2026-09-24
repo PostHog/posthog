@@ -613,6 +613,17 @@ export const VisionScannersAffectedCohortCreateBody = () => zod
             .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
             .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
             .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        verdict: zod
+            .union([
+                zod
+                    .enum(['yes', 'no', 'inconclusive'])
+                    .describe('\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'
+            ),
         tag: zod
             .string()
             .max(visionScannersAffectedCohortCreateBodyTagMax)
@@ -664,6 +675,12 @@ export const VisionScannersImpactRetrieveQueryParams = () => zod.object({
         .nullish()
         .describe(
             'Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.'
+        ),
+    verdict: zod
+        .union([zod.literal('yes'), zod.literal('no'), zod.literal('inconclusive'), zod.literal(null)])
+        .nullish()
+        .describe(
+            'Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'
         ),
     window_days: zod
         .number()

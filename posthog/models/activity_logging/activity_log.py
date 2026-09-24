@@ -104,6 +104,7 @@ ActivityScope = Literal[
     "LogsAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
+    "TracesRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -511,6 +512,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
         "scope": "User",
         "activities": ["logged_in", "logged_out"],
@@ -586,8 +588,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
-    # The pointer names the tagged object, which a row never changes, and content_type and team
-    # are model objects the diff cannot serialize.
+    # The generic pointer mirrors whichever per-model foreign key is set, so it is never a user edit.
     "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
