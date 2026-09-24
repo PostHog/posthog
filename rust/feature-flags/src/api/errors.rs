@@ -163,7 +163,6 @@ impl FlagError {
         }
     }
 
-    /// The evaluator could not produce a value for a supported v2 flag.
     pub fn flag_evaluation(details: impl std::fmt::Debug) -> Self {
         FlagError::InternalError {
             code: "flag_evaluation_error",

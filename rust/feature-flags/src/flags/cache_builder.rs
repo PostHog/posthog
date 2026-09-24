@@ -75,8 +75,7 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
-/// The team's rows minus those this cache cannot carry; the request path's PostgreSQL
-/// fallback loads through here too, so a Redis miss serves the cached flag set.
+/// The team's rows minus those this cache cannot carry; the PostgreSQL fallback loads here too.
 pub(crate) async fn load_supported_flags(
     pg_reader: PostgresReader,
     team_id: TeamId,
