@@ -36,7 +36,7 @@ TOOL_NAMES = list(TOOL_WEIGHTS)
 
 MISSING_CAPABILITY_TOOL_NAME = "get_more_tools"
 
-# Advertised in $mcp_tools_list but never called, so tool-discovery queries have zombie tools to find.
+# Advertised in $mcp_tools_list but never called, so the seeded catalog holds more tools than agents use.
 UNCALLED_TOOL_NAMES = ["annotation_create", "cohort_get"]
 
 # Marks events as coming from the new MCP SDK — the tool detail page filters on this.
