@@ -6,6 +6,28 @@ from collections.abc import Generator
 import pytest
 from posthog.test.base import reset_unusable_db_connections
 
+import structlog
+
+from posthog import exceptions_capture
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import job_context
+
+
+@pytest.fixture(autouse=True)
+def _isolate_job_context() -> Generator[None]:
+    # bind_job_context sets the job context, structlog fields, and exception context without a reset,
+    # because production runs each Temporal activity in a fresh context. A test that runs that code on
+    # the main thread would leave all three bound for every later test in the same process.
+    job_token = job_context._current_job_context.set(None)
+    exception_token = exceptions_capture._ambient_exception_properties.set(None)
+    structlog.contextvars.clear_contextvars()
+    try:
+        yield
+    finally:
+        job_context._current_job_context.reset(job_token)
+        exceptions_capture._ambient_exception_properties.reset(exception_token)
+        structlog.contextvars.clear_contextvars()
+
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
