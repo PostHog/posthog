@@ -44,6 +44,8 @@ describe('hogvm execute', () => {
             // A host that gave the VM no regex engine. The same program fails on every event, unlike a
             // pattern the engine rejects.
             expect(kindOf(['_H', 1, op.STRING, 'a', op.STRING, 'b', op.CALL_GLOBAL, 'match', 2])).toBe('contract')
+            // A host that gave the VM no crypto module: the same, a capability the runtime lacks.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.CALL_GLOBAL, 'sha256Hex', 1])).toBe('contract')
         })
 
         test('data: the code ran and the value did not fit it', () => {
