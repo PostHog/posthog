@@ -31,6 +31,7 @@ from posthog.temporal.ai_observability import (
 )
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
+    AI_QUEUE_ACTIVITIES as ALERT_AI_QUEUE_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
 )
 from posthog.temporal.backfill_group_type_created_at import (
@@ -152,12 +153,12 @@ from posthog.temporal.weekly_digest import (
 )
 
 from products.alerts.backend.facade.temporal import (
-    DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
-    DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
-    EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
-    EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
-    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
-    SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
+    DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES as ALERTS_PLATFORM_EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS as ALERTS_PLATFORM_EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
+    SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
@@ -223,6 +224,8 @@ from products.growth.backend.temporal import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
+    SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
     VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
     VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
@@ -238,6 +241,10 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.posthog_ai.backend.temporal.backfill import (
+    ACTIVITIES as CONVERSATION_BACKFILL_ACTIVITIES,
+    WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS,
 )
 from products.product_analytics.backend.facade.temporal import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
@@ -255,6 +262,10 @@ from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
+)
+from products.security.backend.facade.temporal import (
+    ACTIVITIES as SECURITY_ACTIVITIES,
+    WORKFLOWS as SECURITY_WORKFLOWS,
 )
 from products.signals.backend.emission.temporal_settings import (
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
@@ -349,6 +360,7 @@ _task_queue_specs = [
         + CLEANUP_PROPDEFS_WORKFLOWS
         + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+        + CONVERSATION_BACKFILL_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
@@ -357,7 +369,8 @@ _task_queue_specs = [
         + NOTEBOOKS_WORKFLOWS
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
-        + CONTEXT_LAYER_WORKFLOWS,
+        + CONTEXT_LAYER_WORKFLOWS
+        + SECURITY_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -373,6 +386,7 @@ _task_queue_specs = [
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
+        + CONVERSATION_BACKFILL_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
@@ -381,7 +395,8 @@ _task_queue_specs = [
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
-        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
+        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
+        + SECURITY_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -440,7 +455,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -552,19 +567,19 @@ _task_queue_specs = [
         STAMPHOG_ACTIVITIES,
     ),
     (
-        settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
-        ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
-        ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
+        settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
+        ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
+        ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
     ),
     (
-        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
-        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+        settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
+        ALERTS_PLATFORM_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
     ),
     (
-        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
-        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
-        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+        settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
+        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
     ),
 ]
 
@@ -669,13 +684,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--target-memory-usage",
             type=float,
-            default=settings.TARGET_MEMORY_USAGE,
+            default=settings.TEMPORAL_TARGET_MEMORY_USAGE,
             help="Fraction of available memory to use",
         )
         parser.add_argument(
             "--target-cpu-usage",
             type=float,
-            default=settings.TARGET_CPU_USAGE,
+            default=settings.TEMPORAL_TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
         )
         parser.add_argument(

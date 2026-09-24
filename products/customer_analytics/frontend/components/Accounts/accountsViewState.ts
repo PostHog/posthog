@@ -7,7 +7,11 @@ import {
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_DEFAULT_COLUMNS, AccountColumnDisplayState } from './accountsColumnConfigLogic'
+import {
+    ACCOUNTS_DEFAULT_COLUMNS,
+    AccountColumnDisplayState,
+    normalizeAccountColumns,
+} from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
 import type { AccountFilter } from './accountsPropertyFilters'
@@ -199,7 +203,9 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
     ) as AccountsViewProperties
 
     return {
-        columns: view.columns && view.columns.length > 0 ? view.columns : [...ACCOUNTS_DEFAULT_COLUMNS],
+        columns: normalizeAccountColumns(
+            view.columns && view.columns.length > 0 ? view.columns : [...ACCOUNTS_DEFAULT_COLUMNS]
+        ),
         sortOrder: orderByToSortOrder(view.order_by),
         filters: {
             search: rawFilters.search ?? '',

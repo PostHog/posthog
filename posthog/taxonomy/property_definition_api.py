@@ -5,7 +5,7 @@ import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
 from django.db import connections
-from django.db.models import Manager, QuerySet
+from django.db.models import Field, Manager, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
@@ -623,7 +623,7 @@ class PropertyDefinitionViewSet(
                 [
                     f'posthog_propertydefinition."{f.column}"'
                     for f in PropertyDefinition._meta.get_fields()
-                    if hasattr(f, "column")
+                    if isinstance(f, Field) and f.column is not None
                 ]
             )
 
@@ -636,7 +636,8 @@ class PropertyDefinitionViewSet(
                     [
                         f'{f.cached_col.alias}."{f.column}"'
                         for f in enterprise_model._meta.get_fields()
-                        if hasattr(f, "column")
+                        if isinstance(f, Field)
+                        and f.column is not None
                         and f.column not in ["deprecated_tags", "tags"]
                         and hasattr(f, "cached_col")
                     ]

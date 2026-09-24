@@ -109,11 +109,16 @@ describe("ActivityRow", () => {
     );
 
     const title = screen.getByText("Tell me a joke");
-    const metadata = screen.getByText("just now · Agent finished in");
-    const spaceBadge = screen.getByText("Personal").closest(".quill-badge");
-    expect(title.compareDocumentPosition(metadata)).toBe(
+    const time = screen.getByText("just now");
+    const status = screen.getByText("Agent finished in");
+    const spaceBadge = screen
+      .getByText("Personal")
+      .closest<HTMLElement>(".quill-badge");
+    expect(title.compareDocumentPosition(time)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(status.parentElement).toHaveClass("ml-auto");
+    expect(status.parentElement).toContainElement(spaceBadge);
     expect(spaceBadge).toHaveClass("quill-badge--variant-default");
     const row = title.closest("button");
     expect(row).toHaveAccessibleName(
@@ -127,6 +132,25 @@ describe("ActivityRow", () => {
     expect(row).not.toHaveClass("bg-primary/10");
     expect(row).not.toHaveClass("outline-primary/20");
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
+  });
+
+  it("shows the full waiting status and space in a tooltip", () => {
+    render(
+      <ActivityRow
+        menu={taskMenu()}
+        item={item({ activityKind: "awaiting_input", channelName: "personal" })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={new Set(["task-1"])}
+        compact
+      />,
+    );
+
+    expect(
+      screen.getByTitle(
+        "just now · Agent is waiting for your reply in Personal",
+      ),
+    ).toBeInTheDocument();
   });
 
   it.each([
@@ -215,7 +239,7 @@ describe("ActivityRow", () => {
       />,
     );
     const activityButton = screen
-      .getByText("just now · Ann mentioned you")
+      .getByText("Ann mentioned you")
       .closest("button");
     if (!activityButton) throw new Error("Expected activity row button");
     fireEvent.click(activityButton);

@@ -1,4 +1,15 @@
-#!/bin/sh
+#!/bin/bash
+
+# ClickHouse starts this script with copies of its open files, including client connections. A connection stays open
+# while any copy of it is open, so a long-running UDF process keeps a connection open after the server closes it,
+# and the next request on that connection never gets a response. Close every inherited descriptor except stdin,
+# stdout and stderr. The script needs bash because sh cannot close a descriptor above 9.
+for fd_path in /proc/$$/fd/*; do
+    fd=${fd_path##*/}
+    if [ "$fd" -gt 2 ]; then
+        exec {fd}>&-
+    fi
+done
 
 DIR_NAME=$(dirname "$0")
 TEMP_DIR=$(mktemp -d -p /tmp "json_clean_posthog_event_properties_udf_XXXXXXXXXX")

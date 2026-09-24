@@ -39,6 +39,11 @@ A transient failure must not silently drop labels across every queued PR.
 
 Each run is stored as a `ReviewRun` row with its evidence bundle.
 Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`), and the same data is available through the stamphog API and its MCP tools (review runs, repo configs, digest runs).
+Retrieving one run also returns the reviewer's reasoning, the same text stamphog posts on GitHub.
+
+A project member can also ask for a review directly, by creating a review run (`POST review_runs/`, or the `stamphog-review-runs-create` MCP tool), and then poll the run for its verdict.
+The request replaces the trigger label, so it works in label mode.
+Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
 
 ## Connect a repository
 
@@ -120,6 +125,7 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
 The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
+A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
 The sandbox clones the repository, checks out the PR head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.

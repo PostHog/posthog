@@ -1,6 +1,7 @@
 import re
 import json
 import dataclasses
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from posthog.test.base import clean_varying_query_parts
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.query import execute_hogql_query
 
 
@@ -161,3 +163,53 @@ def pretty_dataclasses(obj, seen=None, indent=0):
 
     else:
         return str(obj)
+
+
+def json_dynamic_read_sql_from_parts(
+    field: Callable[[], str], sub_object: Callable[[], str], *, as_json: bool = False, with_sub_object: bool = True
+) -> str:
+    """The ClickHouse SQL the resolver prints for a property read on the native-JSON events table.
+
+    `field` and `sub_object` are called once per occurrence, so a caller whose key is parameterized can hand out the
+    next `%(hogql_val_N)s` placeholder each time. The shape mirrors `_json_subcolumn_value_expr`: a non-empty
+    sub-object wins, an empty scalar reads as NULL, an inferred DateTime renders as ISO UTC, containers render as JSON.
+    """
+    sub_object_read = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
+    sub_object_again = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
+    empty_check = f"isNull(nullIf(toString({field()}), ''))"
+    is_datetime = f"startsWith(dynamicType(accurateCast({field()}, 'Dynamic')), 'DateTime')"
+    utc_wall_clock = f"substring(toString(accurateCastOrNull({field()}, 'DateTime64(9, \\'UTC\\')')), 1, 19)"
+    datetime_text = (
+        f"concat(ifNull(toString(replaceOne({utc_wall_clock}, ' ', 'T')), ''), "
+        f"ifNull(toString(substring(toString({field()}), 20, 10)), ''), 'Z')"
+    )
+    if as_json:
+        datetime_value = f"concat('\"', ifNull(toString({datetime_text}), ''), '\"')"
+        scalar = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"
+    else:
+        datetime_value = datetime_text
+        is_container = ", ".join(
+            f"startsWith(dynamicType(accurateCast({field()}, 'Dynamic')), '{family}')"
+            for family in ("Array", "Map", "Tuple")
+        )
+        scalar = f"if(or({is_container}), nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}'), toString({field()}))"
+    typed = f"if({is_datetime}, {datetime_value}, {scalar})"
+    scalar_or_null = f"if({empty_check}, NULL, {typed})"
+    if not with_sub_object:
+        return scalar_or_null
+    return f"if(notEquals({sub_object_read}, '{{}}'), {sub_object_again}, {scalar_or_null})"
+
+
+def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool = False) -> str:
+    """`json_dynamic_read_sql_from_parts` for a literal key path under `root` (e.g. `events.properties`).
+
+    An integer key is an array index; the read then has no sub-object branch, because a sub-object only exists
+    for a plain key path.
+    """
+    field = root
+    for key in path:
+        field += f"[{key}]" if isinstance(key, int) else f".{escape_clickhouse_identifier(key)}"
+    if any(isinstance(key, int) for key in path):
+        return json_dynamic_read_sql_from_parts(lambda: field, lambda: field, as_json=as_json, with_sub_object=False)
+    escaped = ".".join(escape_clickhouse_identifier(key) for key in path if isinstance(key, str))
+    return json_dynamic_read_sql_from_parts(lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json)

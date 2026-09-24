@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
 from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
+    AI_CREDITS_BILLED_PRODUCTS,
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
     _team_over_ai_credit_budget,
@@ -159,7 +161,7 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["review_hog", "slack_app"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "review_hog", "slack_app", "workflows"])
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -284,6 +286,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_URL": "https://ai-gateway.dev.posthog.dev",
             "AI_GATEWAY_PRODUCTS": "signals_scout,signals_research",
             "AI_GATEWAY_TOKEN": "phe_abc",
+            "AI_GATEWAY_TOKEN_CAP_USD": "3",
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
@@ -299,10 +302,16 @@ class TestAiGatewayEnvVars:
 
     def test_workflow_run_gets_a_pinned_token_when_routed(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
-        with patch(
-            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
-            return_value="phe_abc",
-        ) as mint:
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+                return_value="phe_abc",
+            ) as mint,
+            patch(
+                "products.tasks.backend.temporal.process_task.ai_gateway_token._team_over_ai_credit_budget",
+                return_value=False,
+            ),
+        ):
             env = ai_gateway_env_vars(team_id=123, origin_product="workflow")
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
@@ -311,6 +320,7 @@ class TestAiGatewayEnvVars:
     def test_reserved_keys_cover_the_pinned_product_env(self):
         assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
         assert "AI_GATEWAY_AI_STAGE" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+        assert "AI_GATEWAY_TOKEN_CAP_USD" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 
     def test_skill_qualified_allowlist_still_mints(self, mint_settings):
         """The D4-D6 batched scout flips route by skill-qualified entries alone; a mint
@@ -462,7 +472,27 @@ class TestProvisioningBoundaries:
             state={"ai_stage": "scout:logs"},
             model="claude-sonnet-5",
             runtime="acp",
+            prior_slack_run=False,
         )
+
+    def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
+        from products.tasks.backend.temporal.process_task import utils
+
+        with patch("products.tasks.backend.models.TaskRun.objects") as runs:
+            utils.run_gateway_env_vars(self._ctx(), self._task())
+        runs.filter.assert_not_called()
+
+    def test_slack_run_without_its_own_stamp_looks_for_an_earlier_one(self, mint_settings):
+        from products.tasks.backend.temporal.process_task import utils
+
+        ctx = self._ctx()
+        ctx.origin_product = "slack"
+        ctx.state = {"run_source": "manual"}
+        with patch("products.tasks.backend.models.TaskRun.objects") as runs:
+            runs.filter.return_value.exists.return_value = True
+            with patch.object(utils, "ai_gateway_env_vars", return_value={}) as env:
+                utils.run_gateway_env_vars(ctx, self._task())
+        assert env.call_args.kwargs["prior_slack_run"] is True
 
     def test_subscription_run_does_not_mint_gateway_credentials(self, mint_settings):
         ctx = self._ctx()
@@ -537,7 +567,12 @@ class TestProvisioningBoundaries:
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
 
     def test_a_pinned_token_the_stamp_could_not_record_is_dropped(self, mint_settings):
-        env = {"AI_GATEWAY_URL": "url", "AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+        env = {
+            "AI_GATEWAY_URL": "url",
+            "AI_GATEWAY_TOKEN": "phe",
+            "AI_GATEWAY_TOKEN_CAP_USD": "75",
+            "AI_GATEWAY_PRODUCT": "slack_app",
+        }
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
             patch(
@@ -547,6 +582,7 @@ class TestProvisioningBoundaries:
         ):
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert "AI_GATEWAY_TOKEN" not in out
+        assert "AI_GATEWAY_TOKEN_CAP_USD" not in out
         assert out["AI_GATEWAY_URL"] == "url"
 
     def test_an_unpinned_token_survives_a_failed_stamp_removal(self, mint_settings):
@@ -621,6 +657,8 @@ class TestUserPinAndCapOverride:
             ("signals_inbox", "75"),
             ("signals_chat", "30"),
             ("slack_app", "75"),
+            ("workflows", "75"),
+            ("posthog_ai", "75"),
             ("signals_scout_suggestions", "10"),
         ],
     )
@@ -742,8 +780,78 @@ class TestSlackAppMint:
 
         assert "interaction_origin" in _PROTECTED_RUN_STATE_KEYS
 
-    def test_slack_gates_leave_other_products_alone(self):
-        assert mint_refusal("review_hog", team_id=2, state=None, model="zai-org/glm-5.3", runtime="pi") is None
+    def test_internal_slack_helper_run_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, state={"ai_stage": "repo_selection"}, internal=True)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        assert env["AI_GATEWAY_PRODUCT"] == "slack_app"
+        mint.assert_called_once()
+
+    def test_run_after_a_stamped_run_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, state={"run_source": "manual"}, prior_slack_run=True)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once()
+
+    def test_unstamped_caller_run_still_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, state={"run_source": "manual"})
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    @pytest.mark.parametrize("overrides", [{"runtime": "pi"}, {"model": "zai-org/glm-5.3"}])
+    def test_other_gates_still_refuse_an_internal_helper_run(self, mint_settings, overrides):
+        env, mint = self._env(mint_settings, state={"ai_stage": "repo_selection"}, internal=True, **overrides)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_internal_does_not_admit_a_non_slack_origin(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app,background_agents"
+        env, mint = self._env(mint_settings, origin_product="user_created", state=None, internal=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_mint_outcomes_name_their_reason_in_the_message(self, mint_settings, caplog):
+        with caplog.at_level(logging.INFO):
+            self._env(mint_settings, state={"run_source": "manual"})
+        skipped = [r for r in caplog.records if "mint skipped" in r.getMessage()]
+        assert skipped, "no mint-skipped line was logged"
+        assert "no_slack_provenance" in skipped[0].getMessage()
+        assert "slack_app" in skipped[0].getMessage()
+
+    def test_mint_failure_names_its_error_in_the_message(self, mint_settings, caplog):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = MagicMock(status_code=429, text="mint rate limit exceeded")
+            with caplog.at_level(logging.WARNING):
+                assert mint_scoped_token(ai_product="slack_app", team_id=123) is None
+        failed = [r for r in caplog.records if "mint failed" in r.getMessage()]
+        assert failed, "no mint-failed line was logged"
+        assert "HTTP 429" in failed[0].getMessage()
+        assert "slack_app" in failed[0].getMessage()
+
+    # The mocked tests never run the JSON lookup; this one does.
+    @pytest.mark.django_db
+    def test_earlier_slack_stamp_is_found_in_the_database(self):
+        from products.tasks.backend.models import Task, TaskRun
+        from products.tasks.backend.temporal.process_task.utils import _task_has_stamped_slack_run
+
+        organization = Organization.objects.create(name="Slack Org")
+        team = Team.objects.create(organization=organization, name="Slack Team")
+        task = Task.objects.create(
+            team=team, title="From Slack", description="thread", origin_product=Task.OriginProduct.SLACK
+        )
+        unstamped = {"run_source": "manual"}
+        assert _task_has_stamped_slack_run(task, "slack", unstamped) is False
+
+        # The run being provisioned is already a row, so matching any run would vouch for every Slack run.
+        TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED, state=unstamped)
+        assert _task_has_stamped_slack_run(task, "slack", unstamped) is False
+
+        TaskRun.objects.create(
+            task=task, team=team, status=TaskRun.Status.COMPLETED, state={"interaction_origin": "slack"}
+        )
+        assert _task_has_stamped_slack_run(task, "slack", unstamped) is True
+        other = Task.objects.create(
+            team=team, title="Other", description="other", origin_product=Task.OriginProduct.SLACK
+        )
+        assert _task_has_stamped_slack_run(other, "slack", unstamped) is False
 
     @pytest.mark.django_db
     def test_quota_check_reads_the_team_token(self):
@@ -773,4 +881,165 @@ class TestSlackAppMint:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._mint_response()
             mint_scoped_token(ai_product="slack_app", team_id=2)
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600
+
+
+_CREDIT_LOOKUP = "products.tasks.backend.temporal.process_task.ai_gateway_token._team_over_ai_credit_budget"
+
+
+class TestMintRefusalScope:
+    def test_ai_credits_billed_products(self):
+        assert AI_CREDITS_BILLED_PRODUCTS == {"posthog_ai", "slack_app", "workflows"}
+        assert AI_CREDITS_BILLED_PRODUCTS <= MINTABLE_PRODUCTS
+
+    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
+    def test_slack_provenance_gate_leaves_other_products_alone(self, product):
+        with patch(_CREDIT_LOOKUP, return_value=False):
+            assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
+
+    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
+    def test_pi_runs_never_mint(self, product):
+        assert mint_refusal(product, team_id=2, state=None, model=None, runtime="pi") == "pi_runtime"
+
+    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
+    def test_pinned_products_refuse_an_off_pin_model(self, product):
+        refusal = mint_refusal(product, team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp")
+        assert refusal == "model_outside_pin"
+
+    def test_unpinned_products_take_any_model(self):
+        assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
+
+    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
+    def test_products_billed_elsewhere_skip_the_credit_check(self, product):
+        with patch(_CREDIT_LOOKUP, return_value=True) as quota:
+            assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
+        quota.assert_not_called()
+
+
+class TestWorkflowsMint:
+    def _env(self, mint_settings, *, over_quota=False, **overrides):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+        kwargs: dict = {
+            "team_id": 123,
+            "origin_product": "workflow",
+            "state": None,
+            "model": "claude-opus-5",
+            "runtime": "acp",
+            **overrides,
+        }
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+            ) as mint,
+            patch(_CREDIT_LOOKUP, return_value=over_quota),
+        ):
+            env = ai_gateway_env_vars(**kwargs)
+        return env, mint
+
+    def test_workflow_run_mints_a_workflows_token(self, mint_settings):
+        env, mint = self._env(mint_settings)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        assert env["AI_GATEWAY_PRODUCT"] == "workflows"
+        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
+
+    def test_pi_run_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, runtime="pi")
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
+        env, mint = self._env(mint_settings, model=model)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, over_quota=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_credit_lookup_failure_does_not_mint(self, mint_settings):
+        with patch(_CREDIT_LOOKUP, side_effect=RuntimeError("billing is down")):
+            refusal = mint_refusal("workflows", team_id=123, state=None, model="claude-opus-5", runtime="acp")
+        assert refusal == "ai_credits_unknown"
+
+    def test_mint_carries_the_first_party_pin(self, mint_settings):
+        response = MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = response
+            assert mint_scoped_token(ai_product="workflows", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "workflows"
+        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["workflows"]
+
+    def test_ttl_covers_the_background_run_cap(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        response = MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = response
+            mint_scoped_token(ai_product="workflows", team_id=2)
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 4 * 60 * 60
+
+
+class TestPosthogAiMint:
+    def _env(self, mint_settings, *, over_quota=False, **overrides):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_ai"
+        kwargs: dict = {
+            "team_id": 123,
+            "origin_product": "posthog_ai",
+            "state": None,
+            "model": "claude-opus-4-8",
+            "runtime": "acp",
+            **overrides,
+        }
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+            ) as mint,
+            patch(_CREDIT_LOOKUP, return_value=over_quota),
+        ):
+            env = ai_gateway_env_vars(**kwargs)
+        return env, mint
+
+    def test_posthog_ai_run_mints_a_posthog_ai_token(self, mint_settings):
+        env, mint = self._env(mint_settings)
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        assert env["AI_GATEWAY_PRODUCT"] == "posthog_ai"
+        mint.assert_called_once_with(ai_product="posthog_ai", team_id=123, user=None)
+
+    def test_unrouted_posthog_ai_run_does_not_mint(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="posthog_ai", model="claude-opus-4-8", runtime="acp")
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
+        env, mint = self._env(mint_settings, model=model)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
+        env, mint = self._env(mint_settings, over_quota=True)
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_mint_carries_the_first_party_pin(self, mint_settings):
+        response = MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = response
+            assert mint_scoped_token(ai_product="posthog_ai", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "posthog_ai"
+        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["posthog_ai"]
+
+    def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        response = MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = response
+            mint_scoped_token(ai_product="posthog_ai", team_id=2)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600

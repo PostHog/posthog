@@ -32,6 +32,124 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+The shared catalog excludes direct-connection table rows because those rows belong only to an explicit `connectionId` database.
+This keeps a direct table's raw dotted name from replacing a synced table that resolves to the same catalog key.
+
+Django adds resolver-confirmed `tableAliases` to the same permission-filtered catalog snapshot.
+For example, a catalog can map `demo_postgres_orders` to `postgres.demo.orders` when both names resolve to the same visible warehouse table.
+Aliases from another project or hidden tables are not published.
+If a candidate is hidden or unresolvable, or a canonical name resolves to different metadata, Django abandons the publication and uses the Python path.
+An alias must resolve to the same table object as exactly one exported canonical name; matching physical IDs alone do not establish equivalence.
+An alias candidate that resolves unambiguously to another visible canonical table follows that effective resolver winner.
+Nonrepresentable resolver collisions require a separate catalog contract before they can use the Go service.
+Built-in `posthog.*` namespaces are outside this rollout.
+
+### Lazy-table traversal catalog
+
+The Go consumer accepts optional traversal metadata alongside the flat catalog.
+This is a consumer-first extension: existing Django snapshots do not publish these annotations yet.
+Deploy the Go consumer before enabling publication in Python, because older consumers reject unknown JSON fields.
+Snapshots without traversal metadata keep their existing completion and validation behavior.
+
+A field can carry one of two optional annotations:
+
+- `relation` points to an opaque key in the catalog's `relations` map.
+- `propertyNamespace` points to a key in the catalog's `properties` map.
+
+Each relation definition contains either a `table` reference to an exact canonical key in `tables`, or a `fields` map with the same field format as a top-level table.
+Use `table` when the target has the same permitted fields as an existing catalog table; the consumer reuses that table's prepared field index.
+Use `fields` for virtual targets or targets with a different schema.
+For example, HogQL can resolve `events.person` to a virtual person schema backed by event columns rather than the full `persons` schema.
+The publisher must resolve the effective target instead of inferring it from the field name.
+The relation key is not a SQL table name.
+Traversal definitions never appear in table suggestions, table aliases, or validation's `tableNames` output.
+They are reachable only through fields on a bound source.
+For example, this synthetic catalog exposes a person relation through events without adding another FROM table:
+
+```json
+{
+  "tables": {
+    "events": {
+      "name": "events",
+      "type": "posthog",
+      "fields": {
+        "person": { "name": "person", "type": "field_traverser", "relation": "event-person" }
+      }
+    }
+  },
+  "relations": {
+    "event-person": {
+      "fields": {
+        "id": { "name": "id", "type": "string" },
+        "properties": { "name": "properties", "type": "json", "propertyNamespace": "person" }
+      }
+    }
+  },
+  "properties": {
+    "person": [{ "name": "email", "property_type": "String" }]
+  }
+}
+```
+
+With that snapshot, completion at `|` supports:
+
+| SQL                                                      | Suggestions        |
+| -------------------------------------------------------- | ------------------ |
+| `SELECT event.person.\| FROM events AS event`            | `id`, `properties` |
+| `SELECT event.person.pro\| FROM events AS event`         | `properties`       |
+| `SELECT event.person.properties.\| FROM events AS event` | `email`            |
+| `SELECT person.\| FROM events`                           | `id`, `properties` |
+
+The same graph format can describe session fields, group fields, custom lazy joins, and multi-hop relationships.
+For example, when `sessions` and `groups` are published canonical tables, these relation definitions reuse their fields:
+
+```json
+{
+  "event-session": { "table": "sessions" },
+  "event-group-0": {
+    "table": "groups",
+    "propertyNamespaces": { "properties": "group:0" }
+  },
+  "event-group-1": {
+    "table": "groups",
+    "propertyNamespaces": { "properties": "group:1" }
+  }
+}
+```
+
+Attach those relation IDs to the corresponding `events.session`, `events.group_0`, and `events.group_1` fields.
+Completion for `SELECT e.session.| FROM events AS e` then lists fields from the published `sessions` table.
+Completion for `SELECT e.group_0.properties.| FROM events AS e` uses the published `group:0` property list; `group_1` uses `group:1`.
+The optional `propertyNamespaces` map binds direct fields of a referenced table to published property lists.
+Each binding applies only inside that relation, not to the top-level table or another relation that references it.
+The consumer does not infer group indices or carry a binding through a further relation hop.
+
+Completion and validation use the same traversal resolver.
+Explicit traversal metadata takes precedence over built-in property-name heuristics; a missing field on a traversed relation does not inherit a namespace from its spelling.
+Existing source binding, alias visibility, and ambiguity rules still apply.
+
+Relation IDs and property namespaces must refer to published definitions, and a field cannot carry both annotations.
+Table references must use canonical keys, not aliases, and cannot also supply `fields`.
+Property-list bindings require a table reference and an exact target field that has no relation annotation.
+Admission allows at most 4,096 relation definitions and 120,000 inline fields and property-list bindings combined, in addition to existing top-level tables.
+Referenced table fields count once toward cache memory, regardless of how many relations reuse them.
+The cache budget includes the traversal graph and annotations; the catalog request remains bounded by 64 MiB.
+Cycles are allowed without recursive expansion.
+Each query path can follow at most 16 relation hops and also consumes the request's field-lookup work budget.
+
+This first consumer slice supports traversal from bound catalog sources, including sources inside CTE bodies.
+Direct top-level property containers retain their explicit namespace through the existing projected-field provenance rules.
+Projecting a relation or nested virtual property container through a CTE, subquery, or SELECT alias does not yet retain traversal provenance.
+Quoted path completion, nested JSON schemas, scalar traverser expression inference, and execution of lazy joins remain outside this slice.
+For deeper JSON paths under an explicit property namespace, validation checks the first property key but does not validate its descendants.
+
+The Python publisher follow-up must resolve `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets using the same permission-filtered database as the snapshot.
+It must publish only permitted fields, reuse canonical table schemas when they match the resolved target, and deduplicate virtual relation definitions.
+It must bound traversal during publication and isolate unresolvable edges without exposing denied targets.
+It must also distinguish traversal-capable revisions so cached flat snapshots refresh instead of hiding the new suggestions until expiry.
+Scalar traversers need no relation annotation.
+No Python resolver chains, join SQL, credentials, or executable expressions belong in the graph.
+
 ## Query analysis
 
 `internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
@@ -70,9 +188,21 @@ Catalogs can contain both `events` and `Events`; each name retains its own field
 With only `events` in the catalog, `SELECT properties FROM Events` reports `unknown_table`.
 The same query is valid when an exact `Events` entry exists and exposes `properties`.
 Table completion still matches prefixes without regard to case, so typing `EV` can suggest both names and inserts the selected name with its original case.
+The optional `tableAliases` catalog map registers exact alternate spellings without duplicating field indexes.
+For example, `"demo_postgres_orders": "postgres.demo.orders"` lets both names resolve to the fields on the canonical `tables` entry.
+Validation retains the spelling from SQL in `tableNames`, and self-joins through two spellings keep separate source bindings.
+Completion shows one spelling per canonical target. It prefers a matching canonical name and otherwise shows one matching alias.
+CTEs shadow only their exact spelling, so a CTE named `demo_postgres_orders` does not hide `postgres.demo.orders`.
 CTE shadowing and table-suggestion deduplication use exact names, so a CTE named `Events` does not hide the catalog table `events`.
+Multi-part names retain their source identity when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
 Duplicate qualifiers do not establish property provenance, including inside CTE projections and qualified wildcards.
 FROM and JOIN completion includes visible table CTEs before catalog tables, with `CTE` in the suggestion detail.
+For an unquoted multi-part prefix, completion returns matching leaf tables with full labels and suffix-only insertion.
+For example, `FROM postgres.` labels the result `postgres.demo.orders` and inserts `demo.orders`; `FROM postgres.demo.or` inserts `orders`.
+Namespace components already present in SQL must match catalog case exactly, so insertion cannot produce an unresolved spelling.
+Completion inside quoted path components and namespace-only suggestions remain follow-up work.
+The service omits dotted candidates when any remaining component would require identifier quotes.
+Monaco replaces the current word only through the cursor, so text after a mid-word cursor remains in the document.
 CTE names follow the same scope, definition-order, and shadowing rules as relation lookup; scalar WITH aliases are not tables.
 A visible CTE hides a catalog table with the same name, and pagination counts that name once.
 CTE insertion quotes the whole name when needed, including names with dots.
@@ -165,13 +295,14 @@ Closed block comments and line comments at end of input remain valid.
 
 ### Recovery and remaining work
 
+- Multi-part normalization supports unquoted table paths after `FROM` and `JOIN`. Separately quoted path components and multi-part paths in comma-separated sources remain unsupported. Replacing the regular-expression normalization with token-aware handling is follow-up work.
 - Source-specific case-insensitive relation lookup remains unsupported. Python catalog nodes can opt in, for example for Snowflake, but the Go catalog payload does not carry that per-node flag. Supporting it requires publishing the metadata and implementing exact-match-first, opt-in fallback without merging distinct names. The service requires exact relation names until then; autocomplete prefix matching remains case-insensitive.
 - Physical field and property-key case sensitivity remain separate from relation-name resolution. This layer does not claim complete identifier-case parity with the Python resolver.
 - CTE recovery requires complete CTE definitions and a parseable outer SELECT/FROM prefix. Broken CTE bodies, missing CTE-closing parentheses, and incomplete SELECT or JOIN sources remain unsupported because they do not establish a reliable projected schema. Recovering those forms requires separate structural recovery for each damaged scope.
 - Recovery does not target a cursor inside a CTE definition or FROM/JOIN source section. It also rejects queries with any nested SELECT in the outer query, including an intact FROM subquery or predicate subquery. Per-scope recovery must first preserve cursor ownership and alias visibility without importing sibling bindings.
 - Set-operation and multi-statement recovery, scalar WITH declarations, and unterminated quoted tokens or comments remain excluded. These need separate statement/branch selection and lexical recovery rules before the service can infer bindings safely.
 - Property provenance covers direct containers only. Computed JSON expressions, nested JSON schemas, conflicting sources, and duplicate projected names do not establish a namespace. Completion suppresses property suggestions and validation skips property-name checks when the origin is unknown. Expression inference and ambiguous-column diagnostics remain follow-up work; duplicate source names produce `duplicate_table`.
-- Projecting a nested virtual container such as `e.person.properties AS props` does not retain provenance. Model virtual-table traversal before enabling those projected namespaces; existing direct physical property paths remain available.
+- Projecting a relation or nested virtual container such as `e.person.properties AS props` does not retain traversal provenance. Extend projected-field provenance before enabling those paths outside their source scope; direct source traversal requires explicit catalog annotations, and existing physical property paths remain available.
 - Single-SELECT recovery without WITH retains only FROM bindings and does not guess discarded aliases. Extending SELECT-alias recovery there requires preserving its SELECT list and visibility positions as the CTE-aware path does.
 - SELECT-alias property provenance follows the existing visibility and case-sensitive precedence rules. An alias without a known container origin suppresses property-owner fallback; it does not inherit a namespace from a name such as `person` or `properties`.
 - Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate SELECT-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first field and type, but property provenance becomes unknown once the duplicate declaration is visible; earlier references retain their original provenance.
@@ -212,13 +343,38 @@ team remains the primary isolation boundary in that model.
 Catalog publication replaces the catalog and revision atomically. Readers observe either the previous complete
 revision or the next complete revision.
 
+The publication contract accepts this alias form:
+
+```json
+{
+  "tables": {
+    "postgres.demo.orders": { "type": "data_warehouse", "fields": {} }
+  },
+  "tableAliases": {
+    "demo_postgres_orders": "postgres.demo.orders"
+  },
+  "properties": {}
+}
+```
+
+`tableAliases` is optional, so older publishers remain compatible.
+Each alias target must be a direct key in `tables`; aliases cannot target another alias.
+An alias that equals a canonical key is valid only when it targets itself, which makes the entry a no-op.
+The service rejects empty names, dangling targets, chains, cycles, and aliases that contradict canonical keys before cache admission.
+Alias strings and lookup entries count toward the catalog memory limit.
+
 The in-memory registry has two bounds:
 
-- an idle TTL removes unused entries; and
-- least-recently-used eviction caps the number of entries.
+- a publication TTL expires entries after their catalog was published; and
+- least-recently-used eviction caps both the number of entries and their estimated resident bytes.
 
-Warm autocomplete and validation perform no synchronous metadata requests. Catalog refresh remains outside the
-keystroke path.
+The generated scale fixture verifies the HTTP publication path, completion, pagination, and validation with 4,096 canonical tables, 25 fields per table, and 120,000 event properties in one property namespace.
+The table fields are columns, not part of the property count.
+This profile fits the `64 MiB` request limit and the default `8 GiB` shared cache budget, but it is not an unlimited count guarantee.
+Longer names and richer metadata increase both serialized and resident sizes.
+
+Warm autocomplete and validation reuse a published catalog without synchronous metadata requests.
+A missing or incompatible catalog triggers synchronous catalog construction and publication in Django before the service retry.
 
 ## API direction
 
@@ -242,6 +398,152 @@ fails startup unless dedicated signing keys are configured.
 
 Local and debug environments may use the service directly. Production integration remains behind a server-side
 feature flag and should progress through shadow comparison before serving editor results.
+The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
+Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
+Each request attempts at most one publication and one post-publication retry; marker and lease paths add only bounded Go rechecks.
+The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
+If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
+Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
+Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
+
+Full-query HogQL autocomplete and metadata can use the language service when `sourceQuery` is absent or is a `HogQLQuery`.
+Only the current editor SQL is sent, together with the cursor position for autocomplete.
+The editor can retain an older or incomplete `sourceQuery` while the current SQL changes; full-query metadata does not use that source text.
+For example, metadata for `SELECT distinct_id FROM events` can use Go even if `sourceQuery.query` is `SELECT event FROM events WHERE` and `indexUsage` is true.
+Both operations continue to use Python when `connectionId`, `globals`, `filters`, or `modifiers` is not null.
+Metadata also uses Python when `variables` is not null or `debug` is true.
+Expression languages and non-`HogQLQuery` source contexts remain on Python because they can require surrounding query resolution.
+Service failures preserve the original request, including its source context, for Python fallback.
+
+Go metadata returns diagnostics, logical table names, and source-positioned notices for resolved table and field references, not the full Python compiler metadata.
+`indexUsage: true` does not force Python fallback or enable index analysis in Go.
+Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset.
+The Django adapter maps Go notices into the existing metadata `notices` list, which the editor displays as hints.
+Older service responses without a `notices` field remain valid and produce an empty list.
+Malformed notices use the same Python fallback and sanitized error reporting as malformed diagnostics.
+Python-only heuristic warnings and actionable index warnings are not added to a successful Go response.
+Index analysis and compiler metadata parity remain separate follow-up work; this routing change does not add a second Python validation pass.
+
+### Table and field notices
+
+The Go validation response includes a separate `notices` array with `message`, `start`, and `end` fields.
+These notices identify resolved table references and report known types for fields written in the query.
+They use the published, permission-filtered catalog and the same scope resolution as validation.
+They do not execute a query, expand the Python compiler's internal expressions, or change whether a query is valid.
+Property definitions published as `Numeric` produce `Float` notices, matching Python's HogQL property conversion.
+
+```sql
+SELECT timestamp FROM events
+```
+
+This query produces a table notice for `events` and a `DateTime` field notice for `timestamp` when that type is published in the catalog.
+Warehouse alias notices identify the canonical catalog table, and CTE source notices identify the common table expression without adding it to `table_names`.
+Table notices mark named `FROM` and `JOIN` sources; alias declarations, qualifiers in field paths, and derived-subquery aliases do not receive separate table notices.
+
+```sql
+SELECT e.person.id FROM events AS e
+```
+
+The field notice uses the lazy relation's target schema when the catalog includes the `person` traversal.
+An older flat catalog cannot provide that traversal's type information.
+
+```sql
+SELECT * FROM events
+```
+
+This query produces a table notice, but no field notices for the columns represented by `*`.
+Generated field expressions have no matching token in the editor and must not produce hints at unrelated source positions.
+
+Notices remain separate from error and warning diagnostics, with at most 128 notices per response.
+Their source ranges follow the requested position encoding, including UTF-16 for the editor.
+Unknown or ambiguous fields do not receive a type hint.
+SELECT alias hints follow declaration order:
+
+```sql
+SELECT event AS v, v, timestamp AS v FROM events ORDER BY v
+```
+
+The middle `v` retains the `String` hint from `event`; the later duplicate declaration makes `ORDER BY v` ambiguous, so it receives no hint.
+Notice collection reuses the parsed query after validation and stops when its output or lookup budget is exhausted; it does not turn a valid query into an error.
+Expression type inference, physical ClickHouse table metadata, and property materialization details remain follow-up work.
+Unrecognized catalog type strings are omitted rather than converted into a guessed type.
+
+### Routing metrics
+
+For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
+Its bounded attributes are the operation, backend, and routing reason.
+The operation is `autocomplete` or `metadata`, the backend is `language_service` or `python`, and the reason is `served`, `ineligible`, `service_error`, or `invalid_response`.
+The denominator includes enabled requests that are ineligible for the Go service and use Python.
+It excludes disabled requests, requests without a user, and requests that fail before either backend constructs a response.
+The existing Django Prometheus scrape exports the counter for Grafana without another setting.
+It aggregates enabled teams and users because it has no tenant labels.
+Use this query to compare response rates by backend:
+
+```promql
+sum by (operation, backend) (rate(hogql_editor_assist_responses_total[5m]))
+```
+
+Use this query for the Python share of successful enabled responses in each operation:
+
+```promql
+(
+  sum by (operation) (rate(hogql_editor_assist_responses_total{backend="python"}[5m]))
+  or on (operation)
+  0 * sum by (operation) (rate(hogql_editor_assist_responses_total[5m]))
+)
+/
+sum by (operation) (rate(hogql_editor_assist_responses_total[5m]))
+```
+
+An absent series can mean no observations or a missing scrape.
+The share is undefined when an operation has no successful enabled responses in the selected interval.
+
+After a missing or legacy catalog response, Django coordinates publication in Redis by language-service target, catalog contract, team, and user.
+A publisher holds a 10-second token-owned lease while it rechecks Go, builds the permission-filtered catalog, and publishes it.
+Contenders wait for the lease for at most 250 milliseconds, then recheck Go and use the Python path if the catalog is still unavailable.
+Redis socket operations and Go requests have their own bounds; the 250-millisecond contention budget is not a total refresh deadline.
+A five-second success marker lets a request recheck Go before acquiring a newly released lease.
+The marker is advisory: a missing or legacy Go response overrides it, and neither schemas nor authorization results are stored in Redis.
+Redis outages use the existing direct publication path.
+If catalog construction outlives the lease, a second publisher can duplicate the Go catalog build and publication.
+
+### Autocomplete response timings
+
+Autocomplete responses include timings for the Django editor-assist handler, including requests that fall back to Python.
+The existing `language_service_http` value measures only the final successful service request's HTTP duration.
+The existing `language_service_go` value measures the Go computation reported by that response.
+Neither value includes earlier catalog misses, catalog construction, publication, or Redis coordination.
+
+The `./editor_assist` timing measures the whole autocomplete handler.
+Nested stages use the following suffixes:
+
+| Stage                                         | Work measured                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------ |
+| `routing`                                     | Feature-flag evaluation and eligibility checks                                 |
+| `language_service_initial`                    | Initial service call, including a catalog miss or failure                      |
+| `catalog_coordination`                        | Full catalog recovery, including its nested stages                             |
+| `catalog_coordination/redis_marker_lookup`    | Redis client setup and success-marker lookup                                   |
+| `catalog_coordination/redis_lock_acquire`     | Lease acquisition, including contention waiting                                |
+| `catalog_coordination/language_service_check` | Accumulated service rechecks and retries                                       |
+| `catalog_coordination/catalog_schema`         | Permission-filtered database schema construction                               |
+| `catalog_coordination/catalog_build`          | Catalog payload construction, including properties and aliases                 |
+| `catalog_coordination/catalog_publish`        | Publication, including signing, payload serialization, and the service request |
+| `catalog_coordination/redis_marker_write`     | Success-marker write                                                           |
+| `catalog_coordination/redis_lock_release`     | Lease release                                                                  |
+| `response_mapping`                            | Conversion of the service response into autocomplete suggestions               |
+| `fallback_error_tracking`                     | Sanitized error reporting before Python fallback                               |
+| `fallback_database`                           | Database preparation for Python autocomplete                                   |
+| `fallback_python_autocomplete`                | Python autocomplete computation                                                |
+
+Timings use seconds and fixed stage names, without SQL, table names, or user identifiers.
+Only attempted stages appear; a failed stage retains its duration when the request recovers through Python.
+Repeated stages accumulate their durations within that request.
+Parent timings include their children, so do not sum every entry to calculate total latency.
+The final HTTP/Go timings and Python parser timings also overlap the handler stages.
+
+The handler total excludes request queuing, authentication, API request preparation, final API serialization, middleware, and browser/network latency.
+If the handler total is small but the browser request remains slow, inspect the enclosing query API traces and browser network timings.
+Metadata responses do not expose a timing list; this change does not extend their response schema.
 
 The initial rollout keeps ClickHouse execution in Django:
 

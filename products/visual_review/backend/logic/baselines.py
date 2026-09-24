@@ -285,17 +285,16 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     Derived from DB state so the commit always reflects every approval regardless of how
     many calls it took. Tolerated snapshots are excluded — toleration never updates the baseline.
 
-    Quarantine keeps a flapping hash out of the baseline, so a quarantined CHANGED snapshot is
-    excluded even when approved. A quarantined NEW snapshot has no baseline entry to protect,
-    and only a per-identifier approval can mark it (bulk approve skips quarantined rows), so an
-    approved one is committed. Without this a story that lost its entry while quarantined could
-    never get one back: lifting the quarantine fails every run until the entry lands.
+    Quarantined snapshots are committed when approved, because only a per-identifier approval
+    can mark one: bulk approve skips quarantined rows, so a flapping hash never lands by accident.
+    A quarantined story still renders on every run. If its baseline cannot move while it is
+    quarantined, a code change to the story leaves the entry stale, and the drift fails every
+    run on the day the quarantine is lifted or expires.
     """
     return [
         {"identifier": s.identifier, "new_hash": s.approved_hash}
         for s in snapshots
-        if s.review_state == ReviewState.APPROVED
-        and (s.result == SnapshotResult.NEW or (s.result == SnapshotResult.CHANGED and not s.is_quarantined))
+        if s.review_state == ReviewState.APPROVED and s.result in (SnapshotResult.NEW, SnapshotResult.CHANGED)
     ]
 
 

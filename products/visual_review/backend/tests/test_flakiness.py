@@ -729,6 +729,43 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert len(entry["daily_hard_counts"]) == FLAKINESS_WINDOW_DAYS
         assert data["totals"]["tracked"] == 1
 
+    @parameterized.expand(
+        [
+            ("digest_rule_keeps_quarantined_flagged", "", [("muted", 3, 0, True), ("piled", 3, 0, False)], 2, False),
+            (
+                "automatic_threshold_adds_noisy",
+                "?min_automatic_tolerations=2",
+                [("muted", 3, 0, True), ("piled", 3, 0, False), ("noisy", 0, 2, False)],
+                3,
+                False,
+            ),
+            ("quarantined_can_be_left_out", "?include_quarantined=false", [("piled", 3, 0, False)], 1, False),
+            ("limit_truncates", "?limit=1", [("muted", 3, 0, True)], 2, True),
+        ]
+    )
+    def test_toleration_pileups_endpoint(self, _name, query, expected, total, truncated):
+        for identifier, reason, variants in (
+            ("piled", ToleratedReason.HUMAN, 3),
+            ("muted", ToleratedReason.HUMAN, 3),
+            ("once", ToleratedReason.HUMAN, 1),
+            ("noisy", ToleratedReason.AUTO_THRESHOLD, 2),
+        ):
+            _mk_snapshot(self.master_run, identifier=identifier)
+            for index in range(variants):
+                self._mk_variant(identifier=identifier, alternate_hash=f"v{index}", reason=reason)
+        self._mk_quarantine("muted")
+
+        url = f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/toleration-pileups/{query}"
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [
+            (entry["identifier"], entry["intentional_count"], entry["automatic_count"], entry["is_quarantined"])
+            for entry in data["entries"]
+        ] == expected
+        assert (data["total"], data["truncated"]) == (total, truncated)
+
     def test_endpoint_404_for_unknown_repo(self):
         url = f"/api/projects/{self.team.id}/visual_review/repos/{uuid4()}/flakiness/"
         response = self.client.get(url)

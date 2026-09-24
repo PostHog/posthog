@@ -32,13 +32,13 @@ import {
   getCloudUrlFromRegion,
   getConfigOptionByCategory,
   getReasoningEffortOptions,
+  isAnthropicModelId,
   isFatalSessionError,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
-  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -55,6 +55,7 @@ import {
   type TaskRunArtifact,
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
+  TranscriptBoundaries,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
@@ -76,6 +77,10 @@ import type {
 } from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
+import {
+  harnessForModelValue,
+  isValidConfigValue,
+} from "../task-detail/configOptions";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   FAST_MODE_OPTION_CATEGORY,
@@ -102,6 +107,7 @@ import {
 import {
   addMissingCloudRuntimeConfigOptions,
   buildCloudDefaultConfigOptions,
+  buildCloudResumeConfigOptions,
   extractLatestConfigOptionsFromEntries,
 } from "./cloudSessionConfig";
 import {
@@ -1500,14 +1506,6 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
-/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
-function isTranscriptNeutralEvent(event: AcpMessage): boolean {
-  return (
-    isJsonRpcNotification(event.message) &&
-    isTranscriptNeutralNotificationMethod(event.message.method)
-  );
-}
-
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1524,9 +1522,13 @@ function discardChunksSupersededByHydratedMessages(
     messageIndex: 0,
     chunkRunActive: false,
   };
+  // Every line goes through the tracker in arrival order, the way the writer
+  // feeds it, so the two agree on which responses answer a control call.
+  const hydratedBoundaries = new TranscriptBoundaries();
   for (const event of hydratedTurn.events) {
+    const neutral = hydratedBoundaries.isNeutral(event.message);
     if (isSessionPromptEvent(event)) continue;
-    if (isTranscriptNeutralEvent(event)) continue;
+    if (neutral) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1552,6 +1554,7 @@ function discardChunksSupersededByHydratedMessages(
     chunkRunActive: false,
   };
   let discardChunkRun = false;
+  const liveBoundaries = new TranscriptBoundaries();
   const events: AcpMessage[] = [];
   const eventHashes: number[] = [];
   for (
@@ -1560,10 +1563,11 @@ function discardChunksSupersededByHydratedMessages(
     eventIndex += 1
   ) {
     const event = liveTurn.events[eventIndex];
+    const neutral = liveBoundaries.isNeutral(event.message);
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
-    } else if (isTranscriptNeutralEvent(event)) {
+    } else if (neutral) {
       // The writer's chunk buffer stays open across these, so the live
       // position must not advance either.
     } else {
@@ -1765,6 +1769,11 @@ export function classifyTurnEventKind(
 
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
+  private connectingToastTimers = new Map<
+    string,
+    { startedAt: number; timer: ReturnType<typeof setTimeout> }
+  >();
+  private shownConnectingToastSessions = new Map<string, number>();
   private reconcilingTasks = new Set<string>();
   private reconcileSkipLogged = new Set<string>();
   private taskCreationMarks = new Map<string, number>();
@@ -2251,6 +2260,11 @@ export class SessionService {
     }
 
     if (previous) {
+      // A fast-painted connecting session can be replaced before reconnect finishes.
+      // Keep its timestamp so the delayed notice stays attached to this attempt.
+      if (previous.status === "connecting") {
+        session.startedAt = previous.startedAt;
+      }
       session.optimisticItems = previous.optimisticItems;
       session.messageQueue = previous.messageQueue;
       // Keep the in-place edit hold with the queue it guards: dropping it here
@@ -2422,6 +2436,7 @@ export class SessionService {
             ),
           );
         }
+        this.flushQueuedMessagesIfIdle(taskId);
         return true;
       } else {
         this.d.log.warn("Reconnect returned null", { taskId, taskRunId });
@@ -3313,6 +3328,11 @@ export class SessionService {
     }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
+    for (const { timer } of this.connectingToastTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.connectingToastTimers.clear();
+    this.shownConnectingToastSessions.clear();
     this.evictedRunIds.clear();
     this.residentBackgroundRunIds.clear();
     this.connectingTasks.clear();
@@ -4032,6 +4052,7 @@ export class SessionService {
   private handleCloudPermissionRequest(
     taskRunId: string,
     update: DerivedPermissionRequest,
+    { isLive = false }: { isLive?: boolean } = {},
   ): void {
     this.d.log.info("Cloud permission request received", {
       taskRunId,
@@ -4082,7 +4103,10 @@ export class SessionService {
     });
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
-    this.d.taskViewedApi.markActivity(session.taskId);
+    // A replayed request is history the reader just opened, not new activity.
+    if (isLive) {
+      this.d.taskViewedApi.markActivity(session.taskId);
+    }
     this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
@@ -4230,9 +4254,15 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
-        throw new Error(
-          "Session is still connecting. Please wait and try again.",
-        );
+        const promptText = extractPromptText(prompt);
+        this.d.store.enqueueMessage(taskId, promptText, prompt);
+        this.scheduleConnectingToast(session.taskId, session.startedAt);
+        this.d.log.info("Message queued", {
+          taskId,
+          queueLength: session.messageQueue.length + 1,
+          reason: "connecting",
+        });
+        return { stopReason: "queued" };
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
     }
@@ -4299,6 +4329,40 @@ export class SessionService {
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
+    });
+  }
+
+  private scheduleConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+
+    const existing = this.connectingToastTimers.get(taskId);
+    if (existing?.startedAt === startedAt) return;
+    if (existing) clearTimeout(existing.timer);
+
+    const delay = Math.max(0, startedAt + 20_000 - Date.now());
+    if (delay === 0) {
+      this.showConnectingToast(taskId, startedAt);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.connectingToastTimers.delete(taskId);
+      const session = this.d.store.getSessionByTaskId(taskId);
+      if (session?.status !== "connecting") return;
+      // A resume repaints the session and gives the replacement a fresh
+      // `startedAt`, so the session connecting now is rarely the one this timer
+      // was armed against. Follow that session and wait out the rest of its own
+      // delay, rather than dropping the notice the wait was measured for.
+      this.scheduleConnectingToast(taskId, session.startedAt);
+    }, delay);
+    this.connectingToastTimers.set(taskId, { startedAt, timer });
+  }
+
+  private showConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+    this.shownConnectingToastSessions.set(taskId, startedAt);
+    this.d.toast.error("Session is still connecting.", {
+      id: `session-connecting-${taskId}-${startedAt}`,
     });
   }
 
@@ -6103,6 +6167,37 @@ export class SessionService {
       return true;
     }
 
+    if (session.isCloud && isTerminalStatus(session.cloudStatus)) {
+      if (session.isPromptPending) return false;
+      const option = configOptions[optionIndex];
+      if (!isValidConfigValue(option, value)) return false;
+      if (
+        option.category === "model" &&
+        session.claudeModelAccess === "own-subscription" &&
+        !isAnthropicModelId(value)
+      )
+        return false;
+
+      let nextOptions = configOptions.map((opt) =>
+        opt.id === configId && opt.type === "select"
+          ? { ...opt, currentValue: value }
+          : opt,
+      );
+      if (option.category === "model") {
+        nextOptions = buildCloudResumeConfigOptions(
+          nextOptions,
+          harnessForModelValue(option, value) ?? session.adapter ?? "claude",
+          value,
+        );
+      }
+      // The next prompt starts a new run. The old sandbox can no longer accept settings.
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: nextOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, nextOptions);
+      return true;
+    }
+
     // Optimistic update
     const updatedOptions = configOptions.map((opt) =>
       opt.id === configId
@@ -6438,13 +6533,18 @@ export class SessionService {
     adapter: Adapter,
     initialModel?: string,
     initialReasoningEffort?: string,
+    allHarnessModels = false,
   ): Promise<void> {
-    const cacheKey = `${apiHost}::${adapter}`;
+    const cacheKey = `${apiHost}::${adapter}::${allHarnessModels}`;
     let entry = this.previewConfigOptionsCache.get(cacheKey);
     if (!entry || Date.now() - entry.fetchedAt > 300_000) {
       if (entry) this.previewConfigOptionsCache.delete(cacheKey);
       const promise = this.d.trpc.agent.getPreviewConfigOptions
-        .query({ apiHost, adapter })
+        .query({
+          apiHost,
+          adapter,
+          ...(allHarnessModels ? { allHarnessModels: true } : {}),
+        })
         .catch((err: unknown) => {
           this.d.log.warn(
             "Failed to fetch preview config options for cloud session",
@@ -6468,6 +6568,21 @@ export class SessionService {
     const previewOptions = await entry.promise;
     const session = this.d.store.getSessions()[taskRunId];
     if (!session || session.adapter !== adapter) return;
+    if (!allHarnessModels && isTerminalStatus(session.cloudStatus)) {
+      return this.fetchAndApplyCloudPreviewOptions(
+        taskRunId,
+        apiHost,
+        adapter,
+        initialModel,
+        initialReasoningEffort,
+        true,
+      );
+    }
+    if (
+      allHarnessModels &&
+      (!isTerminalStatus(session.cloudStatus) || session.isPromptPending)
+    )
+      return;
 
     const existingOptions = session.configOptions ?? [];
     const existingModelOption = getConfigOptionByCategory(
@@ -6570,16 +6685,48 @@ export class SessionService {
     if (preferredModel && modelEffortOptions === null) {
       previewCategories.add("thought_level");
     }
-    const merged = [
+    let merged = [
       ...existingOptions.filter(
         (option) => !previewCategories.has(option.category),
       ),
       ...extras,
     ];
+    if (allHarnessModels && preferredModel) {
+      merged = buildCloudResumeConfigOptions(
+        merged,
+        harnessForModelValue(
+          getConfigOptionByCategory(merged, "model"),
+          preferredModel,
+        ) ?? adapter,
+        preferredModel,
+      );
+    }
 
     if (JSON.stringify(existingOptions) === JSON.stringify(merged)) return;
 
     this.d.store.updateSession(taskRunId, { configOptions: merged });
+  }
+
+  async prepareCloudResume(taskId: string): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || !isTerminalStatus(session.cloudStatus)) return;
+    try {
+      const auth = await this.getCloudCommandAuth();
+      if (!auth) return;
+      await this.fetchAndApplyCloudPreviewOptions(
+        session.taskRunId,
+        auth.apiHost,
+        session.adapter ?? "claude",
+        undefined,
+        undefined,
+        true,
+      );
+    } catch (error) {
+      this.d.log.warn("Failed to load models for cloud continuation", {
+        taskId,
+        error,
+      });
+    }
   }
 
   /**
@@ -8682,7 +8829,7 @@ export class SessionService {
     }
 
     if (update.kind === "permission_request") {
-      this.handleCloudPermissionRequest(taskRunId, update);
+      this.handleCloudPermissionRequest(taskRunId, update, { isLive: true });
       return;
     }
 
