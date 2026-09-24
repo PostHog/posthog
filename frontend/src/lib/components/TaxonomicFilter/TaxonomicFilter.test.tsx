@@ -128,7 +128,7 @@ describe('TaxonomicFilter', () => {
             if (input === 'mouse') {
                 await userEvent.click(option)
             } else {
-                fireEvent.keyDown(option, { key: 'Enter' })
+                fireEvent.keyDown(screen.getByTestId('taxonomic-filter-searchfield'), { key: 'Enter' })
             }
             expect(onChangeMock).toHaveBeenCalledWith(
                 expect.objectContaining({ type: TaxonomicFilterGroupType.Events }),
