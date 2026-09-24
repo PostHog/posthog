@@ -25,15 +25,22 @@ describe('init', () => {
         assert.match(written, /export const onboardingNudge = workflow\(\{/)
     })
 
-    it('prefixes an export name that would start with a digit', async () => {
-        const workspace = makeWorkspace()
+    for (const [file, exportName] of [
+        ['2024-recap.ts', 'workflow2024Recap'],
+        ['class.ts', 'classWorkflow'],
+    ] as const) {
+        it(`writes the export name ${exportName} for ${file}, which the CLI then loads`, async () => {
+            const workspace = makeWorkspace()
 
-        const result = await runCli(['init', 'flows/2024-recap.ts'], { workspace })
+            const result = await runCli(['init', `flows/${file}`], { workspace })
 
-        assert.equal(result.code, 0)
-        const written = readFileSync(join(workspace.dir, 'flows', '2024-recap.ts'), 'utf8')
-        assert.match(written, /export const workflow2024Recap = workflow\(\{/)
-    })
+            assert.equal(result.code, 0)
+            const written = readFileSync(join(workspace.dir, 'flows', file), 'utf8')
+            assert.match(written, new RegExp(`export const ${exportName} = workflow\\(\\{`))
+            const checked = await runCli(['check', `flows/${file}`], { workspace })
+            assert.equal(checked.code, 0, checked.stderr)
+        })
+    }
 
     it('writes a file the CLI then loads', async () => {
         const workspace = makeWorkspace()

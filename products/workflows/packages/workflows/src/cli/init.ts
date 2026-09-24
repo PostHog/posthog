@@ -7,6 +7,16 @@ import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { WorkflowError } from '../errors.js'
 import type { Io } from './run.js'
 
+// A file named after one of these would export `const class = ...`, which does not parse. The list
+// matches the one PostHog uses when it renders a stored workflow as code.
+const RESERVED_WORDS = new Set(
+    (
+        'break case catch class const continue debugger default delete do else enum export extends false ' +
+        'finally for function if import in instanceof new null return super switch this throw true try ' +
+        'typeof var void while with yield let static await'
+    ).split(' ')
+)
+
 function words(name: string): string[] {
     return name
         .replace(/\.[^.]+$/, '')
@@ -28,7 +38,10 @@ function sentenceCase(parts: readonly string[]): string {
 
 function exportName(parts: readonly string[]): string {
     const name = camelCase(parts)
-    return /^[A-Za-z_$]/.test(name) ? name : `workflow${name}`
+    if (!/^[A-Za-z_$]/.test(name)) {
+        return `workflow${name}`
+    }
+    return RESERVED_WORDS.has(name) ? `${name}Workflow` : name
 }
 
 function fileExists(shown: string): WorkflowError {
