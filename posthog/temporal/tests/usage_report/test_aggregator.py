@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
     filter_org_reports,
@@ -146,6 +147,27 @@ def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -
     all_data: dict[str, dict[int, int]] = {}
     results = [RunQueryToS3Result(query_name="sandbox_compute_usage", s3_key="unused", duration_ms=1)]
     add_pre_sandbox_compute_patch_defaults(all_data, results)
+
+    assert all_data == {}
+
+
+def test_load_all_data_defaults_local_evaluation_not_modified_for_unpatched_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_local_evaluation_not_modified_patch_defaults(all_data, [])
+
+    assert all_data == {"teams_with_local_evaluation_not_modified_requests_count_in_period": {}}
+
+
+def test_load_all_data_does_not_default_local_evaluation_not_modified_for_patched_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    results = [
+        RunQueryToS3Result(
+            query_name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+            s3_key="unused",
+            duration_ms=1,
+        )
+    ]
+    add_pre_local_evaluation_not_modified_patch_defaults(all_data, results)
 
     assert all_data == {}
 
