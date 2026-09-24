@@ -46,6 +46,7 @@ from posthog.models.file_system.file_system import (
 )
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
@@ -978,6 +979,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    def _move_folder_shortcuts(self, old_path: str, new_path: str, team_id: int) -> None:
+        shortcuts = self._scope_by_project(
+            FileSystemShortcut.objects.filter(team_id=team_id, type="folder", ref=old_path)
+        )
+        shortcuts.filter(path=join_path([split_path(old_path)[-1]])).update(path=join_path([split_path(new_path)[-1]]))
+        shortcuts.update(ref=new_path)
+
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -998,9 +1006,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 qs = self._scope_by_project_and_environment(qs)
                 qs = self._filter_by_access_control(qs)
                 for file in qs:
+                    old_child_path = file.path
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
                     file.save()
+                    if file.type == "folder":
+                        self._move_folder_shortcuts(old_child_path, file.path, file.team_id)
+
+                self._move_folder_shortcuts(old_path, new_path, instance.team_id)
 
                 targets = FileSystem.objects.filter(path=new_path).all()
                 targets = self._scope_by_project_and_environment(targets)
