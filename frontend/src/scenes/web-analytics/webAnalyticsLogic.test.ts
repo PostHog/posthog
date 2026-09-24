@@ -408,6 +408,40 @@ describe('webAnalyticsLogic compare filter', () => {
     })
 })
 
+describe('webAnalyticsLogic conversion goal tiles', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // The replay filter group carries the conversion goal. If the error tracking query inherits it,
+    // selecting a goal silently narrows the errors the tile shows.
+    it('keeps the error tracking tile unfiltered by the conversion goal', async () => {
+        const errorTrackingFilterGroup = (): unknown =>
+            (logic.values.tiles.find((tile) => tile.tileId === TileId.ERROR_TRACKING) as any)?.query.source.filterGroup
+        const withoutGoal = errorTrackingFilterGroup()
+
+        logic.actions.setConversionGoal({ actionId: 42 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(withoutGoal).toBeDefined()
+        expect(errorTrackingFilterGroup()).toEqual(withoutGoal)
+    })
+})
+
 describe('webAnalyticsLogic URL restoration', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 

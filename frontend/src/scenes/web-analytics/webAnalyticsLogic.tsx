@@ -1952,7 +1952,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         orderBy: 'users',
                         dateRange: dateRange,
                         filterTestAccounts: filterTestAccounts,
-                        filterGroup: replayFilters.filter_group,
+                        // Not replayFilters.filter_group: it carries the conversion goal, which this tile does not apply.
+                        filterGroup: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: webAnalyticsFilters }],
+                        },
                         columns: ['error', 'users', 'occurrences', 'last_seen'],
                         limit: 4,
                     })
