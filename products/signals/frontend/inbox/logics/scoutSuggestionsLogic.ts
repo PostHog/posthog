@@ -329,9 +329,20 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                     if (!teamId || !values.suggestionsEnabled) {
                         return values.suggestionSet
                     }
-                    const set = await signalsScoutSuggestionsList(String(teamId))
-                    breakpoint()
-                    return set
+                    try {
+                        const set = await signalsScoutSuggestionsList(String(teamId))
+                        breakpoint()
+                        return set
+                    } catch (error) {
+                        // A member without resource-level scout access, or a stale project id left
+                        // by a project switch, are expected — the strip stays hidden either way, so
+                        // keep the current batch instead of reporting them. Anything else, notably
+                        // a 5xx, still throws so a real backend failure reaches error tracking.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            return values.suggestionSet
+                        }
+                        throw error
+                    }
                 },
             },
         ],

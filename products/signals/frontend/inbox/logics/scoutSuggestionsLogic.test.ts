@@ -191,6 +191,21 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.hasPicks).toBe(true)
     })
 
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // suggestions outage looking identical to a project the member cannot read.
+    it.each([
+        [403, 'loadSuggestionsSuccess'],
+        [404, 'loadSuggestionsSuccess'],
+        [500, 'loadSuggestionsFailure'],
+    ])('resolves a %s from the batch read to %s', async (status, expectedAction) => {
+        mockList.mockRejectedValueOnce(new ApiError('nope', status))
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
     it.each([
         ['never scanned', 'empty', null],
