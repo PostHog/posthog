@@ -80,6 +80,10 @@ Native-event queries derive `$active_feature_flags` from the `$feature_flags` ma
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
 
+On native events, HogQL `JSONExtract*` calls with `$feature_flags` as their first property key read the same restricted-property-aware map as dotted `$feature_flags` access.
+The original extractor still determines the return type and missing-value default.
+The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
+
 ### Benchmarking the cleaner
 
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.
@@ -171,10 +175,6 @@ Regression tests cover malformed discarded values, duplicate handling in wide ob
 The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
-
-HogQL `JSONExtract*` calls with `$feature_flags` as their first property key use the same
-restricted-property-aware map as dotted `$feature_flags` access on both event schemas.
-The original extractor still determines the return type and missing-value default.
 
 ### `JSONDropKeysPool(json, keys)`
 
