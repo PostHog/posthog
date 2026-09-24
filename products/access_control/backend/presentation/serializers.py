@@ -13,6 +13,7 @@ from posthog.models.organization import OrganizationMembership
 from ..facade import contracts
 from ..facade.contracts import PropertyAccessLevel
 from ..facade.enums import RULE_WRITE_OUTCOME_CHOICES
+from ..facade.user_access_control import RULE_RESOURCE_CHOICES
 from .access_control import ResolvedAccessSerializer
 
 _ACCESS_LEVEL_CHOICES = [(e.value, e.value) for e in PropertyAccessLevel]
@@ -287,7 +288,8 @@ class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
 class _AccessControlRuleRequestSerializer(serializers.Serializer):
     """The scope and level of one rule write. Subclasses add the subject."""
 
-    resource = serializers.CharField(
+    resource = serializers.ChoiceField(
+        choices=RULE_RESOURCE_CHOICES,
         help_text="The scope of the rule: `project` for the project itself, a resource type such as `dashboard` "
         "for the whole resource type or for one object of it, or `property_definition` for one person or event "
         "property.",

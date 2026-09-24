@@ -15,9 +15,65 @@ import * as zod from 'zod'
 export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PURE__ */ zod
     .object({
         resource: zod
-            .string()
+            .enum([
+                'account',
+                'action',
+                'activity_log',
+                'ai_observability_clusters',
+                'customer_analytics',
+                'customer_journey',
+                'customer_task',
+                'dashboard',
+                'dashboard_template',
+                'data_catalog',
+                'dataset',
+                'early_access_feature',
+                'endpoint',
+                'error_tracking',
+                'evaluation',
+                'experiment',
+                'experiment_holdout',
+                'experiment_saved_metric',
+                'export',
+                'external_data_source',
+                'feature_flag',
+                'heatmap',
+                'hog_flow',
+                'insight',
+                'llm_analytics',
+                'llm_playground',
+                'llm_prompt',
+                'llm_provider_key',
+                'llm_skill',
+                'logs',
+                'marketing_analytics',
+                'mcp_analytics',
+                'metrics',
+                'notebook',
+                'project',
+                'property_definition',
+                'replay_scanner',
+                'revenue_analytics',
+                'session_recording',
+                'session_recording_playlist',
+                'sharing_configuration',
+                'stamphog',
+                'survey',
+                'tagger',
+                'ticket',
+                'toolbar',
+                'tracing',
+                'vision_alert',
+                'warehouse_objects',
+                'warehouse_table',
+                'warehouse_view',
+                'web_analytics',
+            ])
             .describe(
-                'The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.'
+                '\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            )
+            .describe(
+                'The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.\n\n\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
             ),
         resource_id: zod
             .string()
@@ -40,9 +96,65 @@ export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PU
 export const OrganizationsProjectsAccessControlMemberRulesUpdateBody = /* @__PURE__ */ zod
     .object({
         resource: zod
-            .string()
+            .enum([
+                'account',
+                'action',
+                'activity_log',
+                'ai_observability_clusters',
+                'customer_analytics',
+                'customer_journey',
+                'customer_task',
+                'dashboard',
+                'dashboard_template',
+                'data_catalog',
+                'dataset',
+                'early_access_feature',
+                'endpoint',
+                'error_tracking',
+                'evaluation',
+                'experiment',
+                'experiment_holdout',
+                'experiment_saved_metric',
+                'export',
+                'external_data_source',
+                'feature_flag',
+                'heatmap',
+                'hog_flow',
+                'insight',
+                'llm_analytics',
+                'llm_playground',
+                'llm_prompt',
+                'llm_provider_key',
+                'llm_skill',
+                'logs',
+                'marketing_analytics',
+                'mcp_analytics',
+                'metrics',
+                'notebook',
+                'project',
+                'property_definition',
+                'replay_scanner',
+                'revenue_analytics',
+                'session_recording',
+                'session_recording_playlist',
+                'sharing_configuration',
+                'stamphog',
+                'survey',
+                'tagger',
+                'ticket',
+                'toolbar',
+                'tracing',
+                'vision_alert',
+                'warehouse_objects',
+                'warehouse_table',
+                'warehouse_view',
+                'web_analytics',
+            ])
             .describe(
-                'The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.'
+                '\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            )
+            .describe(
+                'The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.\n\n\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
             ),
         resource_id: zod
             .string()
@@ -68,9 +180,65 @@ export const OrganizationsProjectsAccessControlMemberRulesUpdateBody = /* @__PUR
 export const OrganizationsProjectsAccessControlRoleRulesUpdateBody = /* @__PURE__ */ zod
     .object({
         resource: zod
-            .string()
+            .enum([
+                'account',
+                'action',
+                'activity_log',
+                'ai_observability_clusters',
+                'customer_analytics',
+                'customer_journey',
+                'customer_task',
+                'dashboard',
+                'dashboard_template',
+                'data_catalog',
+                'dataset',
+                'early_access_feature',
+                'endpoint',
+                'error_tracking',
+                'evaluation',
+                'experiment',
+                'experiment_holdout',
+                'experiment_saved_metric',
+                'export',
+                'external_data_source',
+                'feature_flag',
+                'heatmap',
+                'hog_flow',
+                'insight',
+                'llm_analytics',
+                'llm_playground',
+                'llm_prompt',
+                'llm_provider_key',
+                'llm_skill',
+                'logs',
+                'marketing_analytics',
+                'mcp_analytics',
+                'metrics',
+                'notebook',
+                'project',
+                'property_definition',
+                'replay_scanner',
+                'revenue_analytics',
+                'session_recording',
+                'session_recording_playlist',
+                'sharing_configuration',
+                'stamphog',
+                'survey',
+                'tagger',
+                'ticket',
+                'toolbar',
+                'tracing',
+                'vision_alert',
+                'warehouse_objects',
+                'warehouse_table',
+                'warehouse_view',
+                'web_analytics',
+            ])
             .describe(
-                'The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.'
+                '\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
+            )
+            .describe(
+                'The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.\n\n\* `account` - account\n\* `action` - action\n\* `activity_log` - activity_log\n\* `ai_observability_clusters` - ai_observability_clusters\n\* `customer_analytics` - customer_analytics\n\* `customer_journey` - customer_journey\n\* `customer_task` - customer_task\n\* `dashboard` - dashboard\n\* `dashboard_template` - dashboard_template\n\* `data_catalog` - data_catalog\n\* `dataset` - dataset\n\* `early_access_feature` - early_access_feature\n\* `endpoint` - endpoint\n\* `error_tracking` - error_tracking\n\* `evaluation` - evaluation\n\* `experiment` - experiment\n\* `experiment_holdout` - experiment_holdout\n\* `experiment_saved_metric` - experiment_saved_metric\n\* `export` - export\n\* `external_data_source` - external_data_source\n\* `feature_flag` - feature_flag\n\* `heatmap` - heatmap\n\* `hog_flow` - hog_flow\n\* `insight` - insight\n\* `llm_analytics` - llm_analytics\n\* `llm_playground` - llm_playground\n\* `llm_prompt` - llm_prompt\n\* `llm_provider_key` - llm_provider_key\n\* `llm_skill` - llm_skill\n\* `logs` - logs\n\* `marketing_analytics` - marketing_analytics\n\* `mcp_analytics` - mcp_analytics\n\* `metrics` - metrics\n\* `notebook` - notebook\n\* `project` - project\n\* `property_definition` - property_definition\n\* `replay_scanner` - replay_scanner\n\* `revenue_analytics` - revenue_analytics\n\* `session_recording` - session_recording\n\* `session_recording_playlist` - session_recording_playlist\n\* `sharing_configuration` - sharing_configuration\n\* `stamphog` - stamphog\n\* `survey` - survey\n\* `tagger` - tagger\n\* `ticket` - ticket\n\* `toolbar` - toolbar\n\* `tracing` - tracing\n\* `vision_alert` - vision_alert\n\* `warehouse_objects` - warehouse_objects\n\* `warehouse_table` - warehouse_table\n\* `warehouse_view` - warehouse_view\n\* `web_analytics` - web_analytics'
             ),
         resource_id: zod
             .string()
