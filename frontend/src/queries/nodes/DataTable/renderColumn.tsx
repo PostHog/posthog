@@ -73,23 +73,27 @@ const productColumnRenderers: Record<string, QueryContextColumn> = {
 
 const PERSON_LINK_COLUMNS = ['person', 'person_display_name']
 
-// The person columns are the only cells that link to a profile, so a saved view that leaves them
-// out makes every row on a persons list a dead end. The first other column carries the link
-// instead. The id column is skipped because its cell copies to the clipboard on click.
-export function getPersonProfileFallbackColumn(
-    query: DataTableNode,
-    columns: string[]
-): { column: string; personUuidIndex: number } | null {
-    if (!isActorsQuery(query.source)) {
-        return null
+// The person cells are the only ones that link to a profile, so a saved view that leaves them out
+// makes every row on a persons list a dead end. The first other column carries the link instead.
+// The id column is skipped because its cell copies to the clipboard on click.
+function personProfileFallbackUrl(
+    key: string,
+    record: Record<string, any> | any[],
+    query: DataTableNode
+): string | undefined {
+    if (!isActorsQuery(query.source) || !Array.isArray(record)) {
+        return undefined
     }
-    const names = columns.map((column) => removeExpressionComment(column))
+    const names = (query.source.select ?? []).map((column) => removeExpressionComment(column))
     if (names.some((name) => PERSON_LINK_COLUMNS.includes(name))) {
-        return null
+        return undefined
     }
-    const personUuidIndex = names.indexOf('id')
-    const columnIndex = names.findIndex((name) => name !== 'id' && name !== 'person.$delete')
-    return personUuidIndex === -1 || columnIndex === -1 ? null : { column: columns[columnIndex], personUuidIndex }
+    const fallbackColumn = names.find((name) => name !== 'id' && name !== 'person.$delete')
+    if (fallbackColumn !== key) {
+        return undefined
+    }
+    const personUuid = record[names.indexOf('id')]
+    return personUuid ? urls.personByUUID(String(personUuid)) : undefined
 }
 
 export function getContextColumn(
@@ -109,6 +113,21 @@ export function getContextColumn(
 }
 
 export function renderColumn(
+    key: string,
+    value: any,
+    record: Record<string, any> | any[],
+    recordIndex: number,
+    rowCount: number,
+    query: DataTableNode,
+    setQuery?: (query: DataTableNode) => void,
+    context?: QueryContext<DataTableNode>
+): JSX.Element | string {
+    const content = renderColumnContent(key, value, record, recordIndex, rowCount, query, setQuery, context)
+    const fallbackUrl = personProfileFallbackUrl(removeExpressionComment(key), record, query)
+    return fallbackUrl ? <Link to={fallbackUrl}>{content}</Link> : content
+}
+
+function renderColumnContent(
     key: string,
     value: any,
     record: Record<string, any> | any[],

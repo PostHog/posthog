@@ -4,11 +4,13 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { urls } from 'scenes/urls'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
-import { getPersonProfileFallbackColumn, renderColumn } from './renderColumn'
+import { renderColumn } from './renderColumn'
 import { defaultDataTableColumns } from './utils'
 
 const select = defaultDataTableColumns(NodeKind.EventsQuery)
@@ -17,6 +19,7 @@ const eventsTable = setLatestVersionsOnQuery({
     source: { kind: NodeKind.EventsQuery, select },
 }) as DataTableNode
 
+const PERSON_UUID = 'c3b1f6a2-0000-0000-0000-000000000000'
 const personSelect = ['*', 'event', 'person', 'timestamp']
 const personColumnTable = setLatestVersionsOnQuery({
     kind: NodeKind.DataTableNode,
@@ -119,22 +122,23 @@ describe('renderColumn', () => {
     // A shared view that drops the person column used to leave every row on the persons list
     // with no link to a profile, because the person cells are the only ones that render one.
     test.each([
-        [['person_display_name -- Person', 'id', 'created_at'], null],
-        [['person', 'created_at'], null],
-        [['created_at', 'id'], { column: 'created_at', personUuidIndex: 1 }],
-        [['id', 'created_at', 'person.$delete'], { column: 'created_at', personUuidIndex: 0 }],
-        [['id', 'person.$delete'], null],
-        [['created_at', 'properties.email'], null],
-    ])('picks the fallback profile link column for %p', (select, expected) => {
+        [['person_display_name -- Person', 'created_at', 'id'], false],
+        [['created_at', 'id'], true],
+        [['id', 'created_at', 'person.$delete'], true],
+        [['created_at', 'properties.email'], false],
+    ])('links the fallback profile column for %p', (select, linked) => {
         const query = setLatestVersionsOnQuery({
             kind: NodeKind.DataTableNode,
             source: { kind: NodeKind.ActorsQuery, select },
         }) as DataTableNode
+        const record = select.map((column) => (column === 'id' ? PERSON_UUID : '2026-01-01T00:00:00Z'))
 
-        expect(getPersonProfileFallbackColumn(query, select)).toEqual(expected)
-    })
+        render(
+            <Provider>{renderColumn('created_at', record[select.indexOf('created_at')], record, 0, 1, query)}</Provider>
+        )
 
-    it('leaves a non-actors table without a fallback profile link', () => {
-        expect(getPersonProfileFallbackColumn(eventsTable, select)).toBeNull()
+        expect(screen.queryByRole('link')?.getAttribute('href')).toEqual(
+            linked ? expect.stringContaining(urls.personByUUID(PERSON_UUID)) : undefined
+        )
     })
 })

@@ -12,11 +12,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { Link } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { urls } from 'scenes/urls'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -36,12 +34,7 @@ import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTable
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import {
-    DATETIME_KEYS,
-    getContextColumn,
-    getPersonProfileFallbackColumn,
-    renderColumn,
-} from '~/queries/nodes/DataTable/renderColumn'
+import { DATETIME_KEYS, getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
@@ -297,7 +290,6 @@ export function DataTable({
         },
         [sourceFeatures, query.source]
     )
-    const personProfileFallback = useMemo(() => getPersonProfileFallbackColumn(query, allColumns), [query, allColumns])
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -364,25 +356,7 @@ export function DataTable({
                                 const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                     ? (result as any[])[index]
                                     : (result as Record<string, any>)[key]
-                                const rendered = renderColumn(
-                                    key,
-                                    value,
-                                    result,
-                                    recordIndex,
-                                    rowCount,
-                                    query,
-                                    setQuery,
-                                    context
-                                )
-                                const personUuid =
-                                    personProfileFallback?.column === key && Array.isArray(result)
-                                        ? result[personProfileFallback.personUuidIndex]
-                                        : undefined
-                                return personUuid ? (
-                                    <Link to={urls.personByUUID(String(personUuid))}>{rendered}</Link>
-                                ) : (
-                                    rendered
-                                )
+                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
                             }
                         },
                         sorter: undefined, // using custom sorting code
@@ -768,7 +742,6 @@ export function DataTable({
             columnsInQuery,
             columnsInResponse,
             orderByForKey,
-            personProfileFallback,
         ]
     )
 
