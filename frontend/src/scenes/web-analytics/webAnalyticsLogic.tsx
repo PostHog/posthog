@@ -2625,7 +2625,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'md:col-span-2 2xl:col-span-1',
+                            // Only the v2 grid packs densely, so the one-column slot next to sources and
+                            // devices exists only there.
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-2 2xl:col-span-1' : 'md:col-span-full',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
