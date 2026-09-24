@@ -201,20 +201,19 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("resume_running", "resume", AutoresearchPipeline.Status.RUNNING, False),
-            ("pause_draft", "pause", AutoresearchPipeline.Status.DRAFT, False),
-            ("pause_bootstrapping", "pause", AutoresearchPipeline.Status.BOOTSTRAPPING, False),
-            ("archive_while_training", "archive", AutoresearchPipeline.Status.RUNNING, True),
+            ("resume_running", "resume", AutoresearchPipeline.Status.RUNNING, None),
+            ("pause_draft", "pause", AutoresearchPipeline.Status.DRAFT, None),
+            ("pause_bootstrapping", "pause", AutoresearchPipeline.Status.BOOTSTRAPPING, None),
+            ("archive_while_training", "archive", AutoresearchPipeline.Status.RUNNING, "running"),
+            ("archive_while_pending", "archive", AutoresearchPipeline.Status.RUNNING, "pending"),
         ]
     )
     def test_refused_lifecycle_transition_returns_400(
-        self, _name: str, verb: str, start: AutoresearchPipeline.Status, live_run: bool
+        self, _name: str, verb: str, start: AutoresearchPipeline.Status, run_status: str | None
     ):
         pipeline = self._make_pipeline(status=start)
-        if live_run:
-            AutoresearchTrainingRun.objects.create(
-                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=50
-            )
+        if run_status:
+            AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=50)
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/{verb}/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         pipeline.refresh_from_db()
@@ -406,7 +405,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_pipeline(
             target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
         )
-        action.delete()
+        # The Action API soft-deletes, so the row stays behind.
+        action.deleted = True
+        action.save(update_fields=["deleted"])
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
@@ -424,13 +425,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert len(updates) == 1
         assert '"status"' not in updates[0]
 
-    def test_start_training_with_live_run_returns_400(self):
-        pipeline = self._make_pipeline()
-        AutoresearchTrainingRun.objects.create(
-            pipeline=pipeline,
-            status=AutoresearchTrainingRun.Status.RUNNING,
-            iteration_budget=50,
-        )
+    @parameterized.expand(
+        [
+            ("live_run", AutoresearchPipeline.Status.RUNNING, True),
+            ("paused", AutoresearchPipeline.Status.PAUSED, False),
+        ]
+    )
+    def test_start_training_refused_returns_400(self, _name: str, start: AutoresearchPipeline.Status, live_run: bool):
+        pipeline = self._make_pipeline(status=start)
+        if live_run:
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=50
+            )
         with patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 

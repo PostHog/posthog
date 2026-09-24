@@ -396,7 +396,10 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -
 def _has_live_training_run(team_id: int, pipeline: AutoresearchPipeline) -> bool:
     return (
         AutoresearchTrainingRun.objects.for_team(team_id)
-        .filter(pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING)
+        .filter(
+            pipeline=pipeline,
+            status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
+        )
         .exists()
     )
 
@@ -674,6 +677,8 @@ def _claim_pipeline_for_training(team_id: int, pipeline_id: str | UUID) -> Autor
         )
     except AutoresearchPipeline.DoesNotExist:
         raise PipelineNotFound("Pipeline not found.")
+    if pipeline.status == AutoresearchPipeline.Status.PAUSED:
+        raise AutoresearchConflict("The pipeline is paused. Resume it before training.")
     if _has_live_training_run(team_id, pipeline):
         raise AutoresearchConflict(
             "A training run is already in progress for this pipeline. "

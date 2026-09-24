@@ -383,7 +383,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 description="The created training run. Poll it through the training runs endpoint.",
             ),
             400: OpenApiResponse(
-                description="A training run is already in progress, or the pipeline's target or creator is no longer valid."
+                description=(
+                    "A training run is already in progress, the pipeline is paused, "
+                    "or the pipeline's target or creator is no longer valid."
+                )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
