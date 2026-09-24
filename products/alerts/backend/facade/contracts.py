@@ -135,7 +135,6 @@ class PlatformAlertUpsert:
     cooldown_minutes: int
     schedule_restriction: dict[str, Any] | None
     next_check_at: datetime | None
-    # Lands on the alert row, not the configuration, because the platform keeps snooze with state.
     snooze_until: datetime | None
 
 

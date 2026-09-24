@@ -168,7 +168,6 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
     """
-    # One transaction, so a due check never reads the new configuration with the old snooze.
     with transaction.atomic():
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id,
