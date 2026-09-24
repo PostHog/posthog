@@ -37,7 +37,9 @@ jobs:
               if: github.event_name == 'workflow_dispatch'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  ACTOR: ${{ github.actor }}
+                  # A re-run keeps github.actor from the first attempt, so the check reads the
+                  # account that started this attempt.
+                  ACTOR: ${{ github.triggering_actor }}
                   ORG: ${{ github.repository_owner }}
                   TEAM_SLUG: team-posthog-desktop
               run: |
