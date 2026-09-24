@@ -217,6 +217,79 @@ describe('incoming webhook template', () => {
         expect(JSON.stringify(properties)).not.toContain('secret')
     })
 
+    it.each([
+        ['api_key'],
+        ['X-API-Key'],
+        ['access_token'],
+        ['accessToken'],
+        ['refresh-token'],
+        ['clientSecret'],
+        ['client_secret'],
+        ['Token'],
+        ['signature'],
+        ['has_password'],
+        ['account[password]'],
+        ['account[token]'],
+        ['private_key'],
+    ])('drops the credential key %s from the captured query', async (key) => {
+        const response = await tester.invoke(
+            {
+                event: 'the event',
+                distinct_id: 'hardcoded',
+                method: 'GET',
+                properties: { query_params: '{request.query}' },
+            },
+            {
+                request: {
+                    method: 'GET',
+                    body: {},
+                    stringBody: '',
+                    headers: {},
+                    query: { utm_source: 'newsletter', [key]: 'secret-value' },
+                    ip: '127.0.0.1',
+                },
+            }
+        )
+        expect(response.capturedPostHogEvents[0].properties.query_params).toEqual({ utm_source: 'newsletter' })
+    })
+
+    it.each([
+        ['tokens_used'],
+        ['total_tokens'],
+        ['api_key_hint'],
+        ['api_key_status'],
+        ['apiXkey'],
+        ['password_reset'],
+        ['reset_token_id'],
+        ['top_secret_sale'],
+        ['isToken'],
+        ['designToken'],
+        ['monkey'],
+    ])('keeps the look-alike key %s in the captured query', async (key) => {
+        const response = await tester.invoke(
+            {
+                event: 'the event',
+                distinct_id: 'hardcoded',
+                method: 'GET',
+                properties: { query_params: '{request.query}' },
+            },
+            {
+                request: {
+                    method: 'GET',
+                    body: {},
+                    stringBody: '',
+                    headers: {},
+                    query: { utm_source: 'newsletter', [key]: 'kept-value' },
+                    ip: '127.0.0.1',
+                },
+            }
+        )
+        expect(response.capturedPostHogEvents[0].properties.query_params).toEqual({
+            utm_source: 'newsletter',
+            [key]: 'kept-value',
+        })
+    })
+
     it('should print the method, query, header names and body without credentials if debug is true', async () => {
         const response = await tester.invoke(
             {
