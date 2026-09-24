@@ -1,5 +1,7 @@
 # Shared metrics and labels for prometheus metrics
+import socket
 from contextlib import contextmanager
+from urllib.error import HTTPError, URLError
 
 from django.conf import settings
 
@@ -35,11 +37,21 @@ KLUDGES_COUNTER = Counter(
     labelnames=["kludge"],
 )
 
+PUSHGATEWAY_PUSH_FAILURES_COUNTER = Counter(
+    "posthog_pushgateway_push_failures_total",
+    "Metrics registries that could not be pushed to the Prometheus pushgateway. The reason label is 'unavailable' when the gateway could not be reached, and 'error' when it answered with a failure.",
+    labelnames=["job", "reason"],
+)
+
 TOMBSTONE_COUNTER = Counter(
     "posthog_tombstone_total",
     "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions. Details (team_id, flag_id, etc.) are logged separately to avoid high-cardinality labels.",
     labelnames=["namespace", "operation", "component"],
 )
+
+
+class PushgatewayResponseError(OSError):
+    """The pushgateway answered, but refused the push."""
 
 
 def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
@@ -51,12 +63,20 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
             request.add_header(k, v)
         resp = build_opener(ProxyHandler({}), base_handler).open(request, timeout=timeout)
         if resp.code >= 400:
-            raise OSError(f"error talking to pushgateway: {resp.code} {resp.msg}")
+            raise PushgatewayResponseError(f"error talking to pushgateway: {resp.code} {resp.msg}")
 
     return handle
 
 
 _expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
+
+
+def _is_pushgateway_unavailable(err: BaseException) -> bool:
+    """A refused connection, a name that does not resolve or a timeout means the gateway is down, not that the caller has a bug."""
+
+    if isinstance(err, HTTPError):
+        return False
+    return isinstance(err, URLError | ConnectionError | TimeoutError | socket.gaierror)
 
 
 @contextmanager
@@ -78,5 +98,15 @@ def pushed_metrics_registry(job_name: str):
         if settings.PROM_PUSHGATEWAY_ADDRESS:
             push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
-        logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
-        capture_exception(err)
+        if _is_pushgateway_unavailable(err):
+            PUSHGATEWAY_PUSH_FAILURES_COUNTER.labels(job=job_name, reason="unavailable").inc()
+            logger.warning(
+                "push_to_gateway_unavailable",
+                job=job_name,
+                target=settings.PROM_PUSHGATEWAY_ADDRESS,
+                exception=err,
+            )
+        else:
+            PUSHGATEWAY_PUSH_FAILURES_COUNTER.labels(job=job_name, reason="error").inc()
+            logger.exception("push_to_gateway", job=job_name, target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
+            capture_exception(err)

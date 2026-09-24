@@ -1,8 +1,9 @@
+import socket
 import threading
 import http.server
 
 import prometheus_client.exposition as expo
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from prometheus_client import REGISTRY, CollectorRegistry, Gauge, push_to_gateway
 
 from posthog.metrics import _make_handler_no_proxy, pushed_metrics_registry
 
@@ -84,3 +85,58 @@ class TestPushgatewayProxyPatch:
         body = received["body"].decode()
         assert "test_ctx_metric" in body
         assert "99.0" in body
+
+
+class TestPushFailureClassification:
+    @staticmethod
+    def _failure_count(job: str, reason: str) -> float:
+        return (
+            REGISTRY.get_sample_value("posthog_pushgateway_push_failures_total", {"job": job, "reason": reason}) or 0.0
+        )
+
+    def test_unreachable_gateway_is_counted_and_not_captured(self, monkeypatch, settings):
+        captured: list = []
+        monkeypatch.setattr("posthog.metrics.capture_exception", captured.append)
+
+        closed = socket.socket()
+        closed.bind(("127.0.0.1", 0))
+        port = closed.getsockname()[1]
+        closed.close()
+
+        before = self._failure_count("unreachable_job", "unavailable")
+        settings.PROM_PUSHGATEWAY_ADDRESS = f"http://127.0.0.1:{port}"
+        with pushed_metrics_registry("unreachable_job") as registry:
+            Gauge("test_unreachable_metric", "A gauge nobody receives", registry=registry).set(1.0)
+
+        assert captured == []
+        assert self._failure_count("unreachable_job", "unavailable") == before + 1
+
+    def test_rejected_push_is_counted_and_captured(self, monkeypatch, settings):
+        captured: list = []
+        monkeypatch.setattr("posthog.metrics.capture_exception", captured.append)
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_PUT(self):
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(500)
+                self.end_headers()
+
+            def log_message(self, format, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+
+        before = self._failure_count("rejected_job", "error")
+        try:
+            settings.PROM_PUSHGATEWAY_ADDRESS = f"http://127.0.0.1:{port}"
+            with pushed_metrics_registry("rejected_job") as registry:
+                Gauge("test_rejected_metric", "A gauge the gateway refuses", registry=registry).set(1.0)
+        finally:
+            thread.join(timeout=5)
+            server.server_close()
+
+        assert len(captured) == 1
+        assert self._failure_count("rejected_job", "error") == before + 1
