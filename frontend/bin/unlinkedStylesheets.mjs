@@ -4,6 +4,11 @@ import path from 'node:path'
 const linkedStylesheets = new Map()
 const buildOutputs = new Map()
 
+export function resetModuleState() {
+    linkedStylesheets.clear()
+    buildOutputs.clear()
+}
+
 export function removeUnlinkedStylesheets(absWorkingDir, outputs, entryPoint) {
     const entry = Object.entries(outputs).find(
         ([file, output]) => output.entryPoint === entryPoint && file.endsWith('.js')

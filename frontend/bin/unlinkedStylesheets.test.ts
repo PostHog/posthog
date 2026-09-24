@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { removeUnlinkedStylesheets } from './unlinkedStylesheets.mjs'
+import { removeUnlinkedStylesheets, resetModuleState } from './unlinkedStylesheets.mjs'
 
 describe('removeUnlinkedStylesheets', () => {
     let dir: string
@@ -10,6 +10,7 @@ describe('removeUnlinkedStylesheets', () => {
     const exists = (file: string): boolean => fs.existsSync(path.join(dir, file))
 
     beforeEach(() => {
+        resetModuleState()
         dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unlinked-stylesheets-'))
         fs.mkdirSync(path.join(dir, 'dist'))
     })
