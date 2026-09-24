@@ -12,7 +12,7 @@ from posthog.models.user import User
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import SlackThreadHandler
-from products.tasks.backend.logic.services.pr_closed_slack import post_pr_closed_slack_update
+from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
 from products.tasks.backend.models import SLACK_NOTIFIED_PR_URL_STATE_KEY, Task, TaskRun
 
 PR_URL = "https://github.com/posthog/posthog/pull/1"
@@ -50,7 +50,7 @@ class TestPostPrClosedSlackUpdate(TestCase):
             "mentioning_slack_user_id": "U_MENTIONER",
         }
         footer_patcher = patch(
-            "products.tasks.backend.logic.services.pr_closed_slack.load_run_footer",
+            "products.tasks.backend.logic.services.slack_pr_cards.load_run_footer",
             return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/1"),
         )
         footer_patcher.start()

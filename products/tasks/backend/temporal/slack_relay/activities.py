@@ -245,13 +245,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             origin_product=mapping.task.origin_product,
         )
 
-    context = SlackThreadContext(
-        integration_id=mapping.integration_id,
-        channel=mapping.channel,
-        thread_ts=mapping.thread_ts,
-        user_message_ts=input.user_message_ts,
-        mentioning_slack_user_id=mapping.mentioning_slack_user_id,
-    )
+    context = SlackThreadContext.from_mapping(mapping, user_message_ts=input.user_message_ts)
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
     # handler so the footer's links are gated on whoever this reply is actually for.
