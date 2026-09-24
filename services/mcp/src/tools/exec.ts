@@ -186,7 +186,7 @@ export function classifyLearnCommand(
     if (first === '-d') {
         return { exec_learn_kind: 'describe' }
     }
-    if (first === 'skills') {
+    if (first === undefined || first === 'skills') {
         return { exec_learn_kind: 'list' }
     }
     if (first !== undefined && QUALIFIED_IDENTIFIER.test(first)) {

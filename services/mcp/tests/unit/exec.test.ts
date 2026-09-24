@@ -102,7 +102,7 @@ describe('exec tool', () => {
             ['learn skills', { exec_learn_kind: 'list' }],
             ['learn -d posthog:building-a-dashboard', { exec_learn_kind: 'describe' }],
             ['learn analytics', { exec_learn_kind: 'guide' }],
-            ['learn', { exec_learn_kind: 'guide' }],
+            ['learn', { exec_learn_kind: 'list' }],
         ])('reports the learn form for "%s" whether or not learn is available', async (command, expected) => {
             for (const catalogOption of [{ learnCatalog }, {}]) {
                 const tracked: ExecCommandMeta[] = []

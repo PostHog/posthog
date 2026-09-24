@@ -21,7 +21,6 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
@@ -187,8 +186,6 @@ export async function trackToolCall(
             ? servedDescription.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
             : getToolDescription(toolName)
 
-        const execSkillsFlag = state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]
-
         // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
         // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
         // `$mcp_is_error`, `intent` → `$mcp_intent`, and `sessionId` →
@@ -219,9 +216,6 @@ export async function trackToolCall(
                 // Which vendor ran the tool, so "who do people actually call" is a
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
-                ...(execSkillsFlag !== undefined
-                    ? { [`$feature/${MCP_EXEC_SKILLS_FEATURE_FLAG}`]: execSkillsFlag }
-                    : {}),
                 ...extraProperties,
                 is_impersonated: state.isImpersonated === true,
             },
