@@ -36,7 +36,7 @@ export function NavTabFiles(): JSX.Element {
                 <div className="absolute top-0 right-1 z-10">
                     <NavFilesMenu />
                 </div>
-                {showStarred ? (
+                {showStarred && (
                     <div className="pb-2">
                         <NavTabSection
                             label="Starred"
@@ -61,10 +61,13 @@ export function NavTabFiles(): JSX.Element {
                             )}
                         </NavTabSection>
                     </div>
-                ) : (
-                    <div className="h-6.5" />
                 )}
-                <NavTabSection label="Files" dataAttr="nav-files-project-toggle" key={`files-${!!searchTerm.trim()}`}>
+                <NavTabSection
+                    label="Files"
+                    dataAttr="nav-files-project-toggle"
+                    key={`files-${!!searchTerm.trim()}`}
+                    actions={!showStarred && <span className="size-6.5 shrink-0" aria-hidden />}
+                >
                     <ProjectTree
                         root="project://"
                         logicKey={FILES_TREE_KEY}
