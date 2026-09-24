@@ -457,11 +457,19 @@ class LLMPromptViewSet(
                 )
             return self._prompt_not_found_response(prompt_name)
 
-        if resolve and content_mode == "full" and prompt_partials_enabled(self.team):
-            try:
-                prompt = assemble_prompt_payload(self.team, prompt)
-            except PromptReferenceResolutionError as err:
-                return self._reference_resolution_error_response(err)
+        if resolve and content_mode == "full":
+            prompt_content = prompt.get("prompt")
+            if isinstance(prompt_content, str) and PROMPT_REFERENCE_REGEX.search(prompt_content):
+                # The flag check can be a network call, so it only runs for
+                # content that actually has references to resolve.
+                if prompt_partials_enabled(self.team):
+                    try:
+                        prompt = assemble_prompt_payload(self.team, prompt)
+                    except PromptReferenceResolutionError as err:
+                        return self._reference_resolution_error_response(err)
+            else:
+                # Tag-free content is trivially resolved, matching the list path.
+                prompt = {**prompt, "resolved_references": []}
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))

@@ -2392,3 +2392,13 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "Try again" in response.json()["detail"]
+
+    def test_fetching_a_tag_free_prompt_never_consults_the_flag(self):
+        self._make_prompt("plain", prompt="No references here.")
+
+        with patch("posthog.api.llm_prompt.prompt_partials_enabled") as flag_check:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/plain/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["resolved_references"] == []
+        flag_check.assert_not_called()
