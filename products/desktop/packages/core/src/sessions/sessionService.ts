@@ -443,6 +443,7 @@ export interface ISessionStore {
         ? Omit<T, "id">
         : never
       : never,
+    messageId?: string,
   ): void;
   clearOptimisticItems(taskRunId: string): void;
   clearTailOptimisticItems(taskRunId: string): void;
@@ -4952,7 +4953,12 @@ export class SessionService {
   private async sendCloudPrompt(
     session: AgentSession,
     prompt: string | ContentBlock[],
-    options?: { skipQueueGuard?: boolean; steer?: boolean },
+    options?: {
+      skipQueueGuard?: boolean;
+      steer?: boolean;
+      messageId?: string;
+      submittedAt?: number;
+    },
   ): Promise<{ stopReason: string }> {
     const normalizedPrompt = await this.resolveCloudPrompt(prompt);
     const transport = this.d.h.getCloudPromptTransport(normalizedPrompt);
@@ -5062,12 +5068,18 @@ export class SessionService {
       return { stopReason: "queued" };
     }
 
-    this.d.store.appendOptimisticItem(session.taskRunId, {
-      type: "user_message",
-      content: transport.promptText,
-      timestamp: Date.now(),
-      pinToTop: false,
-    });
+    const messageId = options?.messageId ?? globalThis.crypto.randomUUID();
+    const submittedAt = options?.submittedAt ?? Date.now();
+    this.d.store.appendOptimisticItem(
+      session.taskRunId,
+      {
+        type: "user_message",
+        content: transport.promptText,
+        timestamp: submittedAt,
+        pinToTop: false,
+      },
+      messageId,
+    );
 
     const authStatus = await this.getAuthCredentialsStatus().catch((error) => {
       this.d.store.clearTailOptimisticItems(session.taskRunId);
@@ -5140,6 +5152,7 @@ export class SessionService {
     const params: Record<string, unknown> = {};
     if (transport.messageText) {
       params.content = transport.messageText;
+      params.submitted_at = submittedAt;
     }
     if (artifactIds.length > 0) {
       params.artifact_ids = artifactIds;
@@ -5172,6 +5185,7 @@ export class SessionService {
 
     try {
       const result = await this.d.trpc.cloudTask.sendCommand.mutate({
+        id: messageId,
         taskId: session.taskId,
         runId: session.taskRunId,
         apiHost: cloudCommandAuth.apiHost,
@@ -5316,6 +5330,8 @@ export class SessionService {
       try {
         await this.sendCloudPrompt(session, combined, {
           skipQueueGuard: true,
+          messageId: drained[0].id,
+          submittedAt: drained[0].queuedAt,
         });
       } catch (err) {
         this.d.log.warn("Cloud queue dispatch failed; re-enqueueing", {

@@ -1203,6 +1203,18 @@ class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
     has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
 
 
+class FailedFollowupMessageSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Identifier of the message that was not delivered.")
+    content = serializers.CharField(help_text="Original message content.")
+    ts = serializers.DateTimeField(help_text="Time the original message was submitted.")
+    truncated = serializers.BooleanField(help_text="Whether the stored message is shorter than the original.")
+    resendable = serializers.BooleanField(help_text="Whether the original message can be resent without missing files.")
+
+
+class FailedFollowupMessagesResponseSerializer(serializers.Serializer):
+    messages = FailedFollowupMessageSerializer(many=True, help_text="Confirmed failed follow-up messages for this run.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")

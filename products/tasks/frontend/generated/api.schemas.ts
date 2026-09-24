@@ -4232,6 +4232,24 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
+export interface FailedFollowupMessageApi {
+    /** Identifier of the message that was not delivered. */
+    id: string
+    /** Original message content. */
+    content: string
+    /** Time the original message was submitted. */
+    ts: string
+    /** Whether the stored message is shorter than the original. */
+    truncated: boolean
+    /** Whether the original message can be resent without missing files. */
+    resendable: boolean
+}
+
+export interface FailedFollowupMessagesResponseApi {
+    /** Confirmed failed follow-up messages for this run. */
+    messages: FailedFollowupMessageApi[]
+}
+
 /**
  * One peer agent run visible to the requesting run (agent peer messaging).
  */

@@ -9,6 +9,11 @@ Completed rows retain their identity while the active turn streams.
 Pi history revisions invalidate the builder when hydration or an optimistic acknowledgement changes an earlier message.
 The chat footer consumes the body's derived state instead of parsing the same transcript again.
 
+Cloud follow-up messages keep their submission ID until the agent prompt confirms delivery.
+A confirmed delivery failure appears at the original send time with a Resend action that creates a new message.
+While delivery is uncertain, the chat shows no failure marker.
+Messages with missing attachments or shortened stored text cannot be resent from the failed-message row.
+
 Verification:
 
 - Deliver a burst of chunks and check that one transcript publication contains each source ID once.

@@ -12277,6 +12277,38 @@ class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
 class TestTaskRunCommandAPI(BaseTaskAPITest):
+    def test_failed_messages_only_exposes_confirmed_failures_to_the_subscription_owner(self):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state.update({"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id})
+        run.save(update_fields=["state"])
+        run.record_pending_followup_message("pending", "First message", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("failed", "Second message", accepted_at=django_timezone.now(), resendable=False)
+        run.fail_pending_followup_message("failed")
+
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/failed_messages/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([message["id"] for message in response.json()["messages"]], ["failed"])
+        self.assertFalse(response.json()["messages"][0]["resendable"])
+
+        TaskRun.update_state_atomic(run.id, updates={"claude_subscription_user_id": self.user.id + 1})
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_failed_messages_survive_a_cloud_run_resume(self):
+        task = self.create_task()
+        previous = self._create_run_with_sandbox(task)
+        previous.record_pending_followup_message("failed", "Try another path", accepted_at=django_timezone.now())
+        previous.fail_pending_followup_message("failed")
+        current = self._create_run_with_sandbox(task)
+        TaskRun.update_state_atomic(current.id, updates={"resume_from_run_id": str(previous.id)})
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{current.id}/failed_messages/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([message["id"] for message in response.json()["messages"]], ["failed"])
+        self.assertTrue(response.json()["messages"][0]["resendable"])
+
     def _command_url(self, task, run):
         return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/"
 

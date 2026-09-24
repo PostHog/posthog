@@ -1850,6 +1850,16 @@ class TestSignalTaskRunUserMessage(TestCase):
         recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
         self.assertLessEqual(recorded_at, signalled_at[0])
 
+    def test_records_original_submission_time_for_queued_messages(self):
+        run = self._run()
+        submitted_at = django_timezone.now() - timedelta(hours=1)
+
+        self.assertTrue(self._signal(run, submitted_at=int(submitted_at.timestamp() * 1000)))
+
+        run.refresh_from_db()
+        recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
+        self.assertAlmostEqual(recorded_at.timestamp(), submitted_at.timestamp(), delta=0.001)
+
     @parameterized.expand([("no message id", {"message_id": None}), ("no content", {"content": "  "})])
     def test_records_nothing_without_an_identifiable_message(self, _name, overrides):
         run = self._run()
@@ -1858,6 +1868,15 @@ class TestSignalTaskRunUserMessage(TestCase):
 
         run.refresh_from_db()
         self.assertNotIn("pending_followup_messages", run.state or {})
+
+    def test_attachment_only_message_has_a_failure_record_but_cannot_resend_without_files(self):
+        run = self._run()
+
+        self.assertTrue(self._signal(run, content=None, artifact_ids=["artifact-1"]))
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["pending_followup_messages"][0]["content"], "Message with attachments")
+        self.assertFalse(run.state["pending_followup_messages"][0]["resendable"])
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

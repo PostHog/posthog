@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -122,6 +122,7 @@ from products.tasks.backend.logic.services.space_setup import (
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    FAILED_FOLLOWUP_MESSAGES_STATE_KEY,
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -4605,6 +4606,7 @@ def signal_task_run_user_message(
     artifact_ids: list[str],
     actor_user_id: int | None = None,
     message_id: str | None = None,
+    submitted_at: int | float | None = None,
     actor_slack_user_id: str | None = None,
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
@@ -4648,6 +4650,21 @@ def signal_task_run_user_message(
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     accepted_at = django_timezone.now()
+    message_time = accepted_at
+    if isinstance(submitted_at, (int, float)) and not isinstance(submitted_at, bool):
+        try:
+            submitted_time = datetime.fromtimestamp(submitted_at / 1000, tz=UTC)
+            if accepted_at - timedelta(days=30) <= submitted_time <= accepted_at + timedelta(minutes=5):
+                message_time = submitted_time
+        except (ValueError, OverflowError, OSError):
+            pass
+    if message_id and ((content and content.strip()) or artifact_ids):
+        run.record_pending_followup_message(
+            message_id,
+            content if content and content.strip() else "Message with attachments",
+            accepted_at=message_time,
+            resendable=not artifact_ids,
+        )
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -4662,17 +4679,50 @@ def signal_task_run_user_message(
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if message_id:
+                run.remove_pending_followup_message(message_id)
             if not run.is_terminal and (run.state or {}).get("await_user_message"):
                 raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
-    if message_id and content and content.strip():
-        try:
-            run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
-        except Exception:
-            logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
+
+
+def get_failed_task_run_messages(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, actor_user_id: int | None
+) -> list[dict[str, Any]] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    ensure_subscription_owner(run.state, actor_user_id)
+    messages: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    while run is not None and str(run.id) not in seen:
+        seen.add(str(run.id))
+        try:
+            ensure_subscription_owner(run.state, actor_user_id)
+        except PermissionDenied:
+            break
+        failed = (run.state or {}).get(FAILED_FOLLOWUP_MESSAGES_STATE_KEY)
+        if isinstance(failed, list):
+            messages.extend(
+                {
+                    "id": entry["id"],
+                    "content": entry["content"],
+                    "ts": entry["ts"],
+                    "truncated": entry.get("truncated") is True,
+                    "resendable": entry.get("resendable") is not False,
+                }
+                for entry in failed
+                if isinstance(entry, dict)
+                and isinstance(entry.get("id"), str)
+                and isinstance(entry.get("content"), str)
+                and isinstance(entry.get("ts"), str)
+            )
+        previous_id = (run.state or {}).get("resume_from_run_id")
+        run = _get_visible_run(previous_id, task_id, team_id) if previous_id else None
+    return messages
 
 
 # --- Agent peer messaging (docs: logic/services/peer_messages.py) ---

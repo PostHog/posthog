@@ -166,6 +166,7 @@ def _fail_when_sandbox_stopped(
     *,
     task_run: TaskRun | None = None,
     peer_message_id: str | None = None,
+    message_id: str | None = None,
 ) -> None:
     """Stop a delivery the control plane says can never land, before anything else reports it.
 
@@ -193,6 +194,8 @@ def _fail_when_sandbox_stopped(
             PEER_SANDBOX_STOPPED_MESSAGE,
         )
         raise ApplicationError(f"peer message delivery failed: {PEER_SANDBOX_STOPPED_MESSAGE}", non_retryable=True)
+    if task_run is not None and message_id is not None:
+        task_run.fail_pending_followup_message(message_id)
     raise ApplicationError(SANDBOX_STOPPED_MESSAGE, non_retryable=True)
 
 
@@ -305,6 +308,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_stopping", RUN_STOPPING_MESSAGE
             )
             raise ApplicationError(f"peer message delivery failed: {RUN_STOPPING_MESSAGE}", non_retryable=True)
+        if input.message_id:
+            task_run.fail_pending_followup_message(input.message_id)
         raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
 
     if peer_message_id is not None:
@@ -382,7 +387,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
         )
 
-    _fail_when_sandbox_stopped(input.run_id, state, actor_user, task_run=task_run)
+    _fail_when_sandbox_stopped(input.run_id, state, actor_user, task_run=task_run, message_id=input.message_id)
 
     # Rebind the sandbox's MCP session to this actor before the turn. On an
     # actor transition this must rebind or clear the prior session; if it can't,
@@ -418,6 +423,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             actor_user_id=actor_user.id if actor_user is not None else None,
             sandbox_id=(state or {}).get("sandbox_id"),
         )
+        if input.message_id:
+            task_run.fail_pending_followup_message(input.message_id)
         raise ApplicationError(SANDBOX_STOPPED_MESSAGE, non_retryable=True)
     if github_failure is not None:
         _fail_rebind_closed(
@@ -553,6 +560,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             error=result.error,
             status_code=result.status_code,
         )
+        if input.message_id and (result.status_code == 0 or 400 <= result.status_code < 500):
+            task_run.fail_pending_followup_message(input.message_id)
         error_msg = user_facing_agent_error(result.error)
         _write_error_and_complete(
             input.run_id,

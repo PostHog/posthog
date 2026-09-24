@@ -314,7 +314,7 @@ export const sessionStoreSetters = {
     content: string,
     rawPrompt?: string | ContentBlock[],
   ) => {
-    const id = `queue-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const id = globalThis.crypto.randomUUID();
     sessionStore.setState((state) => {
       const taskRunId = state.taskIdIndex[taskId];
       if (!taskRunId) return;
@@ -473,8 +473,11 @@ export const sessionStoreSetters = {
         ? Omit<T, "id">
         : never
       : never,
+    messageId?: string,
   ): void => {
-    const id = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const id =
+      messageId ??
+      `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     sessionStore.setState((state) => {
       const session = state.sessions[taskRunId];
       if (session) {

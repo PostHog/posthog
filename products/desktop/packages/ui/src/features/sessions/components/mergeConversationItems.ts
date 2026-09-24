@@ -3,12 +3,14 @@ import {
   hasInjectedBlocks,
   stripInjectedBlocks,
 } from "@posthog/core/editor/injectedBlocks";
+import type { FailedFollowupMessage } from "../hooks/useFailedFollowupMessages";
 import type { ConversationItem } from "./buildConversationItems";
 
 interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
   optimisticItems: ConversationItem[];
   isCloud: boolean;
+  failedMessages?: FailedFollowupMessage[];
 }
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
@@ -63,9 +65,40 @@ export function mergeConversationItems({
   conversationItems,
   optimisticItems,
   isCloud,
+  failedMessages = [],
 }: MergeConversationItemsArgs): ConversationItem[] {
   if (isCloud) {
     conversationItems = reconcileInitialPromptEcho(conversationItems);
+  }
+  if (failedMessages.length > 0 && isCloud) {
+    const failedIds = new Set(failedMessages.map((message) => message.id));
+    optimisticItems = optimisticItems.filter((item) => !failedIds.has(item.id));
+    conversationItems = [...conversationItems];
+    for (const message of failedMessages) {
+      if (conversationItems.some((item) => item.id === message.id)) continue;
+      const timestamp = Date.parse(message.ts);
+      if (!Number.isFinite(timestamp)) continue;
+      const failedItem: UserMessageItem = {
+        type: "user_message",
+        id: message.id,
+        content: message.content,
+        timestamp,
+        deliveryFailed: true,
+        deliveryTruncated: message.truncated,
+        deliveryResendable: message.resendable,
+      };
+      const nextIndex = conversationItems.findIndex(
+        (item) =>
+          "timestamp" in item &&
+          typeof item.timestamp === "number" &&
+          item.timestamp > timestamp,
+      );
+      conversationItems.splice(
+        nextIndex === -1 ? conversationItems.length : nextIndex,
+        0,
+        failedItem,
+      );
+    }
   }
   if (optimisticItems.length === 0) {
     return conversationItems;

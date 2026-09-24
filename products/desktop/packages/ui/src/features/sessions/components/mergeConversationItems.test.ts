@@ -30,6 +30,51 @@ function userMessage(
 }
 
 describe("mergeConversationItems", () => {
+  it("places a confirmed failed message at its send time and leaves the optimistic copy out", () => {
+    const result = mergeConversationItems({
+      conversationItems: [
+        userMessage("first", "first", undefined, 100),
+        userMessage("later", "later", undefined, 300),
+      ],
+      optimisticItems: [userMessage("failed-id", "repeated", false, 200)],
+      failedMessages: [
+        {
+          id: "failed-id",
+          content: "repeated",
+          ts: new Date(200).toISOString(),
+          truncated: false,
+          resendable: true,
+        },
+      ],
+      isCloud: true,
+    });
+
+    expect(result.map((item) => item.id)).toEqual([
+      "first",
+      "failed-id",
+      "later",
+    ]);
+    expect(result[1]).toMatchObject({ deliveryFailed: true, timestamp: 200 });
+  });
+
+  it("does not mistake a repeated text for the failed message id", () => {
+    const result = mergeConversationItems({
+      conversationItems: [userMessage("echo", "same", undefined, 100)],
+      optimisticItems: [],
+      failedMessages: [
+        {
+          id: "failed-id",
+          content: "same",
+          ts: new Date(200).toISOString(),
+          truncated: false,
+          resendable: true,
+        },
+      ],
+      isCloud: true,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(["echo", "failed-id"]);
+  });
   it("local: appends optimistic at the chronological end", () => {
     const result = mergeConversationItems({
       conversationItems: [userMessage("a", "first")],
