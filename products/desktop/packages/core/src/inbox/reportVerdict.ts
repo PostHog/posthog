@@ -93,14 +93,21 @@ export function deriveReportVerdict(
       break;
   }
 
-  const parked = report.actionability === "not_actionable";
-  // A running task with no pull request has nothing to review yet, so it does
-  // not outrank a verdict that parked the report: no pull request follows it.
-  if (hasExistingPr || (hasLiveImplementationTask && !parked)) {
+  if (hasExistingPr) {
     return {
       tone: "decision",
       title: "Review the open PR",
       body: "Implementation is already in flight. Review the pull request, or ask about it for more context.",
+    };
+  }
+  // A running task with no pull request has nothing to review yet, so it names
+  // the task instead. It also does not outrank a verdict that parked the
+  // report, because no pull request follows that task either.
+  if (hasLiveImplementationTask && report.actionability !== "not_actionable") {
+    return {
+      tone: "decision",
+      title: "Implementation in progress",
+      body: "Implementation is already in flight. View the task, or ask about it for more context.",
     };
   }
   if (report.already_addressed) {

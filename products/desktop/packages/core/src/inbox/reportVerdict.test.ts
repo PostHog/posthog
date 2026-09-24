@@ -121,4 +121,28 @@ describe("deriveReportVerdict", () => {
       expect(verdict.body).toContain("Open Activity for the judgment");
     },
   );
+
+  it("keeps the research verdict over a running task that has no PR", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "not_actionable" }),
+      { hasExistingPr: false, hasLiveImplementationTask: true },
+    );
+    expect(verdict.title).toBe("Not actionable after research");
+  });
+
+  it("still leads with a real PR on a report research parked", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "not_actionable" }),
+      { hasExistingPr: true, hasLiveImplementationTask: true },
+    );
+    expect(verdict.title).toBe("Review the open PR");
+  });
+
+  it("names the task, not a PR, while an actionable report is being fixed", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "immediately_actionable" }),
+      { hasExistingPr: false, hasLiveImplementationTask: true },
+    );
+    expect(verdict.title).toBe("Implementation in progress");
+  });
 });
