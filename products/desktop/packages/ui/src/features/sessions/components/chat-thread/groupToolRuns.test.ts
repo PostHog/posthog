@@ -153,8 +153,6 @@ describe("groupToolRuns", () => {
   });
 
   it("stands only the last chart-rendering call of a turn alone, folding earlier ones back into their run", () => {
-    // A turn calling several chart tools used to force every one of them out of the
-    // group, walling the thread with open charts. Only the final one should survive.
     const turnContext = {
       toolCalls: new Map(),
       childItems: new Map(),
@@ -206,8 +204,6 @@ describe("groupToolRuns", () => {
   });
 
   it("holds every chart-rendering call inside its group until the turn completes", () => {
-    // Deciding the "last" winner mid-turn would flip it back and forth as more chart
-    // calls stream in; the reveal must wait for the turn to finish, once, at the end.
     const turnContext = {
       toolCalls: new Map(),
       childItems: new Map(),

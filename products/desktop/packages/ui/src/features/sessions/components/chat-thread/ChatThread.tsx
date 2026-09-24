@@ -210,11 +210,7 @@ function isThoughtItem(item: ConversationItem): boolean {
   );
 }
 
-/**
- * Only the turn's last renderable call stays open; earlier ones in the same turn fold back
- * into their run so a busy turn doesn't wall the thread with open charts. Nothing counts until
- * the turn completes, so the winner can't flip as more calls stream in.
- */
+/** Skips an incomplete turn so the last-renderable pick can't flip as more calls stream in. */
 function lastRenderableIdsByTurn(
   items: ConversationItem[],
 ): Map<TurnContext, string> {
