@@ -1,21 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { cloneElement, MouseEvent, useCallback, useEffect, useId, useRef } from 'react'
 
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonCheckbox,
-    LemonDropdown,
-    LemonDropdownProps,
-    LemonInput,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LoadTags, TagOption, tagSelectLogic } from './tagSelectLogic'
+import { TagSelectMenu } from './TagSelectMenu'
 
 const TAGS_PER_PAGE = 50
 
@@ -29,6 +22,34 @@ export type TagSelectProps = {
     options?: TagOption[]
     loadTags?: LoadTags
     borderless?: boolean
+}
+
+function useTagSource(options: TagOption[] | undefined, customLoadTags: LoadTags | undefined): LoadTags {
+    const { currentTeamId } = useValues(teamLogic)
+    return useCallback<LoadTags>(
+        async (query, offset) => {
+            if (options) {
+                const matches = options.filter((option) => option.tag.toLowerCase().includes(query.toLowerCase()))
+                return {
+                    results: matches.slice(offset, offset + TAGS_PER_PAGE),
+                    hasMore: offset + TAGS_PER_PAGE < matches.length,
+                }
+            }
+            if (customLoadTags) {
+                return customLoadTags(query, offset)
+            }
+            if (currentTeamId == null) {
+                return { results: [], hasMore: false }
+            }
+            const params = new URLSearchParams({ search: query, limit: String(TAGS_PER_PAGE), offset: String(offset) })
+            const page: PaginatedResponse<string> = await api.get(`api/projects/${currentTeamId}/tags?${params}`)
+            return {
+                results: page.results.map((tag) => ({ tag })),
+                hasMore: page.next != null,
+            }
+        },
+        [options, customLoadTags, currentTeamId]
+    )
 }
 
 export function TagSelect({
@@ -57,32 +78,7 @@ export function TagSelect({
         tagResults,
     } = useValues(logic)
     const { loadTagPage, setSearch, setShowPopover } = useActions(logic)
-    const { currentTeamId } = useValues(teamLogic)
-
-    const source = useCallback<LoadTags>(
-        async (query, offset) => {
-            if (options) {
-                const matches = options.filter((option) => option.tag.toLowerCase().includes(query.toLowerCase()))
-                return {
-                    results: matches.slice(offset, offset + TAGS_PER_PAGE),
-                    hasMore: offset + TAGS_PER_PAGE < matches.length,
-                }
-            }
-            if (customLoadTags) {
-                return customLoadTags(query, offset)
-            }
-            if (currentTeamId == null) {
-                return { results: [], hasMore: false }
-            }
-            const params = new URLSearchParams({ search: query, limit: String(TAGS_PER_PAGE), offset: String(offset) })
-            const page: PaginatedResponse<string> = await api.get(`api/projects/${currentTeamId}/tags?${params}`)
-            return {
-                results: page.results.map((tag) => ({ tag })),
-                hasMore: page.next != null,
-            }
-        },
-        [options, customLoadTags, currentTeamId]
-    )
+    const source = useTagSource(options, customLoadTags)
 
     useEffect(() => {
         if (showPopover) {
@@ -110,7 +106,6 @@ export function TagSelect({
     }
 
     const selectedCount = value.length
-    const hasVisibleSelection = displayedTags.some(({ tag }) => value.includes(tag))
     const trigger = children ? (
         children(value)
     ) : (
@@ -134,113 +129,24 @@ export function TagSelect({
             actionable
             onVisibilityChange={setShowPopover}
             overlay={
-                <div className="w-64 max-w-[min(25rem,80vw)]">
-                    <div className="border-b border-primary focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search tags"
-                            autoFocus
-                            value={search}
-                            onChange={setSearch}
-                            fullWidth
-                            className="!rounded-none !border-0 !bg-transparent !shadow-none"
-                        />
-                    </div>
-                    <span role="status" className="sr-only">
-                        {tagPageError
-                            ? "Couldn't load tags. Try again."
-                            : tagPageLoading || awaitingFirstPage
-                              ? 'Loading tags'
-                              : displayedTags.length === 0
-                                ? search
-                                    ? 'No matching tags'
-                                    : 'No tags'
-                                : search
-                                  ? `${displayedTags.length} tags shown`
-                                  : ''}
-                    </span>
-                    <div ref={scrollRef} className="max-h-80 overflow-y-auto" data-attr={listDataAttr}>
-                        <ul className="deprecated-space-y-px p-1">
-                            {displayedTags.map(({ tag, count }) => (
-                                <li key={tag}>
-                                    <LemonButton
-                                        fullWidth
-                                        role="checkbox"
-                                        aria-checked={value.includes(tag)}
-                                        aria-label={count === undefined ? tag : `${tag} (${count})`}
-                                        tooltip={tag}
-                                        size="small"
-                                        onClick={() => handleToggle(tag)}
-                                    >
-                                        <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                                            <LemonCheckbox
-                                                checked={value.includes(tag)}
-                                                decorative
-                                                className="pointer-events-none"
-                                            />
-                                            <span className="min-w-0 flex-1 truncate" title={tag}>
-                                                {tag}
-                                            </span>
-                                            {count !== undefined && (
-                                                <span className="text-muted tabular-nums">{count}</span>
-                                            )}
-                                        </span>
-                                    </LemonButton>
-                                </li>
-                            ))}
-                            {(tagPageLoading || awaitingFirstPage) && !tagPageError && (
-                                <li className="p-1" aria-label="Loading tags">
-                                    <LemonSkeleton.Row
-                                        className="h-8 mb-1"
-                                        repeat={displayedTags.length === 0 ? 5 : 2}
-                                        fade
-                                    />
-                                </li>
-                            )}
-                            {!tagPageLoading && !awaitingFirstPage && !tagPageError && displayedTags.length === 0 && (
-                                <li className="p-2 text-secondary italic">{search ? 'No matching tags' : 'No tags'}</li>
-                            )}
-                        </ul>
-                    </div>
-                    {(tagPageError || hasVisibleSelection) && (
-                        <div className="border-t border-primary">
-                            {tagPageError && (
-                                <LemonButton
-                                    fullWidth
-                                    size="small"
-                                    type="tertiary"
-                                    className="!rounded-none"
-                                    loading={tagPageLoading}
-                                    onClick={() =>
-                                        loadTagPage({
-                                            search,
-                                            offset: tagResults.length,
-                                            loadTags: source,
-                                            requestEpoch,
-                                        })
-                                    }
-                                >
-                                    Couldn't load tags. Try again.
-                                </LemonButton>
-                            )}
-                            {hasVisibleSelection && (
-                                <LemonButton
-                                    fullWidth
-                                    size="small"
-                                    type="tertiary"
-                                    className="!rounded-none"
-                                    onClick={() => {
-                                        onChange([])
-                                        setShowPopover(false)
-                                        triggerRef.current?.focus()
-                                    }}
-                                >
-                                    Clear selection
-                                </LemonButton>
-                            )}
-                        </div>
-                    )}
-                </div>
+                <TagSelectMenu
+                    search={search}
+                    setSearch={setSearch}
+                    displayedTags={displayedTags}
+                    value={value}
+                    awaitingFirstPage={awaitingFirstPage}
+                    tagPageLoading={tagPageLoading}
+                    tagPageError={tagPageError}
+                    listDataAttr={listDataAttr}
+                    scrollRef={scrollRef}
+                    onToggle={handleToggle}
+                    onRetry={() => loadTagPage({ search, offset: tagResults.length, loadTags: source, requestEpoch })}
+                    onClear={() => {
+                        onChange([])
+                        setShowPopover(false)
+                        triggerRef.current?.focus()
+                    }}
+                />
             }
         >
             {trigger &&
