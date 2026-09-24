@@ -13,6 +13,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
     CHUNK_SIZE,
     GladlyReportHeaderError,
+    GladlyReportNotAvailableForAccountError,
     GladlyReportUnavailableError,
     GladlyResumeConfig,
     GladlyRetryableError,
@@ -718,6 +719,35 @@ class TestGetReportRows:
 
         assert mock_session.return_value.post.call_count == 5
         manager.save_state.assert_not_called()
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_on_a_stream_that_never_synced_stops_instead_of_retrying(self, mock_session, _sleep):
+        # Gladly serves an error body for a report it cannot build for the account. With no
+        # watermark and no resume state the next run reproduces it, so retrying only fails again.
+        mock_session.return_value.post.side_effect = [_csv_response("Unexpected error occurred") for _ in range(5)]
+
+        manager = _make_manager()
+        with pytest.raises(GladlyReportNotAvailableForAccountError, match="unavailable for this account"):
+            list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        manager.save_state.assert_not_called()
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_after_a_window_landed_stays_retryable(self, mock_session, _sleep):
+        # The stream has never synced, but this run opened a report before the error body, so
+        # Gladly does build the report for the account and the failing window is transient.
+        mock_session.return_value.post.side_effect = [
+            _csv_response("Timestamp,Contact ID\n2024-03-14T09:00:00.000Z,ct-1\n"),
+            *[_csv_response("Unexpected error occurred") for _ in range(5)],
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(GladlyReportUnavailableError, match="Gladly returned no report"):
+            list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
 
     @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch("time.sleep")

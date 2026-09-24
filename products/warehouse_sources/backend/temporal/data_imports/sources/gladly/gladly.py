@@ -63,6 +63,24 @@ class GladlyReportUnavailableError(Exception):
             f"Gladly returned no report for metricSet={metric_set}: the response body is not a CSV report. "
             f"First line: {header!r:.300}"
         )
+        self.header = header
+
+
+class GladlyReportNotAvailableForAccountError(Exception):
+    """An error body on a stream that has never landed a single window.
+
+    Retrying an error body covers a report Gladly fails to build for one window.
+    A stream with no watermark, no resume state, and no window opened in this run
+    has never had a report built at all, so the next run reproduces it exactly.
+    Keep the message matching the entry in the source's non-retryable errors.
+    """
+
+    def __init__(self, metric_set: str, header: list[str]) -> None:
+        super().__init__(
+            f"Gladly report unavailable for this account: metricSet={metric_set} returned an error body "
+            f"instead of a CSV on every attempt, and this stream has never synced a window. "
+            f"First line: {header!r:.300}"
+        )
 
 
 def _header_is_an_error_line(fieldnames: Sequence[str]) -> bool:
@@ -412,9 +430,10 @@ def _report_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     today = datetime.now(UTC).date()
+    incremental_last_value = db_incremental_field_last_value if should_use_incremental_field else None
     window_start = _report_start_date(
         today=today,
-        incremental_last_value=db_incremental_field_last_value if should_use_incremental_field else None,
+        incremental_last_value=incremental_last_value,
         resume_window_end=resume_config.last_report_window_end if resume_config is not None else None,
         window_days=config.report_window_days,
         backfill_days=config.report_backfill_days,
@@ -459,25 +478,37 @@ def _report_rows(
             raise GladlyReportHeaderError(metric_set, missing, present)
         return reader
 
+    # No watermark and no resume state means no window of this stream has ever landed.
+    stream_has_never_synced = incremental_last_value is None and (
+        resume_config is None or resume_config.last_report_window_end is None
+    )
+    opened_a_report = False
+
     is_first_request = True
     while window_start <= today:
         window_end = min(window_start + timedelta(days=config.report_window_days - 1), today)
         if not is_first_request:
             time.sleep(REPORT_REQUEST_INTERVAL_SECONDS)
         is_first_request = False
-        reader = open_report(
-            {
-                "metricSet": metric_set,
-                # Explicit UTC keeps window boundaries and rendered timestamps
-                # stable even if the organization's default timezone changes.
-                "timezone": "UTC",
-                # endAt is inclusive: the report covers through the end of that day.
-                "startAt": window_start.isoformat(),
-                "endAt": window_end.isoformat(),
-            },
-            window_start,
-            window_end,
-        )
+        try:
+            reader = open_report(
+                {
+                    "metricSet": metric_set,
+                    # Explicit UTC keeps window boundaries and rendered timestamps
+                    # stable even if the organization's default timezone changes.
+                    "timezone": "UTC",
+                    # endAt is inclusive: the report covers through the end of that day.
+                    "startAt": window_start.isoformat(),
+                    "endAt": window_end.isoformat(),
+                },
+                window_start,
+                window_end,
+            )
+        except GladlyReportUnavailableError as e:
+            if stream_has_never_synced and not opened_a_report:
+                raise GladlyReportNotAvailableForAccountError(metric_set, list(e.header)) from e
+            raise
+        opened_a_report = True
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
 
         row_count = 0
