@@ -305,9 +305,30 @@ class TestCreateJobActivityStatusOrdering:
 class TestCreateJobActivityScheduledFullRefresh:
     @parameterized.expand(
         [
-            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), True),
-            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), False),
-            ("not_yet_due", True, dt.timedelta(days=1), False),
+            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), {}, True),
+            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), {}, False),
+            ("not_yet_due", True, dt.timedelta(days=1), {}, False),
+            (
+                "due_with_a_staged_repartition_swap",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_swap": {"state": "ready", "temp_uri": "s3://temp", "live_uri": "s3://live"}},
+                False,
+            ),
+            (
+                "due_with_a_held_repartition_rewrite",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                False,
+            ),
+            (
+                "due_with_a_queued_repartition",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_pending": {"partition_mode": "datetime", "partition_keys": ["created_at"]}},
+                True,
+            ),
         ]
     )
     @patch(f"{MODULE}.close_old_connections")
@@ -317,6 +338,7 @@ class TestCreateJobActivityScheduledFullRefresh:
         _name: str,
         started_by_schedule: bool,
         due_in: dt.timedelta,
+        repartition_config: dict,
         expect_refresh: bool,
         mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
@@ -328,6 +350,10 @@ class TestCreateJobActivityScheduledFullRefresh:
         schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         schema.full_refresh_interval_days = 7
         schema.next_full_refresh_at = timezone.now() + due_in
+        config = {**(schema.sync_type_config or {}), **repartition_config}
+        if "repartition_rewrite" in config:
+            config["repartition_rewrite"] = {**config["repartition_rewrite"], "held_at": timezone.now().isoformat()}
+        schema.sync_type_config = config
         schema.save()
 
         result = create_external_data_job_model_activity(

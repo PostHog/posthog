@@ -355,8 +355,15 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type
         ):
             destination_ids = destination_ids_for_run(schema)
+        # A refresh run skips the repartition activity, and only that activity resolves a staged swap
+        # or advances a held rewrite. Both hold the import, so the wipe would never run and the clock
+        # would never restart. Wait one sync for the repartition to finish instead.
+        repartition_holds_import = schema.repartition_swap is not None or schema.repartition_holds_import
         scheduled_full_refresh = (
-            inputs.started_by_schedule and not schema.reset_pipeline and schema.scheduled_full_refresh_due()
+            inputs.started_by_schedule
+            and not schema.reset_pipeline
+            and not repartition_holds_import
+            and schema.scheduled_full_refresh_due()
         )
         schema_snapshot = _build_schema_snapshot(schema)
         if scheduled_full_refresh:
