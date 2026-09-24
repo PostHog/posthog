@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { MarketingMetricCard } from './MarketingMetricCard'
@@ -14,17 +16,15 @@ interface CardsPreviewProps {
     loading: boolean
     setupSelected: boolean
     missingSpec: boolean
-    onLoadingChange: (loading: boolean) => void
-    onSetupSelected: () => void
 }
 
 export function CardsPreview({
-    loading,
-    setupSelected,
+    loading: initialLoading,
+    setupSelected: initialSetupSelected,
     missingSpec,
-    onLoadingChange,
-    onSetupSelected,
 }: CardsPreviewProps): JSX.Element {
+    const [loading, setLoading] = useState(initialLoading)
+    const [setupSelected, setSetupSelected] = useState(initialSetupSelected)
     const specs: MetricCardSpec[] = [
         {
             kind: 'metric',
@@ -38,7 +38,7 @@ export function CardsPreview({
             message: 'Choose a conversion goal with a value to see this metric.',
             action: {
                 label: 'Choose a goal',
-                onClick: onSetupSelected,
+                onClick: () => setSetupSelected(true),
                 dataAttr: 'marketing-story-configure-goal',
             },
         },
@@ -73,7 +73,7 @@ export function CardsPreview({
                 ))}
             </MarketingMetricCardGrid>
             <div className="flex flex-wrap items-center gap-2">
-                <LemonButton data-attr="marketing-story-toggle-loading" onClick={() => onLoadingChange(!loading)}>
+                <LemonButton data-attr="marketing-story-toggle-loading" onClick={() => setLoading(!loading)}>
                     {loading ? 'Show metrics' : 'Show loading'}
                 </LemonButton>
                 {setupSelected && <span>Goal setup selected</span>}
