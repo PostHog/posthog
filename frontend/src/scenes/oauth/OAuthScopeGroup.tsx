@@ -4,7 +4,7 @@ import { useId, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import type { OAuthScopeRow, ScopeAccessLevel } from './oauthAuthorizeLogic'
+import { type OAuthScopeRow, type ScopeAccessLevel, scopeGroupAccessLevel } from './oauthAuthorizeLogic'
 import { OAuthScopeRowControl } from './OAuthScopeRowControl'
 
 interface OAuthScopeGroupProps {
@@ -33,7 +33,7 @@ export function OAuthScopeGroup({
     const [open, setOpen] = useState(false)
     const panelId = useId()
     const counts = countByLevel(rows)
-    const uniformLevel = rows.every((row) => row.value === rows[0].value) ? rows[0].value : undefined
+    const groupLevel = scopeGroupAccessLevel(rows)
     const keys = rows.map((row) => row.key)
     const anyWritable = rows.some((row) => row.maxLevel === 'write')
     const allRequired = rows.every((row) => row.minLevel !== 'none')
@@ -84,7 +84,7 @@ export function OAuthScopeGroup({
                     <div role="group" aria-label={`${label} access`}>
                         <LemonSegmentedButton
                             size="xsmall"
-                            value={uniformLevel}
+                            value={groupLevel}
                             onChange={(level) => onChangeGroup(keys, level as ScopeAccessLevel)}
                             options={[
                                 {

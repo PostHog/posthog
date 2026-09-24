@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import { describeOAuthError, oauthAuthorizeLogic, scopeGroupAccessLevel } from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -515,12 +515,18 @@ describe('oauthAuthorizeLogic', () => {
             logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
             expect(logic.values.effectiveScopes).toEqual(['openid'])
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
             expect(logic.values.effectiveScopes).toEqual([
                 'openid',
                 'session_recording:write',
                 'session_recording_playlist:read',
             ])
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
+            logic.actions.setScopeAccess('session_recording', 'read')
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
+            logic.actions.setScopeAccess('session_recording_playlist', 'none')
+            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBeUndefined()
         })
     })
 })

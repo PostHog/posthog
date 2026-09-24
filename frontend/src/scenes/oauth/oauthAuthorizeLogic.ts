@@ -71,6 +71,22 @@ export type OAuthScopeGroup = {
     rows: OAuthScopeRow[]
 }
 
+// A group action clamps each row to its own floor and ceiling, so a group set to write can hold
+// read-only rows at read. The group shows a level as selected when each row is at that level
+// after the clamp. A disabled level is never selected, which removes the tie between write and
+// read in a group with no writable row, and between none and read in a group of required rows.
+export const scopeGroupAccessLevel = (rows: OAuthScopeRow[]): ScopeAccessLevel | undefined => {
+    const anyWritable = rows.some((row) => row.maxLevel === 'write')
+    const allRequired = rows.every((row) => row.minLevel !== 'none')
+    const levels: ScopeAccessLevel[] = ['write', 'read', 'none']
+    return levels.find(
+        (level) =>
+            !(level === 'write' && !anyWritable) &&
+            !(level === 'none' && allRequired) &&
+            rows.every((row) => row.value === clampAccessLevel(level, row.minLevel, row.maxLevel))
+    )
+}
+
 const WILDCARD_LABEL = 'All PostHog data'
 
 // A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
