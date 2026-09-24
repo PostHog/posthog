@@ -982,6 +982,7 @@ export function TaskInput({
     runtimeAdapter: adapter ?? null,
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
+    permissionMode: currentExecutionMode,
     sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
     customImageId: cloudIds.customImageId ?? null,
   });
