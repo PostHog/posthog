@@ -273,6 +273,24 @@ def validate_credentials(
         return False, response.text
 
 
+def _coerce_float_fields(items: list[dict[str, Any]], float_fields: frozenset[str]) -> None:
+    """Widen whole-number values in fields the API documents as fractional, in place.
+
+    Arrow types are inferred per batch from the values present, so a page whose costs are all whole
+    numbers creates an integer column that no later fractional value can be cast into. Only `int` is
+    widened: anything else is left for the pipeline's existing type handling to surface rather than
+    being reinterpreted here. `bool` is excluded because it is an `int` subclass in Python.
+    """
+    if not float_fields:
+        return
+
+    for item in items:
+        for field_name in float_fields:
+            value = item.get(field_name)
+            if isinstance(value, int) and not isinstance(value, bool):
+                item[field_name] = float(value)
+
+
 def get_rows(
     host: str | None,
     public_key: str,
@@ -364,6 +382,7 @@ def get_rows(
         data = fetch_page(params)
         pages_fetched += 1
         items = data.get("data") or []
+        _coerce_float_fields(items, config.float_fields)
         meta = data.get("meta") or {}
 
         if config.pagination == "page":
