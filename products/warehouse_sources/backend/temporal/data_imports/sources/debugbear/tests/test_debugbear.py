@@ -12,6 +12,7 @@ from requests.exceptions import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
+    _ENDPOINTS,
     _date_only,
     _flatten_page_metrics_item,
     _flatten_rum_metrics,
@@ -493,6 +494,7 @@ class TestDebugbearSourceRouting:
         assert response.partition_keys == partition_keys
 
     def test_every_configured_endpoint_routes(self) -> None:
+        assert set(_ENDPOINTS) == set(ENDPOINTS)
         for endpoint in ENDPOINTS:
             assert debugbear_source(api_key="key", endpoint=endpoint).name
 
