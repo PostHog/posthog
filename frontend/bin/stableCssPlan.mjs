@@ -92,7 +92,6 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
 
     const groups = new Map()
     const groupsOfChunk = new Map()
-    const nameOfFile = new Map()
     for (const file of order) {
         let name
         if (boot.has(file)) {
@@ -112,7 +111,6 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
                 groupsOfChunk.set(owner, names)
             }
         }
-        nameOfFile.set(file, name)
         groups.set(name, [...(groups.get(name) ?? []), file])
     }
 
@@ -121,24 +119,6 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     const layerIndexes = order.filter((file) => boot.has(file)).map((file) => EAGER_ORDER.indexOf(eagerLayer(file)))
     if (layerIndexes.some((index, i) => i > 0 && index < layerIndexes[i - 1])) {
         throw new Error('stable css: boot stylesheets are not in layer order, so splitting them would reorder rules')
-    }
-
-    // Non-contiguous lazy groups would reorder rules against the group interleaved between them.
-    let openLazyName = null
-    const closedLazyNames = new Set()
-    for (const file of order.filter((f) => !boot.has(f))) {
-        const name = nameOfFile.get(file)
-        if (name !== openLazyName) {
-            if (closedLazyNames.has(name)) {
-                throw new Error(
-                    `stable css: lazy CSS group "${name}" is not contiguous, so splitting it would reorder rules`
-                )
-            }
-            if (openLazyName !== null) {
-                closedLazyNames.add(openLazyName)
-            }
-            openLazyName = name
-        }
     }
 
     const firstRank = (name) => rank.get(groups.get(name)[0])

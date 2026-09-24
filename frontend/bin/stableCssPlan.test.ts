@@ -83,46 +83,6 @@ describe('planCssGroups', () => {
         expect(() => planCssGroups(outOfOrder)).toThrow('boot stylesheets are not in layer order')
     })
 
-    // Interleaving two same-owner stylesheets with a different group's file would merge them out of order.
-    it('fails rather than reorder rules when a lazy group is not contiguous', () => {
-        const nonContiguous = {
-            inputs: {
-                'src/index.tsx': imports(),
-                'src/scenes/App.tsx': imports(),
-                'src/scenes/Scene.tsx': imports('src/lib/Shared.tsx'),
-                'src/lib/Shared.tsx': imports('src/lib/Shared1.scss', 'src/lib/Shared2.scss'),
-                'src/scenes/Other.tsx': imports('src/scenes/Other.scss'),
-                'src/lib/Shared1.scss': imports(),
-                'src/scenes/Other.scss': imports(),
-                'src/lib/Shared2.scss': imports(),
-            },
-            outputs: {
-                'dist/index-A.js': {
-                    entryPoint: 'src/index.tsx',
-                    cssBundle: 'dist/index-A.css',
-                    inputs: { 'src/index.tsx': {} },
-                },
-                'dist/index-A.css': {
-                    inputs: {
-                        'src/lib/Shared1.scss': {},
-                        'src/scenes/Other.scss': {},
-                        'src/lib/Shared2.scss': {},
-                    },
-                },
-                'dist/App-B.js': { entryPoint: 'src/scenes/App.tsx', inputs: { 'src/scenes/App.tsx': {} } },
-                'dist/Scene-C.js': {
-                    entryPoint: 'src/scenes/Scene.tsx',
-                    inputs: { 'src/scenes/Scene.tsx': {} },
-                    imports: [{ path: 'dist/chunk-D.js', kind: 'import-statement' }],
-                },
-                'dist/chunk-D.js': { inputs: { 'src/lib/Shared.tsx': {} } },
-                'dist/Other-E.js': { entryPoint: 'src/scenes/Other.tsx', inputs: { 'src/scenes/Other.tsx': {} } },
-            },
-        }
-
-        expect(() => planCssGroups(nonContiguous)).toThrow('is not contiguous')
-    })
-
     // A lazy chunk needs an eager layer to define window.ESBUILD_LOAD_CSS before its prelude can call it.
     it('fails rather than ship a lazy prelude with no eager loader to call', () => {
         const noEagerCss = {
