@@ -116,7 +116,7 @@ export function AuthorFrictionCard({
                 <div className="flex flex-col gap-1.5">
                     <h3 className="m-0 text-xs font-semibold text-secondary">Pull requests with the most friction</h3>
                     {detail.pull_requests.map((pr) => (
-                        <div key={pr.number} className="flex items-center gap-3">
+                        <div key={`${pr.repo_owner}/${pr.repo_name}#${pr.number}`} className="flex items-center gap-3">
                             <Link
                                 to={withCurrentScope(
                                     urls.engineeringAnalyticsPullRequest(pr.repo_owner, pr.repo_name, pr.number),
