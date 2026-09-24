@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -113,12 +113,18 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
 /// This is returned as raw JSON from cache to avoid deserialization overhead
 pub type FlagDefinitionsResponse = Value;
 
-/// Per-team `(etag, billable)` memo so a 304 can apply the billable-flag
-/// exclusion without reading the payload it deliberately skips. The ETag
-/// changes whenever the payload does, so a matching entry is never stale.
+/// Bound on the payload read a 304 makes when the memo has no entry for the
+/// current ETag. Matches the hypercache Redis timeout, so an S3 fallback never
+/// holds up a 304: the poll goes unbilled and the next one retries.
+const BILLABLE_LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Memo of whether the definitions behind a `(team, etag)` contain a billable
+/// flag, so a 304 can apply the billable-flag exclusion without reading the
+/// payload it deliberately skips. The ETag changes whenever the payload does,
+/// so an entry is never stale.
 #[derive(Clone)]
 pub struct DefinitionsBillableCache {
-    entries: moka::future::Cache<i32, (String, bool)>,
+    entries: moka::future::Cache<(i32, String), bool>,
 }
 
 impl DefinitionsBillableCache {
@@ -130,18 +136,30 @@ impl DefinitionsBillableCache {
         }
     }
 
-    pub async fn get(&self, team_id: i32, etag: &str) -> Option<bool> {
-        self.entries
-            .get(&team_id)
-            .await
-            .filter(|(cached_etag, _)| cached_etag == etag)
-            .map(|(_, billable)| billable)
-    }
-
     pub async fn insert(&self, team_id: i32, etag: &str, billable: bool) {
         self.entries
-            .insert(team_id, (etag.to_string(), billable))
+            .insert((team_id, etag.to_string()), billable)
             .await;
+    }
+
+    /// Returns the memoized status, or runs `load` once for all concurrent
+    /// callers with the same key and memoizes its result. `None` when the load
+    /// fails or exceeds the bound; nothing is memoized then, so the next call
+    /// retries.
+    pub async fn get_or_load<F>(&self, team_id: i32, etag: &str, load: F) -> Option<bool>
+    where
+        F: std::future::Future<Output = Option<bool>>,
+    {
+        self.entries
+            .try_get_with((team_id, etag.to_string()), async {
+                tokio::time::timeout(BILLABLE_LOOKUP_TIMEOUT, load)
+                    .await
+                    .ok()
+                    .flatten()
+                    .ok_or(())
+            })
+            .await
+            .ok()
     }
 }
 
@@ -441,27 +459,25 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
     Err(FlagError::NoAuthenticationProvided)
 }
 
-/// Reads the payload at most once per pod per ETag. An unreadable payload is
-/// treated as not billable, because a 304 was already free before this check
-/// existed and over-billing is the worse failure.
+/// Reads the payload at most once per pod per ETag. An unreadable or slow
+/// payload counts as not billable, because a 304 was already free before this
+/// check existed and over-billing is the worse failure.
 async fn is_billable_for_etag(
     state: &AppState,
     team_key: &KeyType,
     team_id: i32,
     etag: &str,
 ) -> bool {
-    if let Some(billable) = state.definitions_billable_cache.get(team_id, etag).await {
-        return billable;
-    }
-    let Ok(response) = get_from_cache(state, team_key, team_id).await else {
-        return false;
-    };
-    let billable = has_billable_flags(&response);
     state
         .definitions_billable_cache
-        .insert(team_id, etag, billable)
-        .await;
-    billable
+        .get_or_load(team_id, etag, async {
+            get_from_cache(state, team_key, team_id)
+                .await
+                .ok()
+                .map(|response| has_billable_flags(&response))
+        })
+        .await
+        .unwrap_or(false)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
@@ -661,6 +677,48 @@ mod tests {
     #[case::only_survey_and_tour_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "product-tour-targeting-xyz"}]}), false)]
     fn test_has_billable_flags(#[case] response: Value, #[case] expected: bool) {
         assert_eq!(has_billable_flags(&response), expected);
+    }
+
+    #[tokio::test]
+    async fn test_billable_cache_memoizes_a_successful_load() {
+        let cache = DefinitionsBillableCache::new(10);
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            Some(true)
+        );
+        // A later load is never run once the key is memoized.
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { None }).await,
+            Some(true)
+        );
+        // A new etag for the same team is a fresh key.
+        assert_eq!(
+            cache.get_or_load(1, "etag2", async { Some(false) }).await,
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_billable_cache_does_not_memoize_a_failed_load() {
+        let cache = DefinitionsBillableCache::new(10);
+        assert_eq!(cache.get_or_load(1, "etag", async { None }).await, None);
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            Some(true)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_billable_cache_bounds_a_slow_load() {
+        let cache = DefinitionsBillableCache::new(10);
+        assert_eq!(
+            cache.get_or_load(1, "etag", std::future::pending()).await,
+            None
+        );
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            Some(true)
+        );
     }
 
     #[test]
