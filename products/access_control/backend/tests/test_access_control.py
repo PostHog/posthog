@@ -2811,7 +2811,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
     )
     def test_writes_a_rule_per_subject_and_scope(self, _name, subject, scope):
         body = {
-            "project": {"resource": "project", "access_level": "admin"},
+            "project": {"resource": "project", "resource_id": str(self.team.id), "access_level": "admin"},
             "resource": {"resource": "dashboard", "access_level": "editor"},
             "object": {"resource": "dashboard", "resource_id": str(self.dashboard.id), "access_level": "viewer"},
         }[scope]
@@ -2904,6 +2904,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
             ("inheritance_child_without_object", {"resource": "warehouse_table", "access_level": "viewer"}),
             ("organization", {"resource": "organization", "access_level": "admin"}),
             ("project_with_foreign_id", {"resource": "project", "resource_id": "999", "access_level": "admin"}),
+            ("project_without_id", {"resource": "project", "access_level": "admin"}),
             ("level_out_of_bounds", {"resource": "dashboard", "access_level": "owner"}),
         ]
     )
