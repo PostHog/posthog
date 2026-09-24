@@ -19,6 +19,9 @@ import {
   Autocomplete,
   AutocompleteList,
   Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
   cn,
   MenuLabel,
   Skeleton,
@@ -34,24 +37,36 @@ import {
   isInCommandCenter,
 } from "@posthog/ui/features/canvas/commandCenterAssign";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
+import { SpaceHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import {
+  ChannelActionItems,
+  useChannelActions,
+} from "@posthog/ui/features/canvas/components/ChannelsList";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SidebarSearchInput } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
-import { SpaceRowControls } from "@posthog/ui/features/canvas/components/SpaceRowControls";
+import { SpaceActionDialogs } from "@posthog/ui/features/canvas/components/SpaceActionDialogs";
+import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import { WorkRowSurface } from "@posthog/ui/features/canvas/components/WorkRowSurface";
+import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelItemSelection } from "@posthog/ui/features/canvas/hooks/useChannelItemSelection";
 import { useChannelItemActions } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import {
   type Channel,
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { useSpacePresence } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import {
+  usePrefetchSpaceTasks,
+  useSpacePresence,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
 import { useSidebarSearchFocus } from "@posthog/ui/features/canvas/hooks/useSidebarSearchFocus";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
+import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
@@ -67,6 +82,7 @@ import {
   navigateToSpaces,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useRouterState } from "@tanstack/react-router";
@@ -75,6 +91,7 @@ import {
   type ReactNode,
   useCallback,
   useDeferredValue,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -83,6 +100,8 @@ import {
 const log = logger.scope("work-column");
 
 const RECENT_COLLAPSED_COUNT = 5;
+
+const SESSION_PREFETCH_DELAY_MS = 250;
 
 // Recent leads with the newest work, so a pin neither floats a row to the top
 // nor opens a section of its own. The row's badge is what says it is pinned.
@@ -145,63 +164,128 @@ function IconAction({
   );
 }
 
-function SpaceRow({
+export function SpaceRow({
   channel,
   isActive,
   unread,
+  unreadSessions,
+  blockedSessions,
   presence,
 }: {
   channel: Channel;
   isActive: boolean;
   unread: boolean;
+  unreadSessions: number;
+  blockedSessions: number;
   presence: ChannelPresence | undefined;
 }) {
   const people = presence?.people ?? [];
+  const noun = useChannelsLayout() ? "space" : "channel";
+  const channelActions = useChannelActions(channel);
+  const { actions } = channelActions;
+  const preview = useMemo<SpacePreviewPayload>(
+    () => ({
+      channel,
+      unreadSessions,
+      blockedSessions,
+      actions: [
+        {
+          key: "new-session",
+          label: "New session",
+          icon: <PlusIcon size={14} />,
+          onSelect: () => {
+            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              action_type: "new_task_open",
+              surface: "sidebar",
+              channel_id: channel.id,
+            });
+            openTaskInput({ channelId: channel.id });
+          },
+        },
+        ...actions,
+      ],
+    }),
+    [channel, unreadSessions, blockedSessions, actions],
+  );
+
+  const prefetchSessions = usePrefetchSpaceTasks();
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(prefetchTimer.current), []);
+
   return (
-    <div className="group/chan group relative">
-      <WorkRowSurface
-        optionValue={channel.id}
-        data-selected={isActive || undefined}
-        onClick={() => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-            action_type: "nav_click",
-            surface: "sidebar",
-            channel_id: channel.id,
-            nav_target: "space",
-          });
-          navigateToChannel(channel.id);
-        }}
-      >
-        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          {channelGlyph(channel.name, {
-            size: 13,
-            space: false,
-            personal: channel.channelType === "personal",
-            private: channel.channelType === "private",
-          })}
-        </span>
-        <span
-          className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}
-        >
-          {channel.name}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5 group-hover/chan:mr-11">
-          {people.length > 0 && (
-            <PresenceAvatars people={people} liveUuids={presence?.liveUuids} />
-          )}
-          {unread && !isActive && (
-            <span
-              role="img"
-              aria-label="Unread"
-              className="size-1.5 shrink-0 rounded-full bg-primary"
-            />
-          )}
-        </span>
-      </WorkRowSurface>
-      {channel.channelType !== "personal" && (
-        <SpaceRowControls channel={channel} />
-      )}
-    </div>
+    <>
+      <SpaceHoverCard space={preview}>
+        <ContextMenu>
+          <ContextMenuTrigger
+            render={
+              <WorkRowSurface
+                optionValue={channel.id}
+                data-selected={isActive || undefined}
+                onPointerEnter={() => {
+                  clearTimeout(prefetchTimer.current);
+                  prefetchTimer.current = setTimeout(
+                    () => prefetchSessions(channel.id),
+                    SESSION_PREFETCH_DELAY_MS,
+                  );
+                }}
+                onPointerLeave={() => clearTimeout(prefetchTimer.current)}
+                onClick={() => {
+                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                    action_type: "nav_click",
+                    surface: "sidebar",
+                    channel_id: channel.id,
+                    nav_target: "space",
+                  });
+                  navigateToChannel(channel.id);
+                }}
+              >
+                <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                  {channelGlyph(channel.name, {
+                    size: 13,
+                    space: false,
+                    personal: channel.channelType === "personal",
+                    private: channel.channelType === "private",
+                  })}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    unread && "font-semibold",
+                  )}
+                >
+                  {channel.name}
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {people.length > 0 && (
+                    <PresenceAvatars
+                      people={people}
+                      liveUuids={presence?.liveUuids}
+                    />
+                  )}
+                  {unread && !isActive && (
+                    <span
+                      role="img"
+                      aria-label="Unread"
+                      className="size-1.5 shrink-0 rounded-full bg-primary"
+                    />
+                  )}
+                </span>
+              </WorkRowSurface>
+            }
+          />
+          <ContextMenuContent>
+            <ChannelActionItems actions={preview.actions} kind="context" />
+          </ContextMenuContent>
+        </ContextMenu>
+      </SpaceHoverCard>
+      <SpaceActionDialogs
+        channel={channel}
+        noun={noun}
+        actions={channelActions}
+      />
+    </>
   );
 }
 
@@ -292,6 +376,8 @@ export function WorkColumn() {
   );
 
   const presenceBySpace = useSpacePresence();
+  const unreadSessionCount = useUnreadSessionCount();
+  const blockedSessionCount = useBlockedSessionCount();
   const open = useCallback(
     (item: ChannelItemModel) => {
       const channelId = channelIdOf(item);
@@ -473,7 +559,6 @@ export function WorkColumn() {
                               optionValue={item.key}
                               channelId={channelIdOf(item)}
                               spaceName={spaceNameFor(item)}
-                              withPrStatus={false}
                               isActive={item.key === activeKey}
                               isSelected={inSelection}
                               actions={actions}
@@ -591,6 +676,8 @@ export function WorkColumn() {
                     channel={channel}
                     isActive={channel.id === activeChannelId}
                     unread={isChannelUnread(channel.id)}
+                    unreadSessions={unreadSessionCount(channel.id)}
+                    blockedSessions={blockedSessionCount(channel.id)}
                     presence={presenceBySpace.get(channel.id)}
                   />
                 ))}

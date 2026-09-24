@@ -21,9 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     DataForSEOResumeConfig,
     dataforseo_source,
     validate_credentials as validate_dataforseo_credentials,
+    validate_keywords,
     validate_targets,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import DATAFORSEO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
+    DATAFORSEO_ENDPOINTS,
+    KEYWORD_SCOPES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
     DataForSEOSourceConfig,
 )
@@ -49,6 +53,8 @@ class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeC
             caption="""Enter your DataForSEO API credentials and the domains you want to track to pull SEO metrics like Google rankings, keywords, competitors, and backlinks into the PostHog Data warehouse.
 
 Find your API login and password on the [DataForSEO API access page](https://app.dataforseo.com/api-access).
+
+Add keywords to sync the search volume history and SERP snapshot tables, which are keyword-scoped rather than domain-scoped.
 
 Note: DataForSEO bills per API request, so syncing these tables consumes account credits. The location and category lookup tables are free. The backlinks tables also need an active Backlinks API subscription.""",
             iconPath="/static/services/dataforseo.png",
@@ -81,6 +87,14 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                         secret=False,
                     ),
                     SourceFieldInputConfig(
+                        name="keywords",
+                        label="Keywords (comma-separated)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="product analytics, session replay",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
                         name="location_name",
                         label="Location",
                         type=SourceFieldInputConfigType.TEXT,
@@ -102,10 +116,10 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `targets` selects which domains the stored credential runs paid requests against, so
-        # retargeting it must re-require the secret — a preserved credential can't be pointed at
-        # attacker-chosen domains without re-entering the password.
-        return ["targets"]
+        # `targets` and `keywords` select which paid requests the stored credential runs, so
+        # changing either must re-require the secret — a preserved credential can't be pointed at
+        # attacker-chosen domains or keywords without re-entering the password.
+        return ["targets", "keywords"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         invalid_credentials_message = (
@@ -182,6 +196,10 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
         if targets_error:
             return False, targets_error
 
+        _, keywords_error = validate_keywords(config.keywords)
+        if keywords_error:
+            return False, keywords_error
+
         if validate_dataforseo_credentials(config.api_login, config.api_password):
             return True, None
 
@@ -196,15 +214,27 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
         resumable_source_manager: ResumableSourceManager[DataForSEOResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        # Re-validate here so a previously-saved oversized target list can't trigger a runaway sync.
+        # Re-validate here so a previously-saved oversized target or keyword list can't trigger a
+        # runaway sync.
         targets, targets_error = validate_targets(config.targets)
         if targets_error:
             raise ValueError(f"DataForSEO source misconfigured: {targets_error}")
+
+        keywords, keywords_error = validate_keywords(config.keywords)
+        if keywords_error:
+            raise ValueError(f"DataForSEO source misconfigured: {keywords_error}")
+
+        if not keywords and DATAFORSEO_ENDPOINTS[inputs.schema_name].scope in KEYWORD_SCOPES:
+            raise ValueError(
+                f"The {inputs.schema_name} table is keyword-scoped. Add at least one keyword to the "
+                "DataForSEO source, then resync."
+            )
 
         return dataforseo_source(
             api_login=config.api_login,
             api_password=config.api_password,
             targets=targets,
+            keywords=keywords,
             location_name=(config.location_name or "").strip() or DEFAULT_LOCATION_NAME,
             language_name=(config.language_name or "").strip() or DEFAULT_LANGUAGE_NAME,
             endpoint=inputs.schema_name,

@@ -1,11 +1,12 @@
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
@@ -813,6 +814,37 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertIn("model_configuration", first)
         self.assertEqual(first["evaluation_config"], {"prompt": "Prompt 1"})
 
+    def test_list_pagination_stays_stable_when_created_at_ties(self):
+        # Ids sort in the reverse of creation order, so a page walk that keeps the rows in the
+        # order the scan found them fails here instead of passing by accident.
+        ids = [UUID(f"0199c0de-0000-7000-8000-00000000000{index}") for index in reversed(range(4))]
+        for index, evaluation_id in enumerate(ids):
+            Evaluation.objects.create(
+                id=evaluation_id,
+                name=f"Evaluation {index}",
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Prompt"},
+                output_type="boolean",
+                output_config={},
+                team=self.team,
+                created_by=self.user,
+            )
+        Evaluation.objects.filter(team=self.team).update(created_at=timezone.now())
+        # The index on (team, -created_at, id) hides the defect, because an index scan already
+        # returns tied rows by id. Take that plan away so the sort decides the order of the ties,
+        # which is what the planner does once the table is large or the filters change.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL enable_indexscan = off")
+            cursor.execute("SET LOCAL enable_bitmapscan = off")
+
+        paged_ids: list[str] = []
+        for offset in range(0, len(ids), 2):
+            response = self.client.get(f"/api/environments/{self.team.id}/evaluations/?limit=2&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids.extend(str(evaluation["id"]) for evaluation in response.data["results"])
+
+        self.assertEqual(paged_ids, [str(evaluation_id) for evaluation_id in sorted(ids)])
+
     def test_can_filter_evaluations_by_evaluation_type(self):
         Evaluation.objects.create(
             name="Judge evaluation",
@@ -1295,6 +1327,7 @@ class TestTestHogEndpoint(APIBaseTest):
             self.assertEqual(r["output_preview"], "4")
 
         query = mock_query.call_args.kwargs["query"]
+        self.assertEqual(mock_query.call_args.kwargs["user"], self.user)
         self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
         self.assertEqual(query.select[4].chain, ["timestamp"])
         self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
@@ -1385,6 +1418,7 @@ class TestTestHogEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_run_over_traces.call_args.kwargs["window_seconds"], 120)
+        self.assertEqual(mock_run_over_traces.call_args.kwargs["user"], self.user)
         # The generation query path must not run for a trace target.
         mock_query.assert_not_called()
         results = response.json()["results"]

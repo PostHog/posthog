@@ -17,16 +17,9 @@ import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
 function FilterBar(): JSX.Element {
-    const {
-        availableCategories,
-        selectedCategories,
-        scopeShare,
-        dateFilter,
-        dateRangeLabel,
-        interval,
-        intervalOptions,
-    } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedCategories, setDateFilter, setPinnedInterval } = useActions(mcpAnalyticsToolQualityLogic)
+    const { availableCategories, selectedCategories, scopeShare, dateRangeLabel, interval, intervalOptions } =
+        useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedCategories, setPinnedInterval } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
     const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
@@ -43,12 +36,6 @@ function FilterBar(): JSX.Element {
                     dataAttr="mcp-tool-quality-category-scope"
                 />
             </div>
-            <McpDateFilter
-                dateFrom={dateFilter.dateFrom}
-                dateTo={dateFilter.dateTo}
-                onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                dataAttr="mcp-tool-quality-date-filter"
-            />
             <McpIntervalFilter
                 interval={interval}
                 options={intervalOptions}
@@ -108,19 +95,41 @@ function ChartsScopeHeader(): JSX.Element {
 }
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
-    const { dailyChartData, dailyStatsLoading, interval, incompleteTail } = useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        dailyChartData,
+        dailyStatsLoading,
+        interval,
+        incompleteTail,
+        dateFilter,
+        availableCategoriesLoading,
+        categoryCountsLoading,
+        toolRowsPageLoading,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setDateFilter, reloadAll } = useActions(mcpAnalyticsToolQualityLogic)
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
 
     return (
         <div className="flex flex-col gap-4">
+            <McpSharedFilters
+                pageKey="mcp-tool-quality"
+                dataAttrPrefix="mcp-tool-quality"
+                onRefresh={reloadAll}
+                refreshing={
+                    dailyStatsLoading || availableCategoriesLoading || categoryCountsLoading || toolRowsPageLoading
+                }
+            >
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    dataAttr="mcp-tool-quality-date-filter"
+                />
+            </McpSharedFilters>
             <div data-quill>
                 <FilterBar />
             </div>
-            {/* Stays outside the quill scope: `[data-quill]` redefines the `--color-*` tokens, which
-                paints the checked test-account switch as unchecked. */}
-            <McpSharedFilters pageKey="mcp-tool-quality" dataAttrPrefix="mcp-tool-quality" />
             <div className="flex flex-col gap-4" data-quill>
                 <ChartsScopeHeader />
                 <ToolQualityCharts

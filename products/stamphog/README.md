@@ -125,6 +125,7 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
 The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
+A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
 The sandbox clones the repository, checks out the PR head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
