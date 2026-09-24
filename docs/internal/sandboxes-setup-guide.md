@@ -103,32 +103,6 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
-## Gateway-backed run spend
-
-Cloud ACP runs routed through the Go AI gateway record generation IDs in `TaskRun.state`.
-The shared harness sends `X-PostHog-Task-Run-Id`; the gateway posts each generation ID to `/internal/teams/{team_id}/task_runs/{run_id}/generation_requests/{request_id}/`.
-The callback requires the configured service credential and an authorized funding wallet.
-It acknowledges a request only after storing its ID and signaling the run's `task-run-gateway-usage` Temporal workflow on `TASKS_TASK_QUEUE`.
-Deploy the worker that registers this workflow before enabling gateway callbacks.
-
-Reconciliation runs independently of event ingestion and sandbox cleanup.
-It fetches gateway usage in bounded batches, groups exact microdollar costs by model and provider, and deduplicates generation IDs under a row lock.
-Unsettled or failed lookups retry with a delay that grows from 30 seconds to five minutes, for up to 24 hours after the latest callback.
-This deadline also bounds activity retries after exceptions and time spent waiting for a worker.
-A callback received during activity retries extends the reconciliation window.
-A callback after workflow completion starts a new execution for the same run.
-After retries expire, unresolved IDs stay in `unprocessed_request_ids` and the workflow logs `task_gateway_usage.retries_exhausted`.
-A missing usage record is never treated as a confirmed zero cost; zero-charge generations can have no usage record.
-An operator can restart reconciliation through `schedule_gateway_usage(run_id=..., team_id=...)` after resolving a gateway outage.
-
-`token_spend` contains the recorded model/provider buckets and processed IDs.
-`compute_spend` is a projection of the existing `SandboxSession` records and published rate cards, refreshed during cleanup, terminal status updates, and after each reconciliation batch.
-Spend reads calculate current totals without changing stored state.
-Cleanup closes the compute session and refreshes its projection; the reconciliation workflow owns token retries, so stream completion can precede final token settlement.
-Spend helpers return integer cents, or `None` when a source is unavailable; token totals can be incomplete while IDs remain pending.
-Ordinary task-run PATCH requests cannot modify accounting state.
-These projections do not change customer billing.
-
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
