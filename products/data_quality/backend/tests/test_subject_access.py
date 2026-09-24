@@ -29,6 +29,7 @@ from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.checks import upsert_check
 from products.data_quality.backend.logic.exceptions import SubjectAccessUnverifiable
 from products.data_quality.backend.logic.permissions import restrict_subject_types, writable_subjects
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import (
     DeferredDatabase,
@@ -320,6 +321,23 @@ class TestMetricSubjectAccess(BaseTest):
         restricted = restrict_subject_types(context, [SubjectType.VIEW, SubjectType.METRIC])
 
         assert restricted.matcher.matches([written_as]) is True
+
+    @parameterized.expand([("allowed", True), ("restricted_away", False)])
+    def test_a_posthog_table_is_readable_unless_its_kind_is_restricted_away(self, _name: str, allowed: bool) -> None:
+        events = by_name("events")
+        assert events is not None
+        context = DenialContext(
+            readable=readable_subjects(self.team.id, set()),
+            denied=set(),
+            database=DeferredDatabase.built(Database.create_for(team=self.team, user=self.user)),
+            metadata=subject_metadata(self.team.id),
+        )
+        kinds = list(SubjectType) if allowed else [SubjectType.VIEW, SubjectType.METRIC]
+
+        restricted = restrict_subject_types(context, kinds)
+
+        assert restricted.readable.contains(SubjectType.POSTHOG_TABLE, events.id) is allowed
+        assert bool(restricted.readable.posthog_table_ids) is allowed
 
     def test_failed_composition_cannot_record_empty_references(self) -> None:
         assert pin_referenced_subjects(self.team.id, "custom_sql", {"query": "SELECT 1"}, subject=self.subject) is None

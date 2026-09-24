@@ -10,6 +10,7 @@ day.
 import uuid
 import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import dagster
 
@@ -17,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
@@ -39,6 +41,26 @@ def labels_team() -> Team:
             f"Labels team {LABELS_TEAM_ID} does not exist in this environment; the inbox ranking "
             "dataset can only be built where the dogfood project is present"
         )
+
+
+REGION_APP_HOSTS = {"US": "us.posthog.com", "EU": "eu.posthog.com"}
+
+
+def region_app_host() -> str:
+    """The app host this deployment serves the inbox on.
+
+    Team 2 collects the inbox telemetry of every region, and the label streams keep the other
+    regions' rows on purpose (label-only rows, README.md). A read that needs report state cannot:
+    the scoring pool (`training/unseen.py`) builds it from this region's Postgres, so a report
+    another region served can never hold a score. `$host` is the only property on those events
+    that says which app rendered the page.
+
+    The region is the source, not `SITE_URL`: a Dagster deployment sets `CLOUD_DEPLOYMENT` and
+    leaves `SITE_URL` at its localhost default, which no impression event carries. Off cloud
+    there is no region, so `SITE_URL` is the host, for local and self-hosted runs.
+    """
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return REGION_APP_HOSTS.get(region) or urlparse(settings.SITE_URL).netloc
 
 
 def etl_workload() -> Workload:

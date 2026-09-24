@@ -22,7 +22,7 @@ from django.core.signing import BadSignature
 from django.db import transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
@@ -88,8 +88,17 @@ from posthog.tasks.email import (
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
-from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.utils import (
+    get_instance_available_sso_providers,
+    get_ip_address,
+    get_short_user_agent,
+    get_trusted_client_ip,
+)
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
@@ -195,6 +204,24 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
         logger.warning("SSO login failed, redirecting to login page", exc_info=e)
         return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
+
+
+SSO_REAUTH_CHANNEL = "posthog-sso-reauth"
+
+
+@require_http_methods(["GET"])
+def sso_reauth_complete(request: HttpRequest) -> HttpResponse:
+    return render(
+        request,
+        "sso_reauth_complete.html",
+        {
+            "result": {
+                "channel": SSO_REAUTH_CHANNEL,
+                "attempt": request.GET.get("attempt") or None,
+                "error_code": request.GET.get("error_code") or None,
+            }
+        },
+    )
 
 
 class TwoFactorRequired(APIException):
@@ -353,6 +380,15 @@ class LoginSerializer(serializers.Serializer):
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
+        try:
+            security_shadow_check(
+                SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
+                SecuritySurface.APP,
+                call_site="login",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="login")
 
         if not is_email_verified_for_login(user):
             # A fresh code was just emailed; hand the frontend the uuid so it can route to

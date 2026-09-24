@@ -24,7 +24,6 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -913,9 +912,6 @@ describe('insightVizDataLogic', () => {
     describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
                 result: funnelResult.result,
             }
 

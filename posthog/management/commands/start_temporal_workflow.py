@@ -31,6 +31,7 @@ from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import WORKFLOWS as ERROR_TRACKING_WORKFLOWS
 from products.logs.backend.temporal.retention_entitlements import WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
+from products.posthog_ai.backend.temporal.backfill import WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS
 from products.warehouse_sources.backend.facade.temporal import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
@@ -144,6 +145,7 @@ class Command(BaseCommand):
             + USAGE_REPORTS_WORKFLOWS
             + QUOTA_LIMITING_WORKFLOWS
             + AI_WORKFLOWS
+            + CONVERSATION_BACKFILL_WORKFLOWS
             + SALESFORCE_ENRICHMENT_WORKFLOWS
             + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
             + TEST_WORKFLOWS

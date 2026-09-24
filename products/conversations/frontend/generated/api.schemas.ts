@@ -7,6 +7,39 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AIContextAccountPropertyApi {
+    /** Customer analytics account property definition id. */
+    id: string
+    /** Display name of the account property. */
+    name: string
+}
+
+export interface AIReplyPlaybookApi {
+    /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
+    readonly inherited_instructions: string
+    /**
+     * Team addendum on top of the inherited playbook. Null means the team inherits the default instructions.
+     * @nullable
+     */
+    readonly custom_instructions: string | null
+    /** True when a non-empty custom addendum is saved for this team. */
+    readonly is_customized: boolean
+    /** Version of the generic default playbook layer currently in the repo. */
+    readonly default_version: number
+    /**
+     * Version of the PostHog overlay when docs_source is posthog; null otherwise.
+     * @nullable
+     */
+    readonly posthog_overlay_version: number | null
+    /**
+     * Documentation source for this team. 'posthog' enables PostHog docs-search and the PostHog overlay.
+     * @nullable
+     */
+    readonly docs_source: string | null
+    /** Maximum character length for ai_reply_custom_instructions. */
+    readonly max_chars: number
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email
@@ -123,6 +156,17 @@ export interface TicketPersonApi {
 }
 
 /**
+ * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.
+ */
+export type TicketApiSessionContext = {
+    /** Page the reporter was on. */
+    readonly current_url?: string
+    /** Replay of the session the ticket came from. */
+    readonly replay_url?: string
+    [key: string]: unknown
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
@@ -157,7 +201,7 @@ export interface TicketApi {
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
-    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
     readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
@@ -170,7 +214,8 @@ export interface TicketApi {
     readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
-    readonly session_context: unknown
+    /** Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version. */
+    readonly session_context: TicketApiSessionContext
     /**
      * SLA deadline set via workflows. Null means no SLA.
      * @nullable
@@ -382,6 +427,40 @@ export interface AiFeedbackRequestApi {
 }
 
 /**
+ * * `used` - used
+ * * `edited` - edited
+ */
+export type AiDraftHumanOutcomeEnumApi = (typeof AiDraftHumanOutcomeEnumApi)[keyof typeof AiDraftHumanOutcomeEnumApi]
+
+export const AiDraftHumanOutcomeEnumApi = {
+    Used: 'used',
+    Edited: 'edited',
+} as const
+
+/**
+ * Payload for recording whether a human adopted an AI draft.
+ */
+export interface AiHumanOutcomeRequestApi {
+    /**
+     * ID of the private AI draft being adopted.
+     * @maxLength 200
+     */
+    message_id: string
+    /** used when the human inserts the draft as-is; edited after they change it in the composer.
+     *
+     * * `used` - used
+     * * `edited` - edited */
+    outcome: AiDraftHumanOutcomeEnumApi
+}
+
+export interface TicketErrorApi {
+    /** Human-readable error message. */
+    detail: string
+    /** Machine-readable error code. */
+    error_type?: string
+}
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {
@@ -421,11 +500,6 @@ export interface PaginatedTicketMessageListApi {
 export interface TicketFullEmailApi {
     /** Full inbound email body in Markdown. */
     readonly content: string
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**
@@ -571,6 +645,14 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
+}
+
+export interface TicketUnreadCountResponseApi {
+    /**
+     * Unread messages across the non-resolved tickets the caller can see.
+     * @minimum 0
+     */
+    count: number
 }
 
 /**

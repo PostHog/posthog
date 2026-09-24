@@ -81,9 +81,17 @@ def verify_pandadoc_signature(body: bytes, signature: str, secret: str) -> bool:
     return hmac.compare_digest(expected.hex(), signature)
 
 
+# The vendor ships and maintains these verifiers, so they are the right way to check an
+# inbound signature, not a violation to migrate away from.
 def sdk_delegated_view(request: HttpRequest) -> HttpResponse:
-    # ruleid: inbound-webhooks-go-through-ingress
+    # ok: inbound-webhooks-go-through-ingress
     stripe.WebhookSignature.verify_header(request.body.decode(), "t=1,v1=abc", "secret", tolerance=300)
+    return HttpResponse(status=202)
+
+
+def sdk_construct_event_view(request: HttpRequest) -> HttpResponse:
+    # ok: inbound-webhooks-go-through-ingress
+    stripe.Webhook.construct_event(request.body.decode(), "t=1,v1=abc", "secret")
     return HttpResponse(status=202)
 
 

@@ -11,6 +11,7 @@ run row records which input runs or variable values it used.
 """
 
 import re
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -62,12 +63,44 @@ class NotebookCellState:
     cell_type: str
     dataframe_name: str = ""
     code: str = ""
+    # The data source a SQL cell targets, and whether its code reaches that engine verbatim.
+    # Both are cell attributes rather than run inputs, so anything that runs a cell on the
+    # cell's own terms — not just the editor, which passes them per request — needs them.
+    connection_id: str | None = None
+    send_raw_query: bool = False
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
     last_run: dict[str, Any] | None = None
     start: int = 0
     end: int = 0
+
+
+def _code_from_query_prop(value: Any) -> str:
+    """The SQL a SQL cell carries in `query` instead of `code`, or "" when it carries none.
+
+    Mirrors the editor's `getSqlV2PropsFromQueryProp`. A cell written before `code` existed,
+    or converted from a v1 node, holds its SQL three ways: raw in the string prop, as a bare
+    HogQLQuery, or wrapped in a data-table or visualization node. The editor renders all
+    three, so a whole-notebook run has to plan all three rather than silently skip them.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if not text.startswith("{"):
+            # Anything else a string prop can hold is the SQL itself.
+            return text
+        try:
+            value = json.loads(text)
+        except ValueError:
+            return ""
+    if not isinstance(value, dict):
+        return ""
+    source = value if value.get("kind") == "HogQLQuery" else value.get("source")
+    if isinstance(source, dict) and source.get("kind") == "HogQLQuery" and isinstance(source.get("query"), str):
+        return source["query"]
+    return ""
 
 
 def extract_cells(content: Any) -> list[NotebookCellState]:
@@ -84,17 +117,22 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         if not isinstance(node_id, str) or not node_id:
             continue
         code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
+        if cell_type == "sql" and not (isinstance(code, str) and code.strip()):
+            code = _code_from_query_prop(props.get("query"))
         dataframe_name = props.get("returnVariable")
         if not isinstance(dataframe_name, str):
             dataframe_name = {"sql": "sql_df", "python": "df", "saved_insight": "insight_df"}[cell_type]
         if cell_type == "saved_insight" and not (isinstance(code, str) and code.strip()):
             dataframe_name = ""
+        connection_id = props.get("connectionId")
         cells.append(
             NotebookCellState(
                 node_id=node_id,
                 cell_type=cell_type,
                 dataframe_name=dataframe_name.strip() if isinstance(dataframe_name, str) else "",
                 code=code if isinstance(code, str) else "",
+                connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
+                send_raw_query=props.get("sendRawQuery") is True,
             )
         )
     used_names: set[str] = set()

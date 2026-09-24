@@ -7,6 +7,7 @@ structured LLM response schemas used by the draft sandbox step.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar
 
@@ -63,6 +64,9 @@ class BuildContextOutput:
     prior_needs_diagnostics: bool = False
     # True when a follow-up round should not run: a human already left awaiting_clarification.
     followup_cancelled: bool = False
+    # Passed through to draft so playbook compose stays out of Temporal history.
+    docs_source: str = ""
+    custom_instructions: str = ""
 
 
 @dataclass
@@ -134,6 +138,8 @@ class DraftInput:
     # True the draft stays doc/BK-only so project data can't reach the author, even if opted in.
     auto_publishable: bool = False
     clarification_round: int = 0
+    docs_source: str = ""
+    custom_instructions: str = ""
 
 
 @dataclass(frozen=False)
@@ -153,6 +159,11 @@ class DraftOutput:
     clarifying_questions: list[str] = field(default_factory=list)
     investigation_summary: str = ""
     unknowns: list[str] = field(default_factory=list)
+    playbook_layers: list[str] = field(default_factory=list)
+    playbook_default_version: int = 0
+    playbook_posthog_overlay_version: int | None = None
+    playbook_content_hash: str = ""
+    playbook_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -271,6 +282,28 @@ class PersistKnowledgeGapInput:
     outcome: str = ""
 
 
+def coerce_unit_interval(value: object) -> float:
+    """Map a model score onto 0–1. Anything else becomes 0.
+
+    The structured-output grammar only checks that the field is a number, so ``80``
+    or ``"medium"`` still arrives. ``80`` would clear the auto-send floor.
+    """
+    if isinstance(value, bool) or (isinstance(value, str) and not value.strip()):
+        return 0.0
+    if isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            return 0.0
+    elif isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        return 0.0
+    if not math.isfinite(number) or number < 0 or number > 1:
+        return 0.0
+    return number
+
+
 class SupportReplySource(BaseModel):
     ref: str = Field(description="The citation reference: a chunk_id UUID or a documentation URL")
     excerpt: str = Field(description="The exact text from this source that supports the reply")
@@ -300,6 +333,12 @@ class SupportReplyDraft(BaseModel):
         default_factory=list,
         description="Facts that remain unknown after the investigation",
     )
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, value: object) -> float:
+        # A bad token used to raise here and leave the ticket in_progress.
+        return coerce_unit_interval(value)
 
     @field_validator("verdict", mode="before")
     @classmethod

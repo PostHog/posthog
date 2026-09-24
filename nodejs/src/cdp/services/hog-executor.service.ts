@@ -13,7 +13,13 @@ import type {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '../types'
-import { createAddLogFunction, getSensitiveValues, redactSensitiveValues, sanitizeLogMessage } from '../utils'
+import {
+    createAddLogFunction,
+    getConfiguredSensitiveValues,
+    getSensitiveValues,
+    redactSensitiveValues,
+    sanitizeLogMessage,
+} from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -158,7 +164,9 @@ export class HogExecutorService {
 
         // Declared out here so the terminal catch can mask secrets out of `result.error`, which is
         // persisted to `hog_invocation_results.error_message` and rendered in the Invocations tab.
-        let sensitiveValues: string[] = []
+        // Starts from the values the function config holds, so an error raised while the inputs are
+        // still resolving is masked too; the resolved values are added once the build succeeds.
+        let sensitiveValues: string[] = getConfiguredSensitiveValues(invocation.hogFunction)
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -188,12 +196,13 @@ export class HogExecutorService {
                     )
                 }
             } catch (e) {
-                addLog('error', `Error building inputs: ${e}`)
+                // A template can hand an earlier secret input to a function that quotes its argument.
+                addLog('error', sanitizeLogMessage([`Error building inputs: ${e}`], sensitiveValues))
 
                 throw e
             }
 
-            sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            sensitiveValues = [...sensitiveValues, ...this.getSensitiveValues(invocation.hogFunction, globals.inputs)]
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 

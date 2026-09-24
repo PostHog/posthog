@@ -1302,4 +1302,55 @@ describe('sourceWizardLogic', () => {
             }
         })
     })
+
+    describe('connectError', () => {
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('keeps a rejected connection message until the next attempt', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([])
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it('drops the message when another source is picked', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockRejectedValue({
+                status: 400,
+                data: { message: 'Your API key is invalid or expired.' },
+            })
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                expect(logic.values.connectError).toBe('Your API key is invalid or expired.')
+
+                logic.actions.selectConnector(null)
+                expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+    })
 })

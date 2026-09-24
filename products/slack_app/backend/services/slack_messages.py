@@ -36,6 +36,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -675,6 +676,9 @@ class RunFooter:
     reasoning_effort: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    # The project the thread's task belongs to, so a reader can tell which project's
+    # data the answer was drawn from.
+    project: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -684,10 +688,54 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.desktop_url, self.model, self.project))
 
 
-def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
+    """The project a run answered from, named only where the name tells the opener
+    something they could not already assume.
+
+    The run's own team is the project, so the name needs no join through the thread
+    mapping: a task, its mapping and every run on it belong to one project. A workspace
+    offering the opener a single project has nothing to disambiguate, and the name would
+    then repeat under every reply while never changing.
+    """
+    from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
+    from posthog.models.user import User  # noqa: PLC0415
+
+    from products.slack_app.backend.services.integration_resolver import multiple_accessible_projects  # noqa: PLC0415
+
+    if integration_id is None or created_by_id is None:
+        return None
+    try:
+        # The id is the install this reply posts through, read off stored thread state
+        # rather than off the message, and all this reads from the row is the Slack
+        # workspace it belongs to.
+        integration = (
+            Integration.objects.filter(pk=integration_id)  # nosemgrep: idor-lookup-without-team
+            .only("integration_id")
+            .first()
+        )
+        user = User.objects.filter(pk=created_by_id).first()
+        if integration is None or user is None:
+            return None
+        if not multiple_accessible_projects(slack_team_id=integration.integration_id, user=user):
+            return None
+        team = Team.objects.filter(pk=team_id).only("name").first()
+    except Exception:
+        # Its own guard, not the caller's: a failed lookup must cost the reader one
+        # segment, not the links and the model with it.
+        logger.warning(
+            "slack_app_footer_project_lookup_failed",
+            team_id=team_id,
+            integration_id=integration_id,
+            exc_info=True,
+        )
+        return None
+    return team.name if team else None
+
+
+def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
@@ -696,6 +744,10 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     Describes the run in full, links included. Whether the reader gets the desktop link
     is ``viewer_has_code_access``'s question, asked where the reader is known; the web
     link is for everyone, since the task page enforces access itself.
+
+    ``integration_id`` is the install the reply is posted through, and the workspace
+    behind it is what the project segment is judged against. Required rather than
+    defaulted, so a new caller cannot drop the segment without saying so.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -720,10 +772,43 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
+            project=_project_name(
+                run.team_id,
+                integration_id=integration_id,
+                created_by_id=run.created_by_id,
+            ),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
+
+
+def _run_context_segments(footer: RunFooter) -> list[str]:
+    """What the run is, as footer segments: the project it answered from, then the model.
+
+    Shared by the reply footer and the progress message so the two cannot describe one
+    run differently, and so the escaping below has a single home.
+    """
+    segments: list[str] = []
+    if footer.project:
+        # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
+        # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
+        # rather than on the way in, so `RunFooter.project` stays the plain name.
+        segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
+    if footer.model:
+        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    return segments
+
+
+def run_context_block(footer: RunFooter) -> dict[str, Any] | None:
+    """The run's project and model as a standalone `context` block, or `None` when
+    neither is known.
+
+    What a message that is still working can say about its run: the links the reply
+    footer carries lead to an answer that does not exist yet.
+    """
+    segments = _run_context_segments(footer)
+    return context_block(" · ".join(segments)) if segments else None
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
@@ -738,8 +823,7 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
         segments.append(f"<{footer.task_url}|View on web>")
     if footer.desktop_url:
         segments.append(f"<{footer.desktop_url}|View on desktop>")
-    if footer.model:
-        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    segments.extend(_run_context_segments(footer))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
@@ -850,6 +934,11 @@ def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> s
     except Exception:
         logger.warning("slack_app_permalink_failed", channel=channel, thread_ts=thread_ts)
     return None
+
+
+def section_block(text: str) -> dict[str, Any]:
+    """One block of mrkdwn body text."""
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
 def context_block(text: str) -> dict[str, Any]:

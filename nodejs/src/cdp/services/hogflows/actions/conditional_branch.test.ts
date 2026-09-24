@@ -93,31 +93,31 @@ describe('action.conditional_branch', () => {
             expect(result).toEqual({})
         })
 
+        // A wait arrives here already normalised into a conditional_branch, so its ceiling comes in
+        // as `repark` rather than off the action. A branch without one never parks.
         describe('wait logic', () => {
-            it('should handle wait duration and schedule next check', async () => {
-                action.config.delay_duration = '2h'
-                const result = await checkConditions(invocation, action)
-                expect(result).toEqual({
-                    // A conditional_branch has no matcher coverage, so it keeps the ten-minute cap.
-                    scheduledAt: DateTime.utc().plus({ minutes: 10 }),
-                })
+            const repark = (maxWaitDuration: string) => ({ maxWaitDuration, recheckSeconds: 60 * 60 })
+
+            it('should cap the next check at the backstop', async () => {
+                const result = await checkConditions(invocation, action, undefined, repark('2h'))
+                expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ hours: 1 }) })
             })
 
             it('should not schedule for later than the max wait duration', async () => {
-                action.config.delay_duration = '5m'
+                const result = await checkConditions(invocation, action, undefined, repark('5m'))
+                expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ minutes: 5 }) })
+            })
+
+            it('should not schedule at all without a ceiling', async () => {
                 const result = await checkConditions(invocation, action)
-                expect(result).toEqual({
-                    // Should schedule for 5 minutes from now
-                    scheduledAt: DateTime.utc().plus({ minutes: 5 }),
-                })
+                expect(result).toEqual({})
             })
 
             it('should throw error if action started at timestamp is invalid', async () => {
                 invocation.state.currentAction = undefined
-                action.config.delay_duration = '300s'
-                await expect(async () => checkConditions(invocation, action)).rejects.toThrow(
-                    "'startedAtTimestamp' is not set or is invalid"
-                )
+                await expect(async () =>
+                    checkConditions(invocation, action, undefined, repark('300s'))
+                ).rejects.toThrow("'startedAtTimestamp' is not set or is invalid")
             })
         })
     })
@@ -451,25 +451,6 @@ describe('action.conditional_branch', () => {
             })
 
             expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
-        })
-
-        it('keeps the ten-minute cap for a delayed conditional_branch, which the matcher never wakes', async () => {
-            // Every parked-job lookup in the subscription matcher is scoped to wait_until_condition, so
-            // a delayed branch has no wake at all and the re-check is the only thing that advances it.
-            // Sending it through the handler is what exercises the call site that picks the cap.
-            const branchAction = {
-                ...waitAction,
-                type: 'conditional_branch',
-                config: { conditions: [], delay_duration: '4h' },
-            } as unknown as typeof waitAction
-
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: branchAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
         })
 
         it('parks a wait shorter than the backstop for its own duration', async () => {

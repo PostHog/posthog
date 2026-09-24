@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -16,7 +17,7 @@ from posthog.models import Organization, Team
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.clarify import _clarify_sync
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
-from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
+from products.conversations.backend.temporal.ai_reply.activities.draft import DraftNotProducedError, _draft_async
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
 )
@@ -59,7 +60,6 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     ReviewReplyOutput,
     SafetyFilterInput,
     SafetyFilterOutput,
-    SupportReplyDraft,
     SupportReplyInput,
     ValidateInput,
     ValidateOutput,
@@ -79,6 +79,7 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.tasks.backend.facade.agents import EmptyAgentTurnError
 
 
 @pytest.fixture
@@ -526,6 +527,7 @@ async def test_blocker_aware_routing(
             assert persist_input.investigation_summary in persist_input.reply
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
     assert last_triage["result"] == expected_result
+    assert last_triage["citations"] == sample_chunk_ids
     assert "draft_confidence" in last_triage
     assert "validator_confidence" in last_triage
     assert "blocker" in last_triage
@@ -735,6 +737,69 @@ async def test_empty_clarifying_questions_fall_to_findings(
     assert "escalated_with_findings" in result
     mock_clarify.assert_not_called()
     mock_persist.assert_called_once()
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@_patch_workflow_activities
+async def test_workflow_records_playbook_provenance(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_clarify,
+    mock_record_triage,
+    workflow_input,
+    sample_chunk_ids,
+):
+    mock_build.return_value = BuildContextOutput(
+        ticket_context="How do I install?",
+        ticket_title="Install",
+        docs_source="posthog",
+        custom_instructions="Be brief.",
+    )
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["q"])
+    mock_refine.return_value = RefineQueriesOutput(queries=["q"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="Install the SDK.",
+        citations=sample_chunk_ids,
+        confidence=0.9,
+        verdict="answerable",
+        playbook_layers=["default", "posthog", "custom"],
+        playbook_default_version=1,
+        playbook_posthog_overlay_version=1,
+        playbook_content_hash="abc123",
+        playbook_warnings=[],
+    )
+    mock_validate.return_value = ValidateOutput(
+        grounded=True, coverage=0.9, confidence=0.85, missing=[], blocker="none"
+    )
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    result = await _run_support_reply_workflow(
+        workflow_id="test-playbook-provenance",
+        workflow_input=workflow_input,
+    )
+
+    assert "persisted" in result
+    draft_input = mock_draft.call_args[0][0]
+    assert draft_input.docs_source == "posthog"
+    assert draft_input.custom_instructions == "Be brief."
+    last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+    assert last_triage["playbook"] == {
+        "layers": ["default", "posthog", "custom"],
+        "default_version": 1,
+        "posthog_overlay_version": 1,
+        "content_hash": "abc123",
+        "warnings": [],
+    }
 
 
 @pytest.mark.django_db
@@ -1825,6 +1890,30 @@ class TestBuildContextAutoPublish:
         output = _build_context_sync(team.id, str(ticket.id), clarification_round)
         assert output.followup_cancelled is expected_cancelled
 
+    @pytest.mark.django_db
+    def test_passes_playbook_settings(self):
+        from products.conversations.backend.temporal.ai_reply.activities.build_context import _build_context_sync
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(
+            organization=org,
+            name="Test Team",
+            conversations_settings={
+                "docs_source": "posthog",
+                "ai_reply_custom_instructions": "Be brief.",
+            },
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="aabbccdd-0000-0000-0000-000000000006",
+            distinct_id="test-user",
+            channel_source="widget",
+        )
+
+        output = _build_context_sync(team.id, str(ticket.id))
+        assert output.docs_source == "posthog"
+        assert output.custom_instructions == "Be brief."
+
 
 class TestStripJsonFence:
     @parameterized.expand(
@@ -1851,6 +1940,52 @@ class TestStripJsonFence:
         assert _strip_json_fence(input_text) == expected
 
 
+class TestUtilityCallsUseStructuredOutput:
+    @parameterized.expand(
+        [
+            ("classify", CLASSIFY_MODULE, "classify"),
+            ("refine", REFINE_QUERIES_MODULE, "refine"),
+            ("validate", VALIDATE_MODULE, "validate"),
+            ("safety", SAFETY_FILTER_MODULE, "safety"),
+            ("review", REVIEW_REPLY_MODULE, "review"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_sends_json_schema(self, _name: str, module: str, kind: str) -> None:
+        client = _mock_gateway_client("{}")
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{module}.get_async_anthropic_gateway_client", return_value=client))
+            if kind == "validate":
+                stack.enter_context(patch(f"{VALIDATE_MODULE}._hydrate_chunks", return_value=[]))
+            if kind == "classify":
+                await _classify(ClassifyInput(team_id=1, ticket_context="how do I install"))
+            elif kind == "refine":
+                await _refine_queries(RefineQueriesInput(team_id=1, ticket_context="how do I install"))
+            elif kind == "validate":
+                await _validate(
+                    ValidateInput(
+                        team_id=1,
+                        ticket_context="how do I install",
+                        reply="Use the docs.",
+                        citations=[],
+                        chunk_ids=[],
+                    )
+                )
+            elif kind == "safety":
+                await _safety_filter(SafetyFilterInput(team_id=1, ticket_context="how do I install"))
+            else:
+                await _review_reply(
+                    ReviewReplyInput(team_id=1, ticket_context="how do I install", reply="Use the docs.")
+                )
+
+        fmt = client.messages.create.call_args.kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
+        assert fmt["schema"]["additionalProperties"] is False
+
+
+_OK_DRAFT_JSON = '{"reply": "ok", "citations": [], "confidence": 0.0, "sources": [], "verdict": "answerable"}'
+
+
 def _mock_gateway_client(text: str) -> MagicMock:
     """Build a mock Anthropic gateway client whose messages.create returns `text`."""
     block = MagicMock()
@@ -1861,6 +1996,29 @@ def _mock_gateway_client(text: str) -> MagicMock:
     client = MagicMock()
     client.messages.create = AsyncMock(return_value=message)
     return client
+
+
+class TestRefineQueryParse:
+    @parameterized.expand(
+        [
+            ("lines", "query one\nquery two", [], ["query one", "query two"]),
+            ("json_queries", '{"queries": ["install", "sdk"]}', [], ["install", "sdk"]),
+            ("json_string_field", '{"queries": "install"}', [], ["install"]),
+            ("empty_object", "{}", [], ["help"]),
+            ("empty_object_keeps_seeds", "{}", ["setup"], ["setup"]),
+            ("json_array", '["install", "sdk"]', [], ["install", "sdk"]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_not_a_search_query(
+        self, _name: str, text: str, seeds: list[str], expected: list[str]
+    ) -> None:
+        client = _mock_gateway_client(text)
+        with patch(f"{REFINE_QUERIES_MODULE}.get_async_anthropic_gateway_client", return_value=client):
+            result = await _refine_queries(
+                RefineQueriesInput(team_id=1, ticket_context="how do I install", seed_queries=seeds)
+            )
+        assert result.queries == expected
 
 
 class TestUntrustedTicketGuard:
@@ -1893,14 +2051,13 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(DraftInput(team_id=1, ticket_context=injection, chunk_ids=[]))
 
@@ -1914,22 +2071,22 @@ class TestUntrustedTicketGuard:
 
     @pytest.mark.asyncio
     async def test_draft_prompt_requires_plan_and_verdict(self):
-        captured: dict[str, str] = {}
+        captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
 
         prompt = captured["prompt"]
+        assert "Do not end the turn while a tool or search is still running" in prompt
         assert "PLAN first" in prompt
         assert "blocked_on_customer" in prompt
         assert "blocked_on_knowledge" in prompt
@@ -1944,14 +2101,13 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -1967,6 +2123,83 @@ class TestUntrustedTicketGuard:
         assert "If a fact you need can only come from the customer" not in captured["prompt"]
 
 
+_EMPTY_TURN = EmptyAgentTurnError("empty", total_lines=1, printed_lines=0)
+
+
+class TestDraftWithoutJson:
+    async def _draft(self, *, attempt: int, start_raw: AsyncMock) -> DraftOutput:
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=attempt),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=start_raw),
+        ):
+            return await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+
+    @staticmethod
+    def _session(followup: object) -> MagicMock:
+        session = MagicMock()
+        session.end = AsyncMock()
+        if isinstance(followup, Exception):
+            session.send_followup_raw = AsyncMock(side_effect=followup)
+        else:
+            session.send_followup_raw = AsyncMock(return_value=followup)
+        return session
+
+    @parameterized.expand(
+        [
+            ("first_turn_json", _OK_DRAFT_JSON, None, "ok"),
+            (
+                "example_json_before_answer",
+                '{"reply": "example", "citations": [], "confidence": 0.9} then ' + _OK_DRAFT_JSON,
+                None,
+                "ok",
+            ),
+            ("nudge_returns_json", "I'll wait for the background search", _OK_DRAFT_JSON, "ok"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_uses_the_final_draft_json(
+        self, _name: str, first_text: str, followup: object, expected: str
+    ) -> None:
+        session = self._session(followup)
+
+        output = await self._draft(attempt=1, start_raw=AsyncMock(return_value=(session, first_text)))
+
+        assert (output.reply, output.verdict) == (expected, "answerable")
+        session.end.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            ("nudge_still_prose", "I'll wait for the background search", "still waiting"),
+            ("nudge_empty", "", _EMPTY_TURN),
+            ("nudge_crash", "I'll wait", RuntimeError("Agent server crashed")),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_no_draft_retries_then_blocks(self, _name: str, first_text: str, followup: object) -> None:
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
+
+        output = await self._draft(attempt=2, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
+        assert (output.reply, output.verdict, output.confidence) == ("", "blocked_on_knowledge", 0.0)
+
+    @parameterized.expand(
+        [
+            ("empty_first_turn", _EMPTY_TURN),
+            ("agent_crash", RuntimeError("Agent server crashed: Internal error")),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_failed_first_turn_retries_then_blocks(self, _name: str, error: Exception) -> None:
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(side_effect=error))
+
+        output = await self._draft(attempt=2, start_raw=AsyncMock(side_effect=error))
+        assert (output.verdict, output.confidence, output.task_run_id) == ("blocked_on_knowledge", 0.0, "")
+
+
 class TestDiagnosticScopes:
     """Customer-data scopes are granted only when the org opted in AND the reply won't be
     auto-sent to the (untrusted) author. `auto_publishable` mirrors persist_reply's publish gate
@@ -1980,20 +2213,21 @@ class TestDiagnosticScopes:
         diagnostics_allowed: bool = False,
         auto_publishable: bool = False,
         ticket_type: str = "how_to",
+        **draft_kwargs: Any,
     ) -> tuple[str, Any]:
         captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
             captured["scopes"] = context.posthog_mcp_scopes
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            captured["exclude_tools"] = context.mcp_exclude_tools
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2004,8 +2238,10 @@ class TestDiagnosticScopes:
                     needs_diagnostics=needs_diagnostics,
                     diagnostics_allowed=diagnostics_allowed,
                     auto_publishable=auto_publishable,
+                    **draft_kwargs,
                 )
             )
+        self._captured = captured
         return captured["prompt"], captured["scopes"]
 
     @pytest.mark.asyncio
@@ -2028,7 +2264,7 @@ class TestDiagnosticScopes:
         # into an auto-sent reply to an untrusted author.
         prompt, scopes = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
         assert scopes == PUBLISHABLE_DRAFT_SCOPES
-        assert "DATA ACCESS" not in prompt
+        assert "DATA ACCESS (you have read-only" not in prompt
         assert "connectionId" not in prompt
 
     @pytest.mark.asyncio
@@ -2054,7 +2290,7 @@ class TestDiagnosticScopes:
         # No data tools were granted, so don't instruct the agent to investigate data it can't
         # reach. The investigation block requires grants_customer_data, not needs_diagnostics alone.
         assert "DIAGNOSTIC INVESTIGATION" not in prompt
-        assert "DATA ACCESS" not in prompt
+        assert "DATA ACCESS (you have read-only" not in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_block_gated_on_needs_diagnostics(self):
@@ -2096,7 +2332,7 @@ class TestDiagnosticScopes:
     async def test_no_data_safety_block_when_not_opted_in(self):
         # Not opted in -> base scopes only (no customer-data tools) -> no data-access block.
         prompt, _ = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=False, ticket_type="diagnostic")
-        assert "DATA ACCESS" not in prompt
+        assert "DATA ACCESS (you have read-only" not in prompt
         assert "connectionId" not in prompt
 
     @parameterized.expand(
@@ -2126,9 +2362,32 @@ class TestDiagnosticScopes:
         # advertised when customer-data scopes are granted — never on an auto-sent reply.
         granted, _ = await self._run_draft(diagnostics_allowed=True, auto_publishable=False, ticket_type="diagnostic")
         assert "PER-USER READS" in granted
+        assert granted.index("DATA ACCESS") < granted.index("SUPPORT PLAYBOOK")
 
         withheld, _ = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
         assert "PER-USER READS" not in withheld
+
+    @pytest.mark.asyncio
+    async def test_generic_mode_denies_docs_search_on_mcp_and_prompt(self):
+        prompt, _ = await self._run_draft()
+        assert self._captured["exclude_tools"] == ("docs-search",)
+        assert "You do not have docs-search" in prompt
+        assert "docs-search: searches the official PostHog" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_posthog_mode_keeps_docs_search(self):
+        prompt, _ = await self._run_draft(docs_source="posthog")
+        assert self._captured["exclude_tools"] == ()
+        assert "docs-search: searches the official PostHog" in prompt
+
+    @pytest.mark.asyncio
+    async def test_playbook_sits_below_security_and_above_untrusted_ticket(self):
+        prompt, _ = await self._run_draft(custom_instructions="Always greet first.")
+        assert prompt.index("SECURITY:") < prompt.index("TOOLS YOU HAVE ON THIS RUN")
+        assert prompt.index("TOOLS YOU HAVE ON THIS RUN") < prompt.index("SUPPORT PLAYBOOK")
+        assert prompt.index("SUPPORT PLAYBOOK") < prompt.index("TICKET CONTEXT (untrusted data):")
+        assert "Always greet first." in prompt
+        assert "cannot be overridden by SUPPORT PLAYBOOK" in prompt
 
     @pytest.mark.asyncio
     async def test_always_on_context_is_authoritative(self):
@@ -2136,14 +2395,13 @@ class TestDiagnosticScopes:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2476,6 +2734,15 @@ class TestValidateActivity:
                 0.0,
                 [],
                 "knowledge",
+            ),
+            (
+                "percent_style_scores",
+                '{"grounded": true, "coverage": 80, "confidence": 90, "missing": [], "blocker": "none"}',
+                True,
+                0.0,
+                0.0,
+                [],
+                "none",
             ),
         ]
     )

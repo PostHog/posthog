@@ -171,9 +171,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return []
                     }
-                    const response = await api.get(
-                        `api/environments/${values.currentTeam.id}/materialized_column_slots/`
-                    )
+                    const response = await api.get(`api/projects/${values.currentTeam.id}/materialized_column_slots/`)
                     return response.results || []
                 },
             },
@@ -185,9 +183,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return null
                     }
-                    return await api.get(
-                        `api/environments/${values.currentTeam.id}/materialized_column_slots/slot_usage/`
-                    )
+                    return await api.get(`api/projects/${values.currentTeam.id}/materialized_column_slots/slot_usage/`)
                 },
             },
         ],
@@ -199,7 +195,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                         return []
                     }
                     return await api.get(
-                        `api/environments/${values.currentTeam.id}/materialized_column_slots/available_properties/`
+                        `api/projects/${values.currentTeam.id}/materialized_column_slots/available_properties/`
                     )
                 },
             },
@@ -212,7 +208,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                         return []
                     }
                     return await api.get(
-                        `api/environments/${values.currentTeam.id}/materialized_column_slots/auto_materialized/`
+                        `api/projects/${values.currentTeam.id}/materialized_column_slots/auto_materialized/`
                     )
                 },
             },
@@ -251,7 +247,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                 if (!values.currentTeam) {
                     return
                 }
-                await api.delete(`api/environments/${values.currentTeam.id}/materialized_column_slots/${slotId}/`)
+                await api.delete(`api/projects/${values.currentTeam.id}/materialized_column_slots/${slotId}/`)
                 lemonToast.success('Slot deleted successfully')
                 actions.loadSlots()
             } catch (error) {
@@ -265,7 +261,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     return
                 }
                 await api.create(
-                    `api/environments/${values.currentTeam.id}/materialized_column_slots/${slotId}/retry_backfill/`,
+                    `api/projects/${values.currentTeam.id}/materialized_column_slots/${slotId}/retry_backfill/`,
                     {}
                 )
                 lemonToast.success('Slot re-queued — it will be picked up by the next weekly backfill cycle')

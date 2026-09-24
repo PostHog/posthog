@@ -1,0 +1,102 @@
+rules:
+    - id: csp-javascript-url-in-template
+      message: |
+          This `javascript:` URL never runs for a viewer whose policy is enforced. The app and
+          admin policies in `CSPMiddleware` set `script-src` to a nonce with no `'unsafe-inline'`,
+          and a browser treats a `javascript:` URL as an inline script. The link does nothing, and
+          the user sees no error.
+
+          Make it a real link to a URL. If the action needs script, render a `<button type="button">`
+          and bind its handler with `addEventListener` inside `<script nonce="{{ request.csp_nonce }}">`.
+          `posthog/templates/admin/deletion_button.html` shows the pattern.
+
+          See "Content Security Policy" in `.agents/security.md`.
+      severity: ERROR
+      languages: [generic]
+      paths:
+          include:
+              - /posthog/**/templates/**/*.html
+              - /products/*/backend/templates/**/*.html
+              - /ee/**/templates/**/*.html
+              - /frontend/src/**/*.html
+      patterns:
+          # The match has to start inside a tag, so page text that shows `href="javascript:..."`
+          # does not match. `data-href="javascript:..."` is data for a script to read, not a URL
+          # the browser follows.
+          - pattern-regex: '(?i)<[a-z][a-z0-9-]*\b[^<>]*?(?<![\w-])(?:href|src|action|formaction|xlink:href)\s*=\s*["'']?\s*javascript:'
+          # Markup quoted in a template or HTML comment never reaches the browser as a tag.
+          - pattern-not-regex: '(?s)\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}|<!--.*?-->|\{#.*?#\}'
+      metadata:
+          category: correctness
+          technology:
+              - django
+              - html
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src#unsafe_inline_script
+
+    - id: csp-inline-event-handler-in-template
+      message: |
+          This inline event handler never runs for a viewer whose policy is enforced. The app and
+          admin policies in `CSPMiddleware` set `script-src` to a nonce with no `'unsafe-inline'`
+          and no `'unsafe-hashes'`. A nonce cannot cover an attribute, so no change to the policy
+          makes this work. The browser drops the handler, and the user sees no error.
+
+          Give the element an `id` or a class, and bind the handler with `addEventListener` inside
+          `<script nonce="{{ request.csp_nonce }}">`. `posthog/templates/admin/deletion_button.html`
+          shows the pattern.
+
+          See "Content Security Policy" in `.agents/security.md`.
+      severity: ERROR
+      languages: [generic]
+      paths:
+          include:
+              - /posthog/**/templates/**/*.html
+              - /products/*/backend/templates/**/*.html
+              - /ee/**/templates/**/*.html
+              - /frontend/src/**/*.html
+      patterns:
+          # The match has to start inside a tag. `[^<>]` stops it at the tag's end, so text and
+          # script bodies that merely contain `on...=` do not match. The character before `on` must
+          # be whitespace or a quote, which keeps `data-on...` and `x-on:` attributes out.
+          - pattern-regex: '(?i)<[a-z][a-z0-9-]*\b[^<>]*?[\s"'']on[a-z]+\s*='
+          # Markup quoted in a template or HTML comment never reaches the browser as a tag.
+          - pattern-not-regex: '(?s)\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}|<!--.*?-->|\{#.*?#\}'
+      metadata:
+          category: correctness
+          technology:
+              - django
+              - html
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src#unsafe_hashes
+
+    - id: csp-inline-script-without-nonce
+      message: |
+          This inline `<script>` has no nonce, so it never runs for a viewer whose policy is
+          enforced. The app and admin policies in `CSPMiddleware` allow an inline script only when
+          it carries the per-request nonce. The browser drops the script, and the user sees no error.
+
+          Add `nonce="{{ request.csp_nonce }}"` to the tag. The template needs `request` in its
+          context: `render()`, `render_template()`, and admin views pass it, and `render_to_string()`
+          passes it only when you give it `request=request`.
+
+          A `<script src=...>` from `'self'` needs no nonce, and a data block such as
+          `type="application/json"` never runs, so neither matches this rule.
+      severity: ERROR
+      languages: [generic]
+      paths:
+          include:
+              - /posthog/**/templates/**/*.html
+              - /products/*/backend/templates/**/*.html
+              - /ee/**/templates/**/*.html
+              - /frontend/src/**/*.html
+      patterns:
+          - pattern-regex: '(?i)<script\b(?![^>]*[\s"''](?:nonce|src)\s*=)(?![^>]*\btype\s*=\s*["'']?(?:application/(?:ld\+)?json|text/(?:template|x-template|html|plain|markdown)))[^>]*>'
+          # Markup quoted in a template or HTML comment never reaches the browser as a tag.
+          - pattern-not-regex: '(?s)\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}|<!--.*?-->|\{#.*?#\}'
+      metadata:
+          category: correctness
+          technology:
+              - django
+              - html
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src#unsafe_inline_script

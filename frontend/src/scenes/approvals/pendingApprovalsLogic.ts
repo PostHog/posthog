@@ -72,7 +72,7 @@ export const pendingApprovalsLogic = kea<pendingApprovalsLogicType>([
                     }
 
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/change_requests?${toParams({ state: 'pending,approved' })}`
+                        `api/projects/${values.currentTeamId}/change_requests?${toParams({ state: 'pending,approved' })}`
                     )
                     return response.results || []
                 },

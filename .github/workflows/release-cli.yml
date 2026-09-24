@@ -24,7 +24,7 @@ concurrency:
 jobs:
     check-changesets:
         name: Check for CLI changesets
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
             has-changesets: ${{ steps.check.outputs.has-changesets }}
@@ -89,7 +89,7 @@ jobs:
         name: Generate CLI release preview
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Write CLI diff summary
@@ -176,7 +176,7 @@ jobs:
     prepare-release:
         name: Prepare CLI release pull request
         needs: [check-changesets, cli-release-preview, notify-approval-needed]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
         environment: Release SDK
@@ -505,7 +505,7 @@ jobs:
         name: Identify merged CLI release
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'false'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
@@ -673,6 +673,7 @@ jobs:
                   path: plan-dist-manifest.json
 
     # Build and packages all the platform-specific things
+    # hogli-lint: allow-generated-runner-matrix -- dist builds this matrix; its runner labels are pinned under [dist.github-custom-runners] in dist-workspace.toml
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
         # Let the initial task tell us to not run (very blunt)
@@ -938,6 +939,10 @@ jobs:
         if: ${{ always() && needs.plan-release.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 15
+        permissions:
+            contents: read
+            # AssumeRoleWithWebIdentity into the release bucket's publisher role.
+            id-token: write
         outputs:
             val: ${{ steps.host.outputs.manifest }}
         steps:
@@ -990,6 +995,73 @@ jobs:
               run: |
                   # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
+            # Guarded on all three variables, not just the role: a role without a
+            # destination would fail the upload and take the GitHub release with
+            # it. A partial configuration skips publishing instead, which is also
+            # what a branch predating the bucket gets.
+            - name: Configure AWS credentials for the release bucket
+              if: >-
+                  vars.AWS_CLI_RELEASES_ROLE_ARN != ''
+                  && vars.AWS_CLI_RELEASES_BUCKET != ''
+                  && vars.AWS_CLI_RELEASES_CLOUDFRONT_ID != ''
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ vars.AWS_CLI_RELEASES_ROLE_ARN }}
+                  # The bucket and its distribution live in the prod-us account,
+                  # us-east-1, next to the other release mirrors there.
+                  aws-region: us-east-1
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+            # Runs before the GitHub Release exists on purpose. Installers prefer
+            # this origin, so the objects have to be readable before anything
+            # publishes a URL that points at them.
+            - name: Publish artifacts to the release bucket
+              if: >-
+                  vars.AWS_CLI_RELEASES_ROLE_ARN != ''
+                  && vars.AWS_CLI_RELEASES_BUCKET != ''
+                  && vars.AWS_CLI_RELEASES_CLOUDFRONT_ID != ''
+              shell: bash
+              env:
+                  PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
+                  RELEASE_TAG: ${{ needs.plan-release.outputs.tag }}
+                  BUCKET: ${{ vars.AWS_CLI_RELEASES_BUCKET }}
+                  DISTRIBUTION_ID: ${{ vars.AWS_CLI_RELEASES_CLOUDFRONT_ID }}
+              run: |
+                  set -euo pipefail
+
+                  # RELEASE_TAG is posthog-cli/vX.Y.Z, so the key prefix already
+                  # carries the project name and the version. Every object under
+                  # it is immutable because the version is part of its key.
+                  aws s3 cp artifacts/ "s3://$BUCKET/$RELEASE_TAG/" --recursive \
+                      --cache-control "public, max-age=31536000, immutable" \
+                      --only-show-errors
+
+                  # A prerelease must not move the entry points people install from.
+                  if [ -n "$PRERELEASE_FLAG" ]; then
+                      echo "prerelease $RELEASE_TAG: versioned artifacts published, rolling entry points untouched"
+                      exit 0
+                  fi
+
+                  # These three keys are republished every release, so they take a
+                  # short TTL and an invalidation. Giving them the immutable header
+                  # above would pin a stale installer at the edge for a year.
+                  rolling="public, max-age=60"
+                  aws s3 cp artifacts/posthog-cli-installer.sh \
+                      "s3://$BUCKET/posthog-cli/install.sh" \
+                      --cache-control "$rolling" --only-show-errors
+                  aws s3 cp artifacts/posthog-cli-installer.ps1 \
+                      "s3://$BUCKET/posthog-cli/install.ps1" \
+                      --cache-control "$rolling" --only-show-errors
+                  # The manifest carries announcement_tag and app_version, which is
+                  # what a client reads to decide whether it is out of date.
+                  aws s3 cp artifacts/dist-manifest.json \
+                      "s3://$BUCKET/posthog-cli/stable/dist-manifest.json" \
+                      --cache-control "$rolling" --only-show-errors
+
+                  aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
+                      --paths /posthog-cli/install.sh /posthog-cli/install.ps1 \
+                              /posthog-cli/stable/dist-manifest.json \
+                      --query 'Invalidation.Id' --output text
             - name: Create GitHub Release
               shell: bash
               env:
@@ -1073,12 +1145,125 @@ jobs:
                   NPM_CONFIG_PROVENANCE: true
                   NODE_AUTH_TOKEN: ''
 
+    publish-homebrew:
+        needs:
+            - release
+            - plan-release
+            - host-release
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 10
+        # Stable releases only, deliberately stricter than publish-npm. A tap has
+        # one formula and no channels, so a prerelease formula is what every
+        # `brew install` resolves. npm can at least carry a prerelease on a
+        # separate dist-tag. Do not "fix" this to match publish-npm.
+        if: ${{ needs.plan-release.result == 'success' && !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease }}
+        # Holds the tap token and only admits master.
+        environment: homebrew-tap
+        steps:
+            # cargo-dist generates the formula complete with per-platform URLs and
+            # checksums, so unlike the phrocs formula there is no template to fill.
+            - name: Fetch the generated formula
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: artifacts/
+                  merge-multiple: true
+            # Stashed outside the workspace because checking out the tap cleans it.
+            - name: Stash the formula
+              run: cp artifacts/posthog-cli.rb "$RUNNER_TEMP/posthog-cli.rb"
+            - name: Generate Homebrew tap token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: homebrew-tap
+            - name: Checkout Homebrew tap
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: PostHog/homebrew-tap
+                  token: ${{ steps.app-token.outputs.token }}
+            - name: Update the formula
+              run: cp "$RUNNER_TEMP/posthog-cli.rb" Formula/posthog-cli.rb
+            - name: Commit the formula
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update posthog-cli formula to ${{ needs.release.outputs.new-version }}'
+                  repo: PostHog/homebrew-tap
+                  branch: main
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+    publish-cargo:
+        needs:
+            - release
+            - plan-release
+            - host-release
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 15
+        # Same gate as publish-npm. crates.io understands prerelease semver and
+        # `cargo install` will not pick one by default, so the Homebrew
+        # stable-only rule does not apply here.
+        if: ${{ needs.plan-release.result == 'success' && (!fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases) }}
+        permissions:
+            contents: read
+            # Exchanged for a short-lived crates.io token by the auth action, so
+            # there is no CARGO_REGISTRY_TOKEN secret to hold or rotate.
+            id-token: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+            - name: Fetch release artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: artifacts/
+                  merge-multiple: true
+            # Taken from the npm package rather than rebuilt from services/mcp, so
+            # the crate ships the same bytes every other channel does. A rebuild
+            # could drift.
+            #
+            # This path is not incidental: package/lib/posthog-api-cli.mjs is what
+            # `npm i -g @posthog/cli` installs and runs, so it cannot go missing
+            # without breaking npm first. If it ever does, tar exits non-zero here
+            # and the crate is not published, which is the outcome we want.
+            - name: Take the API bundle from the npm package
+              run: |
+                  set -euo pipefail
+                  tar -xzf artifacts/posthog-cli-npm-package.tar.gz \
+                      -C "$RUNNER_TEMP" package/lib/posthog-api-cli.mjs
+                  cp "$RUNNER_TEMP/package/lib/posthog-api-cli.mjs" cli/lib/posthog-api-cli.mjs
+            # build.rs treats a missing bundle as None and still compiles, so
+            # without this check a broken extraction would publish a crate whose
+            # `posthog-cli api` is dead, and nothing would fail.
+            - name: Verify the bundle is present
+              run: |
+                  set -euo pipefail
+                  test -s cli/lib/posthog-api-cli.mjs
+                  echo "bundle: $(wc -c < cli/lib/posthog-api-cli.mjs) bytes"
+            - name: Authenticate with crates.io
+              id: auth
+              uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+            - name: Publish to crates.io
+              working-directory: cli
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+              # --allow-dirty because lib/posthog-api-cli.mjs is gitignored, so it
+              # is always an untracked file in the checkout.
+              run: cargo publish -p posthog-cli --allow-dirty
+
     notify-released:
         name: Notify Slack - Release Published
-        needs: [notify-approval-needed, release, host-release, publish-npm]
-        runs-on: ubuntu-latest
+        needs: [notify-approval-needed, release, host-release, publish-npm, publish-homebrew, publish-cargo]
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
+        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped') && (needs.publish-cargo.result == 'success' || needs.publish-cargo.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
             - name: Notify Slack - Release Published
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
@@ -1102,12 +1287,14 @@ jobs:
             - build-global-artifacts
             - host-release
             - publish-npm
-        runs-on: ubuntu-latest
+            - publish-homebrew
+            - publish-cargo
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
             || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
-            || needs.publish-npm.result == 'failure')
+            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure' || needs.publish-cargo.result == 'failure')
         steps:
             - name: Collect failed jobs
               id: failure-metadata

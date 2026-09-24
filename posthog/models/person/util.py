@@ -48,8 +48,9 @@ PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
 
 
 if TYPE_CHECKING:
+    from personhog.types.v1 import person_pb2
+
     from posthog.personhog_client.client import PersonHogClient
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
 
 
 _get_client = require_personhog_client

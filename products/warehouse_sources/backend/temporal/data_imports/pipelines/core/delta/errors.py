@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
@@ -14,6 +16,11 @@ from posthog.temporal.common.errors import NonReportableError
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
 # - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
 #   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
+# - "The difference between the request time and the current time is too large." is S3's fixed message
+#   for RequestTimeTooSkewed, raised when the worker's clock has drifted from S3's. s3fs maps every 403
+#   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
+#   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
+#   identical request succeeds moments later.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -22,6 +29,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Generic S3 error",
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
+    "The difference between the request time and the current time is too large.",
 )
 
 
@@ -47,12 +55,30 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     `object_store` crate. `NoCredentialsError`'s message is a fixed, generic string (no needle to
     match), but hitting our own instance-role-authenticated bucket always means the same transient
     resolution hiccup, so it's recognized by type rather than by message.
+
+    `boto3`'s own client calls (e.g. `ensure_bucket_exists`'s `head_bucket`) can likewise raise a bare
+    `botocore.exceptions.ConnectionError` — `EndpointConnectionError` (DNS not resolvable yet, or the
+    endpoint refusing connections) and its siblings — when our own bucket endpoint isn't reachable
+    yet, most commonly a local/self-hosted object store still bootstrapping. Never an `OSError`
+    subclass, so the message-matched branch below never sees it; recognized by type for the same
+    reason as `NoCredentialsError`.
+
+    A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
+    descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
+    botocore's own bundled `endpoints.json` fails with this errno before any network call is even
+    made. Same transient-capacity class already recognized on the postgres connect path
+    (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
+    this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
     """
-    if isinstance(error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError):
+    if isinstance(
+        error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
+    ):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
+        return True
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
@@ -137,14 +163,30 @@ def is_invalid_version_race(error: BaseException) -> bool:
     return type(error) is deltalake.exceptions.DeltaError and DELTA_INVALID_VERSION_RACE_NEEDLE in str(error)
 
 
+def _is_too_many_open_files_error(error: BaseException) -> bool:
+    """True if opening the app-DB connection failed because this worker is out of file descriptors.
+
+    `update_sync_type_config_keys` (persisting the vacuum watermark) opens a fresh Django connection;
+    its socket/selector setup raises a bare `OSError` — not a psycopg exception — when `socket()` hits
+    EMFILE (this process's fd table is full) or ENFILE (the system-wide table is full), before libpq
+    has anything to wrap into `OperationalError`. Same transient fd-pressure condition already handled
+    for the source's own connect path (`postgres.py::_is_too_many_open_files_error`) and for
+    `cdp_producer.py`'s own-DB check: a descriptor frees the moment another connection/handle in this
+    worker closes, so it's never a customer or maintenance-logic problem.
+    """
+    return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
+
+
 def is_transient_maintenance_error(error: BaseException) -> bool:
     """Infra blips seen during delta maintenance that aren't a maintenance bug.
 
     Covers S3/object-store hiccups reaching our own data-warehouse bucket (see
     `is_transient_object_store_error` above), racy concurrent-maintenance DeltaErrors (see
-    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops) hit
-    while resolving `job.folder_path()` on a pooled connection — the same `OperationalError`/`InterfaceError`
-    classification used for this failure class in `repartition_table.py`'s `_is_transient_infra_error`.
+    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops, fd
+    exhaustion) hit while resolving `job.folder_path()` or persisting the vacuum watermark on a pooled
+    connection — the same `OperationalError`/`InterfaceError` classification used for this failure class
+    in `repartition_table.py`'s `_is_transient_infra_error`, plus `_is_too_many_open_files_error` above
+    for the fd-exhaustion variant that reaches here as a bare `OSError`.
 
     Also covers a primary-DB failover briefly routing the watermark's `select_for_update()` onto a
     connection that has become a read-only standby: Postgres raises `ReadOnlySqlTransaction`
@@ -155,5 +197,7 @@ def is_transient_maintenance_error(error: BaseException) -> bool:
     if isinstance(error, OperationalError | InterfaceError):
         return True
     if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
+        return True
+    if _is_too_many_open_files_error(error):
         return True
     return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)

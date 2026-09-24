@@ -222,6 +222,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             409: WidgetErrorSerializer,
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="demo-data", required_scopes=["notebook:write", "query:read"])
     def update_demo_data(self, request: Request, **kwargs) -> Response:
         self._require_feature()
@@ -323,6 +324,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             409: WidgetErrorSerializer,
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="save-version", required_scopes=["notebook:write"])
     def save_version(self, request: Request, **kwargs) -> Response:
         self._require_feature()
@@ -353,6 +355,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             409: WidgetErrorSerializer,
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="discard-version", required_scopes=["notebook:write"])
     def discard_version(self, request: Request, **kwargs) -> Response:
         self._require_feature()

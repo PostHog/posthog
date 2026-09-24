@@ -304,8 +304,14 @@ describe("model classification", () => {
     expect(deepseek?.contextWindow).toBe(1_048_000);
   });
 
-  it("keeps DeepSeek out of the offline fallback list", () => {
-    expect(byId("us").has("deepseek-ai/deepseek-v4-flash-0731")).toBe(false);
+  it.each([
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "zai-org/glm-5.3",
+    "zai-org/glm-5.3-flash",
+  ])("offers %s from the offline fallback list", (id) => {
+    const model = byId("us").get(id);
+    expect(model).toBeDefined();
+    expect(model?.api).toBe("openai-completions");
   });
 
   it("points OpenAI models at the region-specific gateway", () => {

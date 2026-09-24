@@ -96,6 +96,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** RTK output-compression token savings tallied at the end of a run */
   RTK_SAVINGS: "_posthog/rtk_savings",
 
+  BUDGET_STEER: "_posthog/budget_steer",
+
   /** Latest native Codex goal state, persisted so cold cloud resumes can restore it. */
   CODEX_GOAL: "_posthog/codex_goal",
   /** Desktop → sandbox reply to an MCP relay request (docs/CLOUD-MCP-RELAY.md). */
@@ -187,4 +189,34 @@ export function isMethod(
   expected: PosthogMethod,
 ): boolean {
   return matchesExt(method, expected);
+}
+
+/**
+ * Names `traceId` on a turn-complete notification that reports none.
+ *
+ * The codex adapter mints this notification itself and reports no trace id, so
+ * a rating on the turn has nothing to open. The gateway groups the run's
+ * generations under the run id, which makes that id the turn's trace.
+ */
+export function withTurnTraceId(
+  message: Record<string, unknown>,
+  traceId: string | null | undefined,
+): Record<string, unknown> {
+  if (
+    !traceId ||
+    !isNotification(
+      message.method as string | undefined,
+      POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+    )
+  ) {
+    return message;
+  }
+  const params = message.params;
+  if (typeof params !== "object" || params === null) {
+    return message;
+  }
+  if (typeof (params as { traceId?: unknown }).traceId === "string") {
+    return message;
+  }
+  return { ...message, params: { ...params, traceId } };
 }

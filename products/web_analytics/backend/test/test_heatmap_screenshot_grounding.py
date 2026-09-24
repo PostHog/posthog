@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from products.web_analytics.backend.heatmap_screenshot_grounding import (
     _annotate,
@@ -49,6 +49,13 @@ class TestMarkersAndAnnotation(SimpleTestCase):
         markers = _build_markers({"rageclicks": [{"pointer_relative_x": 1.5, "pointer_y": 999_999, "count": 2}]})
         out = _annotate(_jpeg(200, 300), markers)
         assert Image.open(io.BytesIO(out)).format == "JPEG"
+
+    def test_annotate_refuses_a_format_that_snapshots_never_hold(self):
+        buf = io.BytesIO()
+        Image.new("RGB", (200, 300), (240, 240, 240)).save(buf, format="TIFF")
+        markers = _build_markers(_heatmap_data())
+        with self.assertRaises(UnidentifiedImageError):
+            _annotate(buf.getvalue(), markers)
 
 
 class TestFetchScreenshotBytes(APIBaseTest):

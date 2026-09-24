@@ -72,9 +72,12 @@ def lock_definition(team_id: int, definition_id: str | UUID) -> AccountRelations
 def set_controlled(team_id: int, definition_id: UUID, controlled: bool) -> AccountRelationshipDefinition:
     """Let customer analytics take control of the definition per account, or stop it.
 
-    Taking control enrolls no account. Giving it up is refused while any account is enrolled, because
-    those accounts would fall back to legacy authority at once, and while a claim view is bound to the
-    definition, because a claim can only fill a controlled relationship.
+    Taking control enrolls no account at once. From then on, a person's change to a controlled
+    relationship on a linked account enrolls that account (see ``logic/relationships.py``). Reviewed
+    adoption enrolls accounts in batches. Giving control up is refused while any account is
+    enrolled, because those accounts would fall back to legacy authority at once. It is also refused
+    while a claim view is bound to the definition, because a claim can only fill a controlled
+    relationship.
     """
     with transaction.atomic():
         definition = lock_definition(team_id, definition_id)

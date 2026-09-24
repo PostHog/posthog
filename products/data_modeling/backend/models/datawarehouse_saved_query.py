@@ -118,6 +118,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     )
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+    # Null on rows that predate the column; the write path accepts any token for those until their first edit.
+    query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -224,6 +226,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 name="dwsavedquery_team_live_matvw",
                 condition=~models.Q(deleted=True),
             ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwsavedquery_team_live_created",
+                condition=~models.Q(deleted=True),
+            ),
         ]
 
     @property
@@ -271,11 +278,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         node: Node | None = None
         try:
-            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
-            # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
-            # that, if it fails, we honor the failure contract below rather than leaving
-            # is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id)
+            # If this query's DAG runs on cadence tiers, those tiers materialize it. A bare whole-DAG
+            # schedule does not count: reconcile refuses to add tiers beside one, so bootstrap sweeps it.
+            # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
+            # contract below rather than leaving is_materialized=True with no schedule backing it.
+            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id, tiered_only=True)
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
@@ -283,7 +290,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
             dag_to_bootstrap = None
             if not on_v2:
-                # Nothing creates a DAG's first schedule outside the migration commands, so a
+                # Nothing creates a DAG's first tier outside the migration commands, so a
                 # brand-new team has nothing to materialize it. Bootstrap it onto tiers instead.
                 if node is not None and node.dag is not None:
                     dag_to_bootstrap = node.dag

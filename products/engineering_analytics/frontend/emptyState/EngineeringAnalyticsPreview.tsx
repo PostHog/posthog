@@ -12,11 +12,10 @@ function areaPath(line: string): string {
 }
 
 /**
- * Example-data preview for the engineering analytics empty state: the pull request list next
- * to the CI runs of the selected pull request, plus the team's time-to-merge trend. A hidden
- * radio pair drives the selection via `:checked ~` styles - no timers or state, per the
- * preview rules in the `building-product-empty-states` skill. Both run lists share one grid
- * cell and crossfade, so switching never moves the card.
+ * Example-data preview for the engineering analytics empty state. A hidden radio pair drives the
+ * selection through `:checked ~` styles, with no timers or state, per the
+ * `building-product-empty-states` skill. Both run lists share one grid cell and crossfade, so
+ * switching the selection never moves the card.
  */
 export function EngineeringAnalyticsPreview(): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()

@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 import importlib
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
@@ -12,6 +13,7 @@ import httpx
 import httpx_sse
 import temporalio.client
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.models import Task, TaskRun
@@ -83,6 +85,9 @@ class TestIsTurnComplete:
                 {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
                 True,
             ),
+            ("null_notification", {"type": "notification", "notification": None}, False),
+            ("scalar_notification", {"type": "notification", "notification": "turn_completed"}, False),
+            ("array_notification", {"type": "notification", "notification": []}, False),
         ]
     )
     def test_is_turn_complete(self, _name: str, event_data: dict, expected: bool):
@@ -857,8 +862,43 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.release_first_agent_activity.assert_not_awaited()
         assert redis_stream.claim_first_agent_activity.await_count == 2
 
-    async def test_relay_fails_the_run_instead_of_completing_it_on_a_pi_runtime_error(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("event", "turn_failed", "turn_completed", "turn_succeeded"),
+        [
+            ({"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}, True, False, False),
+            (
+                {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}},
+                False,
+                True,
+                False,
+            ),
+            (
+                {
+                    "type": "notification",
+                    "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+                },
+                False,
+                True,
+                True,
+            ),
+            (
+                {
+                    "type": "notification",
+                    "notification": {"method": TURN_COMPLETE_METHOD, "params": {"stopReason": "idle_resume"}},
+                },
+                False,
+                False,
+                False,
+            ),
+        ],
+    )
+    async def test_relay_handles_turn_completion(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        event: dict[str, object],
+        turn_failed: bool,
+        turn_completed: bool,
+        turn_succeeded: bool,
     ) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -870,7 +910,7 @@ class TestRelaySandboxEventsErrorHandling:
             release_first_agent_activity=AsyncMock(),
         )
         events = [
-            {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+            event,
             {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
         ]
 
@@ -899,6 +939,21 @@ class TestRelaySandboxEventsErrorHandling:
         )
         monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
 
+        dispatch_done = asyncio.Event()
+
+        async def run_sync(func: Callable[..., object], *args: object, **kwargs: object) -> object:
+            result = func(*args, **kwargs)
+            dispatch_done.set()
+            return result
+
+        notify = MagicMock()
+        monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed", notify)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", run_sync)
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        task_run = TaskRun(state={"mode": "interactive"})
+
         await _relay_loop(
             events_url="https://sandbox.example/events",
             headers={"Authorization": "Bearer token"},
@@ -906,10 +961,24 @@ class TestRelaySandboxEventsErrorHandling:
             redis_stream=cast(TaskRunRedisStream, redis_stream),
             run_id="run-id",
             task_id="task-id",
+            task_run=task_run,
         )
 
-        assert call("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]) in handle.signal.await_args_list
-        assert call("agent_state_changed", arg=False) not in handle.signal.await_args_list
+        if turn_failed:
+            handle.signal.assert_awaited_once_with("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE])
+        else:
+            await asyncio.wait_for(dispatch_done.wait(), timeout=5)
+            assert handle.signal.await_args_list == [
+                call("agent_state_changed", arg=False),
+                call("agent_turn_completed", arg=turn_succeeded),
+            ]
+        if turn_completed:
+            notify.assert_called_once_with(task_run)
+        else:
+            notify.assert_not_called()
+        assert (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before == int(
+            not turn_failed and not turn_completed
+        )
 
     @parameterized.expand(
         [

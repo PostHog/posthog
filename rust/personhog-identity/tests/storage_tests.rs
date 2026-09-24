@@ -760,6 +760,53 @@ async fn resolve_returns_only_existing_keys() {
 }
 
 #[tokio::test]
+async fn resolve_does_not_lock_person_partitions_outside_the_batch() {
+    let ctx = TestContext::new().await;
+    let person_id = ctx.insert_person_with_distinct_id("pruned").await;
+
+    let own_partition: String = sqlx::query_scalar(&format!(
+        "SELECT tableoid::regclass::text FROM {} WHERE team_id = $1 AND id = $2",
+        ctx.tables.person
+    ))
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("person row should name its partition");
+    let other_partition: String = sqlx::query_scalar(
+        "SELECT inhrelid::regclass::text FROM pg_inherits
+         WHERE inhparent = $1::regclass AND inhrelid::regclass::text <> $2
+         ORDER BY 1 LIMIT 1",
+    )
+    .bind(&ctx.tables.person)
+    .bind(&own_partition)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("person table should have another partition");
+
+    let mut blocker = ctx.pool.begin().await.expect("begin should succeed");
+    sqlx::query(&format!(
+        "LOCK TABLE {other_partition} IN ACCESS EXCLUSIVE MODE"
+    ))
+    .execute(&mut *blocker)
+    .await
+    .expect("lock should succeed");
+
+    let resolved = tokio::time::timeout(
+        Duration::from_secs(5),
+        ctx.storage
+            .resolve_distinct_ids(&[(ctx.team_id, "pruned".to_string())]),
+    )
+    .await
+    .expect("resolve waited on a person partition its batch does not touch")
+    .expect("resolve should succeed");
+    assert_eq!(resolved[&(ctx.team_id, "pruned".to_string())].id, person_id);
+
+    blocker.rollback().await.ok();
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn attach_covers_fresh_revived_and_live_mappings_per_row() {
     let ctx = TestContext::new().await;
     let owner = ctx.insert_person_with_distinct_id("attach-owner").await;

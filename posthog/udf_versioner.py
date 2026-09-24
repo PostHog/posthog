@@ -19,6 +19,7 @@ UNVERSIONED_FUNCTIONS = {
     "JSONCleanPostHogEventProperties",
     "JSONCleanPostHogPersonProperties",
     "JSONCleanPostHogTemporaryProperties",
+    "JSONDropKeysPool",
     "JSONStripEmptyStringsAndNulls",
 }
 

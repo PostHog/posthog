@@ -1,5 +1,6 @@
 import { describeCron, nextCronOccurrence } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
+import { fullName } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
@@ -62,6 +63,27 @@ function isWithinColdStart(config: SignalScoutConfig, now: Date): boolean {
         return false
     }
     return dayjs(now).diff(dayjs(anchor.at), 'day', true) < SCOUT_COLD_START_DAYS
+}
+
+/**
+ * Who stopped this scout and when, or null while it runs. `status_changed_by` is stamped only when
+ * a person paused it through the config API, so a user pause with no actor is an older or
+ * unattributed toggle: it says "Turned off" alone rather than crediting the system for it.
+ */
+export function scoutPausedByLine(config: SignalScoutConfig): string | null {
+    const on = config.status_changed_at ? dayjs(config.status_changed_at).format('MMM D, YYYY') : null
+    if (config.status === 'paused_by_system') {
+        return on ? `Paused by PostHog · ${on}` : 'Paused by PostHog'
+    }
+    if (config.status === 'paused_by_user' || !config.enabled) {
+        const actor = config.status_changed_by
+        const name = actor ? fullName(actor) || actor.email : null
+        if (name) {
+            return on ? `Turned off by ${name} · ${on}` : `Turned off by ${name}`
+        }
+        return on ? `Turned off ${on}` : 'Turned off'
+    }
+    return null
 }
 
 export function scoutGroup(config: SignalScoutConfig, rollup: ScoutRollup | undefined, now: Date): ScoutGroupKey {
@@ -148,11 +170,9 @@ export function scoutSubtitle(
         }
     }
     if (config.status === 'paused_by_user' || !config.enabled) {
-        const changedAt = config.status_changed_at
-        return {
-            text: changedAt ? `Turned off ${dayjs(changedAt).format('MMM D, YYYY')}` : 'Turned off',
-            tone: 'muted',
-        }
+        // Who turned it off, so the roster answers the question a reader asks next without them
+        // having to know the activity log exists.
+        return { text: scoutPausedByLine(config) ?? 'Turned off', tone: 'muted' }
     }
     if (!config.emit) {
         return { text: 'Runs and investigates, but files nothing', tone: 'muted' }

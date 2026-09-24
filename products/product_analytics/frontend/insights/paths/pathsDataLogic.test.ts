@@ -67,17 +67,16 @@ describe('buildFunnelEventsFromPathNode', () => {
         {
             scenario: 'custom event',
             node: makeNode('1_signed_up', 0),
-            expected: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
+            expected: [{ kind: NodeKind.EventsNode, event: 'signed_up', name: 'signed_up' }],
         },
         {
             scenario: 'URL node adds $pageview with $current_url property',
             node: makeNode('1_https://example.com/page', 0),
             expected: [
                 {
-                    id: '$pageview',
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
                     name: '$pageview',
-                    type: 'events',
-                    order: 0,
                     properties: [
                         {
                             key: '$current_url',
@@ -92,26 +91,24 @@ describe('buildFunnelEventsFromPathNode', () => {
         {
             scenario: 'relative path',
             node: makeNode('1_/dashboard', 0),
-            expected: [{ id: '/dashboard', name: '/dashboard', type: 'events', order: 0 }],
+            expected: [{ kind: NodeKind.EventsNode, event: '/dashboard', name: '/dashboard' }],
         },
         {
             scenario: 'screen name',
             node: makeNode('1_$screen', 0),
-            expected: [{ id: '$screen', name: '$screen', type: 'events', order: 0 }],
+            expected: [{ kind: NodeKind.EventsNode, event: '$screen', name: '$screen' }],
         },
         {
-            scenario: 'chain of mixed nodes walks backward via targetLinks',
+            scenario: 'chain of mixed nodes comes back in funnel step order',
             node: (() => {
                 const start = makeNode('1_https://example.com/', 0)
                 return makeNode('2_signed_up', 1, start)
             })(),
             expected: [
-                { id: 'signed_up', name: 'signed_up', type: 'events', order: 1 },
                 {
-                    id: '$pageview',
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
                     name: '$pageview',
-                    type: 'events',
-                    order: 0,
                     properties: [
                         {
                             key: '$current_url',
@@ -121,6 +118,7 @@ describe('buildFunnelEventsFromPathNode', () => {
                         },
                     ],
                 },
+                { kind: NodeKind.EventsNode, event: 'signed_up', name: 'signed_up' },
             ],
         },
     ])('$scenario', ({ node, expected }) => {

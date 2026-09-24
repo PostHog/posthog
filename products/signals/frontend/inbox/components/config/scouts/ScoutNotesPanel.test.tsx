@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { PANEL_LOAD_TIMEOUT_MS } from '../../../utils/panelLoadTimeout'
 import { ScoutNotesPanel } from './ScoutNotesPanel'
 
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -30,7 +31,10 @@ describe('ScoutNotesPanel', () => {
         initKeaTests()
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+    })
 
     it('shows the opening of a long note until it is expanded', async () => {
         const { findByText, getByText, queryByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
@@ -43,5 +47,20 @@ describe('ScoutNotesPanel', () => {
         fireEvent.click(getByText('Show more'))
 
         expect(getByText(new RegExp(TAIL))).toBeTruthy()
+    })
+
+    it('offers a retry once a load that never settles times out', async () => {
+        useMocks({ get: { '/api/projects/:team/signals/scout/notes/': () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+
+        const { findByText, getByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
+
+        expect(getByText('Loading notes…')).toBeTruthy()
+
+        await act(async () => {
+            jest.advanceTimersByTime(PANEL_LOAD_TIMEOUT_MS)
+        })
+
+        expect(await findByText('Try again')).toBeTruthy()
     })
 })

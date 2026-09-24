@@ -149,7 +149,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyRowCacheEntries = new Gauge({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
-        help: 'Stored ML key rows the per-process cache holds, counted after a read. Expired rows stay counted until a read or an eviction removes them, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
+        help: 'Stored ML key rows the per-process cache holds, counted after a read. A read purges expired rows at most once a minute, and a lookup of an expired row or an eviction removes it between purges, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
     })
     private static readonly mlKeyReadRetries = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',
@@ -158,7 +158,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyPhaseDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
-        help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
+        help: 'Wall time of one ML key phase per Kafka batch. Prepare runs in the prepare stage and commit and publish in the commit stage, so a phase that dominates its stage while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
         labelNames: ['phase'],
         buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity],
     })

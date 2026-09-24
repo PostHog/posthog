@@ -76,6 +76,8 @@ export interface RunInteractionLogicProps {
     initialDraft?: string
     onDraftAdopted?: () => void
     flushDraft?: () => void
+    /** Context exclusive to the runner that owns this interaction. */
+    contextItems?: AttachedContextItem[]
     /** The run's stored model / reasoning effort / launch mode, injected by the consumer. They seed the picker's
      * display and the config a terminal-run send launches the next run with (override ?? this ?? default). */
     currentModel?: string | null
@@ -251,8 +253,8 @@ export interface runInteractionLogicActions {
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     } // runStreamLogic
-    markTurnComplete: () => {
-        value: true
+    markTurnComplete: (isReplay?: boolean | undefined) => {
+        isReplay: boolean
     } // runStreamLogic
     permissionResponseFailed: (requestId: string) => {
         requestId: string
@@ -515,10 +517,10 @@ export interface runInteractionLogicMeta {
         ) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
         pendingContextItems: (
-            contextItems: AttachedContextItem[],
+            arg: AttachedContextItem[],
             sentContextKeysByTask: Record<string, string[]>,
             seenContextLinesByTask: Record<string, string[]>,
-            arg: string
+            arg2: string
         ) => AttachedContextItem[]
     }
 }
@@ -1004,7 +1006,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
             (s) => [
-                s.contextItems,
+                (state, p: RunInteractionLogicProps) => p.contextItems ?? s.contextItems(state, p),
                 s.sentContextKeysByTask,
                 s.seenContextLinesByTask,
                 (_, p: RunInteractionLogicProps) => p.taskId,
@@ -1313,8 +1315,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
 
             // The agent finished a turn — drain any staged follow-ups.
-            markTurnComplete: () => {
-                actions.flushQueue()
+            markTurnComplete: ({ isReplay }) => {
+                if (!isReplay) {
+                    actions.flushQueue()
+                }
             },
 
             // The new model may not support the current effort — clamp the override so it never holds an

@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 
-import type { DashboardType, QueryBasedInsightModel } from '../../types'
+import type { DashboardType } from '../../types'
 
 export interface DuplicateDashboardForm {
     dashboardId: number | null
@@ -143,7 +143,7 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
             dashboard,
             payload,
         }: {
-            dashboard: DashboardType<QueryBasedInsightModel>
+            dashboard: DashboardType
             payload?: Pick<DuplicateDashboardForm, 'duplicateTiles' | 'show'>
         }) => {
             actions.hideDuplicateDashboardModal()

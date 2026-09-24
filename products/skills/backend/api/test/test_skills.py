@@ -45,6 +45,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -606,20 +607,134 @@ class TestLLMSkillAPI(APIBaseTest):
             "needle",
             "needle-name",
             "description-skill",
-            "body-skill",
             "file-path-skill",
+            "body-skill",
             "file-content-skill",
         ]
         assert [result["matches"][0]["matched_field"] for result in results] == [
             "name",
             "name",
             "description",
-            "body",
             "file_path",
+            "body",
             "file_content",
         ]
-        assert results[3]["matches"][0]["path"] == "SKILL.md"
+        assert [result["score"] for result in results] == [8000, 3000, 900, 360, 240, 120]
+        assert results[4]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
+
+    @parameterized.expand(
+        [
+            (
+                "path",
+                [
+                    {"path": "references/a-support.txt", "content": "No match."},
+                    {"path": "references/z-support-queue.txt", "content": "No match."},
+                ],
+                "references/z-support-queue.txt",
+            ),
+            (
+                "content",
+                [
+                    {"path": "references/a.md", "content": "Support only.", "content_type": "text/markdown"},
+                    {
+                        "path": "references/z.md",
+                        "content": "Support queue.",
+                        "content_type": "text/markdown",
+                    },
+                ],
+                "references/z.md",
+            ),
+        ]
+    )
+    def test_search_skills_returns_the_file_that_produced_the_highest_score(
+        self, _label: str, files: list[dict[str, str]], expected_path: str
+    ) -> None:
+        skill = self.create_skill(name="ranked-file-match", description="A ranked file match.", body="# Body")
+        for file in files:
+            LLMSkillFile.objects.create(skill=skill, **file)
+
+        response = self.client.get(self._url("search?query=support%20queue"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["matches"][0]["path"] == expected_path
+
+    def test_search_skills_ranks_multi_token_project_workflow_before_generic_matches(self):
+        self.create_skill(
+            name="self-driving-support-hero",
+            description="Run the prioritized support inbox for tickets by SLA and priority.",
+            body="# Support hero\nWork the queue without missing tickets.",
+        )
+        for index in range(12):
+            self.create_skill(
+                name=f"generic-support-queue-{index:02d}",
+                description="Generic project workflow.",
+                body="# Generic\nLook up tickets.",
+            )
+
+        response = self.client.get(self._url("search?query=support%20queue%20tickets"))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert results[0]["name"] == "self-driving-support-hero"
+        assert results[0]["score"] == 213
+        assert len(results) == SKILL_SEARCH_RESULT_LIMIT
+
+    def test_search_skills_ranks_exact_name_before_substring_matches(self):
+        self.create_skill(name="support", description="Exact match.", body="# Support")
+        for index in range(SKILL_SEARCH_RESULT_LIMIT):
+            self.create_skill(
+                name=f"{chr(ord('a') + index)}-support",
+                description="Substring match.",
+                body="# Support",
+            )
+
+        response = self.client.get(self._url("search?query=support"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["name"] == "support"
+
+    def test_search_skills_bounds_token_expansion(self):
+        self.create_skill(name="first-token-match", description="Contains alpha.", body="# First")
+        self.create_skill(name="long-token-match", description="Contains ninthtoken.", body="# Long")
+        self.create_skill(name="overflow-match", description="Contains golf.", body="# Overflow")
+
+        response = self.client.get(
+            self._url("search?query=a%20alpha%20bravo%20charlie%20delta%20echo%20foxtrot%20golf%20hotel%20ninthtoken")
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == [
+            "first-token-match",
+            "long-token-match",
+        ]
+
+    @parameterized.expand(
+        [
+            ("ies_plural", "queries", "querying", "Run a query.", True),
+            ("u_plural", "bayous", "wetlands", "Explore a bayou.", True),
+            ("short_derived_stem", "types", "classification", "Review a stereotype.", False),
+            ("distinct_final_character", "states", "statistics", "Analyze numerical data.", False),
+        ]
+    )
+    def test_search_skills_applies_bounded_stemming(
+        self, _label: str, query: str, name: str, description: str, should_match: bool
+    ) -> None:
+        self.create_skill(name=name, description=description, body="# Guide")
+
+        response = self.client.get(self._url(f"search?query={query}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ([name] if should_match else [])
+
+    def test_search_skills_does_not_stem_singular_s_words(self):
+        self.create_skill(name="statue", description="Sculpture reference.", body="# Statue")
+        self.create_skill(name="support-workflow", description="Track support status.", body="# Support workflow")
+
+        response = self.client.get(self._url("search?query=status"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["support-workflow"]
 
     def test_search_skills_limits_file_queries_to_remaining_matches(self):
         path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
@@ -2242,6 +2357,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                 {
                     "name": self.skill.name,
                     "description": self.skill.description,
+                    "score": 240,
                     "matches": [
                         {
                             "matched_field": "body",
