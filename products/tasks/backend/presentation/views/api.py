@@ -262,19 +262,16 @@ def _agent_run_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
-TASKS_PREWARM_INBOX_DISCUSSION_FLAG = "tasks-prewarm-inbox-discussion"
 
-# One rollout per origin product — the Code app, PostHog AI and the Inbox reach different populations,
-# so a shared flag would drag one to 100% while rolling out another.
 WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
     tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
-    tasks_facade.TaskOriginProduct.SIGNAL_REPORT: TASKS_PREWARM_INBOX_DISCUSSION_FLAG,
 }
 
 # Origins that warm for every user, with no flag left to evaluate.
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
 
