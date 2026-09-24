@@ -123,7 +123,7 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     let context = corpus::context(&case, &properties);
     let result = evaluator.evaluate(&context);
     assert_eq!(result, evaluator.evaluate(&context));
-    assert!(evaluator.estimated_heap_bytes() >= 2048);
+    assert!(config.estimated_heap_bytes() >= 2048);
     let debug = format!("{evaluator:?} {context:?} {result:?}");
     for sensitive in [
         "sensitive-pattern",

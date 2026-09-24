@@ -16,7 +16,7 @@ PostgreSQL decodes filters as raw JSON through the same reader used by service-c
 V2 validation checks the retained tokens for duplicate object keys, nonzero numeric underflow, and excess percentage precision before admitting the typed configuration.
 These checks share one token pass with the compact document-size limit; original tokens survive cache round trips.
 Validation cannot recover precision or duplicate keys already lost by an upstream producer, so writers must enforce these constraints before ordinary JSON decoding.
-The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, and seeds.
+The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, seeds, and compiled regexes.
 Manually constructed opaque filters still use the passthrough-map serialization fallback.
 
 The parser accepts person-assigned boolean configurations with ordered targeted-release and percentage-rollout rules.
@@ -57,8 +57,8 @@ To roll back parsing, remove its reader consumer first while retaining opaque no
 Never restore a reader that interprets v2 data as v1.
 
 The dormant `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
-It prepares regexes once for reuse and reports its additional heap estimate separately from the cached config, using the same opaque-engine estimate as v1.
-It does not participate in the service cache or HTTP dispatch.
+The reader compiles each regex predicate once at parse time and stores it on the cached config, counted with the same opaque-engine estimate as v1; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
+The evaluator does not participate in the service cache or HTTP dispatch.
 Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
 The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
 The service adapter must retain eligibility and load/merge property context before invoking it.

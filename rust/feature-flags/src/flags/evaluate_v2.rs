@@ -15,9 +15,7 @@ use crate::handler::canonical_log::truncate_chars;
 use crate::properties::property_matching::{
     match_property_input, FlagMatchingError, PropertyMatchInput, PropertyMatchingContext,
 };
-use crate::properties::property_models::{
-    CompiledRegex, OperatorType, ESTIMATED_COMPILED_REGEX_BYTES,
-};
+use crate::properties::property_models::CompiledRegex;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleKind {
@@ -78,10 +76,9 @@ impl fmt::Debug for EvaluationContext<'_> {
 }
 
 /// Borrows the reader's validated configuration. Admission and eligibility belong to the caller.
-/// Keep this preparation alive across evaluations to reuse compiled patterns.
+/// Cheap to build per request; compiled patterns live on the cached configuration.
 pub struct Evaluator<'a> {
     config: &'a Config,
-    regexes: Vec<Vec<Option<CompiledRegex>>>,
 }
 
 impl fmt::Debug for Evaluator<'_> {
@@ -94,43 +91,7 @@ impl fmt::Debug for Evaluator<'_> {
 
 impl<'a> Evaluator<'a> {
     pub fn new(config: &'a Config) -> Self {
-        let regexes = config
-            .rules
-            .iter()
-            .map(|rule| {
-                rule.targeting
-                    .iter()
-                    .map(|predicate| {
-                        matches!(
-                            predicate.operator,
-                            OperatorType::Regex | OperatorType::NotRegex
-                        )
-                        .then(|| {
-                            predicate
-                                .value
-                                .as_ref()
-                                .and_then(Value::as_str)
-                                .map_or(CompiledRegex::InvalidPattern, CompiledRegex::new)
-                        })
-                    })
-                    .collect()
-            })
-            .collect();
-        Self { config, regexes }
-    }
-
-    /// Uses the same per-pattern estimate as v1 preparation; compiled engine allocations are opaque.
-    pub fn estimated_heap_bytes(&self) -> usize {
-        let slots: usize = self.regexes.iter().map(Vec::capacity).sum();
-        let compiled = self
-            .regexes
-            .iter()
-            .flatten()
-            .filter(|regex| matches!(regex, Some(CompiledRegex::Compiled(_))))
-            .count();
-        self.regexes.capacity() * std::mem::size_of::<Vec<Option<CompiledRegex>>>()
-            + slots * std::mem::size_of::<Option<CompiledRegex>>()
-            + compiled * ESTIMATED_COMPILED_REGEX_BYTES
+        Self { config }
     }
 
     pub fn evaluate(&self, context: &EvaluationContext<'_>) -> Result<Evaluation, EvaluationError> {
@@ -155,15 +116,14 @@ impl<'a> Evaluator<'a> {
             PersonProperties::Unavailable => None,
         };
         let mut hashes = HashMap::new();
-        'rules: for (index, (rule, regexes)) in
-            self.config.rules.iter().zip(&self.regexes).enumerate()
-        {
-            for (predicate, regex) in rule.targeting.iter().zip(regexes) {
+        'rules: for (index, rule) in self.config.rules.iter().enumerate() {
+            for predicate in &rule.targeting {
                 let (properties, partial) =
                     person_properties.ok_or(EvaluationError::MissingContext)?;
                 if partial && !properties.contains_key(&predicate.key) {
                     return Err(EvaluationError::MissingContext);
                 }
+                let regex = predicate.compiled_regex.as_ref();
                 // An invalid pattern is not a conclusive false result that negation can invert.
                 if matches!(regex, Some(CompiledRegex::InvalidPattern)) {
                     return Err(EvaluationError::InvalidRegex);
@@ -173,7 +133,7 @@ impl<'a> Evaluator<'a> {
                         key: &predicate.key,
                         value: predicate.value.as_ref(),
                         operator: predicate.operator,
-                        compiled_regex: regex.as_ref(),
+                        compiled_regex: regex,
                     },
                     properties,
                     partial,
