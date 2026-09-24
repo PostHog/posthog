@@ -742,6 +742,9 @@ tools:
     tasks-runs-create:
         operation: tasks_runs_create
         enabled: false
+    tasks-runs-failed-messages-retrieve:
+        operation: tasks_runs_failed_messages_retrieve
+        enabled: false
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
