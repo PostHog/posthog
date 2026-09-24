@@ -224,10 +224,10 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             properties=properties,
         )
         flush_persons_and_events()
-        assert self._count(target=target, rerun_existing=False) == expected
-        assert self._count(target=target, rerun_existing=True) == expected + 1
-        assert self._scope(target=target, rerun_existing=False).already_judged == 1
-        assert self._scope(target=target, rerun_existing=True).already_judged == 1
+        deduped = self._scope(target=target, rerun_existing=False)
+        rerun = self._scope(target=target, rerun_existing=True)
+        assert (deduped.to_evaluate, deduped.already_judged) == (expected, 1)
+        assert (rerun.to_evaluate, rerun.already_judged) == (expected + 1, 1)
 
     @parameterized.expand(
         [

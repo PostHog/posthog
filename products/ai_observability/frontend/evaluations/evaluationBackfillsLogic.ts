@@ -90,11 +90,11 @@ function backfillErrorMessage(error: unknown, fallback: string): string {
     return evaluationErrorMessage(error, fallback)
 }
 
-/** Each consecutive list failure doubles the wait, so an API that is already struggling is not
- * polled at full rate. The wait returns to the base interval as soon as one load succeeds. */
 // How long a finished run keeps refreshing while its coverage count is still on its way.
 const COVERAGE_GRACE_SECONDS = 120
 
+/** Each consecutive list failure doubles the wait, so an API that is already struggling is not
+ * polled at full rate. The wait returns to the base interval as soon as one load succeeds. */
 function pollDelayMs(consecutiveFailures: number): number {
     return Math.min(ACTIVE_POLL_INTERVAL_MS * 2 ** Math.max(consecutiveFailures - 1, 0), MAX_POLL_INTERVAL_MS)
 }

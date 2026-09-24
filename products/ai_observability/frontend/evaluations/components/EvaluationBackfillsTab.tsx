@@ -271,7 +271,7 @@ export function EvaluationBackfillsTab({
                         title={
                             measured
                                 ? `How many ${backfillUnitPlural(backfill)} hold a result, counted when the run ended. The evaluation grades new data on its own, so it covers some of them without this run.`
-                                : 'How many units this backfill has started evaluating. It does not track which of them have finished.'
+                                : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
                         }
                     >
                         <div className="min-w-24">
@@ -445,65 +445,68 @@ export function EvaluationBackfillsTab({
                     isRowExpanded: (backfill) => (expandedBackfillIds.includes(backfill.id) ? 1 : -1),
                     onRowExpand: (backfill) => expandBackfill(backfill.id),
                     onRowCollapse: (backfill) => collapseBackfill(backfill.id),
-                    expandedRowRender: (backfill) => (
-                        <div className="flex items-center justify-between gap-4 px-2 py-3">
-                            <div className="flex flex-col gap-2 min-w-0">
-                                {backfill.conditions.map((condition, index) => (
-                                    <div key={index} className="flex items-center gap-1 flex-wrap">
-                                        <ConditionSetScope
-                                            condition={condition}
-                                            unitPlural={backfillUnitPlural(backfill)}
-                                        />
-                                        <span className="text-muted whitespace-nowrap">
-                                            {backfillSamplingLabel(condition)}
+                    expandedRowRender: (backfill) => {
+                        const remainderLabel = backfillRemainderLabel(backfill)
+                        return (
+                            <div className="flex items-center justify-between gap-4 px-2 py-3">
+                                <div className="flex flex-col gap-2 min-w-0">
+                                    {backfill.conditions.map((condition, index) => (
+                                        <div key={index} className="flex items-center gap-1 flex-wrap">
+                                            <ConditionSetScope
+                                                condition={condition}
+                                                unitPlural={backfillUnitPlural(backfill)}
+                                            />
+                                            <span className="text-muted whitespace-nowrap">
+                                                {backfillSamplingLabel(condition)}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div className="flex items-center gap-2 flex-wrap text-muted">
+                                        <span className="flex items-center gap-1">
+                                            <TZLabel
+                                                time={backfill.window_start}
+                                                timestampStyle="absolute"
+                                                {...WINDOW_TIME_FORMAT}
+                                            />
+                                            <span>→</span>
+                                            <TZLabel
+                                                time={backfill.window_end}
+                                                timestampStyle="absolute"
+                                                {...WINDOW_TIME_FORMAT}
+                                            />
                                         </span>
+                                        <span>·</span>
+                                        <span>
+                                            {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
+                                            {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
+                                            {pluralize(backfill.total_count, backfill.target)}
+                                            {backfill.rerun_existing ? ' in range' : ' that had no result'}
+                                        </span>
+                                        {remainderLabel && (
+                                            <>
+                                                <span>·</span>
+                                                <span>{remainderLabel}</span>
+                                            </>
+                                        )}
                                     </div>
-                                ))}
-                                <div className="flex items-center gap-2 flex-wrap text-muted">
-                                    <span className="flex items-center gap-1">
-                                        <TZLabel
-                                            time={backfill.window_start}
-                                            timestampStyle="absolute"
-                                            {...WINDOW_TIME_FORMAT}
-                                        />
-                                        <span>→</span>
-                                        <TZLabel
-                                            time={backfill.window_end}
-                                            timestampStyle="absolute"
-                                            {...WINDOW_TIME_FORMAT}
-                                        />
-                                    </span>
-                                    <span>·</span>
-                                    <span>
-                                        {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
-                                        {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
-                                        {pluralize(backfill.total_count, backfill.target)}
-                                        {backfill.rerun_existing ? ' in range' : ' without a result'}
-                                    </span>
-                                    {backfillRemainderLabel(backfill) && (
-                                        <>
-                                            <span>·</span>
-                                            <span>{backfillRemainderLabel(backfill)}</span>
-                                        </>
-                                    )}
                                 </div>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    to={
+                                        combineUrl(router.values.location.pathname, {
+                                            ...router.values.searchParams,
+                                            evaluation_tab: 'runs',
+                                            backfill_id: backfill.id,
+                                        }).url
+                                    }
+                                    data-attr="llma-eval-backfill-view-results"
+                                >
+                                    View results from this run
+                                </LemonButton>
                             </div>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                to={
-                                    combineUrl(router.values.location.pathname, {
-                                        ...router.values.searchParams,
-                                        evaluation_tab: 'runs',
-                                        backfill_id: backfill.id,
-                                    }).url
-                                }
-                                data-attr="llma-eval-backfill-view-results"
-                            >
-                                View results from this run
-                            </LemonButton>
-                        </div>
-                    ),
+                        )
+                    },
                 }}
                 emptyState={
                     backfillsError ? (

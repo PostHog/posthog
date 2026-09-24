@@ -411,6 +411,12 @@ class BackfillScope:
     already_judged: int
 
 
+def _scope_from_counts(rows: list[tuple[Any, ...]], rerun_existing: bool) -> BackfillScope:
+    """Turn the `(total, judged)` pair both count queries return into a scope."""
+    total, judged = (int(rows[0][0]), int(rows[0][1])) if rows else (0, 0)
+    return BackfillScope(to_evaluate=total if rerun_existing else total - judged, already_judged=judged)
+
+
 def count_backfill_candidates(
     *,
     team: Team,
@@ -435,26 +441,25 @@ def count_backfill_candidates(
         window_end=window_end,
         rerun_existing=True,
     )
-    unjudged = _not_already_evaluated(
-        unit_key=ast.Field(chain=["unit_id"]),
-        evaluation_id=evaluation_id,
-        target=target,
-        window_start=window_start,
-        window_end=window_end,
-        settle_horizon=settle_horizon,
+    judged = ast.Call(
+        name="not",
+        args=[
+            _not_already_evaluated(
+                unit_key=ast.Field(chain=["unit_id"]),
+                evaluation_id=evaluation_id,
+                target=target,
+                window_start=window_start,
+                window_end=window_end,
+                settle_horizon=settle_horizon,
+            )
+        ],
     )
-    judged = ast.Call(name="not", args=[unjudged])
+    # `countIf` over the judged half only, because negating it would put the whole dedupe subquery
+    # in the statement a second time. The other half is the difference from the total.
+    counts = [ast.Call(name="count", args=[]), ast.Call(name="countIf", args=[judged])]
     if not reads_heavy_properties(conditions):
-        query = ast.SelectQuery(
-            select=[ast.Call(name="countIf", args=[unjudged]), ast.Call(name="countIf", args=[judged])],
-            select_from=ast.JoinExpr(table=units),
-        )
-        rows = _run(query, team=team, query_type=COUNT_QUERY_TYPE)
-        unjudged_count, judged_count = (int(rows[0][0]), int(rows[0][1])) if rows else (0, 0)
-        return BackfillScope(
-            to_evaluate=unjudged_count + judged_count if rerun_existing else unjudged_count,
-            already_judged=judged_count,
-        )
+        query = ast.SelectQuery(select=counts, select_from=ast.JoinExpr(table=units))
+        return _scope_from_counts(_run(query, team=team, query_type=COUNT_QUERY_TYPE), rerun_existing)
 
     # `events` cannot judge a heavy filter, and the traces to ask ai_events about are exactly what
     # is being counted, so the count asks ai_events for all of it and comes back with one number.
@@ -464,10 +469,7 @@ def count_backfill_candidates(
     ai_units = parse_select(_AI_UNITS_SQL)
     assert isinstance(ai_units, ast.SelectQuery)
     rows = _run_on_ai_events(
-        ast.SelectQuery(
-            select=[ast.Call(name="countIf", args=[unjudged]), ast.Call(name="countIf", args=[judged])],
-            select_from=ast.JoinExpr(table=ai_units),
-        ),
+        ast.SelectQuery(select=counts, select_from=ast.JoinExpr(table=ai_units)),
         {
             "unit_key": ai_unit_key,
             "max_id_bytes": ast.Constant(value=MAX_CANDIDATE_ID_BYTES),
@@ -479,11 +481,7 @@ def count_backfill_candidates(
         team=team,
         query_type=COUNT_QUERY_TYPE,
     )
-    unjudged_count, judged_count = (int(rows[0][0]), int(rows[0][1])) if rows else (0, 0)
-    return BackfillScope(
-        to_evaluate=unjudged_count + judged_count if rerun_existing else unjudged_count,
-        already_judged=judged_count,
-    )
+    return _scope_from_counts(rows, rerun_existing)
 
 
 def fetch_backfill_candidates(
