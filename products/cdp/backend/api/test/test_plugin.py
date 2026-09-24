@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+import requests
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cdp.templates.helpers import mock_transpile
@@ -34,8 +36,27 @@ def mocked_plugin_reload(*args, **kwargs):
     pass
 
 
+MOCK_PLUGIN_REPOSITORY = [
+    {
+        "name": "helloworldplugin",
+        "url": "https://github.com/posthog/helloworldplugin",
+        "description": "Greet the World and Foo a Bar",
+        "icon": "https://raw.githubusercontent.com/posthog/helloworldplugin/main/logo.png",
+        "verified": True,
+        "maintainer": "community",
+    }
+]
+
+
+def _mock_github_response(body: Any, status_code: int) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    return response
+
+
 @mock.patch("products.cdp.backend.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
-@mock.patch("products.cdp.backend.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
+@mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
 # `new=` keeps this out of every test signature (nothing here asserts on the commit lookup).
 @mock.patch("posthog.plugins.utils.github_request", new=mocked_plugin_github_request)
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -857,29 +878,31 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
     def test_plugin_repository(self, mock_get, mock_reload):
-        response = self.client.get("/api/organizations/@current/plugins/repository/")
+        with mock.patch(
+            "products.cdp.backend.api.plugin.github_request",
+            return_value=_mock_github_response(MOCK_PLUGIN_REPOSITORY, 200),
+        ):
+            response = self.client.get("/api/organizations/@current/plugins/repository/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            [
-                {
-                    "name": "posthog-currency-normalization-plugin",
-                    "url": "https://github.com/posthog/posthog-currency-normalization-plugin",
-                    "description": "Normalise monerary values into a base currency",
-                    "icon": "https://raw.githubusercontent.com/posthog/posthog-currency-normalization-plugin/main/logo.png",
-                    "verified": False,
-                    "maintainer": "official",
-                },
-                {
-                    "name": "helloworldplugin",
-                    "url": "https://github.com/posthog/helloworldplugin",
-                    "description": "Greet the World and Foo a Bar",
-                    "icon": "https://raw.githubusercontent.com/posthog/helloworldplugin/main/logo.png",
-                    "verified": True,
-                    "maintainer": "community",
-                },
-            ],
+        self.assertEqual(response.json(), MOCK_PLUGIN_REPOSITORY)
+
+    @parameterized.expand(
+        [
+            ("unreachable", requests.ConnectionError("no route to host"), None),
+            ("upstream_error", None, 502),
+            ("unexpected_payload", None, 200),
+        ]
+    )
+    def test_plugin_repository_answers_empty_when_github_fails(self, _name, error, status_code, mock_get, mock_reload):
+        github_request = (
+            mock.Mock(side_effect=error)
+            if error is not None
+            else mock.Mock(return_value=_mock_github_response({"message": "no plugins for you"}, status_code))
         )
+        with mock.patch("products.cdp.backend.api.plugin.github_request", github_request):
+            response = self.client.get("/api/organizations/@current/plugins/repository/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
 
     def test_plugin_unused(self, mock_get, mock_reload):
         plugin_no_configs = Plugin.objects.create(organization=self.organization)

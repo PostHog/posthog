@@ -27,6 +27,7 @@ Deferrable background callers construct their client on the `BATCH` lane (`GitHu
 A shed sweep stops for the cycle and resumes on the next scheduled run.
 A caller that walks pages, such as the warehouse source, paces with `github_installation_pace_seconds` instead of getting denied.
 The warehouse source's page fetches run on `BATCH`, while its repository validation and webhook management run on `NORMAL`, because a person waits on them. Customer Analytics feature-request link and resume lookups also run on `NORMAL` because an editor waits for the current issue state. Signals refreshes the stored pull request review decision from GitHub webhooks on `BATCH`; the inbox can keep the last known value when the lane is shed and update it after a retry.
+The CDP plugin repository catalog reads one public JSON file from the raw host on `NORMAL`, identity-blind; the endpoint answers an empty catalog on any failure, so a shed or an unreachable host costs the user a list, not an error.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
 An installation whose only consumer is a bulk one (a warehouse backfill of a repository nothing else touches) would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.

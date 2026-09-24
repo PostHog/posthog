@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils.encoding import smart_str
 from django.utils.timezone import now
 
-import requests
+import structlog
 from dateutil.relativedelta import relativedelta
 from posthoganalytics import capture_exception
 from rest_framework import renderers, request, serializers, status, viewsets
@@ -22,6 +22,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
+from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -54,8 +56,15 @@ from products.cdp.backend.models.plugin import (
     update_validated_data_from_url,
 )
 
+logger = structlog.get_logger(__name__)
+
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
+
+# The raw host serves this public file off a CDN, so the read draws on no GitHub API rate limit and
+# carries no installation to meter it against.
+PLUGIN_REPOSITORY_URL = "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json"
+PLUGIN_REPOSITORY_TIMEOUT_SECONDS = 5.0
 
 
 def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
@@ -340,6 +349,30 @@ class PluginSerializer(serializers.ModelSerializer):
         return cast(Plugin, super().update(plugin, validated_data))
 
 
+def fetch_plugin_repository() -> list[Any]:
+    """The list of installable plugins, or an empty list when GitHub cannot answer. An instance with
+    restricted egress reaches GitHub for none of these reads, and a browsable catalog is optional, so
+    a failure degrades to an empty catalog instead of an error the user cannot act on."""
+    try:
+        response = github_request(
+            "GET",
+            PLUGIN_REPOSITORY_URL,
+            source="plugin_repository",
+            installation_id=None,
+            priority=Priority.NORMAL,
+            timeout=PLUGIN_REPOSITORY_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        plugins = response.json()
+    except Exception as e:
+        logger.warning("plugin_repository_fetch_failed", error=str(e))
+        return []
+    if not isinstance(plugins, list):
+        logger.warning("plugin_repository_unexpected_payload", payload_type=type(plugins).__name__)
+        return []
+    return plugins
+
+
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
@@ -400,9 +433,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
-        url = "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json"
-        plugins = requests.get(url)
-        return Response(json.loads(plugins.text))
+        return Response(fetch_plugin_repository())
 
     @action(methods=["GET"], detail=False)
     def unused(self, request: request.Request, **kwargs):
