@@ -4,7 +4,7 @@ from rest_framework.exceptions import APIException
 from posthog.hogql.errors import BaseHogQLError
 
 from posthog.dataclasses import frozen
-from posthog.errors import QueryErrorCategory, classify_query_error
+from posthog.errors import InternalCHQueryError, QueryErrorCategory, classify_query_error, clickhouse_error_type
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
@@ -44,6 +44,14 @@ def _category_of(error: Exception) -> str:
 
 
 def _message_of(error: Exception, category: str) -> str:
+    if isinstance(error, InternalCHQueryError) and not getattr(error, "user_safe", False):
+        # Several ClickHouse codes carry a category of USER_ERROR for grouping while staying out of
+        # `user_safe`, because the message quotes the stored value that failed to parse. Name the
+        # code so the caller can still act, and never echo the text.
+        return (
+            f"ClickHouse rejected the query ({clickhouse_error_type(error)}). The message is withheld "
+            "because it can quote stored data."
+        )
     if isinstance(error, APIException):
         if isinstance(error.detail, dict):
             message = ", ".join(f"{key}: {value}" for key, value in error.detail.items())

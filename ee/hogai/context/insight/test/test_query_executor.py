@@ -41,7 +41,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 
 from ee.hogai.context.insight.query_executor import (
@@ -271,6 +271,21 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         message = str(context.exception)
         self.assertIn(f"category={expected_category}", message)
         self.assertIn(str(raised), message)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_withholds_an_unsafe_clickhouse_message(self, mock_process_query):
+        # A parse failure is graded user_error for grouping, but its message quotes the stored value
+        # that failed to parse, so the text must never reach the caller.
+        mock_process_query.side_effect = InternalCHQueryError(
+            "Cannot parse '555-0100@example.com' as UInt64", code=6, code_name="cannot_parse_text"
+        )
+
+        with self.assertRaises(Exception) as context:
+            await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
+
+        message = str(context.exception)
+        self.assertNotIn("555-0100@example.com", message)
+        self.assertIn("withheld", message)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_marks_a_capacity_failure_as_overload(self, mock_process_query):
