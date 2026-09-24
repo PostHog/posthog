@@ -151,3 +151,18 @@ export const DomainWithheldFromCaller: StoryFn = () => {
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [], isp_withheld_domains: ['mail.example.com'] }))
     return <WorkflowsReputation />
 }
+
+export const SendingAllowanceNotApplied: StoryFn = () => {
+    // While the tiers are only measured, usage can read above the allowance; the card has to stay and say why.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                emails_sent_last_day: 62000,
+                enforced: false,
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}

@@ -6,7 +6,6 @@ import { projectLogic } from 'scenes/projectLogic'
 import { hogFlowsReputationRetrieve } from 'products/workflows/frontend/generated/api'
 import type {
     AwsTenantReputationApi,
-    EmailSendingAllowanceApi,
     EmailSendingRatesApi,
     IspSendingHealthApi,
     TeamEmailReputationResponseApi,
@@ -20,10 +19,10 @@ export interface workflowsReputationLogicValues {
     ispSendingHealth: readonly IspSendingHealthApi[]
     ispSharedDomains: readonly string[]
     ispWithheldDomains: readonly string[]
+    reputationLoadFailed: boolean
     reputationResponse: TeamEmailReputationResponseApi | null
     reputationResponseLoading: boolean
     search: string
-    sendingAllowance: EmailSendingAllowanceApi | null
     teamReputation: EmailSendingRatesApi | null
     workflowSnapshots: readonly WorkflowEmailSendingRatesApi[]
 }
@@ -60,7 +59,6 @@ export interface workflowsReputationLogicActions {
 export interface workflowsReputationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         awsReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => AwsTenantReputationApi | null
-        sendingAllowance: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingAllowanceApi | null
         teamReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingRatesApi | null
         ispSendingHealth: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly IspSendingHealthApi[]
         ispSharedDomains: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly string[]
@@ -90,6 +88,14 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         setSearch: (search: string) => ({ search }),
     }),
     reducers({
+        reputationLoadFailed: [
+            false,
+            {
+                loadReputation: () => false,
+                loadReputationSuccess: () => false,
+                loadReputationFailure: () => true,
+            },
+        ],
         search: [
             '',
             {
@@ -128,11 +134,6 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         awsReputation: [
             (s) => [s.reputationResponse],
             (response: TeamEmailReputationResponseApi | null): AwsTenantReputationApi | null => response?.aws ?? null,
-        ],
-        sendingAllowance: [
-            (s) => [s.reputationResponse],
-            (response: TeamEmailReputationResponseApi | null): EmailSendingAllowanceApi | null =>
-                response?.sending_allowance ?? null,
         ],
         teamReputation: [
             (s) => [s.reputationResponse],

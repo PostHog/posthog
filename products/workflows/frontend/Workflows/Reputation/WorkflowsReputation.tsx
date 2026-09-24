@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInput,
+    LemonSkeleton,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -12,6 +21,7 @@ import type {
     EmailSendingAllowanceApi,
     EmailSendingRatesApi,
     IspSendingHealthApi,
+    TeamEmailReputationResponseApi,
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -418,20 +428,26 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
     const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
-        <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
-            <div className="flex items-center gap-2">
+        <SendingAllowanceFrame>
+            <div className="flex flex-wrap items-center gap-2">
                 <h3 className="mb-0">Sending allowance</h3>
                 <Tooltip title="Every project shares PostHog's sending infrastructure, so allowances start small and grow with a clean sending record.">
                     <LemonTag type="muted">
                         Tier {allowance.tier} of {allowance.max_tier}
                     </LemonTag>
                 </Tooltip>
+                {!allowance.enforced && (
+                    <LemonTag type="warning" data-attr="workflows-sending-allowance-not-applied">
+                        Not applied yet
+                    </LemonTag>
+                )}
             </div>
             <p className="text-secondary mt-2 mb-0">
-                Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
-                above the allowance are not dropped, they are sent later.
+                {allowance.enforced
+                    ? 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails above the allowance are not dropped, they are sent later.'
+                    : 'These limits are not applied to your sends yet, so emails above them are not delayed and batch audiences are not capped by your tier. The numbers show where your project stands. Your allowance grows as your workflows keep sending with low bounce and spam complaint rates.'}
             </p>
-            <div className="flex flex-wrap gap-8 mt-3">
+            <div className="flex flex-wrap gap-x-8 gap-y-4 mt-3">
                 <div className="min-w-48">
                     <MetricLabel
                         label="Emails this hour"
@@ -457,25 +473,79 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 <div>
                     <MetricLabel
                         label="Largest batch audience"
-                        tooltip="The biggest audience this tier allows for a single batch send."
+                        tooltip={
+                            allowance.enforced
+                                ? 'The biggest audience this tier allows for a single batch send.'
+                                : 'The biggest audience this tier will allow for a single batch send once the limits apply.'
+                        }
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
                 </div>
             </div>
+        </SendingAllowanceFrame>
+    )
+}
+
+function SendingAllowanceFrame({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
+            {children}
         </div>
     )
+}
+
+function SendingAllowanceSection({
+    response,
+    loading,
+    loadFailed,
+}: {
+    response: TeamEmailReputationResponseApi | null
+    loading: boolean
+    loadFailed: boolean
+}): JSX.Element {
+    if (!response && loading) {
+        return (
+            <SendingAllowanceFrame>
+                <LemonSkeleton className="h-5 w-48" />
+                <LemonSkeleton className="h-4 w-full mt-3" repeat={2} />
+            </SendingAllowanceFrame>
+        )
+    }
+    if (loadFailed && !response) {
+        return (
+            <SendingAllowanceFrame>
+                <h3 className="mb-0">Sending allowance</h3>
+                <p className="text-secondary mt-2 mb-0">
+                    Couldn't load your sending allowance. Refresh the page, and if it keeps happening contact support.
+                </p>
+            </SendingAllowanceFrame>
+        )
+    }
+    if (!response?.sending_allowance) {
+        return (
+            <SendingAllowanceFrame>
+                <h3 className="mb-0">Sending allowance</h3>
+                <p className="text-secondary mt-2 mb-0">
+                    Your sending allowance covers every workflow in this project, so only members with access to all
+                    workflows can see it. Ask a project admin for that access to view it.
+                </p>
+            </SendingAllowanceFrame>
+        )
+    }
+    return <SendingAllowanceCard allowance={response.sending_allowance} />
 }
 
 export function WorkflowsReputation(): JSX.Element {
     const {
         awsReputation,
-        sendingAllowance,
         teamReputation,
         ispSendingHealth,
         ispSharedDomains,
         ispWithheldDomains,
         workflowSnapshots,
+        reputationResponse,
         reputationResponseLoading,
+        reputationLoadFailed,
         search,
     } = useValues(workflowsReputationLogic)
     const { setSearch } = useActions(workflowsReputationLogic)
@@ -493,7 +563,11 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
-            {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
+            <SendingAllowanceSection
+                response={reputationResponse}
+                loading={reputationResponseLoading}
+                loadFailed={reputationLoadFailed}
+            />
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
@@ -503,7 +577,8 @@ export function WorkflowsReputation(): JSX.Element {
                     withheldDomains={ispWithheldDomains}
                 />
             ) : (
-                !reputationResponseLoading && (
+                !reputationResponseLoading &&
+                !reputationLoadFailed && (
                     <div className="border rounded p-4 text-secondary">
                         No email sending data yet. Rates appear here once your workflows send email.
                     </div>
