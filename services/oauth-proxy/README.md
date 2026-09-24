@@ -45,7 +45,7 @@ Trailing slashes are optional; paths are normalized before matching.
 
    Those two cookies are `HttpOnly` and `SameSite=Lax`. Nothing in the browser reads them, because the worker takes them from the request Cookie header, so `HttpOnly` keeps a script on any sibling `posthog.com` origin from reading or overwriting them. A browser withholds a `Strict` cookie on the cross-site top-level navigation an OAuth client arrives by, so `ph_current_instance` and the other `Strict` cookies never reach this worker. Only page JavaScript can read them.
    The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, and redirects to the region.
-   For a client with a stored `redirect_uris` list it also takes the callback over: it generates a nonce, stores the client's original `redirect_uri` and `state` under it, replaces `redirect_uri` with the proxy callback, and sends the regional server that nonce as `state` instead of the client's own.
+   When the client has a stored `redirect_uris` list and the request carries a non-empty `redirect_uri`, the worker also takes the callback over: it generates a nonce, stores the client's original `redirect_uri` and `state` under it, replaces `redirect_uri` with the proxy callback, and sends the regional server that nonce as `state` instead of the client's own.
    One condition governs both halves of that takeover, because replacing `redirect_uri` without storing a record leaves the worker a callback it cannot forward from, and the authorization code dies there.
 
 3. **Callback.**
@@ -119,8 +119,7 @@ Without `OIDC_SIGNING_KEY` the worker serves the regional ID token unchanged and
 | `pending_callback:<sha256>` | 1 hour | The client's original `redirect_uri` and `state`, under a proxy nonce |
 
 Key material is SHA-256 hashed because `state` and the nonce are opaque and can exceed Cloudflare's 512 byte key limit.
-A `pending_callback:` record survives its read and expires on its TTL, so a reload or a client retry forwards the same code again instead of losing it.
-Replaying that forward is inert: the authorization code is single-use at the regional server, and PKCE binds it to the client that requested it.
+A `pending_callback:` record survives its read and expires on its TTL, for the reasons the callback step above gives.
 
 ## Development
 
