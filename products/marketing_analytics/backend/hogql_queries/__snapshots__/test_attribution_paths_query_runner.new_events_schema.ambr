@@ -179,12 +179,11 @@
       FROM cached_session_conversions) AS c LEFT JOIN (
       SELECT d.person_id AS person_id, arraySlice(arraySort(groupUniqArray(tuple(d.session_ts, d.session_dim))), -500) AS touchpoints 
       FROM (
-        SELECT conv.conv_person_id AS person_id, argMax(toUnixTimestamp(cached_sessions.start_timestamp), toTimeZone(cached_sessions.computed_at, %(hogql_val_40)s)) AS session_ts, argMax(toString(ifNull(cached_sessions.utm_campaign, %(hogql_val_41)s)), toTimeZone(cached_sessions.computed_at, %(hogql_val_42)s)) AS session_dim, any(conv.first_conversion) AS first_conversion, any(conv.last_conversion) AS upper_bound 
+        SELECT conv.conv_person_id AS person_id, toUnixTimestamp(cached_sessions.start_timestamp) AS session_ts, toString(ifNull(cached_sessions.utm_campaign, %(hogql_val_40)s)) AS session_dim, conv.first_conversion AS first_conversion, conv.last_conversion AS upper_bound 
         FROM resolved_cached_sessions AS cached_sessions INNER JOIN (
           SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
           FROM cached_session_conversions) AS conv ON equals(cached_sessions.person_id, conv.conv_person_id) 
-        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
-        GROUP BY conv.conv_person_id, cached_sessions.session_id_v7) AS d 
+        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC')))) AS d 
       WHERE and(ifNull(greaterOrEquals(d.session_ts, minus(d.first_conversion, 345600)), 0), ifNull(lessOrEquals(d.session_ts, d.upper_bound), 0)) 
       GROUP BY d.person_id) AS t ON equals(c.conv_person_id, t.person_id) 
     WHERE ifNull(greater(length(c.conversions), 0), 0)), per_conversion_path AS MATERIALIZED (
@@ -255,12 +254,11 @@
       FROM cached_session_conversions) AS c LEFT JOIN (
       SELECT d.person_id AS person_id, arraySlice(arraySort(groupUniqArray(tuple(d.session_ts, d.session_dim))), -500) AS touchpoints 
       FROM (
-        SELECT conv.conv_person_id AS person_id, argMax(toUnixTimestamp(cached_sessions.start_timestamp), toTimeZone(cached_sessions.computed_at, %(hogql_val_39)s)) AS session_ts, argMax(if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_40)s)), cached_sessions.utm_source, %(hogql_val_41)s)), [%(hogql_val_42)s, %(hogql_val_43)s, %(hogql_val_44)s]), %(hogql_val_45)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_46)s)), cached_sessions.utm_source, %(hogql_val_47)s)), [%(hogql_val_48)s, %(hogql_val_49)s, %(hogql_val_50)s, %(hogql_val_51)s, %(hogql_val_52)s, %(hogql_val_53)s, %(hogql_val_54)s, %(hogql_val_55)s]), %(hogql_val_56)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_57)s)), cached_sessions.utm_source, %(hogql_val_58)s)), [%(hogql_val_59)s]), %(hogql_val_60)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_61)s)), cached_sessions.utm_source, %(hogql_val_62)s)), [%(hogql_val_63)s, %(hogql_val_64)s, %(hogql_val_65)s, %(hogql_val_66)s, %(hogql_val_67)s, %(hogql_val_68)s, %(hogql_val_69)s, %(hogql_val_70)s, %(hogql_val_71)s]), %(hogql_val_72)s, if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_73)s)), cached_sessions.utm_source, %(hogql_val_74)s))))), toTimeZone(cached_sessions.computed_at, %(hogql_val_75)s)) AS session_dim, any(conv.first_conversion) AS first_conversion, any(conv.last_conversion) AS upper_bound 
+        SELECT conv.conv_person_id AS person_id, toUnixTimestamp(cached_sessions.start_timestamp) AS session_ts, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_39)s)), cached_sessions.utm_source, %(hogql_val_40)s)), [%(hogql_val_41)s, %(hogql_val_42)s, %(hogql_val_43)s]), %(hogql_val_44)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_45)s)), cached_sessions.utm_source, %(hogql_val_46)s)), [%(hogql_val_47)s, %(hogql_val_48)s, %(hogql_val_49)s, %(hogql_val_50)s, %(hogql_val_51)s, %(hogql_val_52)s, %(hogql_val_53)s, %(hogql_val_54)s]), %(hogql_val_55)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_56)s)), cached_sessions.utm_source, %(hogql_val_57)s)), [%(hogql_val_58)s]), %(hogql_val_59)s, if(in(lower(if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_60)s)), cached_sessions.utm_source, %(hogql_val_61)s)), [%(hogql_val_62)s, %(hogql_val_63)s, %(hogql_val_64)s, %(hogql_val_65)s, %(hogql_val_66)s, %(hogql_val_67)s, %(hogql_val_68)s, %(hogql_val_69)s, %(hogql_val_70)s]), %(hogql_val_71)s, if(notEmpty(ifNull(cached_sessions.utm_source, %(hogql_val_72)s)), cached_sessions.utm_source, %(hogql_val_73)s))))) AS session_dim, conv.first_conversion AS first_conversion, conv.last_conversion AS upper_bound 
         FROM resolved_cached_sessions AS cached_sessions INNER JOIN (
           SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
           FROM cached_session_conversions) AS conv ON equals(cached_sessions.person_id, conv.conv_person_id) 
-        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
-        GROUP BY conv.conv_person_id, cached_sessions.session_id_v7) AS d 
+        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC')))) AS d 
       WHERE and(ifNull(greaterOrEquals(d.session_ts, minus(d.first_conversion, 345600)), 0), ifNull(lessOrEquals(d.session_ts, d.upper_bound), 0)) 
       GROUP BY d.person_id) AS t ON equals(c.conv_person_id, t.person_id) 
     WHERE ifNull(greater(length(c.conversions), 0), 0)), per_conversion_path AS MATERIALIZED (
@@ -331,12 +329,11 @@
       FROM cached_session_conversions) AS c LEFT JOIN (
       SELECT d.person_id AS person_id, arraySlice(arraySort(groupUniqArray(tuple(d.session_ts, d.session_dim))), -500) AS touchpoints 
       FROM (
-        SELECT conv.conv_person_id AS person_id, argMax(toUnixTimestamp(cached_sessions.start_timestamp), toTimeZone(cached_sessions.computed_at, %(hogql_val_157)s)) AS session_ts, argMax(if(notEmpty(ifNull(cached_sessions.channel_type, %(hogql_val_158)s)), cached_sessions.channel_type, %(hogql_val_159)s), toTimeZone(cached_sessions.computed_at, %(hogql_val_160)s)) AS session_dim, any(conv.first_conversion) AS first_conversion, any(conv.last_conversion) AS upper_bound 
+        SELECT conv.conv_person_id AS person_id, toUnixTimestamp(cached_sessions.start_timestamp) AS session_ts, if(notEmpty(ifNull(cached_sessions.channel_type, %(hogql_val_157)s)), cached_sessions.channel_type, %(hogql_val_158)s) AS session_dim, conv.first_conversion AS first_conversion, conv.last_conversion AS upper_bound 
         FROM resolved_cached_sessions AS cached_sessions INNER JOIN (
           SELECT cached_session_conversions.conv_person_id AS conv_person_id, cached_session_conversions.first_conversion AS first_conversion, cached_session_conversions.last_conversion AS last_conversion 
           FROM cached_session_conversions) AS conv ON equals(cached_sessions.person_id, conv.conv_person_id) 
-        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC'))) 
-        GROUP BY conv.conv_person_id, cached_sessions.session_id_v7) AS d 
+        WHERE and(greaterOrEquals(cached_sessions.max_event_timestamp, toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), lessOrEquals(cached_sessions.min_event_timestamp, toDateTime64('2023-01-31 23:59:59.999999', 6, 'UTC')))) AS d 
       WHERE and(ifNull(greaterOrEquals(d.session_ts, minus(d.first_conversion, 345600)), 0), ifNull(lessOrEquals(d.session_ts, d.upper_bound), 0)) 
       GROUP BY d.person_id) AS t ON equals(c.conv_person_id, t.person_id) 
     WHERE ifNull(greater(length(c.conversions), 0), 0)), per_conversion_path AS MATERIALIZED (
