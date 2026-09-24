@@ -33,7 +33,6 @@ export type DataCollectionLoadTrigger = 'initial_load' | 'refresh' | 'update'
 export type DataCollectionTileStatus = 'success' | 'failure' | 'unmounted'
 
 // Renaming these breaks the dashboards and alerts built on them — pin, don't rename.
-export const DATA_COLLECTION_LOAD_STARTED_EVENT = 'data_collection_load_started'
 export const DATA_COLLECTION_SETTLED_EVENT = 'data_collection_settled'
 export const DATA_COLLECTION_ABANDONED_EVENT = 'data_collection_abandoned'
 
@@ -232,7 +231,7 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
             },
             collectionNodeLoadData: ({ id }) => {
                 if (!cache.cycle) {
-                    const cycle: DataCollectionLoadCycle = {
+                    cache.cycle = {
                         startedAt: performance.now(),
                         scene: sceneLogic.findMounted()?.values.activeSceneId ?? null,
                         trigger: cache.pendingTrigger ?? (cache.completedCycles === 0 ? 'initial_load' : 'update'),
@@ -244,12 +243,7 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
                         lastTileId: null,
                         lastTileKind: null,
                         lastTileStatus: null,
-                    }
-                    cache.cycle = cycle
-                    capture(DATA_COLLECTION_LOAD_STARTED_EVENT, {
-                        ...cycleProps(cycle),
-                        mounted_tile_count: values.mountedDataNodes.length,
-                    })
+                    } satisfies DataCollectionLoadCycle
                     return
                 }
                 cache.cycle.participatingTileIds.add(id)

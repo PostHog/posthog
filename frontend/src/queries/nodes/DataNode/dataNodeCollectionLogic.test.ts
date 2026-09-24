@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 
 import {
     DATA_COLLECTION_ABANDONED_EVENT,
-    DATA_COLLECTION_LOAD_STARTED_EVENT,
     DATA_COLLECTION_SETTLED_EVENT,
     dataNodeCollectionLogic,
 } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -130,14 +129,6 @@ describe('dataNodeCollectionLogic', () => {
             logic.actions.collectionNodeLoadData('tile-a')
             logic.actions.collectionNodeLoadData('tile-b')
 
-            expect(capturedEvents(DATA_COLLECTION_LOAD_STARTED_EVENT)).toEqual([
-                expect.objectContaining({
-                    collection_key: 'test-collection',
-                    trigger: 'initial_load',
-                    mounted_tile_count: 2,
-                }),
-            ])
-
             logic.actions.collectionNodeLoadDataSuccess('tile-a', { isCached: true })
             expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT)).toHaveLength(0)
 
@@ -172,8 +163,9 @@ describe('dataNodeCollectionLogic', () => {
             logic.actions.collectionNodeLoadDataSuccess('tile-a')
 
             logic.actions.collectionNodeLoadData('tile-a')
+            logic.actions.collectionNodeLoadDataSuccess('tile-a')
 
-            expect(capturedEvents(DATA_COLLECTION_LOAD_STARTED_EVENT).map((p) => p.trigger)).toEqual([
+            expect(capturedEvents(DATA_COLLECTION_SETTLED_EVENT).map((p) => p.trigger)).toEqual([
                 'initial_load',
                 'refresh',
                 'update',
