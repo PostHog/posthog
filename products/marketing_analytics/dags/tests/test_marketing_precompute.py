@@ -152,13 +152,17 @@ class TestConversionWarming(APIBaseTest):
         with (
             patch.dict(os.environ, {}, clear=False),
             patch(_IS_CLOUD, return_value=cloud),
-            patch(_FF, side_effect=read_flag),
+            patch(_FF, side_effect=read_flag) as feature_enabled,
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
             selected = get_selected_team_ids()
 
         assert selected == ([flagged.pk] if cloud else [])
         assert unflagged.pk not in selected
+        # Picking an audience is not a read, so the scan evaluates the read flag alone and records no
+        # exposure. Otherwise every goal team looks exposed to three flags, every hour.
+        assert {call.args[0] for call in feature_enabled.call_args_list} <= {"marketing-analytics-precomputation"}
+        assert all(call.kwargs["send_feature_flag_events"] is False for call in feature_enabled.call_args_list)
 
     def test_auto_audience_is_recently_active_teams_with_goals(self):
         # The rolling warm set is bounded to the active population: a team must both have a conversion goal

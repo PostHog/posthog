@@ -184,8 +184,15 @@ def _goal_team_ids() -> set[int]:
 
 
 def _read_flag_team_ids() -> list[int]:
+    """Goal teams that have the `marketing-analytics-precomputation` read flag on.
+
+    Only that flag is evaluated, and without an exposure event: this hourly scan picks an audience, so
+    it must not look like every goal team read marketing analytics behind the flag.
+    """
     teams = Team.objects.filter(pk__in=_goal_team_ids()).select_related("organization")
-    return sorted(team.pk for team in teams if MarketingAnalyticsConfig._precompute_flags(team)["conversion"])
+    return sorted(
+        team.pk for team in teams if MarketingAnalyticsConfig.conversion_precompute_enabled_without_exposure(team)
+    )
 
 
 def get_selected_team_ids() -> list[int]:

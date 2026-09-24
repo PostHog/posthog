@@ -34,7 +34,7 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         # It must build (to_query) but NOT execute (run): a full run of this userless, access-control-
         # bypassed runner would write an all-sources response into the shared per-team result cache, which
         # a warehouse-restricted user could then read.
-        tags_at_build = {}
+        tags_at_build: dict[str, object] = {}
         runner = mock.MagicMock()
 
         def capture(**_kwargs):
