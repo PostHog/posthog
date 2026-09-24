@@ -128,7 +128,8 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    - Stage a draft with `canvas-draft-create` only when the user asked for a draft, a preview, or
      a review step before going live.
      Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
-5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
+5. **Wait for the build** — drafts and publishes alike queue one. A publish or edit response
+   already carries `build.build_status`; use it when it is `ready` or `failed`. Otherwise poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.

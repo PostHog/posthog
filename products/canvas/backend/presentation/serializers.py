@@ -714,6 +714,14 @@ class CanvasSourceEditOp(models.TextChoices):
     STR_REPLACE = "str_replace"
 
 
+def _inferred_edit_op(attrs: dict[str, Any]) -> CanvasSourceEditOp:
+    if "old_string" in attrs:
+        return CanvasSourceEditOp.STR_REPLACE
+    if attrs.get("new_path"):
+        return CanvasSourceEditOp.RENAME
+    return CanvasSourceEditOp.WRITE if attrs.get("content") is not None else CanvasSourceEditOp.DELETE
+
+
 class CanvasSourceEditOperationSerializer(serializers.Serializer):
     """One file edit: replace text in a file, write a whole file, delete it, or rename it."""
 
@@ -723,8 +731,9 @@ class CanvasSourceEditOperationSerializer(serializers.Serializer):
         help_text=(
             "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for "
             "changing an existing file. 'write' sets the file's complete content (new files, full rewrites). "
-            "'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means "
-            "'write' and a null or missing content means 'delete'."
+            "'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: "
+            "old_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of "
+            "them means 'delete'."
         ),
     )
     path = serializers.CharField(help_text='Project-relative path of the file to edit (e.g. "src/canvas.tsx").')
@@ -759,8 +768,8 @@ class CanvasSourceEditOperationSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         op = attrs.get("op")
         if op is None:
-            attrs["op"] = CanvasSourceEditOp.WRITE if attrs.get("content") is not None else CanvasSourceEditOp.DELETE
-        elif op == CanvasSourceEditOp.WRITE and attrs.get("content") is None:
+            op = attrs["op"] = _inferred_edit_op(attrs)
+        if op == CanvasSourceEditOp.WRITE and attrs.get("content") is None:
             raise serializers.ValidationError({"content": "A 'write' operation needs the file's complete content."})
         elif op == CanvasSourceEditOp.RENAME and not attrs.get("new_path"):
             raise serializers.ValidationError({"new_path": "A 'rename' operation needs new_path."})
@@ -778,8 +787,21 @@ class CanvasSourceEditSerializer(serializers.Serializer):
 
     operations = CanvasSourceEditOperationSerializer(
         many=True,
-        allow_empty=False,
-        help_text="Edits applied in order to the canvas's current source project, all or nothing.",
+        required=False,
+        default=list,
+        help_text=(
+            "Edits applied in order to the canvas's current source project, all or nothing. "
+            "May be empty when the edit only changes capabilities."
+        ),
+    )
+    capabilities = CanvasCapabilitiesSerializer(
+        required=False,
+        help_text=(
+            "The project's complete new capabilities, replacing the current ones in the same publish. "
+            "Send it when the change needs a capability the canvas does not declare yet, for example a new "
+            "ph.state scope, insight, capture event, or network origin. Copy the current capabilities from "
+            "canvas-source-retrieve and change only what you need. Omit to keep the current capabilities."
+        ),
     )
     prompt = serializers.CharField(
         required=False,
@@ -803,10 +825,32 @@ class CanvasSourceEditSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs["operations"] and "capabilities" not in attrs:
+            raise serializers.ValidationError({"operations": "Send at least one operation or new capabilities."})
+        return attrs
+
 
 class CanvasPublishCurrentVersionSerializer(serializers.Serializer):
     expected_current_version_id = serializers.UUIDField(
         help_text="Current source version to publish. A changed head returns a 409 version_conflict."
+    )
+
+
+class CanvasPublishedBuildSerializer(serializers.Serializer):
+    """The build a publish queued, as it stood when the response was sent."""
+
+    id = serializers.CharField(help_text="The build's id.")
+    build_status = serializers.ChoiceField(
+        choices=["queued", "building", "ready", "failed"],
+        help_text=(
+            "'ready': the canvas is live with this version, no need to call canvas-builds-retrieve. "
+            "'failed': fix the error diagnostics and save again. "
+            "'queued' or 'building': poll canvas-builds-retrieve until the build is terminal."
+        ),
+    )
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True, help_text="Structured diagnostics recorded by the build (errors explain a failed status)."
     )
 
 
@@ -818,6 +862,9 @@ class CanvasSourcePublishResponseSerializer(serializers.Serializer):
     diagnostics = CanvasDiagnosticSerializer(
         many=True,
         help_text="Advisory (warning-severity) diagnostics recorded for the published project.",
+    )
+    build = CanvasPublishedBuildSerializer(
+        help_text="The queued build. The server waits a few seconds for it, so it is often already terminal."
     )
 
 

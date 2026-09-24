@@ -19,6 +19,7 @@ exists elsewhere).
 
 import gzip
 import json
+import time
 import shutil
 import hashlib
 import subprocess
@@ -70,6 +71,8 @@ logger = structlog.get_logger(__name__)
 MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
 MAX_PINNED_BUILDS_PER_CANVAS = 10
 MAX_BUILD_ATTEMPTS = 3
+PUBLISH_BUILD_WAIT_SECONDS = 3.0
+_PUBLISH_BUILD_POLL_SECONDS = 0.2
 
 
 @frozen
@@ -672,6 +675,15 @@ def commit_source_project_draft(
         )
         build = _queue_build(version)
     return version, build
+
+
+def wait_for_build_result(build: CanvasBuild) -> CanvasBuild:
+    deadline = time.monotonic() + PUBLISH_BUILD_WAIT_SECONDS
+    while True:
+        build = CanvasBuild.objects.unscoped().get(id=build.id)
+        if build.status not in CanvasBuild.ACTIVE_STATUSES or time.monotonic() >= deadline:
+            return build
+        time.sleep(_PUBLISH_BUILD_POLL_SECONDS)
 
 
 def publish_source_project(

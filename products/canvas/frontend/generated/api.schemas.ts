@@ -814,7 +814,7 @@ export const CanvasSourceEditOpEnumApi = {
  * One file edit: replace text in a file, write a whole file, delete it, or rename it.
  */
 export interface CanvasSourceEditOperationApi {
-    /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means 'write' and a null or missing content means 'delete'.
+    /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of them means 'delete'.
      *
      * * `write` - Write
      * * `delete` - Delete
@@ -842,8 +842,10 @@ export interface CanvasSourceEditOperationApi {
  * Payload for publishing per-file edits against the canvas's current source.
  */
 export interface CanvasSourceEditApi {
-    /** Edits applied in order to the canvas's current source project, all or nothing. */
-    operations: CanvasSourceEditOperationApi[]
+    /** Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities. */
+    operations?: CanvasSourceEditOperationApi[]
+    /** The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities. */
+    capabilities?: CanvasCapabilitiesApi
     /** Short description of the change, stored on the appended version history entry. */
     prompt?: string
     /**
@@ -891,6 +893,23 @@ export interface CanvasSummaryApi {
 }
 
 /**
+ * The build a publish queued, as it stood when the response was sent.
+ */
+export interface CanvasPublishedBuildApi {
+    /** The build's id. */
+    id: string
+    /** 'ready': the canvas is live with this version, no need to call canvas-builds-retrieve. 'failed': fix the error diagnostics and save again. 'queued' or 'building': poll canvas-builds-retrieve until the build is terminal.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi
+    /** Structured diagnostics recorded by the build (errors explain a failed status). */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
  * Result of a successful source-project publish.
  */
 export interface CanvasSourcePublishResponseApi {
@@ -900,6 +919,8 @@ export interface CanvasSourcePublishResponseApi {
     current_version_id: string
     /** Advisory (warning-severity) diagnostics recorded for the published project. */
     diagnostics: CanvasDiagnosticApi[]
+    /** The queued build. The server waits a few seconds for it, so it is often already terminal. */
+    build: CanvasPublishedBuildApi
 }
 
 /**

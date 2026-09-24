@@ -64,6 +64,9 @@ class CanvasAPIBaseTest(APIBaseTest):
         enqueue = patch("products.canvas.backend.tasks.process_canvas_build.delay")
         self.enqueue = enqueue.start()
         self.addCleanup(enqueue.stop)
+        no_build_wait = patch.object(build_service, "PUBLISH_BUILD_WAIT_SECONDS", 0)
+        no_build_wait.start()
+        self.addCleanup(no_build_wait.stop)
         with team_scope(self.team.id):
             self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
 
@@ -739,6 +742,10 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         build = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id)
         assert build.status == CanvasBuild.STATUS_QUEUED
         self.enqueue.assert_called_once_with(self.team.id, str(build.id))
+        assert response.json()["build"] == {"id": str(build.id), "build_status": "queued", "diagnostics": []}
+
+        CanvasBuild.objects.unscoped().filter(id=build.id).update(status=CanvasBuild.STATUS_READY)
+        assert build_service.wait_for_build_result(build).status == CanvasBuild.STATUS_READY
 
         # The multi-file project round-trips from the stored version.
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/")
@@ -895,12 +902,16 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
                 "operations": [
                     {"path": "src/added.ts", "content": "export {}"},
                     {
-                        "op": "str_replace",
+                        "type": "str_replace",
                         "path": "src/canvas.tsx",
                         "old_string": "return null",
-                        "new_string": "return 1",
+                        "new_string": 'return ph.loadInsight("abc123")',
                     },
                 ],
+                "capabilities": {
+                    "posthog": {"insights": ["abc123"], "inlineQueries": False, "captureEvents": []},
+                    "network": {"origins": []},
+                },
                 "expected_current_version_id": version_id,
             },
             format="json",
@@ -909,7 +920,11 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
 
         source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
         assert source["project"]["files"]["src/added.ts"] == "export {}"
-        assert source["project"]["files"]["src/canvas.tsx"] == "export default function C() { return 1 }"
+        assert (
+            source["project"]["files"]["src/canvas.tsx"]
+            == 'export default function C() { return ph.loadInsight("abc123") }'
+        )
+        assert source["project"]["capabilities"]["posthog"]["insights"] == ["abc123"]
 
     def test_edit_delete_of_missing_file_400s(self):
         canvas_id = self._create_canvas()

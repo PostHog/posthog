@@ -980,6 +980,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             )
         operations = payload.validated_data["operations"]
         project, diagnostics = apply_source_edits(project, operations)
+        if "capabilities" in payload.validated_data:
+            project = {**project, "capabilities": payload.validated_data["capabilities"]}
         if diagnostics:
             self._report_canvas_action(
                 "canvas edit rejected",
@@ -1029,7 +1031,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
 
         task_id = self._sandbox_task_id(request)
         try:
-            canvas, version, _build, first_publish = build_service.publish_source_project(
+            canvas, version, build, first_publish = build_service.publish_source_project(
                 canvas,
                 project=project,
                 prompt=prompt,
@@ -1070,11 +1072,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             **(_edit_operation_properties(edit_operations) if edit_operations is not None else {}),
         )
 
+        build = build_service.wait_for_build_result(build)
         return Response(
             {
                 "canvas": CanvasSummarySerializer(canvas).data,
                 "current_version_id": str(version.id),
                 "diagnostics": diagnostics,
+                "build": {"id": str(build.id), "build_status": build.status, "diagnostics": build.diagnostics},
             }
         )
 

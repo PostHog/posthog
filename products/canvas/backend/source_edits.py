@@ -1,9 +1,3 @@
-"""Apply agent edit operations to a canvas source project.
-
-Kept pure like ``source``: the edit endpoint applies these operations to the
-head project, then validates and publishes the result.
-"""
-
 import difflib
 from collections.abc import Callable
 from typing import Any
@@ -12,8 +6,6 @@ from posthog.dataclasses import frozen
 
 from products.canvas.backend.source import diagnostic
 
-# A failed str_replace echoes a few lines around the closest match, each capped,
-# so the diagnostic stays small even for minified sources.
 _NO_MATCH_EXCERPT_LINES = 5
 _MAX_COMPARED_LINE_CHARS = 200
 
@@ -28,12 +20,6 @@ class EditProblem:
 def apply_source_edits(
     project: dict[str, Any], operations: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Apply ordered write/delete/rename/str_replace operations to a source project.
-
-    Returns the edited project (input untouched) and diagnostics; any
-    diagnostic means the edit set could not be applied atomically. Every
-    failing operation is reported, so a caller can fix them all in one retry.
-    """
     files = dict(project["files"])
     diagnostics: list[dict[str, Any]] = []
     for index, operation in enumerate(operations):
@@ -77,14 +63,6 @@ def _apply_source_edit(files: dict[str, str], operation: dict[str, Any], index: 
 
 
 def _replace_in_file(text: str, old: str, new: str, *, replace_all: bool) -> str | EditProblem:
-    """Replace ``old`` with ``new``, or explain why no single place matches.
-
-    An exact match comes first. When there is none, the match is retried line by
-    line ignoring trailing whitespace and line endings, then ignoring
-    indentation, because models often reproduce code with slightly different
-    whitespace. A loose match applies only when it is unique; anything else is
-    rejected rather than guessed.
-    """
     count = text.count(old)
     if count == 1 or (count > 1 and replace_all):
         return text.replace(old, new)
@@ -121,7 +99,6 @@ def _replace_in_file(text: str, old: str, new: str, *, replace_all: bool) -> str
 
 def _edit_lines(value: str) -> list[str]:
     lines = value.replace("\r\n", "\n").split("\n")
-    # A trailing newline in old_string/new_string is not a line of its own.
     if len(lines) > 1 and lines[-1] == "":
         lines.pop()
     return lines
@@ -144,7 +121,6 @@ def _loose_match_starts(file_lines: list[str], old_lines: list[str], normalize: 
 
 
 def _reindent(new_lines: list[str], old_lines: list[str], matched_lines: list[str]) -> list[str]:
-    """Shift new_string by the indentation the model dropped or added in old_string."""
     old_indent = _indent_of(next((line for line in old_lines if line.strip()), ""))
     file_indent = _indent_of(next((line for line in matched_lines if line.strip()), ""))
     if file_indent.startswith(old_indent):
@@ -161,7 +137,6 @@ def _indent_of(line: str) -> str:
 
 
 def _no_match_problem(text: str, old: str) -> EditProblem:
-    """Point at the file line closest to old_string, so a retry does not need the whole file again."""
     anchor = next((line.strip() for line in old.splitlines() if line.strip()), "")
     file_lines = text.splitlines()
     if not anchor or not file_lines:

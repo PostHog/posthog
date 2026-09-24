@@ -438,6 +438,33 @@ export const CanvasesEditCreateParams = () => zod.object({
 })
 
 export const canvasesEditCreateBodyOperationsItemReplaceAllDefault = false
+export const canvasesEditCreateBodyCapabilitiesOnePosthogInsightsItemMax = 128
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogInsightsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
+
+export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax = 20
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsMax = 20
+
 export const canvasesEditCreateBodyNameMax = 400
 
 export const CanvasesEditCreateBody = () => zod
@@ -453,7 +480,7 @@ export const CanvasesEditCreateBody = () => zod
                             )
                             .optional()
                             .describe(
-                                "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means 'write' and a null or missing content means 'delete'.\n\n\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace"
+                                "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string means 'str_replace', new_path means 'rename', non-null content means 'write', and none of them means 'delete'.\n\n\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace"
                             ),
                         path: zod
                             .string()
@@ -484,7 +511,77 @@ export const CanvasesEditCreateBody = () => zod
                     })
                     .describe('One file edit: replace text in a file, write a whole file, delete it, or rename it.')
             )
-            .describe("Edits applied in order to the canvas's current source project, all or nothing."),
+            .optional()
+            .describe(
+                "Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities."
+            ),
+        capabilities: zod
+            .object({
+                posthog: zod.object({
+                    insights: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogInsightsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogInsightsMax),
+                    inlineQueries: zod.boolean(),
+                    captureEvents: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsMax),
+                    state: zod
+                        .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogStateMax)
+                        .optional()
+                        .describe(
+                            "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                        ),
+                    actions: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax)
+                        .optional()
+                        .describe(
+                            "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                        ),
+                    agentRequests: zod
+                        .boolean()
+                        .default(canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault),
+                }),
+                network: zod.object({
+                    origins: zod
+                        .array(zod.url().max(canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax),
+                }),
+                connectors: zod
+                    .array(
+                        zod
+                            .object({
+                                provider: zod
+                                    .string()
+                                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax)
+                                    .describe(
+                                        "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                    ),
+                                tools: zod
+                                    .array(
+                                        zod
+                                            .string()
+                                            .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsItemMax)
+                                    )
+                                    .min(1)
+                                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax)
+                                    .describe('Tool names the canvas may call on this provider. Read-only tools only.'),
+                            })
+                            .describe(
+                                'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                            )
+                    )
+                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsMax)
+                    .optional()
+                    .describe(
+                        "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                    ),
+            })
+            .optional()
+            .describe(
+                "The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities."
+            ),
         prompt: zod
             .string()
             .optional()
