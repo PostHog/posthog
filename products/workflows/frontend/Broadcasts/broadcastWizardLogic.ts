@@ -792,6 +792,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
                 return
             }
+            cache.emailEditPending = true
             await breakpoint(1000)
             // An earlier autosave still in flight moves updated_at when it lands. Wait for it, or this save
             // sends the old base, gets a 409, and the reload drops what the user typed since.
@@ -811,12 +812,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     // overwrite its edit with the editor state it had not seen yet.
                     base_updated_at: values.broadcast?.updated_at,
                 } as any)
+                cache.emailEditPending = false
                 actions.draftAutosaved(saved)
             } catch (error: any) {
                 if (error?.status === 409) {
                     const fresh = await hogFlowsRetrieve(projectId, broadcastId).catch(() => null)
                     if (fresh) {
+                        cache.emailEditPending = false
                         actions.applyExternalEdit(fresh)
+                        lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
                     } else {
                         lemonToast.error(
                             "Couldn't load the latest version of the broadcast. Reload the page to see it."
@@ -870,6 +874,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (values.broadcast && !dayjs(fresh.updated_at).isAfter(dayjs(values.broadcast.updated_at))) {
                 return
             }
+            if (cache.emailEditPending) {
+                // The saved version wins, as in the workflow editor, but not without saying so.
+                cache.emailEditPending = false
+                lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
+            }
             actions.applyExternalEdit(fresh)
         },
         setSendAtFromPicker: ({ pickerDate }) => {
@@ -914,16 +923,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (!values.broadcastId) {
                     saved = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
                 } else {
-                    saved = await hogFlowsPartialUpdate(
-                        projectId,
-                        values.broadcastId,
-                        buildBroadcastPayload(values) as any
-                    )
+                    saved = await saveWithoutClobbering(projectId, values.broadcastId, values)
                 }
                 actions.saveBroadcastFinished(saved)
                 actions.nextStep()
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest)
+                    lemonToast.info(
+                        'This email changed while you were editing it. Review the latest version, then continue.'
+                    )
+                    return
+                }
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
@@ -948,12 +960,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     broadcastId = created.id
                     actions.saveBroadcastFinished(created)
                 } else {
-                    const saved = await hogFlowsPartialUpdate(
-                        projectId,
-                        broadcastId,
-                        buildBroadcastPayload(values) as any
-                    )
-                    actions.saveBroadcastFinished(saved)
+                    actions.saveBroadcastFinished(await saveWithoutClobbering(projectId, broadcastId, values))
                 }
 
                 // A fresh audience preview mints the confirm token the batch dispatch expects.
@@ -1005,6 +1012,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.launchBroadcastFinished()
                 router.actions.push(urls.broadcast(broadcastId))
             } catch (error: any) {
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest)
+                    actions.launchBroadcastFinished()
+                    lemonToast.info(
+                        'This email changed while you were editing it. Review the latest version, then launch.'
+                    )
+                    return
+                }
                 if (activated && broadcastId) {
                     // Activation landed but the send did not. An active broadcast with no job and no
                     // schedule is read-only, so leaving it there would strand it with no way to retry.
@@ -1046,6 +1061,34 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
     }),
 ])
+
+const EDITED_ELSEWHERE_MESSAGE = 'This email changed elsewhere, so your last few seconds of edits were replaced.'
+
+class EditedElsewhereError extends Error {
+    constructor(public latest: HogFlowApi) {
+        super('The broadcast was edited elsewhere')
+    }
+}
+
+// Saves with the updated_at last loaded, so an edit saved elsewhere since (e.g. by PostHog AI) comes
+// back as a conflict instead of being overwritten by an editor that has not shown it yet.
+async function saveWithoutClobbering(
+    projectId: string,
+    broadcastId: string,
+    values: Parameters<typeof buildBroadcastPayload>[0] & { broadcast: HogFlowApi | null }
+): Promise<HogFlowApi> {
+    try {
+        return await hogFlowsPartialUpdate(projectId, broadcastId, {
+            ...buildBroadcastPayload(values),
+            base_updated_at: values.broadcast?.updated_at,
+        } as any)
+    } catch (error: any) {
+        if (error?.status === 409) {
+            throw new EditedElsewhereError(await hogFlowsRetrieve(projectId, broadcastId))
+        }
+        throw error
+    }
+}
 
 // Serializes the wizard state into the HogFlow the broadcast is stored as: a batch trigger
 // (the audience), one email action, and an exit node.

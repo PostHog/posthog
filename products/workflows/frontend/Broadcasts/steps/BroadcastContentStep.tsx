@@ -9,6 +9,8 @@ import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 
+import { HogFunctionTemplateType } from '~/types'
+
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
@@ -20,6 +22,15 @@ import {
     EMAIL_ACTION_ID,
     broadcastWizardLogic,
 } from '../broadcastWizardLogic'
+
+// The context builder redacts every input of a step whose template it cannot find. The broadcast's only
+// function step uses template-email, whose single input is the email itself and holds no secret.
+const BROADCAST_TEMPLATES: Record<string, HogFunctionTemplateType> = {
+    'template-email': {
+        id: 'template-email',
+        inputs_schema: [{ key: 'email', type: 'email' }],
+    } as unknown as HogFunctionTemplateType,
+}
 
 // Static text, so it is safe as a trusted instruction. The wizard rewrites the graph on every save,
 // so graph edits would be lost, and launching belongs to the wizard's review step.
@@ -49,7 +60,7 @@ export function BroadcastContentStep(): JSX.Element {
                       ...buildWorkflowAgentContext(
                           debouncedWorkflow as unknown as HogFlow,
                           broadcastId,
-                          {},
+                          BROADCAST_TEMPLATES,
                           EMAIL_ACTION_ID
                       ),
                       BROADCAST_CONTEXT_ITEM,
