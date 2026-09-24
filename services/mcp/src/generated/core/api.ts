@@ -5478,7 +5478,7 @@ export const UsersPartialUpdateBody = () => zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),

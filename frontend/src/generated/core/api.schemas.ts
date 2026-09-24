@@ -4605,6 +4605,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4612,7 +4617,7 @@ export interface UserApi {
     set_current_team?: string
     /** @maxLength 128 */
     password: string
-    /** The user's current password. Required when changing `password` or `email` if the user already has a usable password set. */
+    /** The user's current password. Required when changing `password` if the user already has a usable password set. */
     current_password?: string
     events_column_config?: unknown
     readonly is_2fa_enabled: boolean
@@ -4716,6 +4721,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -4723,7 +4733,7 @@ export interface PatchedUserApi {
     set_current_team?: string
     /** @maxLength 128 */
     password?: string
-    /** The user's current password. Required when changing `password` or `email` if the user already has a usable password set. */
+    /** The user's current password. Required when changing `password` if the user already has a usable password set. */
     current_password?: string
     events_column_config?: unknown
     readonly is_2fa_enabled?: boolean

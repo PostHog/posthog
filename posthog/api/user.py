@@ -1094,12 +1094,14 @@ class UserViewSet(
         This runs before serializer validation, because an email validation error would tell the
         caller which addresses already have an account.
         """
-        # A body that is not an object cannot carry either field, and the serializer rejects it with a 400.
-        if not isinstance(request.data, Mapping):
+        # DRF types `request.data` as a mapping, but a JSON array or string body parses to a list or a
+        # str. Such a body carries neither field, and the serializer rejects it with a 400.
+        data = cast(Any, request.data)
+        if not isinstance(data, Mapping):
             return
 
-        email = request.data.get("email")
-        changes_email = "email" in request.data and not (
+        email = data.get("email")
+        changes_email = "email" in data and not (
             isinstance(email, str)
             and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(self.get_object().email)
         )
@@ -1107,7 +1109,7 @@ class UserViewSet(
         # The login email and the password decide who can sign in, so a leaked personal API key or
         # OAuth token must not reset either of them.
         if not isinstance(request.successful_authenticator, SessionAuthentication):
-            if changes_email or "password" in request.data:
+            if changes_email or "password" in data:
                 raise exceptions.PermissionDenied(
                     "You can only change your email or password from the PostHog app, not with an API key or token."
                 )

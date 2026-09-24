@@ -1191,7 +1191,7 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1282,7 +1282,7 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1370,7 +1370,7 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1623,7 +1623,7 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1714,7 +1714,7 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1805,7 +1805,7 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1893,7 +1893,7 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -1981,7 +1981,7 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -2069,7 +2069,7 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
@@ -2157,7 +2157,7 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .string()
         .optional()
         .describe(
-            "The user's current password. Required when changing `password` or `email` if the user already has a usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
     has_seen_product_intro_for: zod.unknown().optional(),
