@@ -848,6 +848,7 @@ allow_indirect_imports = true
 ignore_imports = [
     # TODO: existing violations — move the presentation-shaped code out of the facade, or the
     # facade-shaped code out of presentation, and drop the line
+    "products.logs.backend.facade.retention_views -> products.logs.backend.presentation.views.retention_api",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
     "products.billing_alerts.backend.facade.api -> rest_framework",
