@@ -43,8 +43,10 @@ class Migration(migrations.Migration):
                 ],
                 migrations.RemoveConstraint(model_name="taggeditem", name="exactly_one_related_object"),
             ],
+            # No reverse: a no-op one would put the constraints back into model state while
+            # the database still lacks them.
             database_operations=[
-                migrations.RunPython(lock_taggeditem, migrations.RunPython.noop),
+                migrations.RunPython(lock_taggeditem),
                 migrations.RunSQL(
                     sql=[
                         *[f'DROP INDEX IF EXISTS "unique_{field}_tagged_item"' for field in LEGACY_FIELDS],
@@ -52,7 +54,6 @@ class Migration(migrations.Migration):
                         'ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS '
                         '"posthog_taggeditem_tag_id_dashboard_id_insi_experiment_uniq"',
                     ],
-                    reverse_sql=migrations.RunSQL.noop,
                 ),
             ],
         ),
