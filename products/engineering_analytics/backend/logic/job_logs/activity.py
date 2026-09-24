@@ -23,14 +23,14 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import acquire_github_installation
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_depot_job_log, fetch_job_log
 from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log_lines
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.engineering_analytics.backend.logic.sources import depot_source_api_token
 
 logger = structlog.get_logger(__name__)
 
@@ -96,16 +96,11 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
 
 
 def _resolve_depot_credentials(team_id: int, source_id: str) -> _DepotCredentials:
-    source = (
-        ExternalDataSource.objects.exclude(deleted=True)
-        .select_related("team")
-        .get(id=source_id, team_id=team_id, source_type=ExternalDataSourceType.DEPOT)
-    )
-    # job_inputs is an EncryptedJSONField and can hold any JSON shape.
-    api_token = source.job_inputs.get("api_token") if isinstance(source.job_inputs, dict) else None
-    if not isinstance(api_token, str) or not api_token:
+    team = Team.objects.get(id=team_id)
+    api_token = depot_source_api_token(team, source_id)
+    if api_token is None:
         raise ValueError(f"No Depot API token for source {source_id}")
-    return _DepotCredentials(api_token=api_token, log_ingest_token=source.team.api_token)
+    return _DepotCredentials(api_token=api_token, log_ingest_token=team.api_token)
 
 
 def _require_logs_endpoint() -> None:

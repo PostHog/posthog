@@ -15,6 +15,7 @@ once the Logs endpoint is deployed, regardless of deploy order.
 import re
 import json
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -113,6 +114,12 @@ def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo:
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
+def _live_sources(source_type: ExternalDataSourceType) -> Iterator[ExternalDataSource]:
+    """Every team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep."""
+    sources = ExternalDataSource.objects.filter(source_type=source_type).exclude(deleted=True).select_related("team")
+    return sources.iterator()
+
+
 def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] | None:
     """``(integration_id, repo)`` from a GitHub source's ``job_inputs``, or None if unusable.
 
@@ -150,12 +157,7 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     eligible_sources = 0
     skipped_sources = 0
-    sources = (
-        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB)
-        .exclude(deleted=True)
-        .select_related("team")
-    )
-    for source in sources.iterator():
+    for source in _live_sources(ExternalDataSourceType.GITHUB):
         params = _github_source_params(source.job_inputs)
         prefix = source.prefix or ""
         if params is None or not _PREFIX.match(prefix):
@@ -259,12 +261,7 @@ def _discover_failed_depot_attempts(cutoff_iso: str) -> list[FetchDepotJobLogInp
     if not settings.OTLP_LOGS_INGEST_ENDPOINT:
         return []
     found: list[FetchDepotJobLogInputs] = []
-    sources = (
-        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.DEPOT)
-        .exclude(deleted=True)
-        .select_related("team")
-    )
-    for source in sources.iterator():
+    for source in _live_sources(ExternalDataSourceType.DEPOT):
         table = depot_source_job_attempts_table(source.team, source)
         if table is None:
             continue

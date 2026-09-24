@@ -542,6 +542,15 @@ def resolve_depot_job_attempts_tables(
     return tables
 
 
+def depot_source_api_token(team: Team, source_id: str) -> str | None:
+    """The Depot organization API token a team's Depot source syncs with, or None."""
+    source = _accessible_sources(team, ExternalDataSourceType.DEPOT, None).filter(id=source_id).first()
+    # job_inputs is an EncryptedJSONField and can hold any JSON shape.
+    inputs = source.job_inputs if source is not None and isinstance(source.job_inputs, dict) else {}
+    api_token = inputs.get("api_token")
+    return api_token if isinstance(api_token, str) and api_token else None
+
+
 def depot_source_job_attempts_table(team: Team, source: ExternalDataSource) -> str | None:
     """The synced ``job_attempts`` table of one Depot source, or None."""
     return _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA)
