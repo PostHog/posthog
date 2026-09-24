@@ -146,6 +146,8 @@ def render(catalog: dict[str, Any], style: Style) -> str:
                 f"{i}{i}label: {style.s(display_name(model.id))},",
                 *([f"{i}{i}accessFlag: {style.s(model.access_flag)},"] if model.access_flag else []),
                 *cost_lines(model),
+                *([f"{i}{i}supports1MContext: true,"] if model.supports_1m_context else []),
+                *([f"{i}{i}supportsFastMode: true,"] if model.supports_fast_mode else []),
                 f"{i}}},",
             ]
         )
@@ -259,6 +261,12 @@ export interface CatalogModel {{
 {i}/** The rates behind the multiplier, ready to render. Absent whenever
 {i}    `cost` is. */
 {i}costSummary?: string{semi}
+{i}/** Runs with the 1M-token context window. Absent means it does not, and a
+{i}    picker offers no window choice. */
+{i}supports1MContext?: boolean{semi}
+{i}/** Runs in fast mode. Absent means it does not, and a picker offers no
+{i}    fast-mode toggle. */
+{i}supportsFastMode?: boolean{semi}
 }}
 
 /** The model `1×` refers to. */
