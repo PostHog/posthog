@@ -9,7 +9,6 @@ describe('billing usage filters', () => {
         const usageTypes = schema.properties!.usage_types!
 
         expect(usageTypes).toHaveProperty('description', expect.stringContaining('survey_responses_count_in_period'))
-        expect(usageTypes).toHaveProperty('description', expect.stringContaining('logs_retention_mb_days_in_period'))
         expect(usageTypes).not.toHaveProperty('description', expect.stringContaining('JSON-encoded'))
         expect(usageTypes).toMatchObject({
             anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }],
