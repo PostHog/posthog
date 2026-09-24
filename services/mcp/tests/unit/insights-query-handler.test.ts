@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { findRecoverableApiError, PostHogValidationError } from '@/lib/errors'
 import { queryHandler } from '@/tools/insights/query'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
@@ -260,5 +261,27 @@ describe('queryHandler — result shape for UI rendering', () => {
         // structural guards fall through to the table renderer and show an empty table.
         expect(result.results).toBe(chartResults)
         expect(result.query).toEqual({ kind })
+    })
+})
+
+describe('queryHandler — failed query', () => {
+    it('names the insight and keeps the typed error on the cause chain', async () => {
+        const { context, insightsQuery } = createContext()
+        const apiError = new PostHogValidationError({
+            detail: 'cannot_insert_null_in_ordinary_column',
+            attr: undefined,
+            code: 'cannot_insert_null_in_ordinary_column',
+            extra: undefined,
+            url: 'https://us.posthog.com/api/environments/1/query/',
+            method: 'POST',
+        })
+        insightsQuery.mockResolvedValue({ success: false, error: apiError })
+
+        const thrown = await queryHandler(context, { insightId: '42', output_format: 'json' }).catch(
+            (error: unknown) => error
+        )
+
+        expect((thrown as Error).message).toContain('Failed to query insight 42')
+        expect(findRecoverableApiError(thrown)).toBe(apiError)
     })
 })
