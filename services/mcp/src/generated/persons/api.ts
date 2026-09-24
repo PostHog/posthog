@@ -33,6 +33,12 @@ export const PersonsListQueryParams = () => zod.object({
     distinct_id: zod.string().optional().describe('Filter list by distinct id.'),
     email: zod.string().optional().describe('Filter persons by email (exact match)'),
     format: zod.enum(['csv', 'json']).optional(),
+    include_matched_fields: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     properties: zod
@@ -143,7 +149,7 @@ export const PersonsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only the persons it matches. A complete email address that exactly matches a distinct ID returns that person first, then every person whose email or name property contains the address. Each result carries `matched_fields`, the searched fields the term was found in.'
+            'Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.'
         ),
 })
 

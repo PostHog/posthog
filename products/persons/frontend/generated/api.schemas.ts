@@ -228,7 +228,7 @@ export interface PersonListRecordApi {
      * @nullable
      */
     readonly last_seen_at: string | null
-    /** Only on a search result: the searched fields the term was found in. */
+    /** Only on a search result with `include_matched_fields`: the searched fields the term was found in. */
     matched_fields?: PersonSearchMatchFieldEnumApi[]
 }
 
@@ -483,6 +483,10 @@ export type PersonsListParams = {
     email?: string
     format?: PersonsListFormat
     /**
+     * Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.
+     */
+    include_matched_fields?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -495,7 +499,7 @@ export type PersonsListParams = {
      */
     properties?: PropertyApi[]
     /**
-     * Search persons by email, name, person ID, or distinct ID. Partial values match. A UUID that exactly matches a person ID or distinct ID returns only the persons it matches. A complete email address that exactly matches a distinct ID returns that person first, then every person whose email or name property contains the address. Each result carries `matched_fields`, the searched fields the term was found in.
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
      */
     search?: string
 }

@@ -1,7 +1,5 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import type { PersonType } from '~/types'
-
 import type { PersonSearchMatchFieldEnumApi } from '../generated/api.schemas'
 
 type TagContent = { label: string; explanation: string }
@@ -13,11 +11,13 @@ const TAG_BY_FIELD: Record<PersonSearchMatchFieldEnumApi, TagContent> = {
     id: { label: 'Person ID', explanation: "The search matched this person's ID." },
 }
 
-export function PersonSearchMatchTags({ person }: { person: PersonType }): JSX.Element | null {
+export function PersonSearchMatchTags({
+    matchedFields,
+}: {
+    matchedFields?: PersonSearchMatchFieldEnumApi[]
+}): JSX.Element | null {
     // Skip fields newer than this bundle.
-    const tags = (person.matched_fields ?? []).flatMap(
-        (field) => TAG_BY_FIELD[field as PersonSearchMatchFieldEnumApi] ?? []
-    )
+    const tags = (matchedFields ?? []).flatMap((field) => TAG_BY_FIELD[field] ?? [])
     if (tags.length === 0) {
         return null
     }

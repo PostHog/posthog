@@ -39469,13 +39469,6 @@
                 "last_seen_at": {
                     "type": "string"
                 },
-                "matched_fields": {
-                    "description": "Only on a search result: the fields the search term was found in.",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "name": {
                     "type": "string"
                 },

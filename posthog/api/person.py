@@ -84,6 +84,7 @@ from posthog.utils import (
     is_anonymous_id,
     refresh_requested_by_client,
     relative_date_parse_with_delta_mapping,
+    str_to_bool,
 )
 
 from products.ai_training.backend.facade.api import queue_person_training_deletion
@@ -457,7 +458,7 @@ class PersonListRecordSerializer(PersonSerializer):
     matched_fields = serializers.ListField(
         child=serializers.ChoiceField(choices=PersonSearchMatchField.choices),
         required=False,
-        help_text="Only on a search result: the searched fields the term was found in.",
+        help_text="Only on a search result with `include_matched_fields`: the searched fields the term was found in.",
     )
 
     class Meta(PersonSerializer.Meta):
@@ -698,10 +699,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 OpenApiTypes.STR,
                 description=(
                     "Search persons by email, name, person ID, or distinct ID. Partial values match. "
-                    "A UUID that exactly matches a person ID or distinct ID returns only the persons it matches. "
-                    "A complete email address that exactly matches a distinct ID returns that person first, "
-                    "then every person whose email or name property contains the address. "
-                    "Each result carries `matched_fields`, the searched fields the term was found in."
+                    "When the term is a complete email address or UUID that exactly matches a distinct ID "
+                    "or person ID, only that person is returned."
+                ),
+            ),
+            OpenApiParameter(
+                "include_matched_fields",
+                OpenApiTypes.BOOL,
+                description=(
+                    "Tag each search result with `matched_fields`, the searched fields the term was found in. "
+                    "A complete email address that exactly matches a distinct ID then returns that person first, "
+                    "followed by every person whose email or name property contains the address."
                 ),
             ),
             OpenApiParameter(
@@ -742,9 +750,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
 
         include_total = "include_total" in request.GET
+        include_matched_fields = str_to_bool(request.GET.get("include_matched_fields"))
         search = (filter.search or "").strip()
-        # With no other filter, an identifier hit answers or leads every page.
-        can_answer_from_identifier = not person_properties
+        tag_term = search if include_matched_fields else None
+        # Nothing else narrows the result set, so an identifier that resolves over personhog is
+        # already the whole first page, and a ClickHouse scan would add nothing. A tagged search
+        # needs the hit on every page, because it leads the tagged sequence.
+        can_answer_from_identifier = not person_properties and (filter.offset == 0 or include_matched_fields)
 
         # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
         # The search path is the slow one, so the shape of the request is recorded alongside the
@@ -804,7 +816,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif search:
                 exact_hits = _exact_identifier_hits(team.pk, search) if can_answer_from_identifier else {}
                 # An email can also sit in other persons' properties, which only ClickHouse searches.
-                email_property_search = bool(exact_hits) and _COMPLETE_EMAIL_TERM.match(search) is not None
+                email_property_search = (
+                    include_matched_fields and bool(exact_hits) and _COMPLETE_EMAIL_TERM.match(search) is not None
+                )
                 if exact_hits and not email_property_search:
                     API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier").inc()
                     page = list(exact_hits)[filter.offset : filter.offset + filter.limit]
@@ -815,7 +829,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         filter,
                         total_count=len(exact_hits) if include_total else None,
                         has_next=len(exact_hits) > filter.offset + filter.limit,
-                        search=search,
+                        tag_term=tag_term,
                         exact_hits=exact_hits,
                     )
                 if email_property_search:
@@ -847,8 +861,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
-            # Before the query, so failures carry it too.
-            slo.tag(answered_by=answered_by)
             # ClickHouse can lag behind personhog or fail, so the hit leads the first page regardless.
             hit_leads_page = email_property_search and filter.offset == 0
             actor_ids: list[Any] = []
@@ -865,8 +877,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     count_inner = actors_runner.to_query()
                     count_inner.limit = None
                     count_inner.offset = None
-                    if isinstance(count_inner, ast.SelectQuery):
-                        count_inner.order_by = None
                     count_query = ast.SelectQuery(
                         select=[ast.Call(name="count", args=[])],
                         select_from=ast.JoinExpr(table=count_inner),
@@ -897,9 +907,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 listed = {str(actor_id) for actor_id in actor_ids}
                 actor_ids = [*(hit for hit in exact_hits if hit not in listed), *actor_ids]
 
-            slo.tag(result_count=len(actor_ids))
+            slo.tag(answered_by=answered_by, result_count=len(actor_ids))
             return self._person_list_response(
-                request, actor_ids, filter, total_count=total_count, search=search, exact_hits=exact_hits
+                request, actor_ids, filter, total_count=total_count, tag_term=tag_term, exact_hits=exact_hits
             )
 
     def _person_list_response(
@@ -909,7 +919,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filter: Filter,
         total_count: Optional[int] = None,
         has_next: Optional[bool] = None,
-        search: Optional[str] = None,
+        tag_term: Optional[str] = None,
         exact_hits: Optional[Mapping[str, Collection[str]]] = None,
     ) -> Response:
         team = self.team
@@ -928,10 +938,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # After the restriction, so no tag reveals a hidden property. CSV would turn the list into
         # per-row columns.
-        if search and self.request.accepted_renderer.format != "csv":
+        if tag_term and self.request.accepted_renderer.format != "csv":
             for person_dict in serialized_actors:
                 known_fields = exact_hits.get(str(person_dict["id"]), ())
-                person_dict["matched_fields"] = _search_match_fields(search, person_dict, known_fields)
+                person_dict["matched_fields"] = _search_match_fields(tag_term, person_dict, known_fields)
         if exact_hits:
             # Hydration sorts by creation date.
             serialized_actors.sort(key=lambda person_dict: str(person_dict["id"]) not in exact_hits)

@@ -2608,10 +2608,6 @@ class PersonType(BaseModel):
     id: str | None = None
     is_identified: bool | None = None
     last_seen_at: str | None = None
-    matched_fields: list[str] | None = Field(
-        default=None,
-        description="Only on a search result: the fields the search term was found in.",
-    )
     name: str | None = None
     properties: dict[str, Any]
     uuid: str | None = None

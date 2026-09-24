@@ -9000,7 +9000,7 @@
         }
     },
     "persons-list": {
-        "description": "List persons in the current project. Supports search by email, name, person ID, or distinct ID, and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs. Each search result also carries `matched_fields`, the searched fields the term was found in.",
+        "description": "List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and filtering by email or distinct_id query parameters. Returns paginated results with person properties and distinct IDs.",
         "category": "Persons",
         "feature": "persons",
         "summary": "List persons",

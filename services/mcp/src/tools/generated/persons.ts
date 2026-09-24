@@ -68,7 +68,7 @@ const personsCohortsRetrieve = (): ToolBase<
 
 const PersonsListSchema = () => {
     const PersonsListQueryParams = orvalSchemas.PersonsListQueryParams()
-    return PersonsListQueryParams.omit({ format: true, properties: true }).extend({
+    return PersonsListQueryParams.omit({ format: true, include_matched_fields: true, properties: true }).extend({
         limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
     })
@@ -107,7 +107,6 @@ const personsList = (): ToolBase<
                     'properties.$geoip_country_code',
                     'created_at',
                     'last_seen_at',
-                    'matched_fields',
                 ])
             ),
         } as typeof result

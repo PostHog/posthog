@@ -70,12 +70,13 @@ tools:
         list: true
         title: List persons
         description: >
-            List persons in the current project. Supports search by email, name, person ID, or distinct ID, and
+            List persons in the current project. Supports search by email (full text) or distinct ID (exact match), and
             filtering by email or distinct_id query parameters. Returns paginated results with person properties and
-            distinct IDs. Each search result also carries `matched_fields`, the searched fields the term was found in.
+            distinct IDs.
         exclude_params:
             - format
             - properties
+            - include_matched_fields
         param_overrides:
             limit:
                 cast: string-int
@@ -92,7 +93,6 @@ tools:
                 - properties.$geoip_country_code
                 - created_at
                 - last_seen_at
-                - matched_fields
     persons-partial-update:
         operation: persons_partial_update
         enabled: false
