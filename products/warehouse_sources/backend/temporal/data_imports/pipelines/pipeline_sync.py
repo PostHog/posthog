@@ -154,14 +154,18 @@ def _purge_stale_buffer_then_mark_initial_sync_complete(
         purge_buffer_before_handover,
     )
 
-    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    # About to flip a CDC schema snapshot→streaming, after which the consumer merges the buffer, so
-    # what it must not replay goes first. A table the buffer does not carry gets no ingress writes
-    # until the flip commits; the shadow lane writes on its flag alone, so a concurrent capture tick
-    # is the one remaining writer, and the consumer's position guard covers what it leaves.
-    if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
-        purge_buffer_before_handover(schema, logger)
-    mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
+    # The row lock is held from the marker read through the flip. Capture sets the marker under the
+    # same lock before it writes the table's first file, so it cannot mark the table and write
+    # between the read and a purge that would delete what it wrote.
+    with transaction.atomic():
+        schema = ExternalDataSchema.objects.select_for_update().exclude(deleted=True).get(id=schema_id, team_id=team_id)
+        # About to flip a CDC schema snapshot→streaming, after which the consumer merges the buffer, so
+        # what it must not replay goes first. A table the buffer does not carry gets no ingress writes
+        # until the flip commits; the shadow lane writes on its flag alone, so a concurrent capture tick
+        # is the one remaining writer, and the consumer's position guard covers what it leaves.
+        if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
+            purge_buffer_before_handover(schema, logger)
+        mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
 
 
 async def set_initial_sync_complete(schema_id: str, team_id: int, logger: FilteringBoundLogger) -> None:

@@ -3840,6 +3840,20 @@ class TestBufferedIngressCapture:
         assert schema.sync_type_config["cdc_mode"] == "streaming"
         assert CDC_SNAPSHOT_LANE_KEY not in schema.sync_type_config
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    def test_a_snapshot_that_hands_over_first_is_left_unmarked(self, mock_purge):
+        # The hand-over clears the marker when it flips the table. A marker set after the flip would
+        # outlive the snapshot, and the rollback command would refuse the source for good.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="snapshot", source=source)
+        act = _make_extract_activity(source)
+        mock_purge.side_effect = lambda *_a, **_k: schema.sync_type_config.update(cdc_mode="streaming")
+
+        with patch.object(act, "_buffered_snapshot_enabled", return_value=True):
+            assert act._start_snapshot_in_buffer(schema) is True
+
+        assert CDC_SNAPSHOT_LANE_KEY not in schema.sync_type_config
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
         # The opposite of the shadow lane's policy: swallowing here would advance the slot past

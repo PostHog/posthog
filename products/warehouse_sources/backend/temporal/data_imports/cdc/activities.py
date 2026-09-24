@@ -1012,8 +1012,18 @@ class CDCExtractActivity:
         if not (snapshot_can_start_in_buffer(schema) and self._buffered_snapshot_enabled()):
             return False
         purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema), strict=True)
-        self._update_schema_sync_type_config(schema, updates={CDC_SNAPSHOT_LANE_KEY: BUFFER_LANE})
-        self._schema_log(schema).info("cdc_snapshot_started_in_buffer", schema_id=str(schema.id))
+
+        def _mark_if_still_snapshotting(config: dict[str, typing.Any]) -> None:
+            # Read under the row lock. A hand-over that flipped the table to streaming after this run
+            # loaded it has already cleared the marker, and a new one would outlive the snapshot. The
+            # table's changes still belong in the buffer, which its streaming consumer now reads.
+            if config.get("cdc_mode") == "snapshot":
+                config[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+
+        self._update_schema_sync_type_config(schema, mutate=_mark_if_still_snapshotting)
+        self._schema_log(schema).info(
+            "cdc_snapshot_started_in_buffer", schema_id=str(schema.id), marked=snapshot_in_buffer(schema)
+        )
         return True
 
     def _delete_own_schedule(self) -> None:
