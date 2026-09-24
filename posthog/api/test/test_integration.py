@@ -29,8 +29,10 @@ from redis.exceptions import RedisError
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
+from slack_sdk.web.slack_response import SlackResponse
 from structlog.testing import capture_logs
 
+from posthog import redis
 from posthog.api.github_callback.personal_state import usable_personal_github_token
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
@@ -41,7 +43,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import SLACK_CHANNELS_TRUNCATED_CACHE_SECONDS, IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -62,6 +64,7 @@ from posthog.models.integration import (
     github_account_type,
 )
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
+from posthog.models.integration.slack import SlackChannelListing
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -135,7 +138,7 @@ class TestSlackIntegration:
 
         slack = SlackIntegration(self.integration)
 
-        channels = slack.list_channels(True, "test_user_id")
+        channels = slack.list_channels(True, "test_user_id").channels
 
         mock_client.conversations_list.assert_called_once_with(
             exclude_archived=True, types="public_channel", limit=1000, cursor=None
@@ -171,7 +174,7 @@ class TestSlackIntegration:
         }
         mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
 
-        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id").channels
 
         assert set(channels[0]) == {
             "id",
@@ -231,7 +234,7 @@ class TestSlackIntegration:
         mock_client.conversations_list.side_effect = conversations_list
         mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
 
-        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id").channels
 
         assert len(channels) == pages
         assert channels[-1]["name"] == "channel_14"
@@ -253,11 +256,84 @@ class TestSlackIntegration:
 
         with patch("posthog.models.integration.slack.SLACK_LISTING_MAX_REQUESTS", 3):
             with patch("posthog.models.integration.slack.slack_listing_truncated_counter") as mock_counter:
-                channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+                channels = SlackIntegration(self.integration).list_channels(True, "test_user_id").channels
 
         assert len(channels) == 3
         mock_counter.labels.assert_called_once_with(kind="channels_public_channel")
         mock_counter.labels.return_value.inc.assert_called_once()
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_reports_truncation_when_the_first_page_is_rate_limited(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # A rate limit on the very first page leaves no cursor. Reading "no cursor" as "finished"
+        # would cache a listing that never started, for the full hour.
+        mock_client.conversations_list.side_effect = SlackApiError(
+            "limited",
+            SlackResponse(
+                client=mock_client,
+                http_verb="GET",
+                api_url="https://slack.com/api/conversations.list",
+                req_args={},
+                data={"ok": False, "error": "ratelimited"},
+                headers={"Retry-After": "180"},
+                status_code=429,
+            ),
+        )
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        listing = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert listing.channels == []
+        assert listing.truncated is True
+        assert listing.retry_after == 180
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_resumes_the_private_half_too(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # A listing can be cut short in either half, so the private cursor has to survive as well or
+        # a large private list restarts from page one forever.
+        mock_client.conversations_list.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+        mock_client.users_conversations.return_value = {
+            "channels": [],
+            "response_metadata": {"next_cursor": "private-page-3"},
+        }
+
+        listing = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert listing.truncated is True
+        assert listing.private_resume_cursor == "private-page-3"
+
+        # And it is passed back on the next walk rather than dropped.
+        SlackIntegration(self.integration).list_channels(True, "test_user_id", private_start_cursor="private-page-3")
+        assert mock_client.users_conversations.call_args.kwargs["cursor"] == "private-page-3"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_starts_over_when_slack_refuses_a_resume_cursor(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Slack expires pagination cursors, so one saved by an earlier walk can be refused. Raising
+        # would turn a listing that used to work into an error.
+        page = {
+            "channels": [{"id": "C1", "name": "from-the-restart", "is_private": False, "is_ext_shared": False}],
+            "response_metadata": {"next_cursor": ""},
+        }
+        mock_client.conversations_list.side_effect = [
+            SlackApiError("expired", {"ok": False, "error": "invalid_cursor"}),
+            page,
+        ]
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        listing = SlackIntegration(self.integration).list_channels(True, "test_user_id", start_cursor="stale-cursor")
+
+        assert [c["id"] for c in listing.channels] == ["C1"]
+        assert listing.truncated is False
+        # The retry drops the stale cursor and asks for the first page.
+        assert mock_client.conversations_list.call_args_list[1].kwargs["cursor"] is None
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_keeps_its_pages_when_slack_rate_limits_mid_walk(self, mock_webclient_class):
@@ -275,7 +351,7 @@ class TestSlackIntegration:
         mock_client.conversations_list.side_effect = [first_page, rate_limited]
         mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
 
-        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id").channels
 
         assert [channel["id"] for channel in channels] == ["C1"]
 
@@ -454,7 +530,7 @@ class TestSlackIntegration:
 
         slack = SlackIntegration(self.integration)
 
-        channels = slack.list_channels(False, "test_user_id")
+        channels = slack.list_channels(False, "test_user_id").channels
 
         mock_client.conversations_list.assert_called_once_with(
             exclude_archived=True, types="public_channel", limit=1000, cursor=None
@@ -1588,6 +1664,305 @@ class TestIntegrationAPIKeyAccess:
             sensitive_config={"auth_token": "twilio-token"},
         )
 
+    @pytest.mark.parametrize("capped", [False, True])
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_does_not_cache_a_truncated_listing_for_an_hour(
+        self, mock_slack_class, capped: bool, client: HttpClient
+    ):
+        # A rate-limited walk returns only the pages it got. Caching that like a complete listing
+        # hides the missing channels until it expires, so it gets a much shorter life.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_TRUNC",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        channel = {
+            "id": "C1",
+            "name": "only-page-one",
+            "is_private": False,
+            "is_member": True,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = SlackChannelListing(channels=[channel], truncated=True)
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_trunc"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+        url = f"/api/projects/{self.team.id}/integrations/{integration.id}/channels/"
+
+        with (
+            patch("posthog.api.integration.cache.set") as mock_set,
+            patch("posthog.api.integration.SLACK_LISTING_MAX_ITEMS", 1 if capped else 20000),
+        ):
+            cache.delete(f"slack/{integration.id}/test_user_id/True/channels")
+            client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+            truncated_timeout = mock_set.call_args.args[2]
+
+            mock_slack_instance.list_channels.return_value = SlackChannelListing(channels=[channel], truncated=False)
+            cache.delete(f"slack/{integration.id}/test_user_id/True/channels")
+            client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+            complete_timeout = mock_set.call_args.args[2]
+
+        assert truncated_timeout == (60 * 60 if capped else SLACK_CHANNELS_TRUNCATED_CACHE_SECONDS)
+        assert complete_timeout == 60 * 60
+
+    @pytest.mark.parametrize("fill_finishes", [True, False])
+    @pytest.mark.parametrize("owns_integration", [True, False])
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_waits_for_the_filler_instead_of_walking_too(
+        self, mock_slack_class, fill_finishes: bool, owns_integration: bool, client: HttpClient
+    ):
+        # Every pod that got a cold-cache request used to walk the workspace itself, and together
+        # they exceed Slack's per-workspace budget. A caller that finds the sentinel held waits.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SINGLEFLIGHT",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user if owns_integration else None,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = SlackChannelListing(channels=[], truncated=False)
+        mock_slack_class.return_value = mock_slack_instance
+
+        filled = {"channels": [], "lastRefreshedAt": timezone.now().isoformat()}
+        redis.get_client().set(f"slack/{integration.integration_id}/channels/filling", "other-owner", ex=120)
+
+        key_value = "test_key_sf"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        # Cold on the first read, then the filler's result lands while this request waits.
+        with (
+            patch(
+                "posthog.api.integration.cache.get",
+                side_effect=[None, filled] if fill_finishes else None,
+                return_value=None,
+            ),
+            patch("posthog.api.integration.SLACK_CHANNELS_FILL_WAIT_SECONDS", 1 if fill_finishes else 0),
+        ):
+            response = client.get(
+                f"/api/projects/{self.team.id}/integrations/{integration.id}/channels/",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == (status.HTTP_200_OK if fill_finishes else status.HTTP_429_TOO_MANY_REQUESTS)
+        assert mock_slack_instance.list_channels.call_count == 0
+        redis.get_client().delete(f"slack/{integration.integration_id}/channels/filling")
+
+    @pytest.mark.parametrize(
+        "restarted,private_restarted,expected_ids",
+        [
+            (False, False, ["C_LATE", "C_PRIVATE", "C_EARLY"]),
+            (True, True, ["C_LATE"]),
+            (True, False, ["C_LATE", "C_PRIVATE"]),
+            (False, True, ["C_LATE", "C_EARLY"]),
+        ],
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_resumes_a_walk_slack_cut_short(
+        self, mock_slack_class, restarted, private_restarted, expected_ids, client: HttpClient
+    ):
+        # A workspace can hold more channels than Slack's per-window budget lets one walk fetch.
+        # Restarting from page one each time means the late pages are never reached, so the second
+        # walk continues from where the first stopped and the listing completes.
+        # A walk that Slack refused the saved cursor for is not that continuation, because it
+        # enumerated the workspace again. A channel that only the abandoned walk saw is one this
+        # listing does not contain, so keeping it would hold an archived channel in the picker.
+        # Slack refuses the two saved cursors apart, and a half that still resumes returns only its
+        # tail, so the pages it collected earlier are lost with it if the other half's restart
+        # discards them too.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RESUME",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+
+        def channel(cid: str, name: str, is_private: bool = False) -> dict:
+            return {
+                "id": cid,
+                "name": name,
+                "is_private": is_private,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            }
+
+        # Slack does not page in name order, so a channel from the late page can sort ahead of one
+        # the first walk already saved. Each walk is sorted alone, which leaves the merge as two
+        # runs that both span the alphabet, and the endpoint pages that list before the picker
+        # sees it.
+        early = channel("C_EARLY", "zzz-early-page")
+        late = channel("C_LATE", "aaa-late-page")
+        private = channel("C_PRIVATE", "mmm-private-page", is_private=True)
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_channel_by_id.return_value = late
+        mock_slack_instance.list_channels.side_effect = [
+            SlackChannelListing(
+                channels=[private, early],
+                truncated=True,
+                resume_cursor="page-12",
+                private_resume_cursor="private-page-4",
+            ),
+            SlackChannelListing(
+                channels=[late],
+                truncated=False,
+                resume_cursor=None,
+                restarted=restarted,
+                private_restarted=private_restarted,
+            ),
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_resume"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+        url = f"/api/projects/{self.team.id}/integrations/{integration.id}/channels/"
+        cache.delete(f"slack/{integration.id}/test_user_id/True/channels")
+        cache.delete(f"slack/{integration.id}/test_user_id/True/channels/progress")
+
+        first = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert first.status_code == status.HTTP_200_OK
+        assert [c["id"] for c in first.json()["channels"]] == ["C_PRIVATE", "C_EARLY"]
+
+        lookup = client.get(url, {"channel_id": late["id"]}, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert lookup.status_code == status.HTTP_200_OK
+        assert lookup.json()["channels"] == [late]
+        missing = client.get(url, {"search": late["name"]}, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert missing.status_code == status.HTTP_200_OK
+        assert missing.json()["channels"] == []
+        assert mock_slack_instance.list_channels.call_count == 1
+
+        # The truncated result is short-lived, so the next request walks again.
+        cache.delete(f"slack/{integration.id}/test_user_id/True/channels")
+        second = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert second.status_code == status.HTTP_200_OK
+
+        # The second walk picked up from the stored cursors rather than page one...
+        assert mock_slack_instance.list_channels.call_args_list[1].kwargs["start_cursor"] == "page-12"
+        assert mock_slack_instance.list_channels.call_args_list[1].kwargs["private_start_cursor"] == "private-page-4"
+        # ...and the channels already collected survive the merge only for the half that continued
+        # them, ordered by name across both walks rather than one sorted run after the other.
+        assert [c["id"] for c in second.json()["channels"]] == expected_ids
+        assert cache.get(f"slack/{integration.id}/test_user_id/True/channels/progress") is None
+        found = client.get(url, {"search": late["name"]}, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert found.status_code == status.HTTP_200_OK
+        assert found.json()["channels"][0] == late
+        assert mock_slack_instance.list_channels.call_count == 2
+
+    @pytest.mark.parametrize("lose_lock", [False, True])
+    @patch("posthog.api.integration.SlackIntegration.list_channels")
+    def test_channels_action_holds_owned_lock_until_publication(
+        self, mock_list_channels: MagicMock, lose_lock: bool, client: HttpClient
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_LOCK_PUBLICATION",
+            config={"authed_user": {"id": "test_user_id"}},
+            created_by=self.user,
+        )
+        client.force_login(self.user)
+        key = f"slack/{integration.id}/test_user_id/True/channels"
+        lock_key = f"slack/{integration.integration_id}/channels/filling"
+        redis_client = redis.get_client()
+        original_set = cache.set
+
+        def list_channels(*args: object, **kwargs: object) -> SlackChannelListing:
+            if lose_lock:
+                redis_client.set(lock_key, "replacement-owner", ex=120)
+            return SlackChannelListing(channels=[], truncated=False)
+
+        def publish(cache_key, value, *args, **kwargs):
+            assert redis_client.exists(lock_key)
+            return original_set(cache_key, value, *args, **kwargs)
+
+        mock_list_channels.side_effect = list_channels
+        with patch("posthog.api.integration.cache.set", side_effect=publish):
+            response = client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/channels/")
+        if lose_lock:
+            assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            assert cache.get(key) is None
+            assert redis_client.get(lock_key) == b"replacement-owner"
+        else:
+            assert response.status_code == status.HTTP_200_OK
+            assert cache.get(key)["channels"] == []
+            assert not redis_client.exists(lock_key)
+        redis_client.delete(lock_key)
+
+    @patch("posthog.api.integration.SlackIntegration.list_channels")
+    def test_channels_action_does_not_reuse_previous_connectors_progress(
+        self, mock_list_channels: MagicMock, client: HttpClient
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RECONNECT",
+            config={"authed_user": {"id": "U_OLD"}},
+            created_by=self.user,
+        )
+        client.force_login(self.user)
+        old_channel = {"id": "C_OLD", "name": "old-private", "is_private": True, "is_ext_shared": False}
+        mock_list_channels.side_effect = [
+            SlackChannelListing(channels=[old_channel], truncated=True, private_resume_cursor="old-cursor"),
+            SlackChannelListing(channels=[], truncated=False),
+        ]
+        url = f"/api/environments/{self.team.id}/integrations/{integration.id}/channels/"
+        assert client.get(url).json()["channels"][0]["id"] == "C_OLD"
+        integration.config = {"authed_user": {"id": "U_NEW"}}
+        integration.save(update_fields=["config"])
+        response = client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channels"] == []
+        assert mock_list_channels.call_args.kwargs["private_start_cursor"] is None
+
+    @patch("posthog.api.integration.SlackIntegration.list_channels")
+    def test_channels_action_honors_slack_retry_after(self, mock_list: MagicMock, client: HttpClient) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RETRY_AFTER",
+            config={"authed_user": {"id": "test_user_id"}},
+            created_by=self.user,
+        )
+        client.force_login(self.user)
+        mock_list.return_value = SlackChannelListing(channels=[], truncated=True, retry_after=180)
+        url = f"/api/environments/{self.team.id}/integrations/{integration.id}/channels/"
+        assert client.get(url).status_code == status.HTTP_200_OK
+        key = f"slack/{integration.id}/test_user_id/True/channels"
+        data = cache.get(key)
+        data["lastRefreshedAt"] = (timezone.now() - timedelta(minutes=1)).isoformat()
+        cache.set(key, data, 180)
+        assert client.get(url, {"force_refresh": "true"}).status_code == status.HTTP_200_OK
+        cache.delete(key)
+        response = client.get(url)
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert 0 < int(response["Retry-After"]) <= 180
+        mock_list.assert_called_once()
+        redis.get_client().delete(f"slack/{integration.integration_id}/channels/retry_after")
+
     def test_list_integrations_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -2175,24 +2550,27 @@ class TestIntegrationAPIKeyAccess:
             raise ValueError(f"Unhandled kind in test parameters: {kind}")
 
         mock_slack_instance = MagicMock()
-        mock_slack_instance.list_channels.return_value = [
-            {
-                "id": "C1",
-                "name": "general",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C2",
-                "name": "random",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-        ]
+        mock_slack_instance.list_channels.return_value = SlackChannelListing(
+            channels=[
+                {
+                    "id": "C1",
+                    "name": "general",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C2",
+                    "name": "random",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+            ],
+            truncated=False,
+        )
         mock_slack_class.return_value = mock_slack_instance
 
         key_value = f"test_key_{kind}_{scope}".replace(":", "_").replace("-", "_")
@@ -2229,40 +2607,43 @@ class TestIntegrationAPIKeyAccess:
             created_by=self.user,
         )
         mock_slack_instance = MagicMock()
-        mock_slack_instance.list_channels.return_value = [
-            {
-                "id": "C1",
-                "name": "general",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C2",
-                "name": "random",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C3",
-                "name": "engineering",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "CPRIVATE",
-                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS,
-                "is_private": True,
-                "is_member": False,
-                "is_ext_shared": False,
-                "is_private_without_access": True,
-            },
-        ]
+        mock_slack_instance.list_channels.return_value = SlackChannelListing(
+            channels=[
+                {
+                    "id": "C1",
+                    "name": "general",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C2",
+                    "name": "random",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C3",
+                    "name": "engineering",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "CPRIVATE",
+                    "name": PRIVATE_CHANNEL_WITHOUT_ACCESS,
+                    "is_private": True,
+                    "is_member": False,
+                    "is_ext_shared": False,
+                    "is_private_without_access": True,
+                },
+            ],
+            truncated=False,
+        )
         mock_slack_class.return_value = mock_slack_instance
 
         key_value = "test_key_slack_search"
@@ -2346,8 +2727,8 @@ class TestIntegrationAPIKeyAccess:
             scopes=["integration:read"],
         )
         base_url = f"/api/environments/{self.team.pk}/integrations/{integration.id}/channels/"
-        cache_key = f"slack/{integration.id}/{owns_integration}/channels"
-        other_cache_key = f"slack/{integration.id}/{not owns_integration}/channels"
+        cache_key = f"slack/{integration.id}/test_user_id/{owns_integration}/channels"
+        other_cache_key = f"slack/{integration.id}/test_user_id/{not owns_integration}/channels"
         cached_data = {"channels": [], "lastRefreshedAt": timezone.now().isoformat()}
         cache.set(other_cache_key, cached_data, 30)
         if cache_state != "missing":
@@ -2442,32 +2823,35 @@ class TestIntegrationAPIKeyAccess:
             created_by=self.user,
         )
         mock_slack_instance = MagicMock()
-        mock_slack_instance.list_channels.return_value = [
-            {
-                "id": "C1",
-                "name": "general",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C2",
-                "name": "random",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C3",
-                "name": "engineering",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-        ]
+        mock_slack_instance.list_channels.return_value = SlackChannelListing(
+            channels=[
+                {
+                    "id": "C1",
+                    "name": "general",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C2",
+                    "name": "random",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C3",
+                    "name": "engineering",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+            ],
+            truncated=False,
+        )
         mock_slack_class.return_value = mock_slack_instance
 
         key_value = (
@@ -2532,32 +2916,35 @@ class TestIntegrationAPIKeyAccess:
             created_by=self.user,
         )
         mock_slack_instance = MagicMock()
-        mock_slack_instance.list_channels.return_value = [
-            {
-                "id": "C1",
-                "name": "product-analytics",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C2",
-                "name": "team-product",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-            {
-                "id": "C3",
-                "name": "team-design",
-                "is_private": False,
-                "is_member": True,
-                "is_ext_shared": False,
-                "is_private_without_access": False,
-            },
-        ]
+        mock_slack_instance.list_channels.return_value = SlackChannelListing(
+            channels=[
+                {
+                    "id": "C1",
+                    "name": "product-analytics",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C2",
+                    "name": "team-product",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+                {
+                    "id": "C3",
+                    "name": "team-design",
+                    "is_private": False,
+                    "is_member": True,
+                    "is_ext_shared": False,
+                    "is_private_without_access": False,
+                },
+            ],
+            truncated=False,
+        )
         mock_slack_class.return_value = mock_slack_instance
 
         key_value = f"test_key_slack_search_{search}".replace(" ", "_").replace("-", "_")

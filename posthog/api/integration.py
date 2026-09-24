@@ -3,6 +3,7 @@ import re
 import json
 import time
 from collections.abc import Iterable
+from contextlib import suppress
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -22,7 +23,7 @@ from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
-from redis.exceptions import RedisError
+from redis.exceptions import LockNotOwnedError, RedisError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -31,6 +32,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
+from posthog import redis
 from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.personal_state import PersonalGitHubDiscovery, user_has_personal_github_integration
 from posthog.api.github_callback.team_services import (
@@ -67,6 +69,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_KIND,
     POSTHOG_SLACK_SCOPE,
     SLACK_INTEGRATION_KINDS,
+    SLACK_LISTING_MAX_ITEMS,
     AnthropicIntegration,
     ApplePushIntegration,
     AWSRedshiftIntegration,
@@ -469,6 +472,23 @@ class SlackUserSerializer(serializers.Serializer):
 
 
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
+# A channel listing can run many sequential Slack calls, so the same coordination the user list
+# already has applies here: one filler per workspace, and a floor under how often a person can
+# force one. Without them every pod that gets a cold-cache request walks the workspace itself, and
+# they collectively exceed Slack's per-workspace budget for conversations.list.
+SLACK_CHANNELS_MIN_REFRESH_SECONDS = 30
+SLACK_CHANNELS_FILL_WAIT_SECONDS = 10.0
+SLACK_CHANNELS_FILL_POLL_SECONDS = 0.2
+# A listing Slack cut short is cached briefly rather than for the full hour. Caching it like a
+# complete one hides the missing channels until it expires; not caching it at all sends every
+# retry straight back into the rate limit that truncated it.
+SLACK_CHANNELS_TRUNCATED_CACHE_SECONDS = 60
+# A workspace can hold more channels than Slack's per-window budget lets one walk fetch, so a walk
+# that is cut short keeps its place. The next one resumes from there instead of re-fetching the
+# pages it already had and stopping in the same spot forever. Slack's cursors do not last, so this
+# is short-lived and a rejected one simply starts the walk over.
+SLACK_CHANNELS_PROGRESS_SECONDS = 600
+
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
 
 # Cap on uncached per-id member lookups per integration per minute; each one reaches Slack's
@@ -1623,7 +1643,8 @@ class IntegrationViewSet(
         # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
         # integration_id (the Slack workspace id, shared across teams). Two teams that
         # install the same workspace must not share cached private-channel lists.
-        key = f"slack/{instance.id}/{should_include_private_channels}/channels"
+        # A reconnect can change the Slack user without replacing the integration row.
+        key = f"slack/{instance.id}/{authed_user}/{should_include_private_channels}/channels"
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
@@ -1649,17 +1670,107 @@ class IntegrationViewSet(
         offset = query_serializer.validated_data["offset"]
 
         data = cache.get(key)
+        redis_client = redis.get_client()
+        retry_key = f"slack/{instance.integration_id}/channels/retry_after"
+        retry_after = redis_client.ttl(retry_key)
+        if retry_after > 0:
+            if data is None:
+                raise Throttled(wait=retry_after, detail="Slack channels are still loading. Try again shortly.")
+            force_refresh = False
 
-        if data is None or force_refresh:
+        # A refresh the cache answered moments ago buys nothing and costs a full walk, so hold the
+        # floor even when the caller asked for one.
+        if force_refresh and data is not None:
+            last_refreshed = parse_datetime(data.get("lastRefreshedAt") or "")
+            if (
+                last_refreshed is not None
+                and (timezone.now() - last_refreshed).total_seconds() < SLACK_CHANNELS_MIN_REFRESH_SECONDS
+            ):
+                force_refresh = False
+
+        needs_fill = data is None or force_refresh
+        filling_key = f"slack/{instance.integration_id}/channels/filling"
+        fill_lock = redis_client.lock(filling_key, timeout=120)
+        claimed_fill = needs_fill and fill_lock.acquire(blocking=False)
+
+        if needs_fill and not claimed_fill and data is None:
+            # Nothing to serve, so a cold-cache burst would otherwise have every pod enumerate the
+            # workspace at once and exhaust Slack's budget between them. Wait for the result,
+            # then retry the claim if the previous filler stopped.
+            deadline = time.monotonic() + SLACK_CHANNELS_FILL_WAIT_SECONDS
+            while data is None and time.monotonic() < deadline:
+                time.sleep(SLACK_CHANNELS_FILL_POLL_SECONDS)
+                data = cache.get(key)
+            if data is None:
+                claimed_fill = fill_lock.acquire(blocking=False)
+                if not claimed_fill:
+                    raise Throttled(wait=1, detail="Slack channels are still loading. Try again shortly.")
+
+        if claimed_fill:
+            progress_key = f"{key}/progress"
+            progress = cache.get(progress_key) or {}
             try:
-                channels = slack.list_channels(should_include_private_channels, authed_user)
+                listing = slack.list_channels(
+                    should_include_private_channels,
+                    authed_user,
+                    start_cursor=progress.get("cursor"),
+                    private_start_cursor=progress.get("private_cursor"),
+                    before_request=fill_lock.reacquire,
+                )
+                # A walk that restarted is not a continuation, so what an earlier one saved describes a
+                # listing this one abandoned. Keeping it would preserve channels Slack no longer returns.
+                # Only the half that restarted is dropped: the other half did continue, and the pages it
+                # collected before this attempt live nowhere else. A saved channel came from whichever
+                # walk its privacy names, because the two halves ask Slack for one type each.
+                carried = [
+                    channel
+                    for channel in progress.get("channels", [])
+                    if not (listing.private_restarted if channel["is_private"] else listing.restarted)
+                ]
+                by_id = {channel["id"]: channel for channel in carried}
+                for channel in listing.channels:
+                    by_id[channel["id"]] = self._serialize_slack_channel(channel)
+                channels = list(by_id.values())
+                if carried:
+                    # Each walk is sorted alone, and Slack's pages do not cover contiguous name ranges,
+                    # so the pieces only read as one list once the whole thing is ordered again.
+                    channels.sort(key=lambda channel: channel["name"])
+                # The per-walk cap bounds one walk. Without this the accumulation grows by that much
+                # again on every resume.
+                capped = len(channels) >= SLACK_LISTING_MAX_ITEMS
+                channels = channels[:SLACK_LISTING_MAX_ITEMS]
+                fill_lock.reacquire()
+                if listing.retry_after > 0:
+                    redis_client.set(retry_key, 1, ex=listing.retry_after)
+
+                if not capped and (listing.resume_cursor or listing.private_resume_cursor):
+                    cache.set(
+                        progress_key,
+                        {
+                            "cursor": listing.resume_cursor,
+                            "private_cursor": listing.private_resume_cursor,
+                            "channels": channels,
+                        },
+                        SLACK_CHANNELS_PROGRESS_SECONDS,
+                    )
+                else:
+                    cache.delete(progress_key)
+
+                data = {"channels": channels, "lastRefreshedAt": timezone.now().isoformat()}
+                cache.set(
+                    key,
+                    data,
+                    max(SLACK_CHANNELS_TRUNCATED_CACHE_SECONDS, listing.retry_after)
+                    if listing.truncated and not capped
+                    else 60 * 60,
+                )
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
-            data = {
-                "channels": [self._serialize_slack_channel(channel) for channel in channels],
-                "lastRefreshedAt": timezone.now().isoformat(),
-            }
-            cache.set(key, data, 60 * 60)  # one hour
+            except LockNotOwnedError:
+                raise Throttled(wait=1, detail="Slack channels are still loading. Try again shortly.")
+            finally:
+                with suppress(LockNotOwnedError):
+                    fill_lock.release()
 
         filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
         page = filtered_channels[offset : offset + limit]

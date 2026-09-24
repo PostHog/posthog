@@ -1,7 +1,7 @@
 """Slack integration: connected-workspace API calls and request-signature verification."""
 
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Literal, Optional
 
@@ -52,6 +52,14 @@ class SlackMembershipUnknown(SlackIntegrationError):
     """
 
 
+def _is_expired_cursor(error: SlackApiError) -> bool:
+    """Slack refuses a pagination cursor it no longer recognises, which a resumed walk can hit."""
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    return bool(response.get("error") == "invalid_cursor")
+
+
 def _is_rate_limited(error: SlackApiError) -> bool:
     response = getattr(error, "response", None)
     if response is None:
@@ -81,6 +89,40 @@ SLACK_MEMBERS_PAGE_SIZE = 1000
 # A membership check runs inside a request a person is waiting on, so it gets a much tighter budget
 # than a listing. Ten calls covers every channel short of the largest Slack allows.
 SLACK_MEMBERS_MAX_REQUESTS = 10
+
+
+@frozen
+class SlackChannelListing:
+    """Channels from a listing, and whether a cap or a rate limit stopped it early.
+
+    The caller caches this. A listing that was cut short must not be cached like a complete one,
+    or one rate-limited walk hides the missing channels until the entry expires.
+    """
+
+    channels: list[dict]
+    truncated: bool
+    # Where each walk stopped, so the next one resumes instead of re-fetching page one and dying in
+    # the same place. None once that half is complete. Both halves need their own: a listing can be
+    # cut short in either.
+    resume_cursor: str | None = None
+    private_resume_cursor: str | None = None
+    # A walk that Slack refused a saved cursor for started again from page one, so anything an
+    # earlier walk collected under that cursor describes a listing this one did not continue.
+    # Per half, like the cursors: Slack can refuse one saved cursor while the other still resumes.
+    restarted: bool = False
+    private_restarted: bool = False
+    retry_after: int = 0
+
+
+@frozen
+class _WalkResult:
+    channels: list[dict]
+    cursor: str | None
+    # Kept apart from the cursor: a rate limit on the very first page leaves no cursor at all, and
+    # reading "no cursor" as "finished" would cache a listing that never started.
+    truncated: bool
+    restarted: bool
+    retry_after: int = 0
 
 
 class SlackIntegration:
@@ -125,14 +167,35 @@ class SlackIntegration:
     def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
         return frozenset(required) - self.granted_scopes()
 
-    def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
+    def list_channels(
+        self,
+        should_include_private_channels: bool,
+        authed_user: str,
+        start_cursor: str | None = None,
+        private_start_cursor: str | None = None,
+        before_request: Callable[[], object] | None = None,
+    ) -> SlackChannelListing:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
-        channels = public_channels + private_channels
+        public = self._list_channels_by_type("public_channel", start_cursor=start_cursor, before_request=before_request)
+        private = self._list_channels_by_type(
+            "private_channel",
+            should_include_private_channels,
+            authed_user,
+            start_cursor=private_start_cursor,
+            before_request=before_request,
+        )
+        channels = public.channels + private.channels
 
-        return sorted(channels, key=lambda x: x["name"])
+        return SlackChannelListing(
+            channels=sorted(channels, key=lambda x: x["name"]),
+            truncated=public.truncated or private.truncated,
+            resume_cursor=public.cursor,
+            private_resume_cursor=private.cursor,
+            restarted=public.restarted,
+            private_restarted=private.restarted,
+            retry_after=max(public.retry_after, private.retry_after),
+        )
 
     def list_public_channels(self) -> list[dict]:
         """Every public channel, without paging the private half.
@@ -143,7 +206,7 @@ class SlackIntegration:
         have no request user to pass as ``authed_user``, so the private half can only ever be
         masked for them.
         """
-        return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
+        return sorted(self._list_channels_by_type("public_channel").channels, key=lambda x: x["name"])
 
     def _is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
         """Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
@@ -323,12 +386,22 @@ class SlackIntegration:
         type: Literal["public_channel", "private_channel"],
         should_include_private_channels: bool = False,
         authed_user: str | None = None,
-    ) -> list[dict]:
+        start_cursor: str | None = None,
+        before_request: Callable[[], object] | None = None,
+    ) -> _WalkResult:
+        """Channels from this walk, and the cursor it stopped on, or None when it reached the end.
+
+        Slack's per-workspace budget is smaller than a large workspace's channel list, so one pass
+        cannot always finish. Returning the cursor lets the caller carry on where this stopped.
+        """
         channels: list[dict] = []
-        cursor = None
+        cursor = start_cursor
         requests = 0
+        restarted = False
 
         while requests < SLACK_LISTING_MAX_REQUESTS:
+            if before_request is not None:
+                before_request()
             requests += 1
             try:
                 if type == "public_channel":
@@ -344,6 +417,13 @@ class SlackIntegration:
                         user=authed_user,
                     )
             except SlackApiError as e:
+                # A resume cursor outlives its welcome: Slack expires them, so one saved by an
+                # earlier walk can be refused. That is recoverable, and raising would turn a
+                # listing that used to work into an error, so start the walk over instead.
+                if _is_expired_cursor(e) and cursor is not None and cursor == start_cursor:
+                    cursor = None
+                    restarted = True
+                    continue
                 # These endpoints are rate limited per workspace and the client does not retry, so a
                 # long walk can run into a 429 part way. Keep the pages already collected: a short
                 # list is what the caller got before this change, while raising here would replace it
@@ -351,7 +431,14 @@ class SlackIntegration:
                 if not _is_rate_limited(e):
                     raise
                 self._record_truncation(f"channels_{type}_rate_limited", collected=len(channels), requests=requests)
-                return channels
+                headers = getattr(e.response, "headers", None) or {}
+                try:
+                    retry_after = max(0, int(headers.get("Retry-After", headers.get("retry-after", 0))))
+                except (TypeError, ValueError):
+                    retry_after = 0
+                return _WalkResult(
+                    channels=channels, cursor=cursor, truncated=True, restarted=restarted, retry_after=retry_after
+                )
 
             if type != "public_channel":
                 for channel in res["channels"]:
@@ -367,7 +454,7 @@ class SlackIntegration:
         if cursor:
             self._record_truncation(f"channels_{type}", collected=len(channels), requests=requests)
 
-        return channels
+        return _WalkResult(channels=channels, cursor=cursor, truncated=bool(cursor), restarted=restarted)
 
     def _record_truncation(self, kind: str, *, collected: int, requests: int) -> None:
         """A cap stopped a listing with more to fetch, so the caller is holding a partial list.
