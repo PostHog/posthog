@@ -67,8 +67,8 @@ Done when: `check` exits 0 and the result is the one you expect.
 
 Run `posthog-workflows push flows/onboarding.ts`. It prints `created`, `updated` or `unchanged` per workflow, with the stored version, the workflow's URL and the source ref that was sent, and exits non-zero when any workflow failed.
 
-- Every push that writes marks the workflow as `managed_by: code`, and PostHog shows a link to the file. PostHog keeps edits made in its editor to that workflow and does not save them. **Copy code** turns those edits into the file to commit. A workflow released in the UI is claimed again by the next push that writes.
-- A push writes nothing when nothing changed. `--force` pushes anyway. That is how a rotated secret lands, because the comparison never looks at a secret input, and how a released workflow is claimed again without another change.
+- Every push that writes marks the workflow as `managed_by: code` and records the file it came from. The next push that writes replaces any edit made to that workflow in the PostHog editor, so change the file instead.
+- A push writes nothing when nothing changed. `--force` pushes anyway. That is how a rotated secret lands, because the comparison sees whether a secret is set but not its value.
 - A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path for a file that moved. A copy needs a key of its own.
 - The CLI sends source repository, path and ref fields when it can resolve them. It does not send a `source` object, and it does not send the commit author or subject.
 - To roll back, revert the commit and push. Every push that changes the definition writes a version in PostHog.

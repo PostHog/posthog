@@ -67,7 +67,7 @@ Every helper returns a value. `path` places values in order, and the compiler de
 ## `step({ type, name, id?, description?, config, filters?, on_error?, output_variable?, branches? })`
 
 - Emits a pass-through action with the `type` and `config` you give it. Use it when a copied workflow uses an action type that has no typed helper yet, such as `function_sms`, `function_push`, `wait_until_condition`, `wait_until_time_window` or `random_cohort_branch`.
-- Prefer a typed helper when one exists. A pass-through `config` is emitted unchanged, so you must know the stored shape. Copy an existing workflow with the Copy code button or use the `workflows-get-code` MCP tool when it is available.
+- Prefer a typed helper when one exists. A pass-through `config` is emitted unchanged, so you must know the stored shape. Read the stored shape of an existing workflow with the `workflows-get` MCP tool or `GET /api/projects/<project id>/hog_flows/<id>/`.
 - `type` cannot be `trigger` or `exit` (`reserved_action_type`). Use the workflow `on` field and `exit` field instead.
 - `filters`, `on_error` and `output_variable` are stored on the action when set.
 - `branches` emits one branch edge to each path in order, plus the fall-through `continue` edge to the next step. Use it only for action types whose branch edges are part of the graph.
