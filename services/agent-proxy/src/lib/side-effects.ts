@@ -163,7 +163,7 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
-const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed'])
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed', 'budget_steer'])
 
 function fetchErrorCode(err: unknown): string | undefined {
     if (!(err instanceof Error)) {
@@ -209,9 +209,13 @@ function fireCallback(
     teamId: number,
     originalToken: string,
     config: Config,
-    options: { releaseClaim?: () => Promise<void>; turnCompleted?: boolean } = {}
+    options: {
+        releaseClaim?: () => Promise<void>
+        turnCompleted?: boolean
+        budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
+    } = {}
 ): void {
-    const { releaseClaim, turnCompleted } = options
+    const { releaseClaim, turnCompleted, budgetSteer } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -220,6 +224,20 @@ function fireCallback(
 
     const url = `${config.djangoCallbackBaseUrl}/internal/tasks/runs/${runId}/agent-proxy-callback/`
     const body = JSON.stringify({
+        ...(budgetSteer
+            ? {
+                  sequence: budgetSteer.sequence,
+                  timestamp: budgetSteer.timestamp,
+                  stage: budgetSteer.params['stage'],
+                  mode: budgetSteer.params['mode'],
+                  delivered: budgetSteer.params['delivered'],
+                  spent_usd: budgetSteer.params['spent_usd'],
+                  cap_usd: budgetSteer.params['cap_usd'],
+                  threshold_spent_usd: budgetSteer.params['threshold_spent_usd'],
+                  threshold_at: budgetSteer.params['threshold_at'],
+                  delivered_at: budgetSteer.params['delivered_at'],
+              }
+            : {}),
         kind,
         agent_active: agentActive,
         task_id: taskId,
@@ -256,6 +274,9 @@ function fireCallback(
                 'dispatched' in payload &&
                 payload.dispatched === true
             if (!dispatched) {
+                if (kind === 'budget_steer') {
+                    logger.warn('side_effect:budget_steer_not_captured', { run: runId })
+                }
                 await releaseMilestoneClaim(releaseClaim, runId, kind)
             }
         })
@@ -264,6 +285,35 @@ function fireCallback(
             logger.error('side_effect:failed', { run: runId, kind, error: message, code: fetchErrorCode(err) })
             await releaseMilestoneClaim(releaseClaim, runId, kind)
         })
+}
+
+export function captureBudgetSteerIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null || Array.isArray(notification)) {
+        return
+    }
+    const { method, params } = notification as Record<string, unknown>
+    if (method !== '_posthog/budget_steer' || typeof params !== 'object' || params === null || Array.isArray(params)) {
+        return
+    }
+    fireCallback(runId, 'budget_steer', false, taskId, teamId, originalToken, config, {
+        budgetSteer: {
+            sequence,
+            ...(typeof event['timestamp'] === 'string' ? { timestamp: event['timestamp'] } : {}),
+            params: params as Record<string, unknown>,
+        },
+    })
 }
 
 async function releaseMilestoneClaim(

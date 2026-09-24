@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -16,7 +17,7 @@ from posthog.models import Organization, Team
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.clarify import _clarify_sync
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
-from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
+from products.conversations.backend.temporal.ai_reply.activities.draft import DraftNotProducedError, _draft_async
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
 )
@@ -59,7 +60,6 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     ReviewReplyOutput,
     SafetyFilterInput,
     SafetyFilterOutput,
-    SupportReplyDraft,
     SupportReplyInput,
     ValidateInput,
     ValidateOutput,
@@ -79,6 +79,7 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.tasks.backend.facade.agents import EmptyAgentTurnError
 
 
 @pytest.fixture
@@ -526,6 +527,7 @@ async def test_blocker_aware_routing(
             assert persist_input.investigation_summary in persist_input.reply
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
     assert last_triage["result"] == expected_result
+    assert last_triage["citations"] == sample_chunk_ids
     assert "draft_confidence" in last_triage
     assert "validator_confidence" in last_triage
     assert "blocker" in last_triage
@@ -1938,6 +1940,52 @@ class TestStripJsonFence:
         assert _strip_json_fence(input_text) == expected
 
 
+class TestUtilityCallsUseStructuredOutput:
+    @parameterized.expand(
+        [
+            ("classify", CLASSIFY_MODULE, "classify"),
+            ("refine", REFINE_QUERIES_MODULE, "refine"),
+            ("validate", VALIDATE_MODULE, "validate"),
+            ("safety", SAFETY_FILTER_MODULE, "safety"),
+            ("review", REVIEW_REPLY_MODULE, "review"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_sends_json_schema(self, _name: str, module: str, kind: str) -> None:
+        client = _mock_gateway_client("{}")
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{module}.get_async_anthropic_gateway_client", return_value=client))
+            if kind == "validate":
+                stack.enter_context(patch(f"{VALIDATE_MODULE}._hydrate_chunks", return_value=[]))
+            if kind == "classify":
+                await _classify(ClassifyInput(team_id=1, ticket_context="how do I install"))
+            elif kind == "refine":
+                await _refine_queries(RefineQueriesInput(team_id=1, ticket_context="how do I install"))
+            elif kind == "validate":
+                await _validate(
+                    ValidateInput(
+                        team_id=1,
+                        ticket_context="how do I install",
+                        reply="Use the docs.",
+                        citations=[],
+                        chunk_ids=[],
+                    )
+                )
+            elif kind == "safety":
+                await _safety_filter(SafetyFilterInput(team_id=1, ticket_context="how do I install"))
+            else:
+                await _review_reply(
+                    ReviewReplyInput(team_id=1, ticket_context="how do I install", reply="Use the docs.")
+                )
+
+        fmt = client.messages.create.call_args.kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
+        assert fmt["schema"]["additionalProperties"] is False
+
+
+_OK_DRAFT_JSON = '{"reply": "ok", "citations": [], "confidence": 0.0, "sources": [], "verdict": "answerable"}'
+
+
 def _mock_gateway_client(text: str) -> MagicMock:
     """Build a mock Anthropic gateway client whose messages.create returns `text`."""
     block = MagicMock()
@@ -1948,6 +1996,29 @@ def _mock_gateway_client(text: str) -> MagicMock:
     client = MagicMock()
     client.messages.create = AsyncMock(return_value=message)
     return client
+
+
+class TestRefineQueryParse:
+    @parameterized.expand(
+        [
+            ("lines", "query one\nquery two", [], ["query one", "query two"]),
+            ("json_queries", '{"queries": ["install", "sdk"]}', [], ["install", "sdk"]),
+            ("json_string_field", '{"queries": "install"}', [], ["install"]),
+            ("empty_object", "{}", [], ["help"]),
+            ("empty_object_keeps_seeds", "{}", ["setup"], ["setup"]),
+            ("json_array", '["install", "sdk"]', [], ["install", "sdk"]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_not_a_search_query(
+        self, _name: str, text: str, seeds: list[str], expected: list[str]
+    ) -> None:
+        client = _mock_gateway_client(text)
+        with patch(f"{REFINE_QUERIES_MODULE}.get_async_anthropic_gateway_client", return_value=client):
+            result = await _refine_queries(
+                RefineQueriesInput(team_id=1, ticket_context="how do I install", seed_queries=seeds)
+            )
+        assert result.queries == expected
 
 
 class TestUntrustedTicketGuard:
@@ -1980,14 +2051,13 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(DraftInput(team_id=1, ticket_context=injection, chunk_ids=[]))
 
@@ -2001,22 +2071,22 @@ class TestUntrustedTicketGuard:
 
     @pytest.mark.asyncio
     async def test_draft_prompt_requires_plan_and_verdict(self):
-        captured: dict[str, str] = {}
+        captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
 
         prompt = captured["prompt"]
+        assert "Do not end the turn while a tool or search is still running" in prompt
         assert "PLAN first" in prompt
         assert "blocked_on_customer" in prompt
         assert "blocked_on_knowledge" in prompt
@@ -2031,14 +2101,13 @@ class TestUntrustedTicketGuard:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2052,6 +2121,83 @@ class TestUntrustedTicketGuard:
         assert "FOLLOW-UP:" in captured["prompt"]
         assert "Do not set verdict=blocked_on_customer" in captured["prompt"]
         assert "If a fact you need can only come from the customer" not in captured["prompt"]
+
+
+_EMPTY_TURN = EmptyAgentTurnError("empty", total_lines=1, printed_lines=0)
+
+
+class TestDraftWithoutJson:
+    async def _draft(self, *, attempt: int, start_raw: AsyncMock) -> DraftOutput:
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.llm_attempts", return_value=attempt),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=start_raw),
+        ):
+            return await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+
+    @staticmethod
+    def _session(followup: object) -> MagicMock:
+        session = MagicMock()
+        session.end = AsyncMock()
+        if isinstance(followup, Exception):
+            session.send_followup_raw = AsyncMock(side_effect=followup)
+        else:
+            session.send_followup_raw = AsyncMock(return_value=followup)
+        return session
+
+    @parameterized.expand(
+        [
+            ("first_turn_json", _OK_DRAFT_JSON, None, "ok"),
+            (
+                "example_json_before_answer",
+                '{"reply": "example", "citations": [], "confidence": 0.9} then ' + _OK_DRAFT_JSON,
+                None,
+                "ok",
+            ),
+            ("nudge_returns_json", "I'll wait for the background search", _OK_DRAFT_JSON, "ok"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_uses_the_final_draft_json(
+        self, _name: str, first_text: str, followup: object, expected: str
+    ) -> None:
+        session = self._session(followup)
+
+        output = await self._draft(attempt=1, start_raw=AsyncMock(return_value=(session, first_text)))
+
+        assert (output.reply, output.verdict) == (expected, "answerable")
+        session.end.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            ("nudge_still_prose", "I'll wait for the background search", "still waiting"),
+            ("nudge_empty", "", _EMPTY_TURN),
+            ("nudge_crash", "I'll wait", RuntimeError("Agent server crashed")),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_no_draft_retries_then_blocks(self, _name: str, first_text: str, followup: object) -> None:
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
+
+        output = await self._draft(attempt=2, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
+        assert (output.reply, output.verdict, output.confidence) == ("", "blocked_on_knowledge", 0.0)
+
+    @parameterized.expand(
+        [
+            ("empty_first_turn", _EMPTY_TURN),
+            ("agent_crash", RuntimeError("Agent server crashed: Internal error")),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_failed_first_turn_retries_then_blocks(self, _name: str, error: Exception) -> None:
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(side_effect=error))
+
+        output = await self._draft(attempt=2, start_raw=AsyncMock(side_effect=error))
+        assert (output.verdict, output.confidence, output.task_run_id) == ("blocked_on_knowledge", 0.0, "")
 
 
 class TestDiagnosticScopes:
@@ -2075,14 +2221,13 @@ class TestDiagnosticScopes:
             captured["prompt"] = prompt
             captured["scopes"] = context.posthog_mcp_scopes
             captured["exclude_tools"] = context.mcp_exclude_tools
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2250,14 +2395,13 @@ class TestDiagnosticScopes:
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
-            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
-            return AsyncMock(), result
+            return AsyncMock(), _OK_DRAFT_JSON
 
         with (
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start_raw", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
                 DraftInput(
@@ -2590,6 +2734,15 @@ class TestValidateActivity:
                 0.0,
                 [],
                 "knowledge",
+            ),
+            (
+                "percent_style_scores",
+                '{"grounded": true, "coverage": 80, "confidence": 90, "missing": [], "blocker": "none"}',
+                True,
+                0.0,
+                0.0,
+                [],
+                "none",
             ),
         ]
     )

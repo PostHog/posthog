@@ -17,8 +17,10 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "fuse.js": "*",
-        "react": "*"
+        "react": "*",
+        "react-dom": "*"
     }
 }

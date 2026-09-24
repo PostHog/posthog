@@ -9,7 +9,6 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_subscription_explore import build_explore_hint, build_explore_hint_text
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
@@ -17,6 +16,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionResource
+from products.slack_app.backend.facade.api import slack_followup_invite, slack_followup_invite_text
 
 from ee.tasks.subscriptions.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
@@ -172,7 +172,7 @@ def _prepare_slack_gallery(
     )
 
     ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
-    if explore_hint := build_explore_hint_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
+    if explore_hint := slack_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         lines.append(explore_hint)
 
     return SlackGallery(
@@ -290,7 +290,7 @@ def _prepare_slack_message(
         ]
     )
     ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
-    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
+    if explore_hint := slack_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
     # Prepare additional messages for thread
@@ -339,7 +339,7 @@ def send_slack_message_with_integration(
         is_new_subscription,
         integration=integration,
     )
-    slack_integration = SlackIntegration(integration)
+    slack_integration = SlackIntegration(integration, source="subscriptions")
 
     # Send main message
     message_res = slack_integration.client.chat_postMessage(
@@ -401,7 +401,7 @@ async def deliver_slack_message_data(
     message_data: SlackMessage,
 ) -> SlackDeliveryResult:
     # shared send path: callers build the SlackMessage; retry + partial-failure handling are shared
-    slack_integration = SlackIntegration(integration)
+    slack_integration = SlackIntegration(integration, source="subscriptions")
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
@@ -454,7 +454,7 @@ async def deliver_slack_message_data(
 async def deliver_slack_gallery(
     integration: Integration, subscription: Subscription, gallery: SlackGallery
 ) -> SlackDeliveryResult:
-    slack_integration = SlackIntegration(integration)
+    slack_integration = SlackIntegration(integration, source="subscriptions")
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
         if not gallery.file_uploads:

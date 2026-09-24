@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { compareScoutsByName, SCOUT_GROUP_LABEL, SCOUT_GROUP_ORDER, ScoutRosterRow } from '../../../utils/scoutGroups'
 import { showsScoutOwnership } from '../../../utils/scoutOwners'
-import { SCOUT_ROSTER_WINDOW_DAYS } from '../../../utils/scoutRunsWindow'
+import { runStripEmptyLabel, SCOUT_ROSTER_WINDOW_DAYS } from '../../../utils/scoutRunsWindow'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { scoutCostColumns } from './ScoutCostCell'
@@ -37,6 +37,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
         rollups,
         updatingScoutIds,
         scoutRunsLoadedOnce,
+        scoutRunsCoverFleet,
         scoutRunCosts,
         scoutCostRollups,
         expensiveRunCostThreshold,
@@ -165,11 +166,15 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                             )
                         }
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        return scoutRunsLoadedOnce ? (
-                            <span className="text-xs text-muted">No runs yet</span>
-                        ) : (
-                            <span className="text-xs text-muted">…</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the row says so.
+                        return (
+                            <span className="text-xs text-muted">
+                                {runStripEmptyLabel({
+                                    loadedOnce: scoutRunsLoadedOnce,
+                                    coversFleet: scoutRunsCoverFleet,
+                                })}
+                            </span>
                         )
                     },
                 },

@@ -1,0 +1,95 @@
+{
+    "packages": {
+        "node": {
+            "name": "Node.js",
+            "version": "22.23.2",
+            "file": "archives/node-22.23.2-linux-i386.tar.gz",
+            "sha256": "558d910595883054c928aba5c8e46beeb888a37175f007ef5ce3e7508dbd87ca",
+            "size": 28385805,
+            "archiveSize": 73256960,
+            "dependencies": [],
+            "commands": {
+                "node": "/opt/posthog-packages/node-22.23.2/bin/node",
+                "nodejs": "/opt/posthog-packages/node-22.23.2/bin/node"
+            }
+        },
+        "pi": {
+            "name": "pi",
+            "version": "0.87.1",
+            "file": "archives/pi-0.87.1.tar.gz",
+            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/1668348dce762ca6e86b48b431501c2efadce026",
+            "sha256": "79721a95bbeaec1131d0b1c99392eb28785114619b1357a955647e5ff6591a4a",
+            "size": 20423132,
+            "archiveSize": 76257280,
+            "dependencies": ["node"],
+            "commands": {
+                "pi": "/opt/posthog-packages/pi-0.87.1/bin/pi"
+            }
+        },
+        "doom": {
+            "name": "Doom (Freedoom)",
+            "version": "0.13.0-2",
+            "file": "archives/doom-0.13.0-2-linux-i386.tar.gz",
+            "sha256": "4943c6d37922eac98473d9d20554d02dd8cc01948fb81edc150ba30d2f0ae6c6",
+            "size": 10501917,
+            "archiveSize": 29552640,
+            "dependencies": [],
+            "commands": {
+                "doom": "/opt/posthog-packages/doom-0.13.0-2/bin/doom"
+            }
+        },
+        "sl": {
+            "name": "sl",
+            "version": "5.02-r1",
+            "file": "archives/sl-5.02-r1-linux-i386.tar.gz",
+            "sha256": "febfbfc8b107a88412d2ec3f2f6360fd8d58c7c973a0cfe1679ae97b11820959",
+            "size": 669005,
+            "archiveSize": 1495040,
+            "dependencies": [],
+            "commands": {
+                "sl": "/opt/posthog-packages/sl-5.02-r1/bin/sl"
+            }
+        },
+        "cmatrix": {
+            "name": "cmatrix",
+            "version": "2.0-r2",
+            "file": "archives/cmatrix-2.0-r2-linux-i386.tar.gz",
+            "sha256": "399f246673df9038beffdbf2d3a555a23d525927f16b142ab55965143e102c15",
+            "size": 670481,
+            "archiveSize": 1495040,
+            "dependencies": [],
+            "commands": {
+                "cmatrix": "/opt/posthog-packages/cmatrix-2.0-r2/bin/cmatrix"
+            }
+        },
+        "figlet": {
+            "name": "figlet",
+            "version": "2.2.5-r3",
+            "file": "archives/figlet-2.2.5-r3-linux-i386.tar.gz",
+            "sha256": "53aae756d5516ff39a935f37beba32f4b0738a1c47d04643bf27ea44abc64efe",
+            "size": 599456,
+            "archiveSize": 1710080,
+            "dependencies": [],
+            "commands": {
+                "figlet": "/opt/posthog-packages/figlet-2.2.5-r3/bin/figlet"
+            }
+        },
+        "nyancat": {
+            "name": "nyancat",
+            "version": "1.5.2-r1",
+            "file": "archives/nyancat-1.5.2-r1-linux-i386.tar.gz",
+            "sha256": "28d93810fa5e6428643ac6628587923cd2ac87c6e273a82473745a89473ca03f",
+            "size": 495103,
+            "archiveSize": 1044480,
+            "dependencies": [],
+            "commands": {
+                "nyancat": "/opt/posthog-packages/nyancat-1.5.2-r1/bin/nyancat"
+            }
+        }
+    },
+    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/745b60735f92fd480ff3aaf712b28c99ddd3221d",
+    "kernel": {
+        "file": "images/linux-fb-bzimage.bin",
+        "sha256": "33ca60bd4832f0cf202845fa7ac1a60776c0215e8a20d21a3f07d3722f99e415"
+    }
+}

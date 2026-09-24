@@ -3,6 +3,11 @@
 How to move a Postgres CDC source from legacy extraction onto the S3 change buffer, and how to move
 it back.
 
+A source that turns on CDC starts on the buffer: setting up the slot also writes
+`cdc_ingest_mode = "buffered"`. Recreating a lost slot does the same, through "Repair CDC" or the
+automatic recovery when capture finds its slot invalidated, so a repaired legacy source comes back
+buffered. Only a healthy source that enabled CDC before that needs the flip.
+
 ## What changes
 
 Capture stops transforming and dispatching change events. It decodes WAL, writes Parquet to
@@ -125,20 +130,14 @@ preserved, so there is no WAL gap and no re-sync.
    team's `warehouse-pipelines-v3` rollout flag neither enables nor
    blocks the flip, and narrowing it later does not affect flipped sources. Do not flip while a
    deploy is rolling out, so every worker already runs the forcing.
-1. `dwh-cdc-write-resolution` is on for the team. **The command refuses to flip without it.**
-   The flag gates ordering resolution: dropping rows the table already applied, collapsing repeated
-   keys within a batch, and checking that a DELETE is not about to erase columns the target still
-   holds. Without it a buffered merge lane still lands every row, but out of order across a retry.
-   Rollback does not require the flag. Neither deletion nor either lane's resume point depends on
-   it: both come from the tables themselves.
-2. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
+1. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
    the name is reserved for change ordering, and capture hard-errors on the collision rather than
    writing files whose ordering and retry cleanup derive from customer data. A source already on
    buffered carries the column for our own reasons, so the check only applies to a source still on
    legacy and a re-flip after a rollback is not blocked by it.
-3. Every CDC schema on the source is at `sync_frequency_interval = 5min`. The command warns
+2. Every CDC schema on the source is at `sync_frequency_interval = 5min`. The command warns
    when an eligible schema is off cadence — consumption paces to the schema's own schedule.
-4. Buffer validation is clean over a busy window:
+3. Buffer validation is clean over a busy window:
 
    ```bash
    python manage.py validate_cdc_buffer --source-id <uuid> --since-hours 40
@@ -147,10 +146,9 @@ preserved, so there is no WAL gap and no re-sync.
    Capture stops writing shadow copies the moment a source is buffered: a schema not yet served
    would otherwise accumulate files the consumer merges the day it turns eligible, on top of what
    the legacy lane already wrote. So this window exists only before the first flip. A schema
-   added to a buffered source later, or one left on legacy by an earlier flip, moves on the re-run
-   without one.
+   added to a buffered source later joins the buffer after its first sync, without one.
 
-5. Check what will move:
+4. Check what will move:
 
    ```bash
    python manage.py migrate_cdc_source_to_buffered --source-id <uuid> --dry-run
@@ -160,19 +158,11 @@ preserved, so there is no WAL gap and no re-sync.
 
 ## Flip
 
-Eligibility is opt-in per schema. The command writes `cdc_buffered_lane: true` into each moved
-schema's `sync_type_config`, and capture and the scheduled sync serve only marked schemas — plus
-`consolidated` schemas on an already-buffered source, which predate the marker. A `cdc_only` or
-`both` schema is never picked up by a deploy on its own: a source flipped before those modes were
-served left them on legacy with their per-schema schedules paused, and routing their changes into
-the buffer with nothing scheduled to consume would have lost them to the S3 retention.
-
-To move such a schema, or one added since, **re-run the flip on the already-buffered source**. It
-processes only the schemas not yet served: pauses extraction, quiesces those schedules, purges only
-their prefixes (the served schemas' buffers hold files the consumer still owes), runs the
-reserved-column check on them, marks them, and unpauses. A schema whose own table carries a
-`_ph_cdc_seq` this lane wrote is waived by its own `cdc_buffered_before` marker; a schema never
-buffered before is checked.
+Every schema that is streaming and has finished its first sync is served, in any table mode. A
+schema added to a buffered source later joins the buffer after its first sync, with no re-run. The
+loader always resolves write ordering for CDC batches: it drops rows the table already applied,
+collapses repeated keys within a batch, and checks that a DELETE is not about to erase columns the
+target still holds.
 
 ```bash
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid>

@@ -761,10 +761,10 @@ SQL
   table "logs_volume_buckets" {
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -784,6 +784,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -813,6 +816,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -2134,6 +2140,14 @@ SQL
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
+    column "timestamp_min" {
+      type  = "DateTime64(6)"
+      alias = "arrayMin(timestamp_arr)"
+    }
+    column "timestamp_max" {
+      type  = "DateTime64(6)"
+      alias = "arrayMax(timestamp_arr)"
+    }
     index "idx_metric_type_set" {
       expr        = "metric_type"
       type        = "set(10)"
@@ -2147,6 +2161,16 @@ SQL
     index "idx_trace_id_bf" {
       expr        = "trace_id_arr"
       type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_timestamp_min_minmax" {
+      expr        = "timestamp_min"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_max_minmax" {
+      expr        = "timestamp_max"
+      type        = "minmax"
       granularity = 1
     }
     engine "replicated_aggregating_merge_tree" {
@@ -3706,6 +3730,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -3727,7 +3752,17 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY
@@ -3751,6 +3786,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"

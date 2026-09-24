@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from posthog.hogql.database.trino_locator import TrinoTableLocator
 
@@ -36,6 +38,24 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
     _bind_source_tables(database, team_id)
 
 
+def get_data_modeling_table_names(team_id: int, saved_query_ids: Sequence[UUID]) -> dict[UUID, str]:
+    from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+
+    labels = {
+        saved_query_id: path[-1]
+        for saved_query_id, path in DataWarehouseModelPath.objects.filter(
+            team_id=team_id, saved_query_id__in=saved_query_ids
+        ).values_list("saved_query_id", "path")
+        if path
+    }
+    return {
+        saved_query_id: ducklake_data_modeling_table_name(
+            labels.get(saved_query_id, saved_query_id.hex), saved_query_id.hex
+        )
+        for saved_query_id in saved_query_ids
+    }
+
+
 def build_trino_table_locators(
     database: Any,
     team_id: int,
@@ -44,7 +64,6 @@ def build_trino_table_locators(
     table_names: ManagedWarehouseTableNames,
 ) -> dict[str, TrinoTableLocator]:
     """Build explicit Trino targets from the relations managed warehouse provisions."""
-    from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.managed_warehouse.backend.facade import team_state as team_state_facade
     from products.warehouse_sources.backend.facade.ducklake import list_ducklake_imported_tables
@@ -60,21 +79,13 @@ def build_trino_table_locators(
             deleted=True
         )
     )
-    model_labels_by_saved_query_id = {
-        saved_query_id: path[-1]
-        for saved_query_id, path in DataWarehouseModelPath.objects.filter(
-            team_id=team_id,
-            saved_query_id__in=[saved_query.id for saved_query in materialized_models],
-        ).values_list("saved_query_id", "path")
-        if path
-    }
+    model_table_names = get_data_modeling_table_names(team_id, [saved_query.id for saved_query in materialized_models])
     for saved_query in materialized_models:
         if database.has_table(saved_query.name):
-            model_label = model_labels_by_saved_query_id.get(saved_query.id, saved_query.id.hex)
             locators[saved_query.name] = (
                 catalog_name,
                 model_schema,
-                ducklake_data_modeling_table_name(model_label, saved_query.normalized_name),
+                model_table_names[saved_query.id],
             )
 
     naming_version = team_state_facade.data_imports_table_naming_version(team_id)
