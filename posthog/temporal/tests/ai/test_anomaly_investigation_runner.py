@@ -360,6 +360,36 @@ _VALID_REPORT_ARGS = {
             2,
             id="salvage_report_after_new_evidence",
         ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": FINAL_REPORT_TOOL_NAME, "args": _UNRECOVERABLE_REPORT_ARGS, "id": "report-2"},
+                        {"name": "fetch_metric_series", "args": {}, "id": "call-2"},
+                    ],
+                )
+            ],
+            "inconclusive",
+            2,
+            id="do_not_salvage_report_before_tool_in_same_turn",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "fetch_metric_series", "args": {}, "id": "call-2"},
+                        {"name": FINAL_REPORT_TOOL_NAME, "args": _UNRECOVERABLE_REPORT_ARGS, "id": "report-2"},
+                    ],
+                )
+            ],
+            "inconclusive",
+            2,
+            id="do_not_salvage_report_after_tool_in_same_turn",
+        ),
     ],
 )
 async def test_loop_failure_keeps_best_report_and_tool_count(
