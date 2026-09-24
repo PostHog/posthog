@@ -277,7 +277,9 @@ tools:
         description: >
             List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch,
             error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and
-            what they produced.
+            what they produced. Set status=failed to find failure records without reading canvas state. Keep the status
+            filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error,
+            and consecutive_failures for current health; an enabled schedule alone does not show successful work.
         feature_flag: loops
     loops-skill-bundles-update:
         operation: loops_skill_bundles_update
@@ -371,6 +373,9 @@ tools:
         enabled: false
     task-channels-provision-defaults-create:
         operation: task_channels_provision_defaults_create
+        enabled: false
+    task-channels-setup-create:
+        operation: task_channels_setup_create
         enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
@@ -476,12 +481,15 @@ tools:
             idempotent: false
         input_schema: TaskAgentCreateSchema
         enrich_url: '{id}'
-        title: Create task and start run
+        title: Create task and start or schedule run
         description: >
-            Create a task and start its first background run. Set `description` to the agent's instructions. For code
-            tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error`
-            if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is
-            lost, search for the task before you retry. A repeated call can create another task.
+            Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days.
+            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit
+            model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set
+            `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit
+            `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or
+            `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A
+            repeated call can create another task.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -494,6 +502,9 @@ tools:
                 - latest_run.stage
                 - latest_run.status
                 - run_error
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
@@ -516,7 +527,10 @@ tools:
             Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and
             `channel` to limit results to the current space. The results identify who created each task and whether its
             latest run is active. Supports additional filtering by status, repository, creator, origin product, and
-            archived or internal state. Requires the calling token's organization to have Tasks access enabled.
+            archived or internal state. Requires the calling token's organization to have Tasks access enabled. To
+            inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed
+            loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run
+            stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.
         feature_flag: tasks
         response:
             include:
@@ -532,6 +546,9 @@ tools:
                 - created_by.last_name
                 - latest_run.id
                 - latest_run.status
+                - latest_run.error_message
+                - latest_run.created_at
+                - latest_run.completed_at
                 - created_at
                 - updated_at
     tasks-me-config-create:
@@ -651,12 +668,14 @@ tools:
             idempotent: false
         input_schema: TaskAgentRunCreateSchema
         enrich_url: '{id}'
-        title: Start task run
+        title: Start or schedule task run
         description: >
-            Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and
-            `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress.
-            Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated
-            call can start another run.
+            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times
+            without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
+            fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
+            explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a
+            prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
+            failure. If the response is lost, check the runs before you retry. A repeated call can start another run.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -669,6 +688,9 @@ tools:
                 - latest_run.id
                 - latest_run.stage
                 - latest_run.status
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-runs-analysis-activity-create:
         operation: tasks_runs_analysis_activity_create
         enabled: false
@@ -745,6 +767,9 @@ tools:
                 - environment
                 - error_message
                 - state.sandbox_environment_id
+                - scheduled_at
+                - model
+                - reasoning_effort
                 - created_at
                 - updated_at
                 - completed_at
@@ -822,6 +847,9 @@ tools:
         feature_flag: tasks
     tasks-runs-set-output-partial-update:
         operation: tasks_runs_set_output_partial_update
+        enabled: false
+    tasks-runs-set-summary-partial-update:
+        operation: tasks_runs_set_summary_partial_update
         enabled: false
     tasks-runs-start-create:
         operation: tasks_runs_start_create

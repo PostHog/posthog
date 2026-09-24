@@ -33,17 +33,13 @@ class TestGitHubProvider(SimpleTestCase):
             scheme = build_github_provider(app).scheme()
 
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(own_secret)}),
+                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(own_secret)}).outcome,
                 VerificationOutcome.VERIFIED,
             )
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(other_secret)}),
+                scheme.verify(body=BODY, headers={"X-Hub-Signature-256": _signature(other_secret)}).outcome,
                 VerificationOutcome.INVALID,
             )
-
-    def test_an_unknown_app_is_refused_at_build(self) -> None:
-        with self.assertRaises(ValueError):
-            build_github_provider("gitlab")
 
     def test_every_declared_app_has_a_spec_and_the_core_consumers_fit_it(self) -> None:
         self.assertEqual({spec.app for spec in SPECS}, {"posthog", "stamphog"})

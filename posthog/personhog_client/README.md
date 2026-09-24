@@ -69,7 +69,7 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 `get_distinct_ids_for_person`, `get_distinct_ids_for_persons`
 
 **Person deletes:**
-`delete_persons`, `delete_persons_batch_for_team`
+`delete_persons`, `delete_persons_batch_for_team`, `delete_tombstoned_persons` (deletes only while still tombstoned, a bounded number of dependent rows per call; persons it did not finish come back as pending and are sent again; used by the persons cleanup drain)
 
 **Person split:**
 `split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
@@ -138,7 +138,9 @@ The client emits Prometheus metrics at multiple layers:
 - `fake_client.py` — `FakePersonHogClient` for tests
 - `interceptor.py` — gRPC interceptors for client name headers and request metrics
 - `metrics.py` — Prometheus counters for routing decisions
-- `proto/generated/` — auto-generated protobuf stubs (do not edit)
 - `proto/__init__.py` — convenience re-exports of proto types
+
+The auto-generated protobuf stubs live outside this directory, in [`packages/personhog-proto`](/packages/personhog-proto/README.md).
+They install as the top-level `personhog` package. Do not edit them by hand.
 
 For updating proto definitions, see [`proto/README.md`](/proto/README.md).

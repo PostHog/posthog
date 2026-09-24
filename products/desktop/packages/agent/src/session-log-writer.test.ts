@@ -381,42 +381,106 @@ describe("SessionLogWriter", () => {
       },
     );
 
-    // The double-prefixed form is what extNotification puts on the wire.
-    it.each(["_posthog/console", "__posthog/usage_update"])(
-      "keeps a streamed message whole across an interleaved %s",
-      async (method) => {
-        const sessionId = "s1";
-        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+    async function partsAroundInterleavedLines(
+      ...wireMessages: Record<string, unknown>[]
+    ): Promise<string[] | undefined> {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "dashboards still" },
+        }),
+      );
+      for (const wireMessage of wireMessages) {
         logWriter.appendRawLine(
           sessionId,
-          makeSessionUpdate("agent_message_chunk", {
-            content: { type: "text", text: "dashboards still" },
-          }),
+          JSON.stringify({ jsonrpc: "2.0", ...wireMessage }),
         );
-        logWriter.appendRawLine(
-          sessionId,
-          JSON.stringify({ jsonrpc: "2.0", method, params: {} }),
-        );
-        logWriter.appendRawLine(
-          sessionId,
-          makeSessionUpdate("agent_message_chunk", {
-            content: { type: "text", text: " use that field filter" },
-          }),
-        );
-        logWriter.appendRawLine(
-          sessionId,
-          makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
-        );
+      }
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: " use that field filter" },
+        }),
+      );
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+      );
 
-        await logWriter.flush(sessionId);
+      await logWriter.flush(sessionId);
+      return logWriter.getAgentResponseParts(sessionId);
+    }
 
+    // Every line of both directions of the tapped wire reaches the writer: the
+    // server's own notifications, the control calls the host makes mid-run, and
+    // the bare responses to them. The double-prefixed form is what
+    // extNotification puts on the wire.
+    it.each([
+      {
+        label: "a console notification",
+        wireMessages: [{ method: "_posthog/console", params: {} }],
+      },
+      {
+        label: "a double-prefixed usage update",
+        wireMessages: [{ method: "__posthog/usage_update", params: {} }],
+      },
+      {
+        label: "a session refresh call and its response",
+        wireMessages: [
+          { id: 7, method: "_posthog/refresh_session", params: {} },
+          { id: 7, result: { refreshed: true } },
+        ],
+      },
+      {
+        label: "an unrecognized server diagnostic",
+        wireMessages: [{ method: "_posthog/some_new_diagnostic", params: {} }],
+      },
+    ])(
+      "keeps a streamed message whole across an interleaved $label",
+      async ({ wireMessages }) => {
         // A split here would reach the Slack relay as only the second half.
-        expect(logWriter.getAgentResponseParts(sessionId)).toEqual([
+        expect(await partsAroundInterleavedLines(...wireMessages)).toEqual([
           "dashboards still use that field filter",
         ]);
       },
     );
+
+    it.each([
+      {
+        // The client renders progress as a card, so the reader sees the split.
+        label: "a conversation event",
+        wireMessages: [
+          { method: "_posthog/progress", params: { label: "Cloning" } },
+        ],
+      },
+      {
+        // A local session gets no `_posthog/turn_complete`, so this response is
+        // the only signal that closes the last message of the turn.
+        label: "the response to session/prompt",
+        wireMessages: [
+          { id: 4, method: "session/prompt", params: { prompt: [] } },
+          { id: 4, result: { stopReason: "end_turn" } },
+        ],
+      },
+      {
+        // The id spaces of the two directions overlap, so a control call can
+        // hold the id a later prompt reuses.
+        label: "a prompt response reusing an answered control call's id",
+        wireMessages: [
+          { id: 4, method: "_posthog/refresh_session", params: {} },
+          { id: 4, method: "session/prompt", params: { prompt: [] } },
+          { id: 4, result: { stopReason: "end_turn" } },
+        ],
+      },
+    ])("ends the message on $label", async ({ wireMessages }) => {
+      expect(await partsAroundInterleavedLines(...wireMessages)).toEqual([
+        "dashboards still",
+        " use that field filter",
+      ]);
+    });
 
     it("stamps the coalesced entry with the covered chunk id range", async () => {
       const sessionId = "s1";

@@ -3,13 +3,12 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, OuterRef, Prefetch, Subquery, TextField
-from django.db.models.functions import Cast
+from django.db.models import Model, Prefetch
 
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -17,11 +16,12 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.query_access import assert_user_can_read_query
@@ -40,6 +40,22 @@ logger = structlog.get_logger(__name__)
 class _CancelTarget:
     workflow_id: str
     workflow_run_id: str | None
+
+
+HAS_DEPENDENTS_CODE = "has_dependents"
+
+
+class DependentsValidationError(serializers.ValidationError):
+    """A refused delete, carrying the blocked view's node id for a link to its lineage.
+
+    exceptions_hog renders only str, list, or {field: message} details, so the id travels on
+    `extra`, which the handler attaches to the response verbatim.
+    """
+
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail, code=HAS_DEPENDENTS_CODE)
+        if node_id:
+            self.extra = {"node_id": node_id}
 
 
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
@@ -90,6 +106,13 @@ class SavedQueryMaterializeSerializer(serializers.Serializer):
     )
 
 
+class SavedQueryListQuerySerializer(serializers.Serializer):
+    include_columns = serializers.BooleanField(
+        default=True,
+        help_text="Include column definitions. Set to false for table-only lists.",
+    )
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -102,9 +125,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+    _include_columns: bool = True
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
+        context["include_columns"] = self._include_columns
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
@@ -116,6 +141,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
+
+    @validated_request(
+        query_serializer=SavedQueryListQuerySerializer,
+        responses={200: OpenApiResponse(response=view_state.DataWarehouseSavedQueryMinimalSerializer(many=True))},
+    )
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        self._include_columns = request.validated_query_data["include_columns"]
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -152,6 +185,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "query", "external_tables", "incremental_state"
             )
 
+        if self.action == "list" and not self._include_columns:
+            base_queryset = base_queryset.defer("columns")
+
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
             "managed-viewsets",
@@ -173,24 +209,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if not is_managed_viewset_enabled:
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
-
-        # Only the detail serializer returns `latest_history_id`, and the subquery costs a jsonb
-        # key-path filter the GIN index on `detail` cannot serve, so keep it off the list page.
-        if getattr(self, "action", None) == "retrieve":
-            # Scoped to query edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs
-            # don't advance the head.
-            latest_activity = (
-                ActivityLog.objects.filter(
-                    scope="DataWarehouseSavedQuery",
-                    item_id=Cast(OuterRef("id"), output_field=TextField()),
-                    team_id=self.team_id,
-                    **editing.QUERY_CHANGE_ACTIVITY_FILTER,
-                )
-                .order_by("-created_at")
-                .values("id")[:1]
-            )
-
-            return base_queryset.annotate(latest_activity_id=Subquery(latest_activity))
 
         return base_queryset
 
@@ -215,15 +233,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.facade.api import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError, describe_dependents
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
             lifecycle.delete_saved_query(instance)
-        except HasDependentsError:
-            raise serializers.ValidationError(
-                "Cannot delete this view because other views depend on it. Delete or update those views first."
+        except HasDependentsError as dependents_error:
+            visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
+            raise DependentsValidationError(
+                describe_dependents(name, visible, any_hidden=len(visible) < len(dependents_error.dependents)),
+                node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
 
         log_activity(

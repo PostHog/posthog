@@ -8,7 +8,7 @@ import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsi
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardType } from '~/types'
 
 const DASHBOARD_ID = 5
 
@@ -16,7 +16,7 @@ const dashboard = {
     ...dashboardFixture,
     id: DASHBOARD_ID,
     tiles: dashboardFixture.tiles.map((tile, index) => ({ ...tile, id: index + 1 })),
-} as unknown as DashboardType<QueryBasedInsightModel>
+} as unknown as DashboardType
 
 const meta: Meta = {
     title: 'Scenes/Dashboards/Customize breakdown colors',

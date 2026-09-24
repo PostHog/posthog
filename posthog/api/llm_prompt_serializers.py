@@ -153,6 +153,15 @@ class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+    resolve = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. "
+            "Set to false to get the raw text with the reference tags, e.g. for editing or export. "
+            "Only applies when content is 'full'."
+        ),
+    )
 
     def validate_label(self, value: str) -> str:
         # Fetching also writes to the cache (miss sentinels under caller-controlled keys),
@@ -183,6 +192,14 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
             "Return each prompt at the version this label points to, e.g. 'production'. "
             "Prompts that do not carry the label are omitted. "
             "If omitted, the latest version of every prompt is returned."
+        ),
+    )
+    resolve = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled "
+            "results with full content. Set to false to get the raw text with the reference tags."
         ),
     )
     order_by = serializers.ChoiceField(
@@ -429,8 +446,6 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
-            if name:
-                validate_prompt_references(team.id, prompt_name=name, prompt_payload=attrs.get("prompt"))
             return attrs
 
         if name is not None and self.instance.name != name:
@@ -458,6 +473,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         with transaction.atomic():
+            # Validated here rather than in validate() so the reference target
+            # locks live in the same transaction as the dependency writes.
+            validate_prompt_references(
+                team.id, prompt_name=validated_data["name"], prompt_payload=validated_data.get("prompt")
+            )
             prompt = LLMPrompt.objects.create(
                 team=team,
                 created_by=request.user,
@@ -468,22 +488,53 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         return prompt
 
 
+class LLMPromptReferencedConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What is still referenced and what to do next.")
+    referencing_prompts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of the prompts whose latest or labeled version holds the reference.",
+    )
+
+
 class LLMPromptLabelSummarySerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Label name, e.g. 'production'.")
     version = serializers.IntegerField(help_text="Prompt version this label currently points to.")
+
+
+class LLMPromptResolvedReferenceSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the referenced prompt that was spliced in.")
+    version = serializers.IntegerField(help_text="Exact version whose content was spliced in.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        allow_null=True,
+        help_text="Label the reference used, or null when it pinned a version directly.",
+    )
 
 
 class LLMPromptListSerializer(LLMPromptSerializer):
     prompt_size_bytes = serializers.SerializerMethodField()
     prompt_preview = serializers.SerializerMethodField()
     all_labels = serializers.SerializerMethodField()
+    resolved_references = serializers.SerializerMethodField()
 
     class Meta(LLMPromptSerializer.Meta):
-        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes", "all_labels"]
+        fields = [
+            *LLMPromptSerializer.Meta.fields,
+            "prompt_preview",
+            "prompt_size_bytes",
+            "all_labels",
+            "resolved_references",
+        ]
         read_only_fields = fields
 
     def get_prompt_size_bytes(self, instance: LLMPrompt) -> int:
         return int(getattr(instance, "prompt_size_bytes", 0))
+
+    @extend_schema_field(LLMPromptResolvedReferenceSerializer(many=True, allow_null=True))
+    def get_resolved_references(self, instance: LLMPrompt) -> None:
+        # Serialization runs on raw rows; the viewset overwrites this after
+        # splicing references into labeled results. Null means resolution
+        # did not run for this row.
+        return None
 
     @extend_schema_field(LLMPromptLabelSummarySerializer(many=True))
     def get_all_labels(self, instance: LLMPrompt) -> list[dict[str, Any]]:
@@ -567,6 +618,14 @@ class LLMPromptPublicSerializer(serializers.Serializer):
         required=False,
         help_text="The label this prompt was fetched by. Only present when fetching with the label parameter.",
     )
+    resolved_references = LLMPromptResolvedReferenceSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "The exact prompt versions spliced into the returned content, in order of first appearance. "
+            "Empty when the prompt has no references. Only present when references were resolved."
+        ),
+    )
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
     deleted = serializers.BooleanField()
@@ -621,6 +680,18 @@ class LLMPromptLabelSerializer(serializers.ModelSerializer):
         return instance.prompt.version
 
 
+class LLMPromptReferencedBySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Prompt whose latest or labeled version references this prompt.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        allow_null=True,
+        help_text="Label of this prompt the reference follows, or null when it pins a version.",
+    )
+    version = serializers.IntegerField(
+        allow_null=True,
+        help_text="Version of this prompt the reference pins, or null when it follows a label.",
+    )
+
+
 class LLMPromptResolveResponseSerializer(serializers.Serializer):
     prompt = LLMPromptSerializer()
     versions = LLMPromptVersionSummarySerializer(many=True)
@@ -628,4 +699,12 @@ class LLMPromptResolveResponseSerializer(serializers.Serializer):
     labels = LLMPromptLabelSerializer(
         many=True,
         help_text="All labels on this prompt with the version each one currently points to, across all versions (not just the returned page).",
+    )
+    referenced_by = LLMPromptReferencedBySerializer(
+        many=True,
+        help_text=(
+            "Prompts whose latest or labeled version references this prompt, with the label or version "
+            "each reference uses. Empty when nothing references this prompt. At most 100 entries, "
+            "ordered by prompt name."
+        ),
     )

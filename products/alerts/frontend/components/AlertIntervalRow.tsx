@@ -145,7 +145,8 @@ export function AlertIntervalRow({
                             value={value}
                             options={getAlertIntervalOptions(
                                 hasHighFrequencyAlertsEntitlement,
-                                hasRealTimeAlertsEntitlement
+                                hasRealTimeAlertsEntitlement,
+                                alertForm.detector_config?.type === 'llm'
                             )}
                             onChange={(interval) => {
                                 selectAlertCalculationInterval(interval, {

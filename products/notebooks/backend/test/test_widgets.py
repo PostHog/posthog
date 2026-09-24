@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
@@ -177,6 +178,9 @@ class TestWidgetGeneration(SimpleTestCase):
             invalid_stream,
             valid_stream,
         ]
+        invalid_stream.response.headers = {"x-request-id": "generation-first-attempt"}
+        valid_stream.response.headers = {"x-request-id": "generation-retry"}
+        request_ids: list[str | None] = []
 
         source = generate_widget_source(
             team_id=42,
@@ -185,9 +189,11 @@ class TestWidgetGeneration(SimpleTestCase):
             schemas=[{"name": "locations_df", "columns": [{"name": "lat", "type": "float64"}]}],
             input_names=["locations_df"],
             client=client,
+            request_ids=request_ids,
         )
 
         assert source.title == "Interactive globe"
+        assert request_ids == ["generation-first-attempt", "generation-retry"]
         assert source.source == "export default function Canvas() { return <div>Ready</div> }"
         assert client.with_options.call_args.kwargs["max_retries"] == 0
         assert client.messages.create.call_count == 2
@@ -362,6 +368,8 @@ class TestWidgetGeneration(SimpleTestCase):
         client.with_options.return_value = client
         stream = completion_stream(content)
         client.messages.create.return_value = stream
+        stream.response.headers = {"x-request-id": "security-review"}
+        request_ids: list[str | None] = []
 
         review = review_widget_source(
             team_id=42,
@@ -369,9 +377,11 @@ class TestWidgetGeneration(SimpleTestCase):
             source="export default function Widget() { return <div /> }",
             input_names=["public_df"],
             client=client,
+            request_ids=request_ids,
         )
 
         assert review.severity == expected_severity
+        assert request_ids == ["security-review"]
         assert len(review.findings) == expected_findings
         assert review.review_version == WIDGET_SECURITY_REVIEW_VERSION
         request = client.messages.create.call_args.kwargs
@@ -610,14 +620,25 @@ class TestWidgetData(APIBaseTest):
         assert version is not None
         return version
 
-    def test_inspection_uses_latest_successful_run_and_authorizes_it(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_inspection_uses_latest_successful_run_and_authorizes_it(self, _name: str, unrun_sibling: bool) -> None:
         self._run(value=1)
         latest = self._run(value=2)
         authorize = MagicMock()
+        inputs = [self.INPUT_NAME]
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            inputs.append("unrun_df")
+            with self.assertRaises(WidgetError) as error:
+                inspect_widget_inputs(self.notebook, inputs, authorize)
+            assert error.exception.code == "input_not_ready"
 
-        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize)
+        inspection = inspect_widget_inputs(self.notebook, inputs, authorize, skip_unready=unrun_sibling)
 
-        assert inspection.resolved_inputs[0].run == latest
+        assert [(item.name, item.run) for item in inspection.resolved_inputs] == [(self.INPUT_NAME, latest)]
         assert inspection.contract[0]["columns"] == [
             {"name": "lat", "type": "float64"},
             {"name": "label", "type": "string"},
@@ -877,6 +898,7 @@ class TestWidgetData(APIBaseTest):
             prompt_delta="Make it lighter",
             model="claude-sonnet-4-6",
             generator_version="4",
+            generation_cost_usd=Decimal("0.123456"),
             input_contract=initial_version.input_contract,
             schema_hash="",
             security_review_severity=GeneratedWidgetVersion.SecurityReviewSeverity.HIGH,
@@ -965,6 +987,7 @@ class TestWidgetData(APIBaseTest):
         assert len(history_response.json()["results"]) == 1
         assert history_response.json()["results"][0]["build_hash"] == "b" * 64
         assert history_response.json()["results"][0]["security_review"]["severity"] == "high"
+        assert history_response.json()["results"][0]["generation_cost_usd"] == "0.123456"
 
     def test_active_generation_hides_a_transient_preview_error(self) -> None:
         instance = self._mapping()
@@ -1015,8 +1038,16 @@ class TestWidgetData(APIBaseTest):
             version_id=version.canvas_source_version_id,
         )
 
-    def test_generate_endpoint_infers_available_dataframes(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_generate_endpoint_infers_available_dataframes(self, _name: str, unrun_sibling: bool) -> None:
         latest = self._run()
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                f'<Widget nodeId="{self.NODE_ID}" prompt="Render a globe" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            self.notebook.save(update_fields=["content"])
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
         result = WidgetStatus(
             lifecycle_status="building",
@@ -1045,7 +1076,8 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert response.status_code == 202
-        assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
+        inputs = generate.call_args.kwargs["inspection"].resolved_inputs
+        assert [(item.name, item.run) for item in inputs] == [(self.INPUT_NAME, latest)]
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
     @parameterized.expand(
@@ -1142,6 +1174,56 @@ class TestWidgetData(APIBaseTest):
         assert start_workflow.call_count == 2
         assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
         assert job.error_code is None
+
+    @parameterized.expand([("direct", False), ("bound", True)])
+    def test_improvement_requires_existing_inputs_and_preserves_slots(self, _name: str, bound: bool) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        slot = "points" if bound else self.INPUT_NAME
+        version.input_contract[0]["slot"] = slot
+        if bound:
+            version.input_contract[0]["sourceName"] = "original_df"
+            instance.input_bindings = {slot: {"source": self.INPUT_NAME}}
+            instance.save(update_fields=["input_bindings"])
+        version.save(update_fields=["input_contract"])
+        self.notebook.content = markdown_content(
+            f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+            '<SQLV2 nodeId="unrun" returnVariable="unrun_df" code="SELECT 1" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
+        request = {
+            "prompt": "Use a darker background",
+            "generation_id": str(uuid4()),
+            "generation_operation": "improve",
+            "expected_current_version_id": str(version.id),
+        }
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(url, data=request, format="json")
+            assert response.status_code == 409
+            assert response.json()["code"] == "input_not_ready"
+            assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+            workflow.assert_not_called()
+
+            run = self._run()
+            response = self.client.post(url, data=request, format="json")
+
+        assert response.status_code == 202
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get()
+        required = next(item for item in job.input_contract if item["slot"] == slot)
+        assert required == {
+            **version.input_contract[0],
+            "sourceName": self.INPUT_NAME,
+            "runId": str(run.id),
+            "totalRowCount": 150,
+        }
+        assert "unrun_df" not in [item["slot"] for item in job.input_contract]
+        workflow.assert_called_once()
 
     def test_improvement_rejects_a_stale_current_version_before_creating_a_job(self) -> None:
         self._mapping()
@@ -1335,6 +1417,8 @@ class TestWidgetData(APIBaseTest):
         assert error.exception.code == "generation_id_conflict"
 
     def test_generation_identifier_is_scoped_to_the_team(self) -> None:
+        self._run()
+        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize_run=lambda _run: None)
         generation_id = uuid4()
         other_team = Team.objects.create(organization=self.organization)
         other_notebook = Notebook.objects.create(
@@ -1379,7 +1463,7 @@ class TestWidgetData(APIBaseTest):
                 node_id=self.NODE_ID,
                 prompt="Make it lighter",
                 user_id=self.user.id,
-                inspection=WidgetInputInspection(resolved_inputs=[]),
+                inspection=inspection,
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
@@ -1603,8 +1687,13 @@ class TestWidgetData(APIBaseTest):
         publication_id = uuid4()
         events: list[str] = []
 
-        def perform_review(**_kwargs: object) -> WidgetSecurityReview:
+        def perform_generation(*, request_ids: list[str | None], **_kwargs: object) -> GeneratedWidgetSource:
+            request_ids.append("generation")
+            return GeneratedWidgetSource(title="Lighter globe", source=source)
+
+        def perform_review(*, request_ids: list[str | None], **_kwargs: object) -> WidgetSecurityReview:
             events.append("review")
+            request_ids.append("review")
             return security_review
 
         def prepare_source(**_kwargs: object) -> MagicMock:
@@ -1612,9 +1701,17 @@ class TestWidgetData(APIBaseTest):
             return MagicMock()
 
         with (
+            self.settings(AI_GATEWAY_URL="http://gateway.test/v1", AI_GATEWAY_API_KEY="test-gateway-key"),
+            patch.object(
+                httpx.Client,
+                "get",
+                return_value=httpx.Response(
+                    200, json={"cost_usd": "0.05"}, request=httpx.Request("GET", "http://gateway.test")
+                ),
+            ),
             patch(
                 "products.notebooks.backend.widget_generation.generate_widget_source",
-                return_value=GeneratedWidgetSource(title="Lighter globe", source=source),
+                side_effect=perform_generation,
             ),
             patch(
                 "products.notebooks.backend.widget_generation.review_widget_source",
@@ -1656,6 +1753,7 @@ class TestWidgetData(APIBaseTest):
         assert version.security_review_model == WIDGET_SECURITY_REVIEW_MODEL
         assert version.security_review_version == "1"
         assert version.security_reviewed_at is not None
+        assert version.generation_cost_usd == Decimal("0.120000")
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
         assert review.call_args.kwargs["trace_id"] == f"notebook-widget-security-review-{job.id}"

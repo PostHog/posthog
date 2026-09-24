@@ -20,6 +20,8 @@ from posthog.schema import QueryStatus
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
 from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
@@ -548,3 +550,27 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
         )
 
         assert printed.resolve_seconds > 0
+
+
+@pytest.mark.parametrize("file_backed", [True, False])
+def test_bounded_offline_client_stays_token_aware_for_a_file_backed_user(monkeypatch, tmp_path, file_backed):
+    token = tmp_path / "token"
+    token.write_text("notebooks-token")
+    creds = ClickHouseCredentials(
+        user="notebooks",
+        password="static-fallback",
+        password_file=str(token) if file_backed else None,
+    )
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.NOTEBOOKS: creds})
+
+    with patch.object(frame_materialize, "make_ch_pool") as mock_pool:
+        frame_materialize._bounded_offline_client(team_id=1)
+
+    call_kwargs = mock_pool.call_args.kwargs
+    assert call_kwargs["send_receive_timeout"] == frame_materialize._INSERT_SEND_RECEIVE_TIMEOUT_SECONDS
+    if file_backed:
+        assert call_kwargs["credential_provider"]() == "notebooks-token"
+        assert "password" not in call_kwargs
+    else:
+        assert call_kwargs["password"] == "static-fallback"
+        assert "credential_provider" not in call_kwargs

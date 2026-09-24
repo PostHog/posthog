@@ -36,6 +36,11 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import {
+    clonePayloadPreservingFiles,
+    findUploadedFiles,
+    readJsonFile,
+} from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { SYNC_FREQUENCY_ORDER, SyncTypeLabelMap, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -116,6 +121,7 @@ const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'description',
     'available_columns',
     'incremental',
+    'incremental_sync_blocked',
     'should_sync_default',
 ])
 
@@ -297,30 +303,6 @@ export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj
     }
 }
 
-export const clonePayloadPreservingFiles = (value: unknown): unknown => {
-    if (value instanceof File) {
-        return value
-    }
-
-    if (Array.isArray(value)) {
-        return value.map((item) => clonePayloadPreservingFiles(item))
-    }
-
-    if (value instanceof Date) {
-        return new Date(value.getTime())
-    }
-    if (value && typeof value === 'object' && value.constructor === Object) {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
-                key,
-                clonePayloadPreservingFiles(nestedValue),
-            ])
-        )
-    }
-
-    return value
-}
-
 // Run a per-schema API action across many schemas; returns how many failed.
 export async function runBulkSchemaAction(
     schemas: ExternalDataSourceSchema[],
@@ -362,6 +344,8 @@ export function schemasNeedingLookbackResync(source: ExternalDataSource | null):
 
 // Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
 // the backend to discover and fill in default sync settings as part of the same update.
+// Blocked tables are enabled along with the rest on purpose. An operator who fixed the key or the
+// duplicates at the source for many tables at once has to be able to turn them back on in one go.
 export function buildBulkEnablePayloads(
     schemas: ExternalDataSourceSchema[]
 ): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
@@ -1101,14 +1085,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 auto_sync_new_schemas,
                 auto_sync_schema_patterns,
             }) => {
+                const captureSaveOutcome = (outcome: string): void => {
+                    posthog.capture('warehouse source saved', {
+                        source_type: values.source?.source_type,
+                        outcome,
+                    })
+                }
+
                 const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
-                }
-
-                const newJobInputs = {
-                    ...values.source?.job_inputs,
-                    ...sanitizedPayload,
                 }
 
                 // Read before the update, while `values.source` still holds the old config, so we can
@@ -1118,28 +1104,24 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const schemasToResync = schemasNeedingLookbackResync(values.source)
 
                 // Handle file uploads
-                const sourceFieldConfig = values.sourceFieldConfig
-                if (sourceFieldConfig?.fields) {
-                    for (const field of sourceFieldConfig.fields) {
-                        if (field.type === 'file-upload' && sanitizedPayload[field.name]) {
-                            try {
-                                // Assumes we're loading a JSON file
-                                const loadedFile: string = await new Promise((resolve, reject) => {
-                                    const fileReader = new FileReader()
-                                    fileReader.onload = (e) => resolve(e.target?.result as string)
-                                    fileReader.onerror = (e) => reject(e)
-                                    fileReader.readAsText(sanitizedPayload[field.name][0])
-                                })
-                                newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch (e: any) {
-                                posthog.captureException(e)
-                                lemonToast.error(
-                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
-                                )
-                                return
-                            }
-                        }
+                for (const { field, container, file } of findUploadedFiles(
+                    values.sourceFieldConfig?.fields ?? [],
+                    sanitizedPayload
+                )) {
+                    try {
+                        // Assumes we're loading a JSON file
+                        container[field.name] = await readJsonFile(file)
+                    } catch (e: any) {
+                        posthog.captureException(e)
+                        captureSaveOutcome('file_unreadable')
+                        lemonToast.error(`The "${field.name}" file is not valid — it must be a readable JSON file.`)
+                        return
                     }
+                }
+
+                const newJobInputs = {
+                    ...values.source?.job_inputs,
+                    ...sanitizedPayload,
                 }
 
                 try {
@@ -1163,6 +1145,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
+                    captureSaveOutcome('success')
                     lemonToast.success('Source updated')
 
                     if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
@@ -1183,6 +1166,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             : undefined,
                     })
                 } catch (e: any) {
+                    captureSaveOutcome('rejected')
                     if (e.message) {
                         lemonToast.error(e.message)
                     } else {

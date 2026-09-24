@@ -1,6 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
+import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
@@ -25,6 +26,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
@@ -50,6 +52,8 @@ interface QueryWindowProps {
     mode?: SQLEditorMode
     showDatabaseTree: boolean
     onShowDatabaseTree: () => void
+    /** Which product embeds this editor. Only used to attribute analytics events to a host. */
+    hostProduct?: ProductKey
     showQueryPanel?: boolean
     showOutputPanel?: boolean
     onRunQuery?: () => void
@@ -73,6 +77,7 @@ export function QueryWindow({
     mode,
     showDatabaseTree,
     onShowDatabaseTree,
+    hostProduct,
     showQueryPanel = true,
     showOutputPanel = true,
     onRunQuery,
@@ -116,7 +121,7 @@ export function QueryWindow({
     } = useActions(logic)
     const { setEditorView } = useActions(biLogic)
 
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
     const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
@@ -269,6 +274,8 @@ export function QueryWindow({
                         <ExpandDatabaseTreeButton
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
+                            mode={mode}
+                            hostProduct={hostProduct}
                         />
                         {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
                             <LemonSegmentedButton
@@ -370,6 +377,7 @@ export function QueryWindow({
                         // that mounts against an existing model never runs that path, and would then
                         // ask for metadata without the index report.
                         indexUsage: true,
+                        onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
@@ -419,9 +427,13 @@ export function QueryWindow({
 function ExpandDatabaseTreeButton({
     showDatabaseTree,
     onShowDatabaseTree,
+    mode,
+    hostProduct,
 }: {
     showDatabaseTree: boolean
     onShowDatabaseTree: () => void
+    mode?: SQLEditorMode
+    hostProduct?: ProductKey
 }): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
@@ -437,6 +449,14 @@ function ExpandDatabaseTreeButton({
             size="small"
             tooltip="Expand database schema panel"
             onClick={() => {
+                // This button only ever opens the panel, because it renders nothing once the panel
+                // is open and expanded. So every click is one open, and no close is counted here.
+                posthog.capture('sql-editor-schema-panel-opened', {
+                    mode: mode ?? SQLEditorMode.FullScene,
+                    host_product: hostProduct ?? null,
+                    // False when the panel was open before and the user collapsed it by dragging.
+                    is_first_open: !showDatabaseTree,
+                })
                 if (!showDatabaseTree) {
                     onShowDatabaseTree()
                     return

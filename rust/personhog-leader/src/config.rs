@@ -24,13 +24,6 @@ pub struct Config {
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 
-    /// Broker-enforced epoch fencing: the changelog is produced through
-    /// per-partition transactional producers, so a new owner's
-    /// acquisition fences every predecessor at the broker. Off by
-    /// default while the latency cost is being measured.
-    #[envconfig(default = "false")]
-    pub kafka_transactional_fencing: bool,
-
     /// How long a fencing transaction window admits joining writes
     /// before committing, when it does not fill first (see
     /// FENCING_WINDOW_MAX_WRITES). Amortizes the commit round trip
@@ -335,13 +328,6 @@ pub struct Config {
     #[envconfig(default = "")]
     pub k8s_namespace: String,
 
-    /// Refuse strong reads and fence acquisition once this pod's lease
-    /// may have expired, instead of serving until the keepalive notices.
-    /// Trades availability during an etcd outage for never answering as
-    /// an owner the protocol may already have replaced.
-    #[envconfig(default = "false")]
-    pub lease_gated_authority: bool,
-
     #[envconfig(default = "30")]
     pub lease_ttl: i64,
 
@@ -372,30 +358,6 @@ pub struct Config {
     #[envconfig(default = "75")]
     pub global_shutdown_timeout_secs: u64,
 }
-
-/// A fenced write must resolve inside the runway the lease keepalive
-/// reserves for self-fencing (a third of the TTL). The bound is on the
-/// *queued* write, not the lucky one: an arrival can park behind a
-/// window that is already committing, so it pays that window's send and
-/// commit before its own — hence the factor of two below.
-///
-/// A commit may also be re-attempted, and the shares are sized so that
-/// every attempt the code will make still fits. The alternative was a
-/// bound that quietly assumed a single attempt while the retry loop
-/// spent three times it: an assertion the runway could not honour is
-/// worse than a tighter timeout, because the whole point of deriving
-/// these from the lease is that a write cannot outlive the fence that
-/// ends its session.
-///
-/// librdkafka additionally requires `message.timeout.ms <= transaction
-/// .timeout.ms`, and rejects a `transaction.timeout.ms` under a second.
-/// Deriving both from the runway satisfies every relation by
-/// construction wherever the lease TTL leaves room, and
-/// [`Config::validate_fencing_timescales`] refuses the configurations
-/// where it does not.
-const FENCING_MESSAGE_SHARE: u32 = 1;
-const FENCING_TXN_SHARE: u32 = 3;
-const FENCING_SHARE_BASE: u32 = 10;
 
 /// How many times a window's commit is attempted in total, counting the
 /// first.
@@ -452,9 +414,10 @@ impl Config {
         self.fencing_settle_budget() + Duration::from_millis(50)
     }
 
-    /// The budget one write may spend, derived so that a write queued
-    /// behind another — and the settle that follows the queue draining —
-    /// still finishes inside the runway.
+    /// What one fenced write may spend and still resolve inside the runway
+    /// the lease reserves for self-fencing: net of the settle that follows
+    /// a drain, and halved, because a write can park behind a committing
+    /// window and pay that window's send and commit before its own.
     fn fencing_budget(&self) -> Duration {
         self.lease_fence_runway()
             .saturating_sub(Duration::from_millis(self.fencing_window_ms))
@@ -462,21 +425,23 @@ impl Config {
             / 2
     }
 
-    /// How long a fenced send may take.
+    /// How long a fenced send may take: what the transaction calls leave.
     pub fn fencing_message_timeout(&self) -> Duration {
         if self.fencing_message_timeout_ms > 0 {
             return Duration::from_millis(u64::from(self.fencing_message_timeout_ms));
         }
-        (self.fencing_budget() * FENCING_MESSAGE_SHARE / FENCING_SHARE_BASE)
+        self.fencing_budget()
+            .saturating_sub(self.fencing_txn_timeout() * FENCING_TXN_CALLS)
             .max(MIN_MESSAGE_TIMEOUT)
     }
 
-    /// How long a transaction init, commit, or abort may take.
+    /// How long a transaction init, commit, or abort may take: an even
+    /// share of the budget with the send, never under librdkafka's floor.
     pub fn fencing_txn_timeout(&self) -> Duration {
         if self.fencing_txn_timeout_ms > 0 {
             return Duration::from_millis(self.fencing_txn_timeout_ms);
         }
-        (self.fencing_budget() * FENCING_TXN_SHARE / FENCING_SHARE_BASE).max(MIN_TXN_TIMEOUT)
+        (self.fencing_budget() / (FENCING_TXN_CALLS + 1)).max(MIN_TXN_TIMEOUT)
     }
 
     /// The producer queue each fenced producer gets, in MiB.
@@ -712,9 +677,6 @@ impl Config {
     /// startup: the derivation satisfies them wherever the lease TTL
     /// leaves room, and an operator can override either knob.
     pub fn validate_fencing_timescales(&self) -> Result<(), String> {
-        if !self.kafka_transactional_fencing {
-            return Ok(());
-        }
         if self.fencing_lanes < 1 {
             return Err("FENCING_LANES must be at least 1".to_string());
         }
@@ -723,20 +685,6 @@ impl Config {
                 "FENCING_LANES ({}) must be at most {MAX_FENCING_LANES}",
                 self.fencing_lanes
             ));
-        }
-        // Fencing without the lease gate is the combination the e2e
-        // zombie scenario breaks: acquisition takes the partition's epoch
-        // from whoever holds it, so a pod waking inside its lease window
-        // fences the legitimate owner on its way to noticing it is dead.
-        // The gate is what gives acquisition the standing to be safe, so
-        // the dependency is refused at startup rather than documented.
-        if !self.lease_gated_authority {
-            return Err(
-                "KAFKA_TRANSACTIONAL_FENCING requires LEASE_GATED_AUTHORITY: unless \
-                 acquisition is gated on holding the lease, a pod whose lease has lapsed \
-                 can take the changelog fence away from the partition's real owner"
-                    .to_string(),
-            );
         }
         if self.fencing_window_max_writes == 0 {
             return Err(
@@ -975,8 +923,6 @@ mod fencing_timescale_tests {
     fn fenced(lease_ttl: i64) -> Config {
         let mut config =
             Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
-        config.kafka_transactional_fencing = true;
-        config.lease_gated_authority = true;
         config.lease_ttl = lease_ttl;
         config.fencing_txn_timeout_ms = 0;
         config.fencing_message_timeout_ms = 0;
@@ -1014,10 +960,8 @@ mod fencing_timescale_tests {
         }
     }
 
-    /// The retry budget and the timeout shares are one decision split
-    /// across two constants. Raising the attempt count without shrinking
-    /// the shares puts the code back outside the runway it validates
-    /// against — silently, because every existing test would still pass.
+    /// The attempt count decides the split, so budget the calls do not
+    /// spend is a derivation bug, not slack.
     #[test]
     fn the_production_ttl_affords_every_transaction_call() {
         let config = fenced(30);
@@ -1031,16 +975,22 @@ mod fencing_timescale_tests {
         assert!(
             queued <= runway,
             "{FENCING_TXN_CALLS} transaction calls need {queued:?}, runway is {runway:?}: \
-             lower FENCING_TXN_SHARE / FENCING_MESSAGE_SHARE, or lower the attempt counts"
+             lower the attempt counts"
         );
-        // And it must be the attempts that are tight, not the shares
-        // being trivially small: a budget that fits ten attempts would
-        // mean the timeouts had collapsed toward their floors.
-        let one_more = window + (message + txn * (FENCING_TXN_CALLS + 1)) * 2;
+        assert_eq!(
+            message + txn * FENCING_TXN_CALLS,
+            config.fencing_budget(),
+            "the derivation leaves budget unspent"
+        );
+    }
+
+    /// The transaction calls take only their floor; the send gets the rest.
+    #[test]
+    fn the_send_gets_what_the_transaction_calls_leave() {
+        let txn = fenced(30).fencing_txn_timeout();
         assert!(
-            one_more > runway,
-            "the shares leave room for more attempts than are configured; raise \
-             the attempt counts or the shares rather than leaving runway unused"
+            txn <= MIN_TXN_TIMEOUT + MIN_TXN_TIMEOUT / 10,
+            "transaction timeout {txn:?} sits well above the floor; that runway belongs to the send"
         );
     }
 
@@ -1301,11 +1251,11 @@ mod fencing_timescale_tests {
         fenced(3606)
             .validate_fencing_timescales()
             .expect("LEASE_TTL=3606 sits just inside the broker ceiling");
-        fenced(27)
+        fenced(26)
             .validate_fencing_timescales()
-            .expect("LEASE_TTL=27 is the acceptance floor");
+            .expect("LEASE_TTL=26 is the acceptance floor");
         assert!(
-            fenced(26).validate_fencing_timescales().is_err(),
+            fenced(25).validate_fencing_timescales().is_err(),
             "below the floor, the librdkafka minimums cannot fit the drain room"
         );
         // And the production value must stay comfortably inside it.
@@ -1344,18 +1294,5 @@ mod fencing_timescale_tests {
             .validate_fencing_timescales()
             .expect_err("must reject");
         assert!(err.contains("librdkafka"), "got: {err}");
-    }
-
-    /// The dependency is a startup failure, not a comment: fencing on a
-    /// pod that will acquire without checking its lease is the shape the
-    /// zombie gate reproduces.
-    #[test]
-    fn fencing_without_the_lease_gate_is_refused() {
-        let mut config = fenced(30);
-        config.lease_gated_authority = false;
-        let err = config
-            .validate_fencing_timescales()
-            .expect_err("fencing must require the gate");
-        assert!(err.contains("LEASE_GATED_AUTHORITY"), "got: {err}");
     }
 }

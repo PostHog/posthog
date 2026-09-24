@@ -4,8 +4,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from ee.partners.stripe.api.provisioning.signature import compute_signature
-from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, HMAC_SECRET, StripeProvisioningTestBase
+from ee.partners.stripe.api.provisioning.test.base import (
+    BASE_PATH,
+    HMAC_SECRET,
+    StripeProvisioningTestBase,
+    compute_signature,
+)
 
 HEALTH_URL = f"{BASE_PATH}/provisioning/health"
 

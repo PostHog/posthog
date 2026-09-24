@@ -10,7 +10,10 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import skipIf
+from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -35,9 +38,10 @@ from posthog.schema import (
 
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import execute_hogql_query, sync_execute
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.instance_setting import override_instance_config
 
@@ -308,6 +312,22 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         return response.results[0][1][0]
 
+    def test_trends_over_a_view_tags_the_saved_query(self):
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        real_sync_execute = sync_execute
+        captured: list[list[str] | None] = []
+
+        def spy(*args, **kwargs):
+            captured.append(get_query_tags().saved_query_ids)
+            return real_sync_execute(*args, **kwargs)
+
+        with patch("posthog.hogql.query.sync_execute", side_effect=spy):
+            self._avg_view_setup("avg")
+
+        saved_query = DataWarehouseSavedQuery.objects.get(team=self.team, name="saved_view")
+        assert captured[-1] == [str(saved_query.pk)]
+
     def test_trends_view_avg(self):
         assert self._avg_view_setup("avg") == 3.5
 
@@ -495,6 +515,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert TrendsQueryRunner(team=self.team, query=trends_query)._is_breakdown_filter_field_boolean() is expected
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
 

@@ -1,5 +1,8 @@
+from typing import Literal
+
 import pytest
 
+from parameterized import parameterized
 from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 
@@ -17,7 +20,12 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerSummaryResponse,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.base import (
+    SIGNAL_HEADLINE_MAX_LENGTH,
+    BaseScanner,
+    SignalFinding,
+    SignalsResponse,
+)
 from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
 from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
@@ -103,6 +111,22 @@ class TestPreamble:
         # Events are reachable on demand via the tool, keyed on the footer's REC_T — not dumped inline.
         assert "get_events_around" in rendered
         assert "<events>" not in rendered
+
+    @parameterized.expand(
+        [
+            ("available", True, False),
+            ("clean", False, True),
+            ("none", False, False),
+        ]
+    )
+    def test_preamble_describes_the_network_tool_only_when_it_is_offered(
+        self, network_state: Literal["available", "clean", "none"], describes_tool: bool, describes_clean: bool
+    ) -> None:
+        # The tool is withheld when the recording has no requests to return, so a preamble that still
+        # described it would send the model after a tool that is not there.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme", network_state=network_state)
+        assert ("get_network_around" in rendered) is describes_tool
+        assert ("none of them failed" in rendered) is describes_clean
 
     def test_preamble_escapes_left_angle_in_team_name(self) -> None:
         # The team admin who set the name could theoretically forge a closing tag — defense in depth.
@@ -821,6 +845,7 @@ class TestSignalSideMission:
     # A complete, valid `signal` payload for round-trip tests.
     _VALID_SIGNAL = {
         "problem_type": "bug",
+        "headline": "Checkout CTA does nothing",
         "start_time": 72,
         "end_time": 78,
         "url": "https://app.example.com/cart",
@@ -941,3 +966,13 @@ class TestSignalSideMission:
         # The description is embedded for free-text search, so leaked `(t …)` markers must never reach it.
         signal = SignalFinding.model_validate({**self._VALID_SIGNAL, "description": raw})
         assert signal.description == clean
+
+    def test_signal_headline_strips_markers_and_holds_its_length(self) -> None:
+        # The headline shares the description's marker leak, and a watch feed card lists three of them on one
+        # line, so a model that answers with a sentence instead of a phrase must not reflow the card.
+        marked = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "Checkout CTA (t 844) does nothing"})
+        assert marked.headline == "Checkout CTA does nothing"
+
+        long = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "word " * 40})
+        assert len(long.headline) <= SIGNAL_HEADLINE_MAX_LENGTH
+        assert not long.headline.endswith(" ")

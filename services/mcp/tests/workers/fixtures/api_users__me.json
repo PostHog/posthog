@@ -169,7 +169,6 @@
     "allow_publicly_shared_resources": true,
     "member_count": 1,
     "is_ai_data_processing_approved": true,
-    "default_experiment_stats_method": "bayesian",
     "default_anonymize_ips": false,
     "default_role_id": null,
     "is_active": true,

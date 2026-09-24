@@ -49,7 +49,9 @@ export enum Scene {
     DeadLetterQueue = 'DeadLetterQueue',
     Destinations = 'Destinations',
     DebugHog = 'DebugHog',
+    ProjectFiles = 'ProjectFiles',
     DebugQuery = 'DebugQuery',
+    Terminal = 'Terminal',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
     ErrorAccessDenied = 'AccessDenied',
@@ -59,7 +61,6 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
-    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitions = 'EventDefinitions',
     EventDefinitionEdit = 'EventDefinitionEdit',
@@ -95,6 +96,7 @@ export enum Scene {
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
+    BusinessKnowledgeSource = 'BusinessKnowledgeSource',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
@@ -182,6 +184,8 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Tracing = 'Tracing',
+    TracingRetentionNew = 'TracingRetentionNew',
+    TracingRetentionDetail = 'TracingRetentionDetail',
     Metrics = 'Metrics',
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
@@ -196,6 +200,7 @@ export enum Scene {
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
+    WarehouseDestinations = 'WarehouseDestinations',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
@@ -207,7 +212,10 @@ export enum Scene {
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
+    Broadcasts = 'Broadcasts',
     Workflows = 'Workflows',
+    Broadcast = 'Broadcast',
+    Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
@@ -402,7 +410,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
-    [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
 
     // Stamphog
     [Scene.Stamphog]: AccessControlResourceType.Stamphog,
@@ -422,7 +429,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
+    [Scene.Broadcast]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

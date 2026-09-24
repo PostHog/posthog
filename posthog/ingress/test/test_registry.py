@@ -1,8 +1,13 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.dispatch.loading import get_consumer_registry, reset_consumer_registry
+from posthog.ingress.dispatch.loading import get_consumer_registry, non_product_consumers, reset_consumer_registry
 from posthog.ingress.dispatch.registry import ConsumerRegistry, RegistryError
+from posthog.ingress.github.provider import SPECS as GITHUB_SPECS
 
 GITHUB = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request", "push"}))
 STAMPHOG = ProviderSpec(provider="github", app="stamphog", event_types=frozenset({"pull_request"}))
@@ -80,6 +85,44 @@ class TestConsumerRegistry(SimpleTestCase):
             ],
             ["installation_lifecycle"],
         )
+
+    def test_the_named_non_product_module_is_registered(self) -> None:
+        self.assertEqual([consumer.name for consumer in non_product_consumers()], ["vercel_marketplace"])
+
+    @parameterized.expand(
+        [
+            # A build without `ee/` has no Vercel endpoint either, so there is nothing to register.
+            ("the_named_module_itself", "ee.api.vercel.webhook_consumers", []),
+            ("the_tree_above_it", "ee", []),
+            # Anything else means the module is there and broken, and a consumer that silently
+            # leaves the registry takes its endpoint's deliveries with it.
+            ("a_module_the_declaration_imports", "ee.billing.billing_manager", None),
+            ("an_unrelated_module", "some_third_party", None),
+        ]
+    )
+    def test_only_a_missing_ee_tree_is_skipped(self, _name: str, missing: str, expected: list[str] | None) -> None:
+        error = ModuleNotFoundError(f"No module named {missing!r}", name=missing)
+
+        with patch("posthog.ingress.dispatch.loading.importlib.import_module", side_effect=error):
+            if expected is None:
+                with self.assertRaises(ModuleNotFoundError):
+                    non_product_consumers()
+            else:
+                self.assertEqual([consumer.name for consumer in non_product_consumers()], expected)
+
+    def test_no_github_consumer_opts_into_regional_forwarding(self) -> None:
+        # Each region runs its own GitHub App, with its own webhook URL and its own secret, so a
+        # replayed delivery can only fail the other region's signature check. The forward lane
+        # keys off `ownership` alone, so leaving it unset is what keeps GitHub out of it.
+        reset_consumer_registry()
+        self.addCleanup(reset_consumer_registry)
+
+        registry = get_consumer_registry()
+
+        for spec in GITHUB_SPECS:
+            for event_type in sorted(spec.event_types):
+                for consumer in registry.consumers_for(provider="github", app=spec.app, event_type=event_type):
+                    self.assertIsNone(consumer.ownership, f"{consumer.name} would forward {event_type} deliveries")
 
     def test_same_name_on_two_apps_is_kept_apart_when_providers_differ(self) -> None:
         slack = ProviderSpec(provider="slack", app="supporthog", event_types=frozenset({"message"}))

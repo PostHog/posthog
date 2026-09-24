@@ -52,7 +52,6 @@ import {
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -60,12 +59,14 @@ import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
+import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
+import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
@@ -177,7 +178,7 @@ export const QueryDatabase = ({
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
-    const { deleteJoin } = useActions(sourceManagementLogic)
+    const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
     const { openNewExpressionModal, openEditExpressionModal, deleteExpression } = useActions(expressionModalLogic)
     const { deleteDraft } = useActions(draftsLogic)
@@ -369,16 +370,7 @@ export const QueryDatabase = ({
         router.actions.push(url)
     }
 
-    const getEndpointUrl = (item: TreeDataItem): string => {
-        const endpointName = item.record?.table?.name ?? item.name
-        const versionMatch = endpointName.match(/^(.+)_v(\d+)$/)
-
-        if (versionMatch) {
-            return urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
-        }
-
-        return urls.endpoint(item.name)
-    }
+    const getEndpointUrl = (item: TreeDataItem): string => endpointModelUrl(item.record?.table?.name ?? item.name)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {

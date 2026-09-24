@@ -17,7 +17,7 @@ const SESSION_ID_RE = /^(?!\.+$)[A-Za-z0-9_.:-]{1,200}$/
 // here (e.g. from a future caller that skips upstream validation) could still land in the option
 // list or filtergraph as a raw string. Throwing keeps interpolation injection-proof regardless of
 // the caller: a finite number stringifies to [0-9.eE+-] only, so no spaces or filter metacharacters.
-function toFiniteNumber(value: unknown, field: string): number {
+export function toFiniteNumber(value: unknown, field: string): number {
     const n = Number(value)
     if (!Number.isFinite(n)) {
         throw new RasterizationError(`${field} must be a finite number, got: ${String(value)}`, false, 'INVALID_INPUT')

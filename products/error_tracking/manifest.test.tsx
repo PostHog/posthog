@@ -14,6 +14,12 @@ describe('error tracking routes', () => {
         expect(routes.indexOf(alertsNewRoute)).toBeLessThan(routes.indexOf(alertsIdRoute))
     })
 
+    it('opens fingerprint management from the legacy fingerprints route', () => {
+        const redirect = manifest.redirects!['/error_tracking/:id/fingerprints'] as RedirectFn
+
+        expect(redirect({ id: 'issue-id' }, {}, {})).toBe('/error_tracking/issue-id?manageFingerprints=true')
+    })
+
     // Legacy settings links (from docs, bookmarks, and old onboarding) used to dead-end on a blank
     // issue page. Each must now land on its tab in the configuration panel.
     it.each([

@@ -25,6 +25,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -38,7 +39,7 @@ import {
     ExporterFormat,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
@@ -50,6 +51,7 @@ import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 const RESOURCE_TYPE = 'insight'
 
 export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
     const theInsightLogic = insightLogic(insightLogicProps)
     const { insightProps, insight, hasDashboardItemId, insightDuplicating } = useValues(theInsightLogic)
     const { duplicateInsight, setInsightMetadata } = useActions(theInsightLogic)
@@ -101,7 +103,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             <SceneDuplicate
                 dataAttrKey={RESOURCE_TYPE}
                 loading={insightDuplicating}
-                onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
+                onClick={() => duplicateInsight(insight as InsightModel, true)}
             />
             {isSavedInsight && canCopyToProject && (
                 <ButtonPrimitive
@@ -223,7 +225,9 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 Create endpoint
             </ButtonPrimitive>
 
-            <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
+            {scenePanelOpen && (
+                <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
+            )}
 
             {canEditInSqlEditor && (
                 <Link

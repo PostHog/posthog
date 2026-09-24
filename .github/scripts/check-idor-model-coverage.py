@@ -141,6 +141,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
         # fail-closed manager (.for_team / safely_get_queryset) scopes every query by team_id.
         "StamphogRepoConfig",
+        "StamphogInstallation",
         "PullRequest",
         "ReviewRun",
         "DigestChannel",
@@ -206,6 +207,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
         "TeamFeatureFlagPolicyConfig",
+        # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
+        "TeamHeatmapConfig",
         "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",

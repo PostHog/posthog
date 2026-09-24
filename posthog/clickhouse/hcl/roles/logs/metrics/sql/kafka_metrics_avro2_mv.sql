@@ -6,7 +6,7 @@ SELECT
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  observed_timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(90))))) AS original_expiry_timestamp,
+  timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))))) AS original_expiry_timestamp,
   ifNull(service_name, '') AS service_name,
   ifNull(metric_type, '') AS metric_type,
   ifNull(value, 0) AS value,

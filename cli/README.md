@@ -16,6 +16,20 @@ If you'd rather not use our wizard, you can install the CLI by running:
 npm install -g @posthog/cli@latest
 ```
 
+Or with Homebrew:
+
+```bash
+brew install posthog/tap/posthog-cli
+```
+
+To update, run:
+
+```bash
+posthog-cli update
+```
+
+It updates in place when you installed with the script above. If you used npm, Homebrew or cargo, it prints the command your package manager expects instead.
+
 Note: if you are installing the CLI for use with a coding agent, you should follow our [setup for agents](https://posthog.com/docs/cli#setup-for-agents) instructions.
 
 ## Usage

@@ -157,19 +157,32 @@ def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]
     }
 
 
+class CDCUnsupportedSourceTypeError(ValueError):
+    """The source's type has no entry in the adapter registry, so it has no change stream to read.
+
+    Non-retryable: the type is a property of the source, so every retry fails the same way. A
+    scheduled caller that hits this must stop being scheduled, because the alternative is one
+    report of the same failure per interval for as long as the source lives.
+
+    Subclasses ``ValueError`` because the API handlers that answer an unsupported type with a 400
+    catch that, while the name lets a caller tell this apart from any other bad value.
+    """
+
+
 def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
     """Return the CDC adapter for the given source's type.
 
-    Raises ValueError if the source type doesn't support CDC.
+    Raises ``CDCUnsupportedSourceTypeError`` if the source type doesn't support CDC. Use
+    ``source_type_supports_cdc`` to ask the same question without an exception.
     """
     try:
         source_type = ExternalDataSourceType(source.source_type)
     except ValueError as e:
-        raise ValueError(f"CDC is not supported for source type: {source.source_type}") from e
+        raise CDCUnsupportedSourceTypeError(f"CDC is not supported for source type: {source.source_type}") from e
 
     adapter = _cdc_adapters().get(source_type)
     if adapter is None:
-        raise ValueError(f"CDC is not supported for source type: {source.source_type}")
+        raise CDCUnsupportedSourceTypeError(f"CDC is not supported for source type: {source.source_type}")
     return adapter
 
 

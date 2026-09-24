@@ -62,7 +62,7 @@ SCOUT_RECENT_SIGNALS_PROMPT = """What signals have my scouts emitted recently?
 Use the exploring-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
 
 - What each signal says, in plain language
-- Which scout emitted it, when, and its severity/confidence where available
+- Which scout emitted it, when, and its severity where available
 - Whether it looks genuinely actionable or like noise
 
 Group by scout, newest first. Close with a short note on overall signal quality and any scouts that look noisy or suspiciously silent. If the skill is unavailable, fall back to the signals-scout MCP tools directly (runs list with emitted filter, run emissions)."""

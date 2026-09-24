@@ -297,16 +297,16 @@ Optional, task-specific guidance is served through the same tool:
 - `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
 - `learn feedback` loads feedback guidance when feedback is available.
 - `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
-- `learn -s <query>` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Results from both sources are merged into one relevance order.
+- `learn -s "<up to 8 keywords>"` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Longer keywords take priority when a query contains more than eight. Results from both sources are merged into one relevance order.
 - `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.
 - `learn posthog:<skill> [path]` or `learn project:<skill> [path]` reads a skill or one of its bundled files.
 - `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets).
-- `learn <source>:<skill> <path> -s <query>` searches within one Markdown file.
+- `learn <source>:<skill> <path> -s "<up to 8 keywords>"` searches within one Markdown file.
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
 Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
 When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
-A product `call` in a session that loaded no skill is rejected with an instruction to search first; `call --no-skills ...` records that no skill applies and opens the gate for the rest of the session. Clients without an MCP session id are not gated.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so every client behaves the same whether or not it holds an MCP session id.
 
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.

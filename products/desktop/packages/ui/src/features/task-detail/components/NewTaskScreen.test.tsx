@@ -5,6 +5,9 @@ const { routeState } = vi.hoisted(() => ({
   routeState: { tabId: undefined as string | undefined },
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@tanstack/react-router", () => ({
   useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
     select({ location: { state: routeState } }),

@@ -1,3 +1,5 @@
+import time
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -79,13 +81,45 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         _, kwargs = mock_hypercache.set_cache_value_redis_only.call_args
         assert kwargs["track_expiry"] is True
 
+    # Patched at the Pushgateway seam rather than at push_refresh_metrics, so the
+    # shared helper still runs and the backlog it counts is what gets asserted.
+    @patch("posthog.storage.cache_expiry_manager.push_hypercache_teams_processed_metrics")
     @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_returns_zero_when_nothing_expiring(self, mock_get_client):
+    def test_an_empty_run_still_reports_its_counts_and_backlog(self, mock_get_client, mock_push):
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = []
+        mock_redis.zcount.return_value = 0
 
         assert refresh_expiring_caches(ttl_threshold_hours=24) == CacheRefreshCounts(successful=0, failed=0)
+
+        # Pushgateway keeps serving the last value pushed, so a run that returned before
+        # pushing would leave a drained backlog reading as the last busy run's count.
+        push_kwargs = mock_push.call_args.kwargs
+        assert push_kwargs["successful"] == 0
+        assert push_kwargs["failed"] == 0
+        assert push_kwargs["expiry_backlog"] == 0
+
+    @patch("posthog.storage.cache_expiry_manager.push_hypercache_teams_processed_metrics")
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_the_fork_reports_the_same_run_diagnostics_as_the_shared_sweep(
+        self, mock_get_client: MagicMock, mock_push: MagicMock
+    ) -> None:
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.zrangebyscore.return_value = []
+        mock_redis.zcount.side_effect = [40, 12]
+        mock_redis.zrange.return_value = [(self.team.api_token.encode(), time.time() - 60)]
+
+        refresh_expiring_caches(ttl_threshold_hours=24)
+
+        # This fork selects its teams itself, so it is the one that can drift from the
+        # shared sweep and report a bare count while every other cache reports a run.
+        push_kwargs = mock_push.call_args.kwargs
+        assert push_kwargs["expiry_backlog_before"] == 40
+        assert push_kwargs["expiry_backlog"] == 12
+        assert push_kwargs["limit_reached"] is False
+        assert push_kwargs["oldest_expiry_seconds"] < 0
 
 
 class TestCleanupStaleRemoteConfigExpiryTracking(BaseTest):

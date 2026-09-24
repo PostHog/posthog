@@ -1,7 +1,7 @@
 """HogQL rollups of per-test CI spans by owning team.
 
 Ownership is stamped on the spans at emission time: the CI reporter resolves each test's
-file path through ``posthog_owners`` (the repo's distributed ``owners.yaml`` files, with
+file path through ``owners_yaml`` (the repo's distributed ``owners.yaml`` files, with
 ``products/*/product.yaml`` as an alias) and sets ``test.owner_team``, so no server-side
 ownership map exists. Spans without a stamp
 aggregate under the literal team ``'unowned'``, an honest first-class bucket that surfaces
@@ -34,6 +34,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic._shared import _prior_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
+    query_setup_breaks,
     run_evidence,
     scan_placeholders,
     selector_from_nodeid,
@@ -48,28 +49,30 @@ _RUN_EVIDENCE = run_evidence(bounded=True)
 _ROSTER_SELECT = f"""
     SELECT
         owner_team,
-        countIf(recovery_runs_current > 0) AS flaky_test_count,
-        countIf(recovery_runs_prior > 0) AS flaky_test_count_prior,
-        countIf(recovery_runs_current = 0 AND blast_radius_current) AS regression_test_count,
-        countIf(recovery_runs_prior = 0 AND blast_radius_prior) AS regression_test_count_prior,
-        sum(failed_runs_current) AS failed_run_count,
-        sum(failed_runs_prior) AS failed_run_count_prior,
-        sum(recovery_runs_current) AS same_commit_recovery_run_count,
-        sum(recovery_runs_prior) AS same_commit_recovery_run_count_prior,
-        sum(xfail_runs_current) AS quarantined_failed_run_count,
-        sum(xfail_runs_prior) AS quarantined_failed_run_count_prior,
+        countIf(notEmpty(recovery_runs_current)) AS flaky_test_count,
+        countIf(notEmpty(recovery_runs_prior)) AS flaky_test_count_prior,
+        countIf(empty(recovery_runs_current) AND blast_radius_current) AS regression_test_count,
+        countIf(empty(recovery_runs_prior) AND blast_radius_prior) AS regression_test_count_prior,
+        -- One run can fail many owned tests. The run counts take the union of run ids across the
+        -- team's tests, because a sum of per-test run counts counts that run once per test.
+        length(groupUniqArrayArray(failed_runs_current)) AS failed_run_count,
+        length(groupUniqArrayArray(failed_runs_prior)) AS failed_run_count_prior,
+        length(groupUniqArrayArray(recovery_runs_current)) AS same_commit_recovery_run_count,
+        length(groupUniqArrayArray(recovery_runs_prior)) AS same_commit_recovery_run_count_prior,
+        length(groupUniqArrayArray(xfail_runs_current)) AS quarantined_failed_run_count,
+        length(groupUniqArrayArray(xfail_runs_prior)) AS quarantined_failed_run_count_prior,
         max(last_signal) AS last_seen_at
     FROM (
         SELECT
             runner,
             nodeid,
             argMax(owner_team, run_signal_at) AS owner_team,
-            countIf(recovered_in_run AND is_current) AS recovery_runs_current,
-            countIf(recovered_in_run AND NOT is_current) AS recovery_runs_prior,
-            countIf(failed_in_run AND is_current) AS failed_runs_current,
-            countIf(failed_in_run AND NOT is_current) AS failed_runs_prior,
-            countIf(quarantined_in_run AND is_current) AS xfail_runs_current,
-            countIf(quarantined_in_run AND NOT is_current) AS xfail_runs_prior,
+            groupUniqArrayIf(run_id, recovered_in_run AND is_current) AS recovery_runs_current,
+            groupUniqArrayIf(run_id, recovered_in_run AND NOT is_current) AS recovery_runs_prior,
+            groupUniqArrayIf(run_id, failed_in_run AND is_current) AS failed_runs_current,
+            groupUniqArrayIf(run_id, failed_in_run AND NOT is_current) AS failed_runs_prior,
+            groupUniqArrayIf(run_id, quarantined_in_run AND is_current) AS xfail_runs_current,
+            groupUniqArrayIf(run_id, quarantined_in_run AND NOT is_current) AS xfail_runs_prior,
             countIf(failed_in_run AND branch IN ('master', 'main') AND is_current) > 0
                 OR uniqIf(pr_number, failed_in_run AND pr_number != '' AND is_current) >= {{min_failed_prs}}
                 AS blast_radius_current,
@@ -114,7 +117,13 @@ def _window_placeholders(
     # The prior window twins the current one: [scan_from, date_from) vs [date_from, date_to].
     window = _prior_window(date_from, date_to)
     return scan_placeholders(
-        repository=curated.repository, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
+        repository=curated.repository,
+        date_from=date_from,
+        scan_from=window.scan_from,
+        date_to=window.resolved_to,
+        setup_breaks=query_setup_breaks(
+            curated=curated, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
+        ),
     )
 
 

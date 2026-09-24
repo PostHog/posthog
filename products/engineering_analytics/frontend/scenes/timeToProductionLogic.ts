@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -17,6 +17,7 @@ export interface timeToProductionLogicValues {
     scopeRepo: string | null // engineeringAnalyticsLogic
     sourceId: string | null // engineeringAnalyticsLogic
     timing: RepoOverviewApi | null
+    timingFailed: boolean
     timingLoading: boolean
 }
 
@@ -72,6 +73,17 @@ export const timeToProductionLogic = kea<timeToProductionLogicType>([
             },
         ],
     })),
+
+    reducers({
+        timingFailed: [
+            false,
+            {
+                loadTiming: () => false,
+                loadTimingSuccess: () => false,
+                loadTimingFailure: () => true,
+            },
+        ],
+    }),
 
     listeners(({ actions }) => ({
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => actions.loadTiming(),

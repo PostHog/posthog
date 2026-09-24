@@ -43,6 +43,8 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
                           overrides.implementation_pr_state ??
                           (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
                       merged: overrides.implementation_pr_merged ?? false,
+                      review_decision: null,
+                      merged_at: null,
                       claim_id: null,
                       attached_at: BASE_DATE,
                       attached_by: {
@@ -402,6 +404,16 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             },
             created_at: BASE_DATE,
             created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-impl-decision`,
+            type: 'implementation_decision',
+            content: {
+                supersede: true,
+                reason: 'The crash is in the serializer, not the form, so the fix moves to the API layer.',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
         },
     ]
     return { results, count: results.length }

@@ -1,11 +1,14 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.serializers import SignalSourceConfigSerializer
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -208,6 +211,18 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         if expected_status == status.HTTP_201_CREATED:
             assert response.json()["config"] == config
 
+    def test_create_linear_config_persists_team_ids(self):
+        # Wiring guard for the serializer-level matrix in TestSignalSourceConfigSerializerValidation.
+        config = {"linear_team_ids": ["team-1", "team-2"], "steering": "Skip chores"}
+        response = self.client.post(
+            self._url(),
+            data={"source_product": "linear", "source_type": "issue", "config": config},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["config"] == config
+        assert SignalSourceConfig.objects.get(id=response.json()["id"]).config == config
+
     # --- List ---
 
     def test_list_source_configs(self):
@@ -397,6 +412,41 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get(self._url())
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
+class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("valid", {"linear_team_ids": ["team-1", "team-2"]}, True),
+            ("empty_list_means_all_teams", {"linear_team_ids": []}, True),
+            ("at_cap", {"linear_team_ids": [f"team-{i}" for i in range(100)]}, True),
+            ("over_cap", {"linear_team_ids": [f"team-{i}" for i in range(101)]}, False),
+            ("at_id_length_cap", {"linear_team_ids": ["t" * 255]}, True),
+            ("over_id_length_cap", {"linear_team_ids": ["t" * 256]}, False),
+            ("not_a_list", {"linear_team_ids": "team-1"}, False),
+            ("null", {"linear_team_ids": None}, False),
+            ("non_string_entry", {"linear_team_ids": ["team-1", 2]}, False),
+            ("blank_entry", {"linear_team_ids": ["team-1", " "]}, False),
+        ]
+    )
+    def test_linear_team_ids(self, _name, config, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": "linear", "source_type": "issue", "config": config}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "linear_team_ids" in str(serializer.errors["config"])
+
+    def test_linear_team_ids_are_stored_stripped(self):
+        serializer = SignalSourceConfigSerializer(
+            data={
+                "source_product": "linear",
+                "source_type": "issue",
+                "config": {"linear_team_ids": [" team-1 ", "team-2"]},
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
 
 
 class TestScoutSourceCanonicalization(APIBaseTest):

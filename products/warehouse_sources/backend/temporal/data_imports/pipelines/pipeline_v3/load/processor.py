@@ -34,11 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
-    batch_max_seq,
     has_engine_seq,
-    is_cdc_write_resolution_enabled,
-    persist_load_position,
-    read_load_position,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -241,33 +237,23 @@ def _enrich_cdc_rows(
 def _resolve_cdc_positions(
     pa_table: pa.Table,
     *,
-    sync_type_config: dict | None,
-    resource_name: str,
     primary_keys: list[str],
     cdc_write_mode: str | None,
     team_id: str,
-) -> tuple[pa.Table, int | None]:
-    """Drop rows this lane's table has already applied.
-
-    Returns the batch and the position to record, which the caller persists only once the write
-    commits — a position ahead of the table would skip rows that never landed.
-    """
+) -> pa.Table:
+    """Collapse a merge batch to one row per key — the write engine rejects duplicates."""
     if not has_engine_seq(pa_table):
-        return pa_table, None
-
-    watermark = read_load_position(sync_type_config, resource_name)
+        return pa_table
 
     pa_table, stats = resolve_batch(
         pa_table,
         primary_keys,
-        watermark=watermark,
         cdc_write_mode=cdc_write_mode,
     )
-    for reason, dropped in (("superseded", stats.superseded), ("duplicate_key", stats.duplicate_key)):
-        if dropped:
-            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
+    if stats.duplicate_key:
+        CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason="duplicate_key").inc(stats.duplicate_key)
 
-    return pa_table, batch_max_seq(pa_table)
+    return pa_table
 
 
 def _apply_partitioning(
@@ -724,6 +710,18 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         logger.info(
             "staged_cursor_promoted",
             run_uuid=export_signal.run_uuid,
+            team_id=export_signal.team_id,
+            external_data_job_id=export_signal.job_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+    elif schema.should_use_incremental_field:
+        # The watermark stays where it was, so the next run re-reads this run's window. A source with
+        # no watermark at all re-reads its full history.
+        logger.warning(
+            "staged_cursor_missing",
+            run_uuid=export_signal.run_uuid,
+            team_id=export_signal.team_id,
+            external_data_job_id=export_signal.job_id,
             external_data_schema_id=export_signal.schema_id,
         )
 
@@ -960,9 +958,7 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
-        resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
-            export_signal.team_id, schema_id_str, export_signal.run_uuid
-        )
+        resolution_enabled = cdc_write_mode is not None
 
         pa_table = _enrich_cdc_rows(
             pa_table,
@@ -974,12 +970,9 @@ def _process_message_reported(
             team_id=team_id_str,
         )
 
-        pending_load_position: int | None = None
         if resolution_enabled:
-            pa_table, pending_load_position = _resolve_cdc_positions(
+            pa_table = _resolve_cdc_positions(
                 pa_table,
-                sync_type_config=schema.sync_type_config,
-                resource_name=export_signal.resource_name,
                 primary_keys=primary_keys or [],
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
@@ -1052,16 +1045,6 @@ def _process_message_reported(
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
-
-        if pending_load_position is not None:
-            # Best-effort: failing here would fail a batch that is already written, and the cost of
-            # losing the position is re-applying rows next time, which is a no-op.
-            try:
-                persist_load_position(
-                    schema.id, export_signal.team_id, export_signal.resource_name, pending_load_position
-                )
-            except Exception:  # noqa: BLE001 - bookkeeping must never fail a committed write
-                logger.warning("cdc_load_position_persist_failed", exc_info=True)
 
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from

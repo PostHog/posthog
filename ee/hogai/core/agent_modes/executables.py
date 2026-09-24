@@ -33,6 +33,7 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import groups
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
@@ -272,30 +273,31 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         }
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
-        gateway_kwargs = self._get_gateway_kwargs()
-        is_routing_through_llm_gateway = bool(gateway_kwargs)
-
-        base_model = MaxChatAnthropic(
-            model="claude-sonnet-4-6",
-            streaming=True,
-            stream_usage=True,
-            user=self._user,
-            team=self._team,
-            betas=[
+        model_kwargs: dict[str, Any] = {
+            "model": "claude-sonnet-4-6",
+            "streaming": True,
+            "stream_usage": True,
+            "user": self._user,
+            "team": self._team,
+            "betas": [
                 "interleaved-thinking-2025-05-14",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
-            max_tokens=16384,
-            thinking=self.THINKING_CONFIG,
+            "max_tokens": 16384,
+            "thinking": self.THINKING_CONFIG,
             # langchain-anthropic 0.3.x doesn't have a first-class effort field;
             # forward it via model_kwargs so the Anthropic API receives output_config.
-            model_kwargs={"output_config": {"effort": "medium"}},
-            conversation_start_dt=state.start_dt,
-            billable=True,
-            bypass_proxy=is_routing_through_llm_gateway,
-            posthog_properties=self._get_agent_mode_posthog_properties(state),
-            **gateway_kwargs,
-        )
+            "model_kwargs": {"output_config": {"effort": "medium"}},
+            "conversation_start_dt": state.start_dt,
+            "billable": True,
+            "posthog_properties": self._get_agent_mode_posthog_properties(state),
+        }
+
+        if ai_gateway := resolve_ai_gateway_config():
+            base_model = MaxChatAnthropic.via_ai_gateway(ai_gateway, **model_kwargs)
+        else:
+            gateway_kwargs = self._get_gateway_kwargs()
+            base_model = MaxChatAnthropic(**model_kwargs, bypass_proxy=bool(gateway_kwargs), **gateway_kwargs)
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.

@@ -40,6 +40,8 @@ export type DefaultReasoningEffort = EffortLevel | "last_used";
 export type SendMessagesWith = "enter" | "cmd+enter";
 export type AutoConvertLongText = "off" | "1000" | "2500" | "5000" | "10000";
 export type DiffOpenMode = "auto" | "split" | "same-pane" | "last-active-pane";
+export type NavRailSize = "small" | "medium" | "large";
+export const DEFAULT_NAV_RAIL_SIZE: NavRailSize = "large";
 
 // When spoken notifications are allowed to talk, relative to what's on screen:
 //   - always: speak regardless of what the user is looking at
@@ -173,7 +175,7 @@ export interface SettingsStore {
   setLastUsedAgentRuntime: (runtime: AgentRuntime) => void;
   setLastUsedAdapter: (adapter: AgentAdapter) => void;
   setLastUsedModel: (model: string | null) => void;
-  setLastUsedPiModel: (model: string) => void;
+  setLastUsedPiModel: (model: string | null) => void;
   setLastUsedReasoningEffort: (effort: string | null) => void;
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;
@@ -202,6 +204,8 @@ export interface SettingsStore {
   completionVolume: number;
   scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
+  // Epoch ms. Until then, alerts make no sound, voice or system notification.
+  notificationsPausedUntil: number | null;
   setDesktopNotifications: (enabled: boolean) => void;
   setDockBadgeNotifications: (enabled: boolean) => void;
   setDockBounceNotifications: (enabled: boolean) => void;
@@ -212,6 +216,7 @@ export interface SettingsStore {
   addCustomSound: (sound: CustomSound) => void;
   removeCustomSound: (id: string) => void;
   renameCustomSound: (id: string, name: string) => void;
+  setNotificationsPausedUntil: (until: number | null) => void;
 
   // Spoken notifications
   spokenNotifications: boolean;
@@ -252,6 +257,9 @@ export interface SettingsStore {
   // Diff viewer
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
+
+  navRailSize: NavRailSize;
+  setNavRailSize: (size: NavRailSize) => void;
 
   // Spend limits. A warn line only notifies; a stop line pauses new agent
   // messages in this app, and the monthly stop also syncs to the gateway
@@ -368,6 +376,16 @@ export const NOTIFICATION_DEFAULTS = {
   elevenLabsKeyConfigured: false,
 };
 
+export const NOTIFICATION_PAUSE_MS = 60 * 60 * 1000;
+
+// No timer clears the pause: it ends when the clock passes the stored time.
+export function notificationsPaused(
+  pausedUntil: number | null,
+  now = Date.now(),
+): boolean {
+  return pausedUntil !== null && now < pausedUntil;
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set, get) => ({
@@ -452,6 +470,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // Kept out of NOTIFICATION_DEFAULTS so "Reset to defaults" never discards
       // sounds the user installed.
       customSounds: [],
+      notificationsPausedUntil: null,
       setDesktopNotifications: (enabled) =>
         set({ desktopNotifications: enabled }),
       setDockBadgeNotifications: (enabled) =>
@@ -497,6 +516,8 @@ export const useSettingsStore = create<SettingsStore>()(
             s.id === id ? { ...s, name } : s,
           ),
         })),
+      setNotificationsPausedUntil: (until) =>
+        set({ notificationsPausedUntil: until }),
 
       // Composer / chat
       autoConvertLongText: "2500",
@@ -518,6 +539,9 @@ export const useSettingsStore = create<SettingsStore>()(
       // Diff viewer
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
+
+      navRailSize: DEFAULT_NAV_RAIL_SIZE,
+      setNavRailSize: (size) => set({ navRailSize: size }),
 
       // Spend limits
       spendLimits: EMPTY_SPEND_LIMITS,
@@ -694,6 +718,7 @@ export const useSettingsStore = create<SettingsStore>()(
         completionVolume: state.completionVolume,
         scaleSoundWithTaskLength: state.scaleSoundWithTaskLength,
         customSounds: state.customSounds,
+        notificationsPausedUntil: state.notificationsPausedUntil,
         spokenNotifications: state.spokenNotifications,
         spokenNotifyNeedsInput: state.spokenNotifyNeedsInput,
         spokenNotifyCompletion: state.spokenNotifyCompletion,
@@ -711,6 +736,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
+        navRailSize: state.navRailSize,
 
         // Spend limits
         spendLimits: state.spendLimits,

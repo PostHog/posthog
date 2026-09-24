@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -43,7 +43,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -98,6 +97,7 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.organization import Organization
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import TeamMemberStrictManagementPermission
@@ -160,9 +160,11 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
+    lock_insight_for_evaluation,
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
@@ -174,10 +176,6 @@ from products.product_analytics.backend.facade.models import Insight, resolve_in
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
-)
-from products.product_analytics.backend.presentation.insight_suggestions import (
-    get_insight_analysis,
-    get_insight_suggestions,
 )
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
@@ -351,7 +349,7 @@ def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
     ).inc()
 
 
-@extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
+@extend_schema_serializer(exclude_fields=["saved"], deprecate_fields=["dashboards"])
 class InsightBasicSerializer(
     SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
@@ -375,7 +373,6 @@ class InsightBasicSerializer(
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "dashboards",
             "dashboard_tiles",
@@ -425,14 +422,8 @@ class InsightBasicSerializer(
         else:
             representation.pop("dashboards", None)
 
-        if instance.query is not None:
-            representation["filters"] = {}
-            representation["query"] = instance.query
-        else:
-            representation["filters"] = instance.dashboard_filters()
-
         # upgrade the query to the latest version
-        representation["query"] = upgrade(representation["query"])
+        representation["query"] = upgrade(instance.query)
 
         return representation
 
@@ -601,7 +592,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "order",
             "deleted",
@@ -653,8 +643,6 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
-            # A read still serves the stored filters of an insight written before queries.
-            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -882,16 +870,24 @@ class InsightSerializer(InsightBasicSerializer):
                     "and this insight is publicly shared."
                 )
 
-        if validated_data.get("deleted", False):
-            hide_tiles_for_insights([instance.id])
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
-        else:
-            dashboard_ids = validated_data.pop("dashboards", None)
-            if dashboard_ids is not None:
-                self._update_insight_dashboards(dashboard_ids, instance)
+        with transaction.atomic():
+            if validated_data.get("deleted", False):
+                # Alert creation locks the insight, then checks `deleted`. Taking the same lock before
+                # the sweep keeps a concurrent create from adding an alert the sweep never sees.
+                lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
+                delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
+                hide_tiles_for_insights([instance.id])
+                for alert in instance.alertconfiguration_set.all():
+                    alert.delete()
+            else:
+                dashboard_ids = validated_data.pop("dashboards", None)
+                if dashboard_ids is not None:
+                    # The membership write runs before the query is saved, so gate on the incoming one.
+                    self._update_insight_dashboards(
+                        dashboard_ids, instance, validated_data.get("query", instance.query)
+                    )
 
-        updated_insight = super().update(instance, validated_data)
+            updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -962,7 +958,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight, query: Any) -> None:
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -971,6 +967,7 @@ class InsightSerializer(InsightBasicSerializer):
             change = update_insight_dashboard_membership(
                 insight=instance,
                 dashboard_ids=dashboard_ids,
+                query=query,
                 user=self.context["request"].user,
                 user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
@@ -1244,12 +1241,8 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["filters"] = {}
             representation["query"] = query
         else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
-            )
             representation["query"] = instance.get_effective_query(
                 dashboard=dashboard,
                 dashboard_filters_override=dashboard_filters_override,
@@ -1773,8 +1766,8 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to AI analysis endpoints."""
-        if self.action in ["analyze", "suggestions", "generate_metadata"]:
+        """Apply LLM-specific throttles to the AI metadata endpoint."""
+        if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
@@ -1910,7 +1903,10 @@ class InsightViewSet(
         if not order:
             if self.request.GET.get("search"):
                 return queryset
-            return queryset.order_by("order")
+            # `order` is a vestigial nullable column with no index, so sorting on it forces a full
+            # scan and sort of the project. `-last_modified_at` is covered by dashboarditem_team_lmod_idx.
+            # `-pk` breaks ties so paginated pages stay stable when timestamps collide.
+            return queryset.order_by("-last_modified_at", "-pk")
 
         if order == "-last_viewed_at":
             return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
@@ -2052,15 +2048,9 @@ class InsightViewSet(
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
-                    # Exclude insights with the specific feature flag names
-                    from posthog.helpers.dashboard_templates import (
-                        FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-                        FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-                    )
+                    from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
 
-                    queryset = queryset.exclude(
-                        name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
-                    )
+                    queryset = queryset.exclude(feature_flag_generated_insight_q())
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
@@ -2116,7 +2106,10 @@ class InsightViewSet(
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
                     if tags_list:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                        # A semi-join returns one row per insight, so the list needs no
+                        # `.distinct()` sort over the wide insight JSON columns.
+                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
@@ -2243,94 +2236,6 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         return response
-
-    @action(methods=["GET"], detail=True)
-    def analyze(self, request: Request, **kwargs) -> Response:
-        self._validate_ai_feature_access()
-
-        insight = self.get_object()
-
-        if not insight.query:
-            return Response({"result": ""})
-
-        try:
-            query = schema.InsightVizNode.model_validate(insight.query)
-        except Exception:
-            return Response({"result": ""})
-
-        result = None
-        try:
-            # We try to get cached result.
-            result_ctx = process_query_model(
-                self.team,
-                query,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                user=request.user if request.user.is_authenticated else None,
-                analytics_props=get_request_analytics_properties(request),
-            )
-            if isinstance(result_ctx, BaseModel):
-                result = result_ctx.model_dump()
-            else:
-                result = result_ctx
-
-            if result and result.get("results") is None and result.get("result") is None:
-                result = None
-        except Exception:
-            result = None
-
-        analysis = get_insight_analysis(
-            query,
-            self.team,
-            result,
-            insight_name=insight.name,
-            insight_description=insight.description,
-            insight_id=insight.id,
-        )
-
-        return Response({"result": analysis})
-
-    @action(methods=["GET", "POST"], detail=True)
-    def suggestions(self, request: Request, **kwargs) -> Response:
-        self._validate_ai_feature_access()
-
-        insight = self.get_object()
-
-        if not insight.query:
-            return Response([])
-
-        try:
-            query = schema.InsightVizNode.model_validate(insight.query)
-        except Exception:
-            return Response([])
-
-        result = None
-        try:
-            # We try to get cached result.
-            result_ctx = process_query_model(
-                self.team,
-                query,
-                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                user=request.user if request.user.is_authenticated else None,
-                analytics_props=get_request_analytics_properties(request),
-            )
-            if isinstance(result_ctx, BaseModel):
-                result = result_ctx.model_dump()
-            else:
-                result = result_ctx
-
-            if result and result.get("results") is None and result.get("result") is None:
-                result = None
-        except Exception:
-            result = None
-
-        # Get context from POST body if provided
-        context = None
-        if request.method == "POST":
-            context = request.data.get("context")
-
-        suggestions = get_insight_suggestions(query, self.team, result, context)
-
-        return Response([s.model_dump() for s in suggestions])
 
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_metadata(self, request: Request, **kwargs) -> Response:
@@ -2472,6 +2377,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
+                delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

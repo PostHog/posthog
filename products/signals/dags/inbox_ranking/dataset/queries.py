@@ -10,6 +10,7 @@ day.
 import uuid
 import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import dagster
 
@@ -17,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
@@ -39,6 +41,26 @@ def labels_team() -> Team:
             f"Labels team {LABELS_TEAM_ID} does not exist in this environment; the inbox ranking "
             "dataset can only be built where the dogfood project is present"
         )
+
+
+REGION_APP_HOSTS = {"US": "us.posthog.com", "EU": "eu.posthog.com"}
+
+
+def region_app_host() -> str:
+    """The app host this deployment serves the inbox on.
+
+    Team 2 collects the inbox telemetry of every region, and the label streams keep the other
+    regions' rows on purpose (label-only rows, README.md). A read that needs report state cannot:
+    the scoring pool (`training/unseen.py`) builds it from this region's Postgres, so a report
+    another region served can never hold a score. `$host` is the only property on those events
+    that says which app rendered the page.
+
+    The region is the source, not `SITE_URL`: a Dagster deployment sets `CLOUD_DEPLOYMENT` and
+    leaves `SITE_URL` at its localhost default, which no impression event carries. Off cloud
+    there is no region, so `SITE_URL` is the host, for local and self-hosted runs.
+    """
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return REGION_APP_HOSTS.get(region) or urlparse(settings.SITE_URL).netloc
 
 
 def etl_workload() -> Workload:
@@ -254,7 +276,7 @@ IMPRESSIONS_COLUMNS = (
 # is 1-based, so anything below 1 is malformed; anything above int32 would raise on the Parquet
 # conversion and fail the whole fleet-wide labels asset. Both are nulled out, and the impression
 # still counts toward the impression/user counts.
-_IMPRESSION_RANK = (
+IMPRESSION_RANK_SQL = (
     "if(JSONExtractInt(imp, 'rank') >= 1 AND JSONExtractInt(imp, 'rank') <= 2147483647, "
     "JSONExtractInt(imp, 'rank'), NULL)"
 )
@@ -264,8 +286,8 @@ SELECT
     min(timestamp) AS first_impressed_at,
     count() AS impression_unit_count,
     uniq(distinct_id) AS impressed_user_count,
-    argMinIf({_IMPRESSION_RANK}, timestamp, {_IMPRESSION_RANK} IS NOT NULL) AS first_impression_rank,
-    min({_IMPRESSION_RANK}) AS best_impression_rank,
+    argMinIf({IMPRESSION_RANK_SQL}, timestamp, {IMPRESSION_RANK_SQL} IS NOT NULL) AS first_impression_rank,
+    min({IMPRESSION_RANK_SQL}) AS best_impression_rank,
     argMax(JSONExtract(imp, 'source_products', 'Array(String)'), timestamp) AS source_products
 FROM events
 ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
@@ -380,10 +402,14 @@ STATUS_SQL = (
     """
 SELECT
     report_id,
-    nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
-    nullIf(minIf(first_timestamp, outcome = 'dismissed'), fromUnixTimestamp(0)) AS first_dismissed_server_at,
-    nullIf(minIf(first_timestamp, outcome = 'failed'), fromUnixTimestamp(0)) AS first_failed_at,
-    nullIf(minIf(first_timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
+    -- Each restricted to the latest transition's tenant, like the reason and the count below: team_id
+    -- rides on event properties, so an event naming another team would otherwise win these min()
+    -- calls and date an outcome this tenant never had, while still passing the provenance check.
+    -- Claimed is not proven — an event naming the report's real team passes.
+    nullIf(minIf(first_timestamp, outcome = 'resolved' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_resolved_at,
+    nullIf(minIf(first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_dismissed_server_at,
+    nullIf(minIf(first_timestamp, outcome = 'failed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_failed_at,
+    nullIf(minIf(first_timestamp, outcome = 'snoozed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_snoozed_at,
     argMax(status, last_timestamp) AS latest_status_event,
     max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
@@ -399,11 +425,6 @@ SELECT
     -- NULL rather than handing over the next dismissal's reason: a dismissal carries no reason
     -- whenever no artefact accompanies the transition, and this column has to describe the earliest
     -- dismissal itself.
-    --
-    -- Caveat until posthog#101565 lands: this reason is restricted to the latest transition's
-    -- tenant while first_dismissed_server_at above is not, so an earlier dismissal naming another
-    -- team can date that column while this one reads a later genuine dismissal. Treat the two as
-    -- separate reads, not as one event.
     nullIf(
         argMinIf(
             bucket_first_dismissal_reason,

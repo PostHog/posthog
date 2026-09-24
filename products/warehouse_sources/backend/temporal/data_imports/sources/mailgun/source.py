@@ -107,7 +107,7 @@ You can find your private API key in the [Mailgun dashboard]({API_SECURITY_URL})
 Note: Mailgun only retains events for a limited period (1 day on free plans, up to 30 days on paid plans), so the initial events sync is bounded by your plan's retention.""",
             iconPath="/static/services/mailgun.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mailgun",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

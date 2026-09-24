@@ -99,6 +99,28 @@ class TestValidateCredentials:
         assert validate_credentials("project-live-x", "secret") is False
 
 
+class TestCheckEndpointAccess:
+    @pytest.mark.parametrize(
+        "error_type, expected_reason",
+        [
+            (
+                "invalid_consumer_endpoint",
+                "The users and sessions tables only exist for Stytch consumer projects, and this is a B2B project. Sync the organizations and members tables instead.",
+            ),
+            (
+                "invalid_b2b_endpoint",
+                "The organizations and members tables only exist for Stytch B2B projects, and this is a consumer project. Sync the users and sessions tables instead.",
+            ),
+            ("some_other_denial", "Not available for this Stytch project (some_other_denial)"),
+        ],
+    )
+    @mock.patch(MOCK_PATH)
+    def test_product_line_mismatch_names_the_tables_to_use_instead(self, mock_session, error_type, expected_reason):
+        mock_session.return_value.post.return_value = _response({"error_type": error_type}, 400)
+
+        assert check_endpoint_access("project-live-x", "secret", "/v1/users/search") == expected_reason
+
+
 class TestGetRowsUsers:
     @mock.patch(MOCK_PATH)
     def test_paginates_via_body_cursor_and_saves_state_after_yield(self, mock_session):

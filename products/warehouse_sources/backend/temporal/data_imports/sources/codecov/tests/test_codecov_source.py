@@ -8,7 +8,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 _INCREMENTAL_ENDPOINTS = {"commits", "coverage_trend"}
-_FULL_REFRESH_ENDPOINTS = {"repos", "branches", "pulls", "flags", "components"}
+_FULL_REFRESH_ENDPOINTS = {
+    "repos",
+    "branches",
+    "pulls",
+    "flags",
+    "components",
+    "repo_totals",
+    "report_files",
+    "report_tree",
+    "test_results",
+    "users",
+}
 
 
 class TestCodecovSource:

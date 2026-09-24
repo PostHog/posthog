@@ -4,6 +4,13 @@ The same idea as the S3 writer: each batch becomes one blob at a name derived fr
 the batch index, so re-applying a batch overwrites its own blob rather than adding a second
 copy. Nothing needs staging or a swap.
 
+That is also why this writer carries no publish stamp, unlike the SQL destinations. Publishing
+is one more blob under the same run prefix, the manifest, and re-writing it says the same thing
+it said the first time. A redelivered final batch therefore rewrites its own blob and its own
+manifest, and no blob any earlier batch wrote is touched. A destination that publishes by
+swapping a staging table over the live one has no such property, which is what the stamp exists
+to cover there.
+
 Connection handling comes from batch exports' Azure Blob destination:
 
 - `validate_azure_blob_connection_string` plus `MalformedConnectionStringError` turn a

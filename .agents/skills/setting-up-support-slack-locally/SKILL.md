@@ -38,7 +38,7 @@ All under `products/conversations/backend/api/urls.py`, prefixed `/api/conversat
 | ------------------------ | ------------------------------------------------------------- | ------------------------ |
 | `v1/slack/authorize`     | returns the Slack OAuth URL (auth-gated)                      | browser (localhost)      |
 | `v1/slack/callback`      | OAuth redirect target; built from `SITE_URL`, no forced https | browser (localhost)      |
-| `v1/slack/events`        | inbound event webhook                                         | Slack's servers (tunnel) |
+| `v1/slack/events`        | inbound event webhook, built on `posthog/ingress/`            | Slack's servers (tunnel) |
 | `v1/slack/interactivity` | interactive component callbacks                               | Slack's servers (tunnel) |
 
 The callback requires an authenticated session on whatever origin `SITE_URL` resolves to, because the
@@ -101,8 +101,8 @@ Slack sends a synchronous `url_verification` challenge on save, so the backend m
 echoes it back automatically.
 
 The Request URL alone only passes verification; it delivers nothing until you subscribe to events. Under
-**Event Subscriptions → Subscribe to bot events**, add the events the backend handles (`SUPPORT_EVENT_TYPES`
-in `products/conversations/backend/api/slack_events.py`):
+**Event Subscriptions → Subscribe to bot events**, add the events the backend handles (`SLACK_EVENT_TYPES`
+in `posthog/ingress/slack/provider.py`, which is also what the consumer registers for):
 
 - `app_mention`
 - `message.channels` (and `message.groups` for private channels), both arriving as the inner `message` event
@@ -110,6 +110,37 @@ in `products/conversations/backend/api/slack_events.py`):
 - `member_joined_channel`, `member_left_channel`
 
 Reinstall the app after changing scopes/events so the new grants take effect.
+
+## Region routing, locally
+
+The events endpoint is an ingress view: `products/conversations/backend/api/slack_events.py` wires the Slack
+provider into `build_webhook_view()`, and ingress verifies the signature, parses the envelope and hands each
+delivery to the `conversations_slack` consumer.
+
+Which region handles a delivery is two separate answers:
+
+1. The consumer's ownership lookup, `slack_delivery_ownership` in
+   `products/conversations/backend/services/slack_events.py`. A workspace this database is connected to is
+   `LOCAL`; a workspace it does not know is `ELSEWHERE`.
+2. The ingress forward, which replays the signed request to `SECONDARY_REGION_DOMAIN` when any consumer
+   answered `ELSEWHERE` **and** the request arrived on the primary region. See
+   [Regional forwarding](../../../posthog/ingress/README.md#regional-forwarding).
+
+`posthog/regions.py` holds both domains, and under `DEBUG` it rewrites them: the primary becomes
+`urlparse(SITE_URL).netloc` (`localhost:8010` with the default dev `SITE_URL`) and the secondary becomes
+`localhost:8000`.
+
+The old handler also had a `DEBUG`-only shortcut that forwarded from the primary region even when the local
+database held the workspace. That is gone. Ownership answers from the data alone in every environment, so a
+workspace your local stack is connected to is always handled locally.
+
+To exercise the forward on your laptop you need all three of: a request whose `Host` is the primary domain, a
+`team_id` no local team is connected to, and something listening on `localhost:8000`. The tunnel cannot give
+you the first, because the host rewrite makes the request arrive as bare `localhost`, which is not
+`localhost:8010`. So sign a body yourself and POST it straight at `http://localhost:8010/...` (the snippet in
+[references/troubleshooting.md](references/troubleshooting.md) signs one for you) with an unknown `team_id`.
+Without a second stack on `localhost:8000` the forward fails and the endpoint answers `502`, which is still
+proof that the forward was attempted; with one, the delivery lands there.
 
 ## Step 4 — connect and test
 

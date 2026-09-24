@@ -2649,6 +2649,11 @@ export interface ProjectBackwardCompatApi {
     readonly secret_api_token: string | null
     /** @nullable */
     readonly secret_api_token_backup: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -2672,6 +2677,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id: number
     /**
@@ -3506,6 +3516,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly secret_api_token?: string | null
     /** @nullable */
     readonly secret_api_token_backup?: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret?: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -3529,6 +3544,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at?: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id?: number
     /**
@@ -3574,6 +3594,43 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+}
+
+/**
+ * The project as the app context serves it, which is where the frontend reads it on page load.
+ *
+ * projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+ * is missing, so a field left out here is invisible to the app until something refetches.
+ */
+export interface ProjectApi {
+    readonly id: number
+    readonly organization_id: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    /**
+     * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -3858,6 +3915,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -3869,7 +3939,7 @@ export interface FileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3912,7 +3982,7 @@ export interface PatchedFileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -4228,6 +4298,21 @@ export interface LeakedKeyReportResponseApi {
 }
 
 /**
+ * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
+export interface ToolbarEntitlementsErrorApi {
+    /** Why toolbar entitlements could not be retrieved. */
+    error: string
+}
+
+/**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
  */
@@ -4275,18 +4360,6 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number3: 3,
     Number6: 6,
     Number9: 9,
-} as const
-
-/**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
- */
-export type OrganizationDefaultExperimentStatsMethodEnumApi =
-    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
-
-export const OrganizationDefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
 } as const
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
@@ -4359,11 +4432,6 @@ export interface OrganizationApi {
     readonly is_ai_training_cta_shown: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa: boolean
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4386,6 +4454,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 /**
@@ -4532,6 +4605,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4643,6 +4721,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -5077,6 +5160,24 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface TwoFactorStatusApi {
+    /** Whether the user has any 2FA method enabled. */
+    is_enabled: boolean
+    /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+    backup_codes_remaining: number
+    /**
+     * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+     * @nullable
+     */
+    method: string | null
+    /** Whether the user has at least one verified passkey. */
+    has_passkeys: boolean
+    /** Whether the user has an authenticator app set up. */
+    has_totp: boolean
+    /** Whether passkeys count as a 2FA method. */
+    passkeys_enabled_for_2fa: boolean
+}
+
 /**
  * Request body for POST /api/users/verify_email/.
  */
@@ -5263,6 +5364,10 @@ export type ExportsListParams = {
 
 export type FileSystemListParams = {
     /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5274,6 +5379,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {

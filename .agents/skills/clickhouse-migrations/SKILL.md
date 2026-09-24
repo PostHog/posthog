@@ -54,6 +54,29 @@ Distributed engine:
 - Sharded: `Distributed(data_table="sharded_events", sharding_key="sipHash64(person_id)")`
 - Non-sharded: `Distributed(data_table="my_table", cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`
 
+Kafka engine — `kafka_engine()` returns the ENGINE clause only, so every table appends its own
+`SETTINGS`. Start from this baseline:
+
+```sql
+SETTINGS kafka_skip_broken_messages = 100,
+         kafka_num_consumers = {kafka_num_consumers(1)},
+         kafka_thread_per_consumer = 1,
+         kafka_poll_timeout_ms = 10000,
+         kafka_max_block_size = 100000
+```
+
+- `kafka_skip_broken_messages` defaults to 0, where one malformed message stops the consumer for good.
+- `kafka_poll_timeout_ms` is 10000 for WarpStream, which does not support `fetch.min.bytes`.
+- `kafka_max_block_size` defaults to about a million rows, so 100000 is a reduction; lower for wide
+  rows, not below ~1000.
+- `kafka_num_consumers` is per node, so the role's node count multiplies it; the total must not
+  exceed the topic's partitions.
+- Columns and settings are fixed at creation: drop and recreate the table with its MV, no `SYNC`.
+  `ALTER TABLE <mv> MODIFY QUERY` covers an MV-SELECT-only change. Never for
+  `kafka_events_json_ws` / `events_json_ws_mv` — see Critical rules.
+
+`posthog/clickhouse/migrations/AGENTS.md` has the sizing rules and the rest.
+
 ### Critical rules
 
 - NEVER use `ON CLUSTER` clause in SQL statements

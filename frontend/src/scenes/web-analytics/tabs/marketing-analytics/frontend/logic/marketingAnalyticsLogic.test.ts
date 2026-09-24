@@ -1,11 +1,14 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ConversionGoalFilter,
@@ -14,17 +17,27 @@ import {
     TrendsQuery,
     DataTableNode,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource } from '~/types'
+import { ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { MarketingAnalyticsTab, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import {
+    MarketingAnalyticsTab,
+    MarketingDashboardView,
+    SetupSection,
+    marketingAnalyticsLogic,
+} from './marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { marketingAnalyticsTilesLogic } from './marketingAnalyticsTilesLogic'
+
+jest.mock('posthog-js')
 
 // Kea builds this from the reducer's path and name. It is pinned in the logic, so a rename cannot
 // silently point the reducer at a different key and abandon what someone already saved.
@@ -200,6 +213,36 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.includeConversionGoals).toBe(true)
     })
 
+    it('separates an ad source missing its required tables from having no source at all', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const metaSource = (shouldSync: boolean): ExternalDataSource =>
+            ({
+                id: 'meta-source',
+                source_type: 'MetaAds',
+                schemas: [
+                    { id: 'campaigns', name: 'campaigns', should_sync: shouldSync },
+                    { id: 'campaign_stats', name: 'campaign_stats', should_sync: shouldSync },
+                ],
+            }) as ExternalDataSource
+
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [metaSource(false)] })
+        ).toFinishAllListeners()
+        databaseTableListLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+
+        expect(logic.values.hasNoConfiguredSources).toBe(true)
+        expect(logic.values.unconfiguredNativeSources.map((source) => source.id)).toEqual(['meta-source'])
+
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [metaSource(true)] })
+        ).toFinishAllListeners()
+
+        expect(logic.values.unconfiguredNativeSources).toEqual([])
+    })
+
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
         localStorage.setItem(
             STORAGE_KEY,
@@ -213,4 +256,143 @@ describe('marketingAnalyticsLogic', () => {
             integrationFilter: { integrationSourceIds: ['source-1'] },
         })
     })
+
+    it.each(['tab', 'scene'] as const)(
+        'clears the dashboard setup entry point when leaving the %s',
+        async (destination) => {
+            const settings = marketingAnalyticsSettingsLogic()
+            const unmountSettings = settings.mount()
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
+            )
+                .toFinishAllListeners()
+                .toMatchValues({
+                    activeTab: MarketingAnalyticsTab.SETUP,
+                    setupSection: SetupSection.CONVERSION_GOALS,
+                    setupEntryPoint: 'dashboard_customer_cards',
+                })
+            expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard setup opened', {
+                entry_point: 'dashboard_customer_cards',
+                section: SetupSection.CONVERSION_GOALS,
+            })
+
+            await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
+                .toFinishAllListeners()
+                .toMatchValues({ setupEntryPoint: 'dashboard_customer_cards' })
+            if (destination === 'tab') {
+                await expectLogic(logic, () =>
+                    logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+                ).toFinishAllListeners()
+            } else {
+                logic.unmount()
+            }
+            expect(settings.values.setupEntryPoint).toBeNull()
+            unmountSettings()
+        }
+    )
+    it('carries dashboard view, breakdown and filters in the URL', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
+        expect(router.values.searchParams).not.toHaveProperty('view')
+        expect(router.values.searchParams).not.toHaveProperty('breakdown')
+
+        const filters: WebAnalyticsPropertyFilters = [
+            {
+                type: PropertyFilterType.Session,
+                key: '$channel_type',
+                operator: PropertyOperator.Exact,
+                value: 'Direct',
+            },
+        ]
+        logic.actions.setDashboardView(MarketingDashboardView.ENGAGEMENT)
+        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        logic.actions.setDashboardProperties(filters)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({
+            view: 'engagement',
+            breakdown: 'campaign',
+            filters,
+        })
+
+        await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ view: 'engagement', breakdown: 'campaign', filters })
+
+        logic.actions.setDashboardView(MarketingDashboardView.OVERVIEW)
+        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
+
+        await expectLogic(logic, () =>
+            router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
+        ).toMatchValues({
+            dashboardView: MarketingDashboardView.RETENTION,
+            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
+            dashboardProperties: [],
+        })
+
+        await expectLogic(logic, () => router.actions.push(urls.marketingAnalyticsApp())).toMatchValues({
+            dashboardView: MarketingDashboardView.OVERVIEW,
+            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+            dashboardProperties: [],
+        })
+    })
+
+    it.each([
+        {
+            search: { view: 'retention' },
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.RETENTION,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+        },
+        {
+            search: { breakdown: 'source' },
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.OVERVIEW,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
+        },
+        {
+            search: {},
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.ENGAGEMENT,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Campaign,
+        },
+        {
+            search: { view: 'retention' },
+            savedBreakdown: 'retired_dimension',
+            expectedView: MarketingDashboardView.RETENTION,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+        },
+    ])(
+        'hydrates $search with persisted breakdown $savedBreakdown',
+        async ({ search, savedBreakdown, expectedView, expectedBreakdown }) => {
+            localStorage.setItem(
+                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardView`,
+                JSON.stringify(MarketingDashboardView.ENGAGEMENT)
+            )
+            localStorage.setItem(
+                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
+                JSON.stringify(savedBreakdown)
+            )
+            router.actions.push(urls.marketingAnalyticsApp(), search)
+
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                dashboardView: expectedView,
+                dashboardBreakdown: expectedBreakdown,
+                dashboardProperties: [],
+            })
+        }
+    )
 })

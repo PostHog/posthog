@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +109,32 @@ describe("FsService repo file IO", () => {
     await expect(
       service.writeRepoFile(repo, "../escape.txt", "x"),
     ).rejects.toThrow(/Access denied/);
+  });
+
+  it("refuses workspace image reads through an external symlink", async () => {
+    const external = await mkdtemp(path.join(tmpdir(), "fs-service-external-"));
+    const externalImage = path.join(external, "secret.png");
+    const linkedImage = path.join(repo, "linked.png");
+    await writeFile(externalImage, "secret");
+    await symlink(externalImage, linkedImage);
+
+    await expect(
+      service.readWorkspaceFileAsBase64(repo, linkedImage),
+    ).resolves.toBeNull();
+    await expect(
+      service.readWorkspaceFileAsBase64(repo, externalImage),
+    ).resolves.toBeNull();
+
+    await rm(external, { recursive: true, force: true });
+  });
+
+  it("refuses workspace image reads larger than 5 MB", async () => {
+    const oversizedImage = path.join(repo, "oversized.png");
+    await writeFile(oversizedImage, Buffer.alloc(5 * 1024 * 1024 + 1));
+
+    await expect(
+      service.readWorkspaceFileAsBase64(repo, oversizedImage),
+    ).resolves.toBeNull();
   });
 
   it("bounds reads by line count", async () => {

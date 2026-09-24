@@ -227,12 +227,13 @@ describe('ProjectSkillCatalog', () => {
         expect(request).toHaveBeenCalledTimes(1)
     })
 
-    it('renders only path-bearing matches as snippets', async () => {
+    it('preserves the endpoint score and renders only path-bearing matches as snippets', async () => {
         const request = vi.fn(async () => ({
             results: [
                 {
                     name: 'retention-analysis',
                     description: 'Find where users stop returning.',
+                    score: 900,
                     matches: [
                         { matched_field: 'name', excerpt: 'retention-analysis' },
                         { matched_field: 'body', path: 'SKILL.md', line: 3, excerpt: 'Weekly retention cohorts.' },
@@ -244,60 +245,8 @@ describe('ProjectSkillCatalog', () => {
 
         const [result] = await catalog.searchResults('retention')
 
+        expect(result!.score).toBe(900)
         expect(result!.snippets).toEqual([{ path: 'SKILL.md', line: 3, text: 'Weekly retention cohorts.' }])
-    })
-
-    it('surfaces a body-only match via per-token search when the whole query misses', async () => {
-        const request = vi.fn(async ({ path, query }: { path: string; query?: any }) => {
-            if (path.endsWith('/search/')) {
-                // Whole multi-word query misses; a single informative token hits on body content.
-                if (query.query === 'revenue') {
-                    return {
-                        results: [
-                            {
-                                name: 'billing-internals',
-                                description: 'Unrelated title.',
-                                matches: [
-                                    {
-                                        matched_field: 'body',
-                                        path: 'SKILL.md',
-                                        line: 12,
-                                        excerpt: 'revenue recognition rules',
-                                    },
-                                ],
-                            },
-                        ],
-                    }
-                }
-                return { results: [] }
-            }
-            // Listing has no matching name/description, so only the body match can surface this skill.
-            return { count: 1, results: [{ name: 'billing-internals', description: 'Unrelated title.' }] }
-        })
-        const catalog = new ProjectSkillCatalog(makeContext(request))
-
-        const results = await catalog.searchResults('where is revenue recognized')
-
-        expect(results.map((result) => result.identifier)).toEqual(['project:billing-internals'])
-        expect(results[0]!.snippets).toContainEqual({ path: 'SKILL.md', line: 12, text: 'revenue recognition rules' })
-        expect(results[0]!.score).toBeGreaterThan(0)
-    })
-
-    it('degrades to the listing rank when every per-token search fails', async () => {
-        const request = vi.fn(async ({ path, query }: { path: string; query?: any }) => {
-            if (path.endsWith('/search/')) {
-                if (query.query === 'retention analysis guide') {
-                    return { results: [] } // whole-query miss
-                }
-                throw new Error('token search failed') // a failing per-token search must not sink the fallback
-            }
-            return { count: 1, results: [{ name: 'retention-analysis', description: 'Analyze retention cohorts.' }] }
-        })
-        const catalog = new ProjectSkillCatalog(makeContext(request))
-
-        const results = await catalog.searchResults('retention analysis guide')
-
-        expect(results.map((result) => result.identifier)).toEqual(['project:retention-analysis'])
-        expect(results[0]!.score).toBeGreaterThan(0)
+        expect(request).toHaveBeenCalledTimes(1)
     })
 })

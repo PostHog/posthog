@@ -259,6 +259,14 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         "Number of flags caches that failed to refresh",
         registry=self.metrics_registry,
     )
+    # Separate from the successful gauge because an enqueued team has not been rebuilt
+    # yet when the run ends. Folding the two together would report a healthy sweep
+    # while the Kafka builder was down.
+    enqueued_gauge = Gauge(
+        "posthog_flags_cache_refresh_enqueued_count",
+        "Number of flags caches whose refresh was raised as a Kafka invalidation instead of being built here",
+        registry=self.metrics_registry,
+    )
 
     start_time = time.time()
     logger.info(
@@ -275,6 +283,7 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     # Record metrics
     successful_gauge.set(counts.successful)
     failed_gauge.set(counts.failed)
+    enqueued_gauge.set(counts.enqueued)
 
     # Note: Teams processed metrics are pushed to Pushgateway by
     # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -288,6 +297,7 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         "Completed flags cache refresh",
         successful_refreshes=counts.successful,
         failed_refreshes=counts.failed,
+        enqueued_refreshes=counts.enqueued,
         total_cached=stats_after.get("total_cached", 0),
         total_teams=stats_after.get("total_teams", 0),
         cache_coverage=stats_after.get("cache_coverage", "unknown"),
@@ -457,7 +467,7 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     """
     Periodic task to refresh the flag definitions cache before entries expire.
 
-    Runs hourly and refreshes caches with TTL < 24 hours to prevent cache misses.
+    Runs hourly and refreshes caches inside the TTL threshold to prevent cache misses.
 
     Note: Most cache updates happen via Django signals when flags change.
     This job just prevents expiration-related cache misses.
@@ -479,14 +489,14 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     start_time = time.time()
     logger.info(
         "Starting flag definitions cache sync",
-        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+        ttl_threshold_hours=settings.FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT,
     )
 
     counts = refresh_expiring_caches(
         config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+        ttl_threshold_hours=settings.FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT,
     )
 
     successful_gauge.set(counts.successful)

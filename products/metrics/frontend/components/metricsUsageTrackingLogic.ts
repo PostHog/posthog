@@ -10,7 +10,7 @@ import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
-import type { QueryBasedInsightModel, UniversalFiltersGroup } from '../../../../frontend/src/types'
+import type { InsightModel, UniversalFiltersGroup } from '../../../../frontend/src/types'
 import type { _MetricFilterApi, _MetricSeriesApi } from '../generated/api.schemas'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import type { MetricsSceneActiveTab } from '../metricsSceneLogic'
@@ -67,11 +67,11 @@ export interface metricsUsageTrackingLogicActions {
         queryResults: _MetricSeriesApi[]
     } // metricsViewerLogic
     saveAsInsightSuccess: (
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+        savedInsight: InsightModel<Node<Record<string, any>>> | null,
         payload?: any
     ) => {
         payload?: any
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null
+        savedInsight: InsightModel<Node<Record<string, any>>> | null
     } // metricsViewerLogic
     setAggregation: (aggregation: MetricAggregation) => {
         aggregation: MetricAggregation

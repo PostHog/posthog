@@ -20,6 +20,7 @@ import {
   isWorkflowTool,
 } from "@posthog/ui/features/sessions/components/session-update/collaborationTools";
 import { hasInlineArtifact } from "@posthog/ui/features/sessions/components/session-update/inlineArtifacts";
+import { mcpToolDisplayName } from "@posthog/ui/features/sessions/components/session-update/mcpToolDisplay";
 import { iconForToolKind } from "@posthog/ui/features/sessions/components/session-update/toolIcons";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 
@@ -220,8 +221,15 @@ function summarize(items: ConversationItem[]): GroupSummary {
     if (item.type !== "session_update") continue;
     const update = item.update;
     if (update.sessionUpdate === "tool_call") {
-      // Most recent tool's title — what the chip shows while still running.
-      if (update.title) liveLabel = update.title;
+      const resolved = update.toolCallId
+        ? item.turnContext.toolCalls.get(update.toolCallId)
+        : undefined;
+      const displayName = mcpToolDisplayName(
+        resolved ?? (update as unknown as ToolCall),
+      );
+      if (displayName ?? update.title) {
+        liveLabel = displayName ?? update.title ?? null;
+      }
       lastToolStatus = update.status ?? undefined;
       const name = getToolName(update);
       if (isWorkflowTool(name ?? update.title)) {

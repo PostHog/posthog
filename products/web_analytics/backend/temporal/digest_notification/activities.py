@@ -17,6 +17,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.digest import OrgBatchPageResult, paginate_index, paginate_keyset
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.user_permissions import UserPermissions
 
@@ -28,7 +29,6 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.web_analytics.backend import weekly_digest
-from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.digest_notification.types import (
     DigestBatchInput,
     DigestBatchResult,
