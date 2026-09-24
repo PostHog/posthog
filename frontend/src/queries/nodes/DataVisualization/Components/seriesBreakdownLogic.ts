@@ -91,19 +91,6 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
     }
 }
 
-const roundBreakdownSeriesTotal = (total: number, selectedYAxis: SelectedYAxis): number | null => {
-    const formatting = selectedYAxis.settings.formatting
-    if (formatting?.decimalPlaces == null || formatting.style === 'short') {
-        return total
-    }
-
-    try {
-        return parseFloat(total.toFixed(formatting.decimalPlaces))
-    } catch {
-        return null
-    }
-}
-
 export interface SeriesBreakdownLogicProps {
     key: string
 }
@@ -446,13 +433,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                                 return showNullsAsZero ? 0 : null
                             }
 
-                            // Round the bucket total, not each row. Unaggregated data can put many
-                            // rows in one bucket, and rounding each row first compounds the error.
-                            const total = roundBreakdownSeriesTotal(
-                                numericValues.reduce((a, b) => a + b, 0),
-                                selectedYAxis
-                            )
-                            return total ?? (showNullsAsZero ? 0 : null)
+                            return numericValues.reduce((a, b) => a + b, 0)
                         })
 
                         return {

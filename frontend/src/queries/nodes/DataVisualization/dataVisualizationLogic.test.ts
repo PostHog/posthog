@@ -720,7 +720,7 @@ describe('dataVisualizationLogic', () => {
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
     })
 
-    it('rounds y-axis values to zero decimal places and plots missing values as zero', async () => {
+    it('keeps y-axis values unrounded at zero decimal places and plots missing values as zero', async () => {
         logic.unmount()
         logic = dataVisualizationLogic({
             key: testKey,
@@ -742,18 +742,17 @@ describe('dataVisualizationLogic', () => {
         })
 
         await expectLogic(logic).toMatchValues({
-            yData: [expect.objectContaining({ data: [42, 0, 0] })],
+            yData: [expect.objectContaining({ data: [42.195, 0, 0] })],
         })
     })
 
-    it('ignores retained decimal places under the short style for chart and table values', async () => {
+    it('ignores retained decimal places under the short style for table values', async () => {
         const settings: AxisSeriesSettings = { formatting: { style: 'short', decimalPlaces: 0 } }
         logic.unmount()
         logic = dataVisualizationLogic({
             key: testKey,
             query: {
                 ...defaultQuery,
-                chartSettings: { yAxis: [{ column: 'value', settings }] },
                 tableSettings: { columns: [{ column: 'value', settings }] },
             },
             dataNodeCollectionId,
@@ -767,7 +766,6 @@ describe('dataVisualizationLogic', () => {
         })
 
         await expectLogic(logic).toMatchValues({
-            yData: [expect.objectContaining({ data: [12.345] })],
             tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
         })
     })

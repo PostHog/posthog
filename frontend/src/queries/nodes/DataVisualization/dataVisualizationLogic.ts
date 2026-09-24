@@ -1536,19 +1536,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         return showNullsAsZero ? 0 : null
                                     }
 
-                                    const decimalPlaces = series.settings.formatting?.decimalPlaces
-                                    if (decimalPlaces != null && series.settings.formatting?.style !== 'short') {
-                                        const parsed = parseFloat(n[column.dataIndex])
-                                        if (Number.isNaN(parsed)) {
-                                            return showNullsAsZero ? 0 : null
-                                        }
-                                        return parseFloat((parsed * multiplier).toFixed(decimalPlaces))
-                                    }
-
+                                    // Do not round to decimalPlaces here. The chart formatters round for display,
+                                    // and the metric card and pie totals must sum the raw values.
                                     const isInt = Number.isInteger(n[column.dataIndex])
-                                    return isInt
+                                    const parsed = isInt
                                         ? parseInt(n[column.dataIndex], 10) * multiplier
                                         : parseFloat(n[column.dataIndex]) * multiplier
+                                    return Number.isNaN(parsed) ? (showNullsAsZero ? 0 : null) : parsed
                                 } catch {
                                     return showNullsAsZero ? 0 : null
                                 }
