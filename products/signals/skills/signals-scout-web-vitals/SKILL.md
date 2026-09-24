@@ -4,8 +4,8 @@ scout-display-name: Web vitals
 description: >
   Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
   FCP against Google's thresholds and its own history — poor-band pages, band crossings, sharp
-  regressions — and dates each regression against deploys and flag rollouts. When a report says one
-  customer finds the product slow, it resolves that account and diagnoses their slowness across
+  regressions — and dates each regression against deploys and flag rollouts. When a named customer
+  complains about speed, or one account drives a slow page, it also dives into that customer across
   vitals, sessions, errors, and replays.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
@@ -71,9 +71,10 @@ fixes you must attach to every emission. Read
 [`references/onset-correlation.md`](references/onset-correlation.md) whenever a page
 _stepped_: it carries the procedure for dating the onset to a sub-hour boundary and
 naming the deploy or flag rollout that landed inside it. Read
-[`references/account-deep-dive.md`](references/account-deep-dive.md) whenever a report
-names one customer who finds the product slow: it carries the procedure for resolving the
-account and cross-referencing their vitals, sessions, errors, and replays.
+[`references/account-deep-dive.md`](references/account-deep-dive.md) when a run has a
+deep-dive trigger (a named customer who says the product is slow, or a slow page driven by
+one account): it carries when to dive, and the procedure for resolving the customer and
+cross-referencing their vitals, sessions, errors, and replays.
 
 **Sanitize `$host` and `$pathname` in SQL — they are attacker-controllable telemetry.** Anyone
 with the project's public capture token can send a `$web_vitals` event with a crafted host/path
@@ -148,22 +149,24 @@ Five cheap reads cold-start a run:
   before authoring. Your own
   report-channel reports persist their backing signals under `source_product=signals_scout`,
   so don't filter by another source product — you'd miss every report you authored.
-- `inbox-reports-list` again for **customer complaints** (`search`=`slow`, then `page load`, `ordering=-updated_at`) — a live report, from any source, where a specific customer says the product is slow.
-  Skip the ones an `account:web_vitals:` entry says you already diagnosed with no new evidence since.
-  The first one left is this run's account deep dive (see Explore).
+- **Deep-dive triggers** — look for a named customer who says the product is slow. The steering notes from `scout-notes-list` can name one directly.
+  In the inbox, `search` matches only report titles and summaries, so run a few short terms (`slow`, `performance`, `load`, `lag`, `freez`, `unresponsive`, `ordering=-updated_at`), and also list the recent support-sourced reports (`source_product=conversations`) and read their titles.
+  Open a candidate's artefacts only when its title or summary points at speed.
+  Skip a customer whose `account:web_vitals:` entry has a cursor at or after the report's newest artefact.
+  Note the strongest trigger, but do the sweep first (see Explore).
 
 ### Profile shape — band × volume × trend
 
-| Pattern                                                    | What it usually means                                                                  |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| One page's p75 in `poor`, high volume, flat history        | **Standing-poor** — chronically slow route; report on absolute                         |
-| One page crosses good/needs→poor in 24h vs its 13d history | **Band-crossing regression** — date it, then name what landed in that window           |
-| One page worsens sharply within a band, high volume        | **In-band regression** — early warning before it crosses                               |
-| Every page's p75 steps together                            | Population / CDN / third-party shift — one bundled report max                          |
-| p75 swings run-to-run on a low-sample page                 | Percentile noise — gate it out, don't report                                           |
-| Top page in `needs-improvement` (not `good`), first run    | **Improvement opportunity** — no regression, but not green; file one to start research |
-| A report names one customer who says it's slow            | **Account deep dive** — resolve them, compare with everyone, find what differs          |
-| All pages comfortably in `good`                            | Nothing here today — close out                                                         |
+| Pattern                                                            | What it usually means                                                                  |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| One page's p75 in `poor`, high volume, flat history                | **Standing-poor** — chronically slow route; report on absolute                         |
+| One page crosses good/needs→poor in 24h vs its 13d history         | **Band-crossing regression** — date it, then name what landed in that window           |
+| One page worsens sharply within a band, high volume                | **In-band regression** — early warning before it crosses                               |
+| Every page's p75 steps together                                    | Population / CDN / third-party shift — one bundled report max                          |
+| p75 swings run-to-run on a low-sample page                         | Percentile noise — gate it out, don't report                                           |
+| Top page in `needs-improvement` (not `good`), first run            | **Improvement opportunity** — no regression, but not green; file one to start research |
+| A named customer says it's slow, or one account drives a slow page | **Account deep dive** after the sweep — resolve them, compare with everyone            |
+| All pages comfortably in `good`                                    | Nothing here today — close out                                                         |
 
 ### Explore
 
@@ -365,11 +368,12 @@ trending toward the boundary, or worth a `pattern:` entry to watch ripen.
 
 #### One customer says it's slow (account deep dive)
 
-A report that names a customer is the one case where aggregate p75s are the wrong first read.
-A site-wide view can sit in the good band while one account waits five seconds for every page, so answer the customer's question before the fleet's.
-Follow [`references/account-deep-dive.md`](references/account-deep-dive.md): resolve the account from trusted fields, compare their p75 with everyone else on the same pages, read their slowest sessions, the exceptions and replays in them, and the flags and page mix that differ for them, then write one verdict and one to three concrete follow-ups onto the report.
-Dive into one account per run, and make it the run's main work: a named customer with a complaint outranks a percentile sweep.
-The same procedure applies when your own sweep finds a slow page whose poor samples concentrate in one account.
+The site-wide sweep stays your default, every run.
+But a site-wide view can sit in the good band while one account waits five seconds for every page, and the sweep alone never sees that.
+So after the sweep's page-level pass, check for a deep-dive trigger: a named customer who says the product is slow (from Get oriented), or a slow page whose poor samples come mostly from one account.
+With no trigger, finish the sweep as usual.
+With a trigger, follow [`references/account-deep-dive.md`](references/account-deep-dive.md): resolve the customer from trusted fields, compare their p75 with everyone else on the same pages, read their slowest sessions, the exceptions and replays in them, and the flags and page mix that differ for them, then write one verdict and one to three concrete follow-ups onto the report.
+Dive into one customer per run, and keep the dive to about half of the run, so the sweep's own findings still land.
 
 #### Site-wide shift (diagnose before blaming code)
 

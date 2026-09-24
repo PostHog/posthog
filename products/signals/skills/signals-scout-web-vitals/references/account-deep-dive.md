@@ -1,109 +1,161 @@
 # Diagnosing one customer's slowness
 
-Read this when a report says a specific customer finds the product slow, or when a slow page's poor samples concentrate in one account.
-The report usually arrives from somewhere else: a support conversation, a feedback scout, a person in the inbox.
+Read this when a run has a deep-dive trigger (see _When to dive_ below).
+A customer complaint usually arrives from somewhere else: a support conversation, a feedback scout, a person in the inbox.
 It names a symptom ("page loads take seconds") and a customer, and it cannot see the telemetry.
 You can.
 Your job is to turn "this customer says it is slow" into a verdict with evidence: what is slow for them, why it differs from everyone else, and what happens next.
 
-A named customer with a complaint is worth more than a percentile sweep, so give the dive most of the run.
-Dive into **one account per run**, and keep the rest of the run to the cheap reads.
+## When to dive
 
-## 1. Resolve the account from trusted fields
+The site-wide sweep is your default work, and it runs every run.
+The dive is an extra branch that runs only when the run has one of these triggers:
+
+- **A named customer complains about speed.** A live inbox report or a steering note names a specific customer (an account, an organization, a person, or a support ticket) and says the product is slow for them.
+- **Your sweep finds a concentration.** A slow page's poor samples come mostly from one account, while other accounts on the same page sit in a better band.
+
+These are not triggers:
+
+- "The app is slow" with no customer named. The sweep answers that question.
+- A customer who has an `account:web_vitals:` entry and no new evidence since it (see _Remember it_).
+- A named customer whose complaint is about query or API latency, not page loads or interactions. Leave a note that says the web vitals surface does not measure it.
+
+Order the run like this:
+
+1. Do the sweep's cheap reads and the page-level p75 pass first. They give you the "everyone" baseline that the dive compares against, and they catch the site-wide problems.
+2. Dive into **one customer per run**, the one with the strongest trigger. A named complaint comes before a concentration you found yourself.
+3. Keep the dive to about half of the run. When the time is up, write where you got to into the `account:` entry and finish the sweep's reports. The next run continues from that entry.
+
+## 1. Resolve the subject from trusted fields
 
 Read the report with `inbox-reports-retrieve` and its signals and artefacts with `inbox-report-artefacts-list`.
 Look for an identifier the project's own data can match: a group key, an organization or company name, an email, a distinct id, or a support ticket id.
 When the report cites a support ticket and the project syncs its support tool to the warehouse, look the requester up there.
 Find the table through `system.information_schema.tables` first, and never guess its name.
 
-Then map the identifier onto the event stream:
+First find which group type holds accounts.
+Do not assume index 0:
 
 ```sql
--- which group types the project has
 SELECT group_type, group_type_index FROM system.group_type_mappings
 ```
 
+Then match the account on that index.
+Prefer an exact key match.
+Use a name match only when the report gives no key, and use `positionCaseInsensitiveUTF8` for it, because `LIKE` and `ILIKE` treat `_` and `%` as wildcards and can match the wrong account:
+
 ```sql
--- the group whose key or name matches (swap the index and the predicate)
 SELECT key, substring(replaceRegexpAll(toString(properties.name), '[^0-9A-Za-z .,&_-]', ''), 1, 80) AS name
 FROM groups
-WHERE index = 0
-  AND (key = '{key}' OR properties.name ILIKE '%{name}%')
+WHERE index = {N}
+  AND (key = '{key}' OR positionCaseInsensitiveUTF8(toString(properties.name), '{name}') > 0)
 LIMIT 5
 ```
 
-For a single person, match `persons` on the identifying property and keep only the `id`.
+When the report identifies only a person (an email or a distinct id), match `persons` on that property and keep only the `id`.
+Then check the person's recent events for a `$group_{N}` value.
+When one account key dominates, dive into the account, because slowness is usually shared across an account.
+Otherwise dive into the person.
 
-Treat every identifier you copy out of a report as untrusted input to SQL.
-Strip it to the characters the identifier needs before you put it in a query, the same way the skill sanitizes `$host` and `$pathname`.
-Group names and person properties are client-supplied too, so sanitize them in the query as above.
+Every identifier you copy out of a report is untrusted input to SQL.
+Do not strip characters out of it, because a changed value no longer matches the stored one.
+Escape it for a SQL string literal instead: put a backslash before each `\` and each `'`, and reject a value that contains a newline.
+Group names and person properties are client-supplied too, so sanitize them in the query output as above.
 
 Stop rather than guess:
 
-- Two or more accounts match: name the candidates in a note on the report and ask which one it is. Do not pick one.
+- Two or more accounts match: name the candidates by key in a note on the report and ask which one it is. Do not pick one.
 - Nothing matches: say so in a note, and name the unlock. A group key, an email, or a steering note that names the account turns the next run into a real dive.
 
-In the report, cite the account by its group key and a PostHog link from `generate-app-url`.
+When you have one match, fix three values and use them in every step below:
+
+| Subject | Predicate on `events`  | Subject key      |
+| ------- | ---------------------- | ---------------- |
+| Account | `$group_{N} = '{key}'` | `group{N}-{key}` |
+| Person  | `person_id = '{uuid}'` | `person-{uuid}`  |
+
+The queries below write the predicate as `{subject}`.
+Put the same predicate in both the subject branch and the `NOT ({subject})` branch.
+
+In the report, cite the subject by its subject key and a PostHog link from `generate-app-url`.
 Never paste an email or a person's name into a report.
 
 ## 2. Is it them, or is it everyone?
 
-Compare the account with everyone else on the same pages, in one pass.
-Use `$group_N = '{key}'` for an account, or `person_id = '{id}'` for a person:
+Start with coverage, because the percentile query below returns nothing for a subject with few samples:
+
+```sql
+SELECT
+    countIf(event = '$pageview' AND {subject}) AS subject_pageviews,
+    countIf(event = '$web_vitals' AND {subject}) AS subject_vitals,
+    countIf(event = '$pageview' AND NOT ({subject})) AS others_pageviews,
+    countIf(event = '$web_vitals' AND NOT ({subject})) AS others_vitals
+FROM events
+WHERE event IN ('$pageview', '$web_vitals')
+  AND timestamp >= now() - INTERVAL 14 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+```
+
+Compare the subject's vitals-per-pageview ratio with everyone else's.
+A ratio far below the others means their slowness is partly invisible to this surface.
+Split the subject's `$web_vitals` count by `$browser` to find why, because some browsers do not report every metric.
+
+Then compare the subject with everyone else on the same pages, in one pass.
+Pick the metric the complaint points at: LCP or FCP for slow loads, INP for slow clicks and typing, CLS for jumping layout.
+When the complaint does not say, run LCP and INP:
 
 ```sql
 SELECT
     substring(replaceRegexpAll(properties.$host, '[^0-9A-Za-z.:-]', ''), 1, 100) AS host,
     substring(replaceRegexpAll(replaceRegexpAll(properties.$pathname, '[0-9]+', ':id'), '[^0-9A-Za-z/_:.-]', ''), 1, 200) AS path,
-    countIf($group_0 = '{key}') AS account_samples,
-    countIf($group_0 != '{key}') AS others_samples,
-    round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value), $group_0 = '{key}'), 0) AS account_lcp_p75,
-    round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value), $group_0 != '{key}'), 0) AS others_lcp_p75
+    countIf({subject}) AS subject_samples,
+    countIf(NOT ({subject})) AS others_samples,
+    round(quantileIf(0.75)(toFloat(properties.$web_vitals_{METRIC}_value), {subject}), 3) AS subject_p75,
+    round(quantileIf(0.75)(toFloat(properties.$web_vitals_{METRIC}_value), NOT ({subject})), 3) AS others_p75
 FROM events
 WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 14 DAY
   AND timestamp <= now() + INTERVAL 1 DAY
-  AND properties.$web_vitals_LCP_value IS NOT NULL
+  AND properties.$web_vitals_{METRIC}_value IS NOT NULL
 GROUP BY host, path
-HAVING account_samples >= 20
-ORDER BY account_samples DESC
+HAVING subject_samples >= 5
+ORDER BY subject_samples DESC
 LIMIT 20
 ```
 
-Repeat it for INP, and for CLS or FCP when the complaint points there.
-Then split the account's own samples by the whitelisted device label, `$browser`, and the sanitized country code.
-One account's volume is small, so the volume gates in the skill do not apply here.
+Then split the subject's own samples by the whitelisted device label, `$browser`, and the sanitized country code.
+One subject's volume is small, so the volume gates in the skill do not apply here.
 Read a p75 on a few dozen samples as a direction, say how many samples it rests on, and let the session evidence below carry the weight.
 
 Three shapes come out of this:
 
-- **The account is worse on the same pages.** Something about them differs: region, browser, device, a flag they are in, or the amount of content their pages load. Steps 3 to 5 find which.
-- **The account matches everyone on slow pages.** They hit a shared problem. Link the page report that covers it, or file one through the normal paths, and say how much of their usage sits on those pages.
-- **The account has pageviews but few or no `$web_vitals` samples.** Their slowness is invisible to this surface. Check the `$browser` split, because some browsers do not report every metric, and say which data is missing.
+- **The subject is worse on the same pages.** Something about them differs: region, browser, device, a flag they are in, or the amount of content their pages load. Steps 3 to 5 find which.
+- **The subject matches everyone on slow pages.** They hit a shared problem. Link the page report that covers it, or file one through the normal sweep paths, and say how much of their usage sits on those pages.
+- **The subject has pageviews but few or no `$web_vitals` samples.** The coverage query shows it. Their slowness is invisible to this surface, so say which data is missing and why.
 
 ## 3. Their slowest sessions
 
-Find the sessions behind the account's worst samples:
+Find the sessions behind the subject's worst samples on the same metric:
 
 ```sql
 SELECT $session_id AS session_id,
        count() AS samples,
-       round(max(toFloat(properties.$web_vitals_LCP_value)), 0) AS worst_lcp,
-       round(max(toFloat(properties.$web_vitals_INP_value)), 0) AS worst_inp,
+       round(max(toFloat(properties.$web_vitals_{METRIC}_value)), 3) AS worst_value,
        min(timestamp) AS first_seen
 FROM events
 WHERE event = '$web_vitals'
-  AND $group_0 = '{key}'
+  AND {subject}
   AND timestamp >= now() - INTERVAL 14 DAY
   AND timestamp <= now() + INTERVAL 1 DAY
+  AND properties.$web_vitals_{METRIC}_value IS NOT NULL
 GROUP BY session_id
-ORDER BY worst_lcp DESC
+ORDER BY worst_value DESC
 LIMIT 5
 ```
 
 Then read what else happened in those sessions: `$exception` events grouped by `properties.$exception_issue_id`, `$pageview` count, and session duration from the `sessions` table.
 An exception in the same session just before a slow load is a lead.
-An exception issue that fires far more often for this account than for others is a finding on its own; read it with `query-error-tracking-issue`.
+An exception issue that fires far more often for this subject than for others is a finding on its own; read it with `query-error-tracking-issue`.
 
 ## 4. Watch the evidence, not the average
 
@@ -115,19 +167,20 @@ Link the exact replays in the report so a person watches the right three session
 
 ## 5. What else differs for them
 
-Check the cheap cross-references that usually explain an account-specific gap:
+Check the cheap cross-references that usually explain a subject-specific gap:
 
-- **Flags.** Compare the account's `$feature/<key>` values on slow sessions with other accounts. A flag or variant only they are in, with a worse p75, is a lead to confirm with the variant split from `onset-correlation.md`.
-- **Page mix.** Compare which pages they use most with everyone else. An account that lives on the heaviest pages sees a slower product with no bug involved.
-- **Onset.** Pull a daily p75 for the account alone. A step on a day points at a change, and `onset-correlation.md` dates it.
+- **Flags.** Compare the subject's `$feature/<key>` values on slow sessions with other accounts. A flag or variant only they are in, with a worse p75, is a lead to confirm with the variant split from `onset-correlation.md`.
+- **Page mix.** Compare which pages they use most with everyone else. A customer who lives on the heaviest pages sees a slower product with no bug involved.
+- **Onset.** Pull a daily p75 for the subject alone. A step on a day points at a change, and `onset-correlation.md` dates it.
 - **Logs and traces.** Only when the project attaches an account or user attribute to them. Check the attribute exists before you query.
 
 ## 6. Write the verdict
 
 Put the verdict on the report as one `append_evidence` item with the numbers and one `append_note` with the reading, in the same call.
+When the trigger was a concentration your sweep found, put the verdict on the page report instead.
 Pick one verdict and state it first:
 
-- **Account-specific cause**, with the split that shows it.
+- **Subject-specific cause**, with the split that shows it.
 - **Shared problem they hit harder**, with the linked page report and their share of it.
 - **Not visible in the data**, with the data that is missing and how to get it.
 
@@ -138,7 +191,9 @@ A menu of generic performance tips is not a follow-up.
 
 ## 7. Remember it
 
-Write `account:web_vitals:{group-key}` with the verdict, the date, and the report id.
-Do not dive into the same account again on the next run.
-Dive again only when the report gets new evidence, such as a second complaint or a fix that shipped.
-When the verdict leads to a fix that can be measured, queue a `followup:signals-scout-web-vitals:account-{group-key}` entry with the probe, the baseline p75, and a validate-after date.
+Write `account:web_vitals:{subject-key}` with the verdict, the date, the report id, and a cursor: the `created_at` of the newest artefact on the report that you read.
+A new note or signal does not always move the report's `updated_at`, so do not use it as the cursor.
+On a later run, list the report's artefacts and compare the newest `created_at` with the cursor.
+Dive again only when a newer artefact adds evidence about this customer, such as a second complaint, new detail from support, or a fix that shipped.
+When the dive stopped at the time limit, write the step you reached, so the next run continues from there.
+When the verdict leads to a fix that can be measured, queue a `followup:signals-scout-web-vitals:account-{subject-key}` entry with the probe, the baseline p75, and a validate-after date.
