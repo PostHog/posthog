@@ -11,11 +11,12 @@ import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 const mockRecordingRendered = jest.fn()
 let observationOverrides: Record<string, unknown> = {}
+const mockLabelSaved = jest.fn()
 
 jest.mock('./ObservationRecording', () => {
     return {
         __esModule: true,
-        default: (props: unknown) => {
+        default: ({ unavailable: _unavailable, ...props }: Record<string, unknown>) => {
             mockRecordingRendered(props)
             return <div data-attr="observation-recording" />
         },
@@ -23,6 +24,11 @@ jest.mock('./ObservationRecording', () => {
 })
 
 jest.mock('./ObservationPinnedProperties', () => ({ ObservationPinnedProperties: () => null }))
+
+jest.mock('lib/utils/accessControlUtils', () => ({
+    ...jest.requireActual('lib/utils/accessControlUtils'),
+    getAccessControlDisabledReason: jest.fn(() => null),
+}))
 
 jest.mock('../components/CitedMarkdown', () => {
     const { TimestampCitation } = jest.requireActual('../components/TimestampCitation')
@@ -74,6 +80,11 @@ describe('ReplayObservation', () => {
             },
             post: {
                 '/api/projects/:team/vision/observations/:id/viewed/': () => [204],
+                '/api/projects/:team/vision/observations/:id/label/': async ({ request }) => {
+                    const body = await request.json()
+                    mockLabelSaved(body)
+                    return [200, body]
+                },
             },
         })
         initKeaTests()
@@ -152,4 +163,17 @@ describe('ReplayObservation', () => {
             expect(screen.queryByText('$recording_observed') !== null).toBe(linksEvent)
         }
     )
+
+    it.each([
+        ['an unrated scan saves the rating', {}, [{ is_correct: true, feedback: '' }]],
+        ['an already rated scan ignores the key', { label: { is_correct: false, feedback: '' } }, []],
+    ])('pressing y on %s', async (_name, overrides, expectedSaves) => {
+        observationOverrides = overrides
+        mockLabelSaved.mockClear()
+        render(<ReplayObservationSceneComponent />)
+        await screen.findByTestId('observation-recording')
+
+        fireEvent.keyDown(document.body, { key: 'y' })
+        await waitFor(() => expect(mockLabelSaved.mock.calls.map(([body]) => body)).toEqual(expectedSaves))
+    })
 })
