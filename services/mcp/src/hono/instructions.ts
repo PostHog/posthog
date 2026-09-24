@@ -15,6 +15,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { buildChatActionCatalog } from '@/tools/posthogAiTools/suggestActions'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -81,6 +82,7 @@ export class InstructionsBuilder {
             groupTypes: state.groupTypes,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
+            chatActions: buildChatActionCatalog(state.allTools.map((tool) => tool.name)),
         }
     }
 

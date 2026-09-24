@@ -42,6 +42,8 @@ import {
     externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
+    SUGGEST_ACTIONS_TOOL_NAME,
+    suggestActions,
 } from './posthogAiTools'
 // PostHog connections (run this project's tools against a connected project in another org/region)
 import { createConnectionCallTool } from './posthogConnections/call'
@@ -131,6 +133,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
+    [SUGGEST_ACTIONS_TOOL_NAME]: suggestActions,
 
     // Replay
 

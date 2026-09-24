@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+    assertChatActionTargets,
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
@@ -1337,6 +1338,46 @@ describe('system_prompt_hint flows into tool definitions', () => {
             },
         ]) as Record<string, { system_prompt_hint?: string }>
         expect(definitions['query-logs']?.system_prompt_hint).toBe('Log filtering by severity/service/attribute')
+    })
+
+    // The generated JSON is what `suggest-actions` reads at runtime, so a declaration the
+    // generator drops would silently never be offered.
+    it('propagates actions from standard tool YAML into the generated definition', () => {
+        const actions = [
+            { key: 'enable', label: 'Enable the workflow', kind: 'run' as const, tool: 'workflows-enable' },
+        ]
+        const toolConfig: EnabledToolConfig = {
+            operation: 'hog_flows_create',
+            enabled: true,
+            scopes: ['hog_flow:write'],
+            annotations: { readOnly: false, destructive: false, idempotent: false },
+            actions,
+        }
+        const resolved: ResolvedOperation = {
+            method: 'POST',
+            path: '/api/projects/{project_id}/hog_flows/',
+            operation: { operationId: 'hog_flows_create', description: 'Create a workflow' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'Workflows', feature: 'workflows', url_prefix: '/workflows', tools: {} },
+                enabledTools: [['workflows-create', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { actions?: unknown }>
+        expect(definitions['workflows-create']?.actions).toEqual(actions)
+    })
+
+    it('rejects a run action whose target tool is not in the merged catalog', () => {
+        const run = (tool: string): Record<string, { actions: { key: string; kind: string; tool: string }[] }> => ({
+            'workflows-create': { actions: [{ key: 'enable', kind: 'run', tool }] },
+            'workflows-enable': { actions: [] },
+        })
+        expect(() => assertChatActionTargets(run('workflows-enable'))).not.toThrow()
+        expect(() => assertChatActionTargets(run('workflow-enable'))).toThrow(
+            'workflows-create.enable -> workflow-enable'
+        )
     })
 })
 

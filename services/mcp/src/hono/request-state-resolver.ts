@@ -1,6 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
+import { POSTHOG_AI_CONSUMER } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
@@ -12,6 +13,7 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
+import { bindSuggestActionsCatalog, SUGGEST_ACTIONS_TOOL_NAME } from '@/tools/posthogAiTools/suggestActions'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import {
     type FlagGatedTool,
@@ -94,6 +96,11 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
 
 export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
     return clientProfile.isPostHogCodeConsumer() && taskId ? [] : [...TASKS_CONTEXT_TOOL_NAMES]
+}
+
+/** Only the PostHog AI chat renders suggested actions, so no other client is offered the tool. */
+export function chatActionToolsToExclude(clientProfile: MCPClientProfile): string[] {
+    return clientProfile.consumer === POSTHOG_AI_CONSUMER ? [] : [SUGGEST_ACTIONS_TOOL_NAME]
 }
 
 /**
@@ -227,6 +234,7 @@ export class RequestStateResolver {
         const excludeTools = [
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
+            ...chatActionToolsToExclude(clientProfile),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
             ...(props.excludeTools ?? []),
         ]
@@ -244,10 +252,14 @@ export class RequestStateResolver {
         }
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
-            this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            _apiKey ?? { scopes: [] },
-            () => context.stateManager.getUser()
+        // `suggest-actions` validates `run` targets against this caller's catalog, which only
+        // exists here, so the bound handler is attached after every filter ran.
+        const allTools = bindSuggestActionsCatalog(
+            await filterStaffOnlyTools(
+                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                _apiKey ?? { scopes: [] },
+                () => context.stateManager.getUser()
+            )
         )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.

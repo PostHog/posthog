@@ -9,6 +9,7 @@ import { runInteractionLogic, type RunInteractionLogicProps } from 'products/pos
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { RunChatActionComposerProvider } from '../../../components/RunChatActionComposerProvider'
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
@@ -105,15 +106,23 @@ export function TaskRunChat({
         },
     }
 
+    const content = (
+        <TaskRunChatContent
+            logicProps={logicProps}
+            readOnly={readOnly}
+            escapeScope={escapeScope}
+            autoFocus={autoFocus}
+            flushDraftRef={flushDraftRef}
+        />
+    )
+    // A read-only viewer has no composer, so the suggested-action buttons get none either and render disabled.
     return (
         <BindLogic logic={runInteractionLogic} props={logicProps}>
-            <TaskRunChatContent
-                logicProps={logicProps}
-                readOnly={readOnly}
-                escapeScope={escapeScope}
-                autoFocus={autoFocus}
-                flushDraftRef={flushDraftRef}
-            />
+            {readOnly ? (
+                content
+            ) : (
+                <RunChatActionComposerProvider logicProps={logicProps}>{content}</RunChatActionComposerProvider>
+            )}
         </BindLogic>
     )
 }

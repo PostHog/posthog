@@ -1,4 +1,5 @@
 import {
+    IconBolt,
     IconDashboard,
     IconFunnels,
     IconGraph,
@@ -34,6 +35,9 @@ const NotebookRenderer = lazyWithRetry(() =>
 )
 const QueryRenderer = lazyWithRetry(() =>
     import('./components/tool/widgets/QueryWidget').then((m) => ({ default: m.QueryWidget }))
+)
+const SuggestActionsRenderer = lazyWithRetry(() =>
+    import('./components/tool/widgets/SuggestActionsWidget').then((m) => ({ default: m.SuggestActionsWidget }))
 )
 
 const DATA_TOOLS = [
@@ -102,4 +106,14 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
         requiresPostHogOrigin: true,
         keepVisible: true,
     })),
+    // Behind FEATURE_FLAGS.POSTHOG_AI_CHAT_ACTIONS: the renderer itself falls back to the generic
+    // card while the flag is off, since the registry is built once at module load.
+    {
+        key: 'suggest-actions',
+        displayName: 'Suggested actions',
+        icon: <IconBolt />,
+        Renderer: SuggestActionsRenderer,
+        requiresPostHogOrigin: true,
+        keepVisible: true,
+    },
 ]

@@ -13177,7 +13177,22 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "actions": [
+            {
+                "key": "enable",
+                "label": "Enable the workflow",
+                "kind": "run",
+                "tool": "workflows-enable",
+                "message": "Enable workflow {id}."
+            },
+            {
+                "key": "test-send",
+                "label": "Fire a real send to your address",
+                "kind": "insert",
+                "message": "Send a real test of this workflow to "
+            }
+        ]
     },
     "workflows-create-email-template": {
         "description": "Save an email template to the workflows library. Provide name and content.email with subject, a plain-text fallback, and design (design JSON for PostHog's visual email editor — schema in the designing-email-templates skill); the sent email is compiled from the design JSON. Liquid personalization works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline exactly as authored. Then call workflows-show-email-template and share the _posthogUrl link with the user.",

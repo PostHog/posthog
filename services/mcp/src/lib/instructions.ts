@@ -1,4 +1,5 @@
 import type { GroupType } from '@/api/client'
+import { type ChatAction, chatActionKey, chatActionSlots } from '@/tools/chatActions'
 import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
@@ -454,4 +455,45 @@ export class QueryToolCatalog {
 
 export function buildQueryToolsBlock(tools: QueryToolInfo[]): string {
     return new QueryToolCatalog(tools).toMarkdown()
+}
+
+export interface ChatActionCatalogEntry {
+    /** The tool after which the actions are offered. */
+    tool: string
+    actions: ChatAction[]
+}
+
+/**
+ * Renders the actions the agent may offer through `suggest-actions`, grouped by the tool that
+ * offers them. Empty when nothing is declared, so the section disappears from the prompt.
+ */
+export class ChatActionCatalog {
+    constructor(private readonly entries: ChatActionCatalogEntry[]) {}
+
+    toMarkdown(): string {
+        const entries = this.entries.filter((entry) => entry.actions.length > 0)
+        if (entries.length === 0) {
+            return ''
+        }
+        const groups = entries.map(
+            (entry) =>
+                `After \`${entry.tool}\`:\n` +
+                entry.actions.map((action) => ChatActionCatalog.renderAction(entry.tool, action)).join('\n')
+        )
+        return [CHAT_ACTIONS_INSTRUCTION, ...groups].join('\n\n')
+    }
+
+    private static renderAction(tool: string, action: ChatAction): string {
+        const slots = chatActionSlots(action.message ?? action.label)
+        const qualifiers = [action.kind, ...(slots.length > 0 ? [`slots: ${slots.join(', ')}`] : [])]
+        return `- \`${chatActionKey(tool, action.key)}\` (${qualifiers.join(', ')}): ${action.label}`
+    }
+}
+
+const CHAT_ACTIONS_INSTRUCTION = `### Suggested actions
+
+When your turn ends with something the user is likely to do next and one of the actions below matches it, call \`suggest-actions\` once, as the last tool call of the turn, with the keys and the args for their slots: \`call suggest-actions {"actions":[{"key":"<tool>.<key>","args":{"<slot>":"<value>"}}]}\`. The chat renders each action as a button under your answer, so do not repeat the offered actions in prose. Skip the call when nothing fits, and never call it mid-turn.`
+
+export function buildChatActionsBlock(entries: ChatActionCatalogEntry[]): string {
+    return new ChatActionCatalog(entries).toMarkdown()
 }
