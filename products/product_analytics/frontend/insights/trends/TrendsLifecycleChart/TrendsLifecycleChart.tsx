@@ -27,6 +27,7 @@ import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
+    canHandleTrendsChartClick,
     handleTrendsChartClick,
     LIFECYCLE_PERSONS_MODAL_OPTIONS,
     type TrendsChartClickDeps,
@@ -155,8 +156,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
     const config = useChartConfig(() => baseConfig, [baseConfig])
 
-    // `querySource` builds the actors query, so without it the click handler returns early.
-    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
+    const canHandleClick = canHandleTrendsChartClick({ context, hasPersonsModal, querySource })
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({

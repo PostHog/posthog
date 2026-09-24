@@ -40,7 +40,11 @@ import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
-import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
+import {
+    canHandleTrendsChartClick,
+    handleTrendsChartClick,
+    type TrendsChartClickDeps,
+} from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
@@ -321,8 +325,7 @@ export function TrendsBarChart({
         embedded,
     ])
 
-    // `querySource` builds the actors query, so without it the click handler returns early.
-    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
+    const canHandleClick = canHandleTrendsChartClick({ context, hasPersonsModal, querySource })
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({

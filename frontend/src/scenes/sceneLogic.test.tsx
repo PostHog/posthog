@@ -124,7 +124,9 @@ describe('sceneLogic', () => {
             await expectLogic(logic).delay(1)
             expect(logic.values.activeSceneId).toEqual(Scene.Settings)
 
-            pendingImportRejection?.(new Error('scene import failed'))
+            // Without this the rejection below is a no-op and the assertion passes vacuously.
+            expect(pendingImportRejection).not.toBeNull()
+            pendingImportRejection!(new Error('scene import failed'))
             await expectLogic(logic).delay(1)
 
             expect(logic.values.activeSceneId).toEqual(Scene.Settings)
