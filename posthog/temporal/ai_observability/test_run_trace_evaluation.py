@@ -212,11 +212,22 @@ class TestFormatTraceForJudge:
 
     @pytest.mark.parametrize("message_property", ["$ai_input", "$ai_output_choices"])
     @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
+    @pytest.mark.parametrize("message_format", ["content", "parts"])
     def test_oversized_messages_do_not_allocate_the_full_transcript(
-        self, message_property: str, event_count: int, message_count: int
+        self, message_property: str, event_count: int, message_count: int, message_format: str
     ) -> None:
         content = "start " + "x" * 500_000 + " end"
-        messages = [{"role": "user", "content": content} for _ in range(message_count)]
+        message_content = (
+            {"content": content}
+            if message_format == "content"
+            else {
+                "parts": [
+                    {"type": "text", "content": content[:250_000]},
+                    {"type": "text", "content": content[250_000:]},
+                ]
+            }
+        )
+        messages = [{"role": "user", **message_content} for _ in range(message_count)]
         trace = create_trace(
             [create_trace_event("$ai_generation", **{message_property: messages}) for _ in range(event_count)]
         )

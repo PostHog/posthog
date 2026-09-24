@@ -653,10 +653,12 @@ def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) 
     return lines
 
 
-def _flatten_parts_messages(messages: list[Any]) -> list[Any]:
-    return [
-        flattened for msg in messages for flattened in (flatten_parts_message(msg) if isinstance(msg, dict) else [msg])
-    ]
+def _flatten_parts_messages(messages: list[Any]) -> Iterable[Any]:
+    for msg in messages:
+        if isinstance(msg, dict):
+            yield from flatten_parts_message(msg)
+        else:
+            yield msg
 
 
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
@@ -674,9 +676,14 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         List of formatted lines (no header, starts directly with messages)
     """
     lines = FormatterLines(options)
-    messages = _flatten_parts_messages(messages)
+    needs_separator = False
 
-    for i, msg in enumerate(messages):
+    for i, msg in enumerate(_flatten_parts_messages(messages)):
+        # Add separator between messages (but not after the last one)
+        if needs_separator:
+            lines.append("")
+            lines.append("-" * 80)
+        needs_separator = isinstance(msg, dict)
         if not isinstance(msg, dict):
             continue
 
@@ -696,11 +703,6 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
             # malformed message degrades to its own repr and the rest of the trace still renders.
             body_lines, _ = truncate_content(safe_extract_text(msg), options)
         lines.extend(body_lines)
-
-        # Add separator between messages (but not after the last one)
-        if i < len(messages) - 1:
-            lines.append("")
-            lines.append("-" * 80)
 
     return lines
 
@@ -772,7 +774,7 @@ def format_output_messages(
     if choices and isinstance(choices, list) and len(choices) > 0:
         # Extract messages from choices
         messages = []
-        for choice in _flatten_parts_messages(choices):
+        for choice in choices:
             if not isinstance(choice, dict):
                 continue
 
@@ -806,6 +808,9 @@ def format_output_messages(
                 "content": content,
                 "tool_calls": tool_calls,
             }
+            # Defer parts expansion until the budgeted renderer consumes each message.
+            if "parts" in message:
+                normalized_message["parts"] = message["parts"]
             messages.append(normalized_message)
 
         if messages:
