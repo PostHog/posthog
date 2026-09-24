@@ -88,6 +88,22 @@ describe('terminal lifecycle', () => {
         expect(push).toHaveBeenCalledWith('/insights/example')
     })
 
+    it.each([true, false])('keeps project-qualified folder links in their own project: %s', (sameProject) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+        })
+        const push = jest.spyOn(router.actions, 'push')
+        const projectId = MOCK_DEFAULT_TEAM.id + (sameProject ? 0 : 1)
+        const url = `/project/${projectId}/files?folder=Reports`
+        terminalLogic.actions.openUrl(url)
+        if (sameProject) {
+            expect(push).not.toHaveBeenCalled()
+        } else {
+            expect(push).toHaveBeenCalledWith(url)
+        }
+    })
+
     it('does not boot without the flag and stops an active session on revocation', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
         terminalLogic.actions.attach(document.createElement('div'))

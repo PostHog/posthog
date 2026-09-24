@@ -43,6 +43,13 @@ export default meta
 export const Folder: StoryObj<typeof ProjectFilesScene> = { args: { folder: 'Research' } }
 export const ProjectRoot: StoryObj<typeof ProjectFilesScene> = {}
 export const FolderFromUrl: StoryObj<typeof ProjectFilesScene> = {
+    decorators: [
+        (Story) => (
+            <div className="w-[800px] max-w-full">
+                <Story />
+            </div>
+        ),
+    ],
     play: () => router.actions.push('/files?folder=Research'),
 }
 export const LongFolder: StoryObj<typeof ProjectFilesScene> = {

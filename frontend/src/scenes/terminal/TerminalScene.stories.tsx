@@ -374,6 +374,7 @@ export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
 }
 
 export const Framebuffer: StoryObj<typeof TerminalScene> = {
+    parameters: { testOptions: { snapshotTargetSelector: 'body' } },
     play: async () => {
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         terminalLogic.actions.setDisplayOpen(true)

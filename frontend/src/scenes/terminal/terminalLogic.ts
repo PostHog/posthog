@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -270,8 +270,11 @@ export const terminalLogic = kea<terminalLogicType>([
     listeners(({ actions, values, cache }) => ({
         openUrl: ({ url }) => {
             const target = new URL(url, window.location.origin)
+            const targetProjectId = getProjectIdentifierInPath(target.pathname)
             if (
                 featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL] &&
+                target.origin === window.location.origin &&
+                (targetProjectId === null || targetProjectId === String(values.currentTeamId)) &&
                 removeProjectIdIfPresent(target.pathname) === urls.projectFiles()
             ) {
                 cache.disposables.add(() => navFilesTabLogic.mount(), 'files-navigation')

@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
@@ -29,7 +31,7 @@ describe('navFilesTabLogic', () => {
         expect(starred.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(['Overview', 'Research'])
     })
 
-    it('reveals a folder in the files tab even when the navigation and folder are collapsed', () => {
+    it('reveals a folder in the files tab even when the navigation and folder are collapsed', async () => {
         const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
         panelLayoutLogic.actions.setNavExperimentTab('home')
         panelLayoutLogic.actions.toggleLayoutNavCollapsed(true)
@@ -51,7 +53,20 @@ describe('navFilesTabLogic', () => {
         expect(files.values.expandedFolders).toEqual(
             expect.arrayContaining(['project://Research', 'project://Research/Reports'])
         )
+        expect(files.values.scrollTargetId).toBe('')
+        await expectLogic(files, () => {
+            projectTreeDataLogic.actions.loadFolderSuccess(
+                'Research',
+                [{ id: 'reports', path: 'Research/Reports', type: 'folder', ref: 'Research/Reports' }],
+                false,
+                1
+            )
+        }).toMatchValues({ scrollTargetId: 'project://Research/Reports' })
+        files.actions.clearScrollTarget()
+        projectTreeDataLogic.actions.loadFolderSuccess('Research/Reports', [], false, 0)
+        expect(files.values.scrollTargetId).toBe('')
         navFilesTabLogic.actions.openFolder('Research/Reports')
         expect(files.values.expandedFolders).toContain('project://Research/Reports')
+        expect(files.values.scrollTargetId).toBe('project://Research/Reports')
     })
 })

@@ -5,7 +5,7 @@ from typing import Any, TypedDict, cast
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -87,6 +87,14 @@ class TestFileSystemAPI(APIBaseTest):
             query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
         )
         standard = Insight.objects.create(team=self.team, short_id="standard")
+        sibling_team = Team.objects.create(project=self.project, organization=self.organization)
+        Notebook.objects.create(team=sibling_team, short_id=markdown.short_id, content=legacy.content)
+        Insight.objects.create(team=sibling_team, short_id=sql.short_id)
+        for name, entry_type, ref in (
+            ("Other notebook", "notebook", markdown.short_id),
+            ("Other insight", "insight", sql.short_id),
+        ):
+            FileSystem.objects.create(team=sibling_team, path=f"Reports/{name}", depth=2, type=entry_type, ref=ref)
         other_team = Team.objects.create(organization=self.organization)
         Notebook.objects.create(team=other_team, short_id="foreign", content=markdown.content)
         entries = [
@@ -105,15 +113,23 @@ class TestFileSystemAPI(APIBaseTest):
             {"parent": "Reports", "depth": "2", "include_content_type": str(include_content_type).lower()},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = {item["ref"]: item for item in response.json()["results"]}
-        self.assertEqual(set(results), {ref for _, _, ref, _ in entries})
-        for _, _, ref, content_type in entries:
+        results = {item["path"]: item for item in response.json()["results"]}
+        self.assertEqual(
+            set(results),
+            {f"Reports/{name}" for name, _, _, _ in entries} | {"Reports/Other notebook", "Reports/Other insight"},
+        )
+        for name, _, _, content_type in entries:
             expected_meta = {"label": "example"}
             if include_content_type:
                 expected_meta["content_type"] = content_type
-            self.assertEqual(results[ref]["meta"], expected_meta)
-            self.assertNotIn("content", results[ref])
-            self.assertNotIn("query", results[ref])
+            self.assertEqual(results[f"Reports/{name}"]["meta"], expected_meta)
+            self.assertNotIn("content", results[f"Reports/{name}"])
+            self.assertNotIn("query", results[f"Reports/{name}"])
+        for name in ("Other notebook", "Other insight"):
+            self.assertEqual(
+                results[f"Reports/{name}"]["meta"],
+                {"content_type": "application/json"} if include_content_type else {},
+            )
         if include_content_type:
             markdown.content = legacy.content
             markdown.save()
@@ -122,6 +138,10 @@ class TestFileSystemAPI(APIBaseTest):
                 {"ref": str(markdown.short_id), "include_content_type": "true"},
             )
             self.assertEqual(refreshed.json()["results"][0]["meta"]["content_type"], "application/json")
+
+    def test_list_rejects_invalid_content_type_parameter(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"include_content_type": "invalid"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_file(self):
         """
@@ -1559,6 +1579,40 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
         self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+
+    @parameterized.expand([("notebook", "text/markdown"), ("insight", "application/sql")])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_content_type_requires_access_to_the_backing_object(
+        self, entry_type: str, content_type: str, mock_flag: MagicMock
+    ) -> None:
+        obj: Notebook | Insight
+        if entry_type == "notebook":
+            obj = Notebook.objects.create(
+                team=self.team,
+                created_by=self.other_user,
+                content={"type": "doc", "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Note"}}]},
+            )
+        else:
+            obj = Insight.objects.create(
+                team=self.team,
+                created_by=self.other_user,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+            )
+        self._create_access_control(resource=entry_type, resource_id=str(obj.pk), access_level="none")
+        entry = FileSystem.objects.create(
+            team=self.team, path="Docs/Shortcut", depth=2, type=entry_type, ref=obj.short_id, created_by=self.user
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"path": entry.path, "include_content_type": "true"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["meta"]["content_type"], "application/json")
+
+        self._grant_to_user(entry_type, str(obj.pk), "viewer")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"path": entry.path, "include_content_type": "true"}
+        )
+        self.assertEqual(response.json()["results"][0]["meta"]["content_type"], content_type)
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
