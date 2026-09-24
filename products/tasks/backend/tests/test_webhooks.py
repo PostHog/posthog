@@ -543,7 +543,7 @@ class TestGitHubPRWebhook(TestCase):
     @parameterized.expand(
         [
             ("announced_pr_closed", "https://github.com/posthog/posthog/pull/790", False, 1),
-            ("announced_pr_merged", "https://github.com/posthog/posthog/pull/790", True, 0),
+            ("announced_pr_merged", "https://github.com/posthog/posthog/pull/790", True, 1),
             ("unannounced_pr_closed", "https://github.com/posthog/posthog/pull/791", False, 0),
         ]
     )
@@ -578,7 +578,7 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(mock_delay.call_count, expected_enqueues)
         if expected_enqueues:
-            mock_delay.assert_called_once_with(str(run.id), pr_url)
+            mock_delay.assert_called_once_with(str(run.id), pr_url, merged=merged)
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")

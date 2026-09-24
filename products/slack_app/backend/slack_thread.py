@@ -571,19 +571,22 @@ class SlackThreadHandler:
         pr_url: str,
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
+        merged: bool = False,
     ) -> None:
-        """Post that the pull request ``post_pr_opened`` announced was closed without merging.
+        """Post that the pull request ``post_pr_opened`` announced was merged or closed.
 
         Without this card the thread keeps reading as if the work still waits for review.
         It leaves any progress message alone, because the run can still be working.
         """
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        header = f"{mention_prefix}*Pull request closed without merging*"
+        outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
+        header = f"{mention_prefix}{outcome}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
-            context_block("Reply in this thread to try a different approach."),
         ]
+        if not merged:
+            blocks.append(context_block("Reply in this thread to try a different approach."))
         try:
             self._post_in_thread(text=header, blocks=blocks)
         except Exception as e:

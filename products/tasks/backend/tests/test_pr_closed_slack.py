@@ -77,11 +77,11 @@ class TestPostPrClosedSlackUpdate(TestCase):
         assert posts == expected_posts
 
     @patch.object(SlackThreadHandler, "post_pr_closed")
-    def test_tags_the_run_actor(self, mock_post):
+    def test_tags_the_run_actor_and_passes_the_outcome(self, mock_post):
         SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
 
-        post_pr_closed_slack_update(str(self.run.id), PR_URL)
+        post_pr_closed_slack_update(str(self.run.id), PR_URL, merged=True)
 
         mock_post.assert_called_once_with(
-            PR_URL, "http://localhost:8000/project/1/tasks/1", reply_target_slack_user_id="U_ACTOR"
+            PR_URL, "http://localhost:8000/project/1/tasks/1", reply_target_slack_user_id="U_ACTOR", merged=True
         )

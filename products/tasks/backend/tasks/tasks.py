@@ -61,5 +61,5 @@ def resume_workflow_step_for_run_deferred(run_id: str) -> None:
 
 # No retries: the task records the close before the post, so a retry finds it and posts nothing.
 @shared_task(ignore_result=True)
-def notify_slack_thread_pr_closed(run_id: str, pr_url: str) -> None:
-    post_pr_closed_slack_update(run_id, pr_url)
+def notify_slack_thread_pr_closed(run_id: str, pr_url: str, merged: bool = False) -> None:
+    post_pr_closed_slack_update(run_id, pr_url, merged=merged)

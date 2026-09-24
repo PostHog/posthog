@@ -911,10 +911,11 @@ class Task(DeletedMetaFields, models.Model):
         self.state = state
 
     def claim_slack_pr_closed_notification(self, pr_url: str) -> bool:
-        """Record that the task's Slack thread is told ``pr_url`` closed, and say whether to post.
+        """Record that the task's Slack thread is told ``pr_url`` merged or closed, and say whether to post.
 
-        Returns False when the thread never announced ``pr_url``, a newer PR replaced it, or the
-        close is already announced. Row-locked so a redelivered webhook cannot post twice.
+        A merge is a close on GitHub, so one key covers both outcomes. Returns False when the thread
+        never announced ``pr_url``, a newer PR replaced it, or the outcome is already announced.
+        Row-locked so a redelivered webhook cannot post twice.
         """
         with transaction.atomic():
             task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
