@@ -942,6 +942,14 @@ class _Renderer:
             options["description"] = description
         return options
 
+    def render_raw_trigger(
+        self, trigger: dict[str, Any], config: dict[str, Any], trigger_options: dict[str, Any]
+    ) -> _Call:
+        # A stored secret reads back as a mask, which a push under a new key cannot deploy, so each
+        # secret input becomes a `secret()` the file resolves from the environment, as a step's does.
+        rendered = self.render_config(trigger, config)
+        return _Call(self.use("trigger"), (rendered, trigger_options) if trigger_options else (rendered,))
+
     def render_trigger(self, trigger: dict[str, Any] | None) -> Any:
         if trigger is None:
             self.warn(self.trigger_id, "The workflow has no trigger step. Add `on` before you push.")
@@ -963,7 +971,7 @@ class _Renderer:
                 or filters.get("properties")
                 or filters.get("filter_test_accounts")
             ):
-                return _Call(self.use("trigger"), (config, trigger_options) if trigger_options else (config,))
+                return self.render_raw_trigger(trigger, config, trigger_options)
             options: dict[str, Any] = {"event": first["id"], **trigger_options}
             properties = []
             for entry in event_properties:
@@ -978,7 +986,7 @@ class _Renderer:
             if properties:
                 options["properties"] = properties
             return _Call(self.use("onEvent"), (options,))
-        return _Call(self.use("trigger"), (config, trigger_options) if trigger_options else (config,))
+        return self.render_raw_trigger(trigger, config, trigger_options)
 
     def render_variables(self) -> list[dict[str, Any]]:
         variables = self.definition.get("variables")
