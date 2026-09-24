@@ -295,7 +295,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     domain: str = DEFAULT_DOMAIN,
-    last_synced_at: datetime | None = None,
+    schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GLADLY_ENDPOINTS[endpoint]
     session = _get_session(agent_email, api_token)
@@ -311,7 +311,7 @@ def get_rows(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            last_synced_at=last_synced_at,
+            schema_has_ever_synced=schema_has_ever_synced,
         )
         return
 
@@ -405,7 +405,7 @@ def _report_rows(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    last_synced_at: datetime | None = None,
+    schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     @retry(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -480,7 +480,7 @@ def _report_rows(
         return reader
 
     # No completed run and no resume state means Gladly has never served this report.
-    report_never_served = last_synced_at is None and (
+    report_never_served = not schema_has_ever_synced and (
         resume_config is None or resume_config.last_report_window_end is None
     )
 
@@ -553,7 +553,7 @@ def gladly_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     domain: str = DEFAULT_DOMAIN,
-    last_synced_at: datetime | None = None,
+    schema_has_ever_synced: bool = False,
 ) -> SourceResponse:
     config = GLADLY_ENDPOINTS[endpoint]
 
@@ -569,7 +569,7 @@ def gladly_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             domain=domain,
-            last_synced_at=last_synced_at,
+            schema_has_ever_synced=schema_has_ever_synced,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,

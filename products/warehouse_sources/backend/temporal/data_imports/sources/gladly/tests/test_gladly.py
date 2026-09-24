@@ -1,6 +1,6 @@
 import io
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -722,17 +722,19 @@ class TestGetReportRows:
 
     @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @pytest.mark.parametrize(
-        "last_synced_at, expected_error",
+        "schema_has_ever_synced, expected_error",
         [
-            (None, GladlyReportNotAvailableForAccountError),
-            (datetime(2024, 3, 14, tzinfo=UTC), GladlyReportUnavailableError),
+            (False, GladlyReportNotAvailableForAccountError),
+            # A reset run drops the cursors of a table that has synced before. Gladly does serve
+            # the report to this account, so the error body is a window to retry, not a dead table.
+            (True, GladlyReportUnavailableError),
         ],
-        ids=["never_served", "served_before"],
+        ids=["never_served", "reset_run_after_a_successful_sync"],
     )
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_an_error_body_stops_the_sync_only_when_gladly_never_served_the_report(
-        self, mock_session, _sleep, last_synced_at, expected_error
+        self, mock_session, _sleep, schema_has_ever_synced, expected_error
     ):
         # Retrying an error body waits out a window Gladly failed to build. A report it has never
         # served comes back the same on the next run, so the sync stops instead of rescheduling.
@@ -748,7 +750,7 @@ class TestGetReportRows:
                     "contact_timestamps",
                     mock.MagicMock(),
                     manager,
-                    last_synced_at=last_synced_at,
+                    schema_has_ever_synced=schema_has_ever_synced,
                 )
             )
 

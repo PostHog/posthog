@@ -218,5 +218,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
-            last_synced_at=inputs.last_synced_at,
+            schema_has_ever_synced=inputs.schema_has_ever_synced,
         )
