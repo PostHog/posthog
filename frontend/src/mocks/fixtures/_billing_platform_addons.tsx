@@ -98,7 +98,7 @@ const organizationSecuritySettings = feature(
 const memberGovernance = feature(
     'member_governance',
     'Member governance',
-    'Manage settings for the members of your organization, such as which email notifications they receive.'
+    'Give admins more control over the members of your organization.'
 )
 const sessionReplayDataRetention = (months: number): AddonPlanFeature =>
     feature(
