@@ -435,7 +435,8 @@ cd products/desktop/packages/agent && pnpm build
 
 The terminal environment selector offers a Modal sandbox behind `posthog-terminal`.
 It uses the notebook sandbox image and the same Modal credentials and image configuration as notebooks.
-Stop the browser terminal, select **Modal sandbox**, and open the size control to choose Small (1 CPU, 2 GB), Balanced (4 CPUs, 8 GB), Large (8 CPUs, 16 GB), or High memory (8 CPUs, 32 GB).
+The terminal opens stopped so you can choose an environment before it starts.
+Select **Modal sandbox**, open the size control to choose Small (1 CPU, 2 GB), Balanced (4 CPUs, 8 GB), Large (8 CPUs, 16 GB), or High memory (8 CPUs, 32 GB), then click **Start sandbox**.
 The sandbox provides a standalone Linux filesystem with notebook Python packages and Node.js; the browser terminal's `/posthog` mount and `ph` commands are not available there.
 
 Each user can have one terminal sandbox per project.

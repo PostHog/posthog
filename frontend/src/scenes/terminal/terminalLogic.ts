@@ -55,7 +55,6 @@ export interface terminalLogicValues {
     environment: TerminalEnvironment
     error: string | null
     hasSelection: boolean
-    hasStarted: boolean
     pasting: boolean
     runRequested: boolean
     sandboxSize: TerminalSandboxSizeEnumApi
@@ -272,7 +271,6 @@ export const terminalLogic = kea<terminalLogicType>([
                 setStatus: (state, { status }) => (status === 'error' ? false : state),
             },
         ],
-        hasStarted: [false, { start: () => true }],
         runRequested: [
             false,
             { start: () => true, stop: (state, { preserveRunRequested }) => preserveRunRequested && state },
@@ -394,7 +392,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 )
             }
             cache.session.attach(container)
-            if (!values.hasStarted) {
+            if (values.runRequested) {
                 actions.start()
             }
         },

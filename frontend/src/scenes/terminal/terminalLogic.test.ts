@@ -78,9 +78,13 @@ describe('terminal lifecycle', () => {
     afterEach(() => jest.restoreAllMocks())
 
     it('starts the selected Modal size and prevents a new session until Stop finishes', async () => {
+        terminalLogic.actions.attach(document.createElement('div'))
+        expect(terminalLogic.values.status).toBe('idle')
+        expect(TerminalRuntime).not.toHaveBeenCalled()
+        expect(ModalTerminalRuntime).not.toHaveBeenCalled()
         terminalLogic.actions.setEnvironment('modal')
         terminalLogic.actions.setSandboxSize('high_memory')
-        terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         const runtime = jest.mocked(ModalTerminalRuntime).mock.results[0].value
         expect(runtime.start).toHaveBeenCalledWith('high_memory')
@@ -105,6 +109,7 @@ describe('terminal lifecycle', () => {
     it.each([false, true])('waits for Modal cleanup on project changes, with explicit Stop: %s', async (stop) => {
         terminalLogic.actions.setEnvironment('modal')
         terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         const runtime = jest.mocked(ModalTerminalRuntime).mock.results[0].value
         let finishStop!: () => void
@@ -182,6 +187,7 @@ describe('terminal lifecycle', () => {
 
     it('interrupts the foreground program when closing the display but keeps the terminal running', async () => {
         terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
         terminalLogic.actions.setDisplayOpen(true)
@@ -202,6 +208,7 @@ describe('terminal lifecycle', () => {
 
     it('preserves Stop across reattachment and project changes', async () => {
         terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         terminalLogic.actions.stop()
         terminalLogic.actions.attach(document.createElement('div'))
@@ -213,6 +220,7 @@ describe('terminal lifecycle', () => {
     it('opens the selected folder on first boot and changes it in an existing terminal', async () => {
         terminalDockLogic.actions.openInTerminal('Research')
         terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
         expect(runtime.start).toHaveBeenCalledWith(
@@ -233,6 +241,7 @@ describe('terminal lifecycle', () => {
     it('retries a requested start when the project arrives', async () => {
         teamLogic.actions.loadCurrentTeamSuccess(null)
         terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         expect(TerminalRuntime).not.toHaveBeenCalled()
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
@@ -256,6 +265,7 @@ describe('terminal lifecycle', () => {
         projectTreeRef.mockReturnValue({ type: 'folder', ref: 'Original' })
         terminalDockLogic.actions.setDockOpen(true)
         terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
         const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
         let ready!: () => void
         runtime.start.mockImplementationOnce(async (_server: unknown, _signal: AbortSignal, onReady: () => void) => {
@@ -305,6 +315,7 @@ describe('terminal lifecycle', () => {
         'blocks input until a click and settles pending approval on %s',
         async (finish) => {
             terminalLogic.actions.attach(document.createElement('div'))
+            terminalLogic.actions.start()
             await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
             const confirm = jest.mocked(PosthogFilesystem).mock.calls[0][2]!
             const request: TerminalConfirmation = {
