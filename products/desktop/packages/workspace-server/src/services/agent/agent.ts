@@ -29,6 +29,7 @@ import {
 } from "@posthog/agent/adapters/claude/subscription-login";
 import {
   type CodexLoginSession,
+  codexCloudAuthTerminalCommand,
   hasCodexChatgptLogin,
   signOutCodexChatgpt,
   startCodexChatgptLogin,
@@ -44,7 +45,6 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -58,7 +58,9 @@ import {
 import type * as AgentTypes from "@posthog/agent/types";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch } from "@posthog/git/queries";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import { fetchPosthogPiModelCatalog } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import { buildTaskSystemPrompt } from "@posthog/harness/extensions/task-system-prompt";
 import { APP_META_SERVICE, type IAppMeta } from "@posthog/platform/app-meta";
 import {
   BUNDLED_RESOURCES_SERVICE,
@@ -86,6 +88,8 @@ import {
   type ExecutionMode,
   isAuthError,
   type ModelAccess,
+  readAgentToolName,
+  readMcpToolName,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -104,6 +108,8 @@ import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import {
   cleanupCodexHome,
+  getCodexCloudAuthFilePath,
+  getCodexCloudHomeDir,
   getCodexHomeDir,
   prepareCodexHome,
 } from "./codex-home";
@@ -126,10 +132,12 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
-  type ClaudeAuthTerminal,
+  type AuthTerminal,
   type ClaudeSubscriptionStatus,
+  type CodexCloudAuthTokens,
   type CodexSubscriptionStatus,
   type Credentials,
+  codexCloudAuthTokensOutput,
   type EffortLevel,
   type InterruptReason,
   type PromptOutput,
@@ -150,11 +158,6 @@ function isDevBuild(): boolean {
 
 /** Mark all content blocks as hidden so the renderer doesn't show a duplicate user message on retry */
 type MessageCallback = (message: unknown) => void;
-
-/** Shape of the `_meta.claudeCode` extension field on tool call updates. */
-interface ClaudeCodeToolMeta {
-  claudeCode?: { toolName?: string };
-}
 
 class NdJsonTap {
   private decoder = new TextDecoder();
@@ -533,29 +536,36 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
+  private codexCloudAttemptId: string | null = null;
   private claudeAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
     if (this.codexLogin) return { loginState: "logged-out" };
-    const loggedIn = await hasCodexChatgptLogin({
+    const status = await hasCodexChatgptLogin({
       binaryPath: this.getCodexBinaryPath(),
     });
-    return { loginState: loggedIn ? "logged-in" : "logged-out" };
-  }
-
-  async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
     return {
-      loginState: await hasClaudeLogin({
-        claudeCliPath: this.getClaudeCliPath(),
-        machineAuth: machineClaudeAuth(),
-        logger: this.log,
-      }),
+      loginState: status.loggedIn ? "logged-in" : "logged-out",
+      email: status.email,
+      subscriptionType: status.planType,
     };
   }
 
-  async getClaudeAuthTerminal(
-    action: ClaudeAuthAction,
-  ): Promise<ClaudeAuthTerminal> {
+  async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
+    const status = await hasClaudeLogin({
+      claudeCliPath: this.getClaudeCliPath(),
+      machineAuth: machineClaudeAuth(),
+      logger: this.log,
+    });
+    return {
+      loginState: status.state,
+      email: status.email,
+      organization: status.organization,
+      subscriptionType: status.subscriptionType,
+    };
+  }
+
+  async getClaudeAuthTerminal(action: ClaudeAuthAction): Promise<AuthTerminal> {
     if (action === "logout") {
       await this.prepareClaudeAccountChange();
     }
@@ -602,11 +612,92 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return { authUrl: login.authUrl };
   }
 
+  async getCodexCloudAuthTerminal(attemptId: string): Promise<AuthTerminal> {
+    if (this.codexCloudAttemptId !== null) {
+      throw new Error(
+        "Another ChatGPT login is in progress. Wait for it to finish.",
+      );
+    }
+    this.codexCloudAttemptId = attemptId;
+    try {
+      const codexHome = getCodexCloudHomeDir();
+      await fs.promises.mkdir(codexHome, { recursive: true });
+      await this.removeCodexCloudAuthFile(attemptId);
+      const { command, env } = codexCloudAuthTerminalCommand(
+        this.getCodexBinaryPath(),
+        codexHome,
+      );
+      return {
+        command,
+        cwd: homedir(),
+        additionalEnv: env.set,
+        unsetEnv: env.unset,
+      };
+    } catch (error) {
+      this.finishCodexCloudAuth(attemptId);
+      throw error;
+    }
+  }
+
+  finishCodexCloudAuth(attemptId: string): void {
+    if (this.codexCloudAttemptId === attemptId) this.codexCloudAttemptId = null;
+  }
+
+  private requireCodexCloudAttempt(attemptId: string): void {
+    if (this.codexCloudAttemptId !== attemptId) {
+      throw new Error("This ChatGPT login attempt is no longer active.");
+    }
+  }
+
   async signOutCodexSubscription(): Promise<void> {
     await this.prepareCodexAccountChange();
     await signOutCodexChatgpt({
       binaryPath: this.getCodexBinaryPath(),
     });
+  }
+
+  /**
+   * Reads the `auth.json` that `CODEX_HOME=~/.codex-posthog codex login` wrote,
+   * so the user can hand its tokens to PostHog. Only the Desktop-only home is
+   * read: the user's own `~/.codex` login stays on this machine.
+   */
+  async readCodexCloudAuthFile(
+    attemptId: string,
+  ): Promise<CodexCloudAuthTokens> {
+    this.requireCodexCloudAttempt(attemptId);
+    const authPath = getCodexCloudAuthFilePath();
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(authPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          `No ChatGPT login found at ${authPath}. Run the login command first.`,
+        );
+      }
+      throw error;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`The file at ${authPath} is not valid JSON.`);
+    }
+    const tokens = codexCloudAuthTokensOutput.safeParse(
+      (parsed as { tokens?: unknown } | null)?.tokens,
+    );
+    if (!tokens.success) {
+      throw new Error(
+        `The file at ${authPath} has no ChatGPT tokens. Log in with ChatGPT, not with an API key.`,
+      );
+    }
+    return tokens.data;
+  }
+
+  /** PostHog rotated the refresh token on connect, so the local copy is stale and only a liability. */
+  async removeCodexCloudAuthFile(attemptId: string): Promise<void> {
+    this.requireCodexCloudAttempt(attemptId);
+    await fs.promises.rm(getCodexCloudAuthFilePath(), { force: true });
   }
 
   private async prepareCodexAccountChange(): Promise<void> {
@@ -773,7 +864,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   private async mountContextWiki(
     credentials: Credentials,
-  ): Promise<AgentTypes.ContextWikiEnv | null> {
+  ): Promise<ContextWikiEnv | null> {
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
       return null;
@@ -789,14 +880,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     if (!mount) {
       return null;
     }
-    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
-    // just re-synced it, so it is absent for impersonated sessions (an
-    // impersonation credential must never reach agent subprocesses) and fresh
-    // after any token rotation or account switch.
+    const publishToken = await this.agentAuthAdapter.gatewayPublishToken();
     return {
       path: mount.path,
       commitsPath: mount.commitsPath,
-      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+      personalApiKey: publishToken ?? undefined,
     };
   }
 
@@ -1006,7 +1094,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       let claudeSubscription =
         adapter === "claude" && config.claudeModelAccess === "own-subscription";
       if (claudeSubscription) {
-        const loginState = await hasClaudeLogin({
+        const { state: loginState } = await hasClaudeLogin({
           claudeCliPath: this.getClaudeCliPath(),
           machineAuth: machineClaudeAuth(),
           logger: this.log,
@@ -1271,6 +1359,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
             }),
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             sessionId: existingSessionId,
@@ -1306,6 +1395,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
           cwd: repoPath,
           mcpServers,
           _meta: {
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             systemPrompt,
@@ -2194,9 +2284,8 @@ For git operations while detached:
           return;
         }
 
-        const toolName = (update._meta as ClaudeCodeToolMeta | undefined)
-          ?.claudeCode?.toolName;
-        if (!toolName?.startsWith("mcp__")) return;
+        const toolName = readMcpToolName(update._meta);
+        if (!toolName) return;
 
         const session = service.sessions.get(taskRunId);
         if (update.sessionUpdate === "tool_call") {
@@ -2368,13 +2457,7 @@ For git operations while detached:
         params?: {
           update?: {
             sessionUpdate?: string;
-            _meta?: {
-              claudeCode?: {
-                toolName?: string;
-                toolResponse?: unknown;
-                bashCommand?: string;
-              };
-            };
+            _meta?: unknown;
             content?: Array<{ type?: string; text?: string }>;
           };
         };
@@ -2391,8 +2474,7 @@ For git operations while detached:
       // toolName (e.g. in terminal output).
       this.maybeAttachCreatedPr(taskRunId, session, update);
 
-      const toolMeta = update._meta?.claudeCode;
-      const toolName = toolMeta?.toolName;
+      const toolName = readAgentToolName(update._meta);
       if (!toolName) return;
 
       this.trackAgentFileActivity(taskRunId, session, toolName);

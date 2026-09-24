@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
@@ -27,6 +26,8 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
+    merge_move_limit_exceeded: 'A merge exceeded its distinct id move limit and was dropped',
+    merge_settled_failure: 'A merge settled without merging and cannot be retried',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
@@ -40,6 +41,11 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    invalid_event_when_process_person_profile_is_false:
+        'Discarded an event that requires person processing because $process_person_profile was set to false',
+    event_dropped_person_processing_disabled:
+        'Discarded an event that requires person processing, which is turned off for this project',
+    cookieless_team_disabled: 'Discarded cookieless event because cookieless tracking is disabled',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -59,6 +65,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
     invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
     no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    misrouted_event: 'Discarded a non-AI event sent to the LLM analytics capture endpoint',
     // Emitted by the capture service for its session replay endpoint
     missing_session_id: 'Discarded a session replay batch with no $session_id',
     invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
@@ -73,6 +80,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
 export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
     cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
+    merge_move_limit_exceeded: 'a-merge-exceeded-its-distinct-id-move-limit-and-was-dropped',
+    merge_settled_failure: 'a-merge-settled-without-merging-and-cannot-be-retried',
     skipping_event_invalid_uuid: 'refused-to-process-event-with-invalid-uuid',
     ignored_invalid_timestamp: 'ignored-an-invalid-timestamp-event-was-still-ingested',
     event_timestamp_in_future: 'an-event-was-sent-more-than-23-hours-in-the-future',
@@ -83,6 +92,8 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+    cookieless_team_disabled: 'discarded-cookieless-event-because-cookieless-tracking-is-disabled',
+    misrouted_event: 'discarded-ai-events',
 }
 
 export const WARNING_TYPE_RENDERER = {
@@ -118,6 +129,47 @@ export const WARNING_TYPE_RENDERER = {
                 <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
                 <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
                 $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_move_limit_exceeded: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to merge{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                because it has more distinct ids than one merge may move (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_settled_failure: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                A merge of{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                settled without merging, and the result is recorded, so a retry cannot change it (event uuid:{' '}
+                <code>{details.eventUuid}</code>).
             </>
         )
     },
@@ -297,6 +349,24 @@ export const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    cookieless_team_disabled: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded a <code>{details.event}</code> event sent in cookieless mode (event uuid:{' '}
+                <code>{details.eventUuid}</code>) because cookieless tracking is disabled for this project. Enable it
+                under{' '}
+                <Link to={urls.settings('environment-web-analytics', 'cookieless-server-hash-mode')}>
+                    Settings → Web analytics → Cookieless tracking
+                </Link>
+                , or remove <code>cookieless_mode</code> from your posthog-js config.
+            </>
+        )
+    },
     schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             eventUuid: string
@@ -352,9 +422,7 @@ export function IngestionWarningsView(): JSX.Element {
             />
             {showProductIntro ? (
                 <ProductIntroduction
-                    productName="Ingestion warnings"
                     thingName="ingestion warning"
-                    productKey={ProductKey.INGESTION_WARNINGS}
                     isEmpty={true}
                     titleOverride="Nice! No ingestion warnings in the past 30 days"
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."

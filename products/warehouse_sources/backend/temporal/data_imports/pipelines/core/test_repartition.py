@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
+    RepartitionTooLargeForBudgetError,
     _rewrite_into_temp,
     measure_partition_bytes,
     repartition_table_in_place,
@@ -591,6 +592,37 @@ class TestRewriteIntoTemp:
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
 
+    def test_the_live_tables_properties_travel_with_its_rows(self, tmp_path):
+        # A buffered CDC history table reads its resume point from a statistic one property
+        # declares. A rebuilt table that lost it reports no position and replays the buffer into
+        # an append-only table.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        old_delta.alter.set_table_properties({"delta.dataSkippingStatsColumns": "id"})
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+        temp_uri = str(tmp_path / "tmp")
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=temp_uri,
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+            )
+        )
+
+        rebuilt = deltalake.DeltaTable(temp_uri)
+        assert rebuilt.metadata().configuration.get("delta.dataSkippingStatsColumns") == "id"
+        # And the statistic itself is on the rewritten files, not just the declaration.
+        assert "max.id" in rebuilt.get_add_actions(flatten=True).column_names
+
     def test_reports_buffered_bytes_to_the_workload_reporter(self, tmp_path):
         # Dropping this hook makes rewrites invisible to the OOM classifier's culprit rule.
         rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
@@ -682,6 +714,43 @@ class TestRewriteIntoTemp:
         # Backed by rows actually committed to temp, and carrying the resolved scheme the resume needs.
         assert saved[-1][0] > 0
         assert saved[-1][1] == "day"
+
+    def test_a_slow_scan_checkpoints_before_the_buffer_is_full(self, tmp_path):
+        # An over-fragmented table yields one small batch per source file, so the buffer can take
+        # longer to fill than the worker survives. With no commit there is no checkpoint either, and
+        # every attempt then resumes from the same row until the attempt cap abandons the table.
+        rows = [(i, datetime.datetime(2024, 1, 1 + i)) for i in range(4)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        saved: list[int] = []
+
+        async def save_checkpoint(rows_so_far, _resolved_target):
+            saved.append(rows_so_far)
+
+        # Every clock read lands a minute later, so the buffer is always older than the checkpoint
+        # interval while holding far less than REWRITE_BUFFER_MAX_ROWS/BYTES.
+        clock = Mock(side_effect=itertools.count(0.0, 60.0))
+
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=1,
+                    logger=logger,
+                    save_checkpoint=save_checkpoint,
+                )
+            )
+
+        assert saved, "a rewrite that keeps reading must record progress it can resume from"
+        # Recorded mid-scan, not only by the final flush every rewrite does anyway.
+        assert saved[0] < len(rows)
 
     def test_a_failing_checkpoint_does_not_fail_the_rewrite(self, tmp_path):
         # Losing a checkpoint costs redone work on the next attempt; failing the rewrite costs the
@@ -805,6 +874,67 @@ class TestRewriteIntoTemp:
 
         final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         # Count plus set: every source id present exactly once (equal count rules out duplicates).
+        assert final.num_rows == len(rows)
+        assert set(final.column("id").to_pylist()) == set(range(len(rows)))
+
+    def test_resume_does_not_re_read_the_source_files_it_already_copied(self, tmp_path):
+        # The prefix temp already holds is charged to the resumed attempt's own budget when it is
+        # skipped row by row, so on a table that needs several budgets the re-read grows until it fills
+        # a budget on its own and the attempt appends nothing — which is what the controller counts
+        # against its give-up cap before abandoning the table. One row per month means one source file
+        # per row, so a copied prefix is a whole number of files and the scan must never open them.
+        rows = [(i, datetime.datetime(2024, 1, 1) + datetime.timedelta(days=40 * i)) for i in range(6)]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        temp_uri = str(tmp_path / "tmp")
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+
+        clock = Mock(side_effect=itertools.chain([0.0] * 8, itertools.repeat(100.0)))
+        with (
+            patch.object(repartition_module, "time", Mock(monotonic=clock)),
+            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 1),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError):
+                asyncio.run(
+                    _rewrite_into_temp(
+                        old_delta=live,
+                        temp_uri=temp_uri,
+                        storage_options={},
+                        target=target,
+                        batch_size=1,
+                        logger=logger,
+                        deadline=50.0,
+                    )
+                )
+        copied = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
+        assert 0 < copied < len(rows)
+
+        reads = 0
+        read_batch = repartition_module._read_next_batch
+
+        def counting_read(reader):
+            nonlocal reads
+            reads += 1
+            return read_batch(reader)
+
+        with patch.object(repartition_module, "_read_next_batch", counting_read):
+            rows_written, _ = asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=target,
+                    batch_size=1,
+                    logger=logger,
+                    skip_rows=copied,
+                )
+            )
+
+        # One read per uncopied file, plus the read that exhausts the scan.
+        assert reads == (len(rows) - copied) + 1
+        assert rows_written == len(rows) - copied
+        final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         assert final.num_rows == len(rows)
         assert set(final.column("id").to_pylist()) == set(range(len(rows)))
 
@@ -988,6 +1118,7 @@ class TestRewriteIntoTemp:
                 return self._batches.pop(0)
 
         old_delta = SimpleNamespace(
+            metadata=lambda: SimpleNamespace(configuration={}),
             to_pyarrow_dataset=lambda: SimpleNamespace(
                 scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
@@ -1737,6 +1868,8 @@ class TestRewriteCheckpointResume:
         checkpoint = saved.call_args.kwargs["checkpoint"]
         assert checkpoint["rows_written"] == 1
         assert checkpoint["live_version"] == live.version()
+        # Marks the rows above as what one whole budget covered, which is what says a restart is futile.
+        assert checkpoint["budget_exhausted"] is True
         assert checkpoint["target"]["partition_format"] == "day"
         assert checkpoint["temp_uri"].endswith("__repartitioned_tok")
 
@@ -1785,6 +1918,54 @@ class TestRewriteCheckpointResume:
         schema.clear_repartition_rewrite.assert_called_once()  # obsolete once temp is complete
         assert result["outcome"] == "completed"
 
+    def test_a_resumed_rewrite_checkpoints_what_temp_holds_not_what_it_appended(self, tmp_path):
+        # The checkpoint records the rows temp holds, and the rewrite reports only the rows it appended
+        # itself, so a resume has to add back the prefix it inherited. Recording the appended count
+        # alone makes the checkpoint go backwards, which reads as a rewrite that stopped advancing:
+        # the retry of a killed attempt stands down, the next sync's merge invalidates the checkpoint,
+        # and the rewrite restarts from row 0 until the attempt cap abandons the table.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"),
+            [
+                (1, datetime.datetime(2024, 1, 5)),
+                (2, datetime.datetime(2024, 2, 2)),
+                (3, datetime.datetime(2024, 3, 3)),
+            ],
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version(),
+            },
+        )
+
+        async def rewrite_appending_two(**kwargs):
+            await kwargs["save_checkpoint"](2, target)
+            return 2, target
+
+        with (
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(side_effect=rewrite_appending_two)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
+        ):
+            asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                )
+            )
+
+        assert saved.call_args.kwargs["checkpoint"]["rows_written"] == 3
+
     def test_discards_the_checkpoint_when_the_live_version_moved_on(self, tmp_path):
         # Version moved on (a merge committed between attempts) → the recorded prefix no longer lines up
         # with the current scan. The checkpoint must be discarded and a fresh rebuild started into our
@@ -1824,6 +2005,99 @@ class TestRewriteCheckpointResume:
         purge.assert_awaited_once()  # fresh rebuild sweeps orphans
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
         assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
+
+    @pytest.mark.parametrize(
+        "version_offset,expected_restart",
+        [
+            pytest.param(0, True, id="resumed_checkpoint_is_a_restart"),
+            pytest.param(999, False, id="rejected_checkpoint_is_not_a_restart"),
+        ],
+    )
+    def test_only_a_usable_checkpoint_makes_an_over_budget_attempt_a_restart(
+        self, version_offset, expected_restart, tmp_path
+    ):
+        # `had_prior_checkpoint` decides whether the activity charges this attempt against the cap.
+        # A checkpoint the resume path rejected was left by an attempt killed at an arbitrary point
+        # (a transient S3 error minutes in), so the budget spent past it is the first anybody spent
+        # on those rows, not a re-run of ground already covered. Charging it abandons a converging
+        # table after three such runs and throws away the checkpoint this attempt just saved.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version() + version_offset,
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True),
+            patch.object(
+                repartition_module,
+                "_rewrite_into_temp",
+                new=AsyncMock(side_effect=RepartitionBudgetExceededError("out of budget", rows_written=1)),
+            ),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError) as raised:
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    )
+                )
+
+        assert raised.value.had_prior_checkpoint is expected_restart
+        assert raised.value.checkpoint_saved is True
+
+    def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
+        # The discarded checkpoint above is only harmless while a restart can finish. Once a full
+        # budget has been spent covering fewer rows than live holds, re-streaming from row 0 runs out
+        # in the same place, so every sync spends a budget to learn nothing and the attempt cap
+        # abandons the table. Stop before the rewrite instead, terminally.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version() + 999,
+                "budget_exhausted": True,
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock()) as rewrite,
+        ):
+            with pytest.raises(RepartitionTooLargeForBudgetError):
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    )
+                )
+
+        rewrite.assert_not_awaited()
 
 
 class TestClaimFencing:

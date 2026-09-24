@@ -1,16 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDivider,
-    LemonDropdown,
-    LemonInput,
-    LemonInputSelect,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -21,7 +14,7 @@ import type { AnyPropertyFilter } from '~/types'
 import { AccountRelationshipOperatorValueSelect } from './AccountRelationshipOperatorValueSelect'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { accountsLogic, RoleFilterValue } from './accountsLogic'
+import { accountsLogic } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
 import {
     ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
@@ -33,20 +26,21 @@ import {
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchInput, tagsFilter, allRolesUnassigned, assignedToCurrentUser, assignedToFilter, accountFilters } =
+    const { searchInput, tagsFilter, assignmentStatus, assignedToCurrentUser, assignedToFilter, accountFilters } =
         useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
         setTagsFilter,
-        setAllRolesUnassigned,
+        setAssignmentStatus,
         setAssignedToCurrentUser,
         setAssignedToFilter,
         updateAccountFilters,
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const { customPropertyTaxonomicOptions, relationshipTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
@@ -83,6 +77,7 @@ export function AccountsTabFilters(): JSX.Element {
                 <div className="flex flex-wrap gap-2 items-center">
                     <LemonDropdown
                         closeOnClickInside={false}
+                        onVisibilityChange={(open) => open && loadTagsIfNeeded()}
                         overlay={
                             <div className="p-2 min-w-64">
                                 <LemonInputSelect
@@ -90,6 +85,7 @@ export function AccountsTabFilters(): JSX.Element {
                                     allowCustomValues
                                     value={tagsFilter}
                                     options={(tagsAvailable || []).map((t: string) => ({ key: t, label: t }))}
+                                    loading={tagsLoading}
                                     onChange={(tags) => {
                                         setTagsFilter(tags)
                                         reportFilterChange('tag')
@@ -117,18 +113,37 @@ export function AccountsTabFilters(): JSX.Element {
                         />
                     )}
 
-                    <AssignedToPicker
-                        value={assignedToFilter}
-                        onChange={(value) => {
-                            setAssignedToFilter(value)
-                            reportFilterChange('assigned_to')
-                        }}
-                        unassignedOnly={allRolesUnassigned}
-                        onUnassignedOnlyChange={(value) => {
-                            setAllRolesUnassigned(value)
-                            reportFilterChange('unassigned_only')
-                        }}
-                    />
+                    <div className="flex gap-1 items-center" data-attr="accounts-assigned-to-filter">
+                        <AccountAssignmentFilter
+                            assignedToUserIds={assignedToFilter}
+                            onAssignedToUserIdsChange={(userIds) => {
+                                setAssignedToFilter(userIds)
+                                reportFilterChange('assigned_to')
+                            }}
+                            status={assignmentStatus}
+                            onStatusChange={(status) => {
+                                setAssignmentStatus(status)
+                                reportFilterChange('assignment_status')
+                            }}
+                            dataAttrs={{
+                                unassigned: 'accounts-unassigned-filter',
+                                assigned: 'accounts-assigned-filter',
+                                all: 'accounts-all-assignment-filter',
+                            }}
+                        />
+                        {assignmentStatus !== 'all' && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconX />}
+                                onClick={() => {
+                                    setAssignmentStatus('all')
+                                    reportFilterChange('assignment_status')
+                                }}
+                                tooltip="Clear assignment filter"
+                            />
+                        )}
+                    </div>
 
                     <LemonCheckbox
                         checked={assignedToCurrentUser}
@@ -172,70 +187,6 @@ export function AccountsTabFilters(): JSX.Element {
                     <AccountsColumnConfigurator />
                 </div>
             </div>
-        </div>
-    )
-}
-
-function AssignedToPicker({
-    value,
-    onChange,
-    unassignedOnly,
-    onUnassignedOnlyChange,
-}: {
-    value: RoleFilterValue
-    onChange: (value: RoleFilterValue) => void
-    unassignedOnly: boolean
-    onUnassignedOnlyChange: (value: boolean) => void
-}): JSX.Element {
-    const buttonLabel = unassignedOnly
-        ? 'Unassigned'
-        : value.length === 0
-          ? 'Assigned to anyone'
-          : value.length === 1
-            ? 'Assigned to 1 person'
-            : `Assigned to ${value.length} people`
-    const hasFilter = unassignedOnly || value.length > 0
-    return (
-        <div className="flex gap-1 items-center" data-attr="accounts-assigned-to-filter">
-            <LemonDropdown
-                closeOnClickInside={false}
-                overlay={
-                    <div className="p-2 min-w-64 flex flex-col gap-2">
-                        <LemonCheckbox
-                            checked={unassignedOnly}
-                            onChange={onUnassignedOnlyChange}
-                            label="Unassigned only"
-                            data-attr="accounts-unassigned-filter"
-                        />
-                        <LemonDivider className="my-0" />
-                        <MemberSelectMultiple
-                            idKey="id"
-                            value={value}
-                            onChange={(users) => onChange(users.map((user) => user.id))}
-                        />
-                    </div>
-                }
-            >
-                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                    {buttonLabel}
-                </LemonButton>
-            </LemonDropdown>
-            {hasFilter && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconX />}
-                    onClick={() => {
-                        if (unassignedOnly) {
-                            onUnassignedOnlyChange(false)
-                        }
-                        if (value.length > 0) {
-                            onChange([])
-                        }
-                    }}
-                    tooltip="Clear assigned-to filter"
-                />
-            )}
         </div>
     )
 }

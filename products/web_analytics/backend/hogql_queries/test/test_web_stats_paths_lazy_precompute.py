@@ -1,8 +1,9 @@
 import uuid
 import dataclasses
+from datetime import UTC, datetime
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -29,7 +30,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -38,6 +39,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 
 # Aliased so pytest doesn't collect this `test_`-prefixed helper as a test case.
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    ORG_FEATURE_FLAG_KEY,
     SESSION_FORWARD_PAD_MINUTES,
     host_filter_expr,
     test_account_filter_expr as _test_account_filter_expr,
@@ -48,6 +50,8 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
     _entry_breakdown_value_expr,
     _events_session_id_expr,
     _top_k_ranking_expr,
+    can_use_lazy_precompute,
+    ensure_web_stats_paths_precomputed,
 )
 
 
@@ -58,9 +62,12 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
 
     def _enable_lazy(self):
+        # Scoped to the precompute rollout flag: `posthoganalytics` is one shared
+        # module, so an unscoped True would also enable result-changing flags
+        # (first-pageview attribution), which makes channel filters ineligible.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == ORG_FEATURE_FLAG_KEY,
         )
 
     def _seed_two_sessions(self) -> None:
@@ -180,7 +187,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             reset_query_tags()
         assert response.preComputeStale is expected
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_unfiltered_round_trip_creates_precompute_job(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -196,7 +203,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Suspected read-after-write visibility on Distributed table, but global "
         "insert_distributed_sync=1 is already set in users-dev.xml. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_result_matches_raw_result(self):
         """Compare visitors / views / bounce_rate per path between the raw and lazy paths."""
         self._seed_two_sessions()
@@ -239,7 +246,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "assertion KeyErrors on /a. Same root cause as test_lazy_result_matches_raw_result. "
         "Re-enable when the read-after-write visibility issue is resolved."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_bounce_rate_attributed_to_entry_path_only(self):
         """Bounce rate for /a should reflect sessions that ENTERED on /a, not all sessions that touched it.
 
@@ -259,7 +266,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # with single-pageview session (bounce=1). avg = 0.5.
         assert abs(metrics["/a"]["bounce_rate"] - 0.5) < 0.01, f"/a bounce should be 0.5, got {metrics['/a']}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_gets_distinct_cache_entry(self):
         self._seed_two_sessions()
         host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
@@ -278,7 +285,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"got overlap: {unfiltered_jobs & filtered_jobs}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_distinct_include_host_values_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -293,8 +300,23 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"includeHost on/off must produce distinct cache keys, got overlap: {no_host_hashes & with_host_hashes}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_property_filter_falls_through(self):
+        # `$channel_type` is the ONE admitted session filter; every other session
+        # property must keep falling through to the live path.
+        with self._enable_lazy():
+            self._run(
+                self._build_query(
+                    properties=[
+                        SessionPropertyFilter(key="$session_duration", value=10, operator=PropertyOperator.GT),
+                    ]
+                )
+            )
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_type_filter_creates_precompute_job(self):
+        self._seed_two_sessions()
         with self._enable_lazy():
             self._run(
                 self._build_query(
@@ -303,27 +325,59 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     ]
                 )
             )
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    def test_channel_rules_rotate_the_job_hash(self):
+        # A custom-channel-rules edit reclassifies sessions, so the buckets built
+        # under the old rules must not be reused — the rules join the job hash.
+        # Driven through the warmer's ensure (inline inserts allowed) so job
+        # creation is deterministic; the user path defers builds to a debounced
+        # background enqueue that this test must not depend on.
+        props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+        start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+        self._seed_two_sessions()
+        with self._enable_lazy(), tags_context(trigger="webAnalyticsQueryWarming"):
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(properties=props))
+            ensure_web_stats_paths_precomputed(runner=runner, time_range_start=start, time_range_end=end)
+            hashes_before = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            assert hashes_before, "channel-filtered ensure should create precompute jobs"
+
+            self.team.modifiers = {
+                "customChannelTypeRules": [
+                    {
+                        "channel_type": "Partners",
+                        "combiner": "OR",
+                        "id": "partner-rule",
+                        "items": [{"id": "c1", "key": "utm_source", "op": "exact", "value": ["partner"]}],
+                    }
+                ]
+            }
+            self.team.save()
+            runner_after = WebStatsTableQueryRunner(team=self.team, query=self._build_query(properties=props))
+            ensure_web_stats_paths_precomputed(runner=runner_after, time_range_start=start, time_range_end=end)
+            hashes_after = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert hashes_after - hashes_before, "a rules edit must mint new job hashes, not reuse the old buckets"
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(sampling=WebAnalyticsSampling(enabled=True)))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         # `query.useWebAnalyticsPrecompute=True` BUT the rollout flag is off — refuse.
         self._run(self._build_query(opt_in_precompute=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_org_flag_alone_falls_through_when_query_not_opted_in(self):
         with self._enable_lazy():
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_initial_page_breakdown_uses_lazy_path(self):
         # INITIAL_PAGE reuses the same precompute table: feeding
         # `_entry_breakdown_value_expr` into both placeholders collapses the
@@ -336,7 +390,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(breakdown_by=WebStatsBreakdown.INITIAL_PAGE))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_page_and_initial_page_get_distinct_cache_entries(self):
         # Defence-in-depth: a team toggling between Path / Entry path tabs must
         # produce different precompute jobs. If the AST collapses (e.g., a
@@ -358,19 +412,83 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"got overlap: {page_hashes & initial_page_hashes}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_missing_include_bounce_rate_falls_through(self):
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_bounce_less_read_shares_buckets(self):
+        """A PAGE read without bounce rate (the weekly digest's shape) must take the
+        lazy path and resolve the SAME jobs as the dashboard's bounce read — not fall
+        through to live, and not mint a second bucket namespace."""
+        self._seed_two_sessions()
         with self._enable_lazy():
-            self._run(self._build_query(include_bounce_rate=False))
+            no_bounce_query = self._build_query(include_bounce_rate=False)
+            runner = WebStatsTableQueryRunner(team=self.team, query=no_bounce_query)
+            assert runner._owning_lazy_precompute_family() == "paths"
+            assert can_use_lazy_precompute(runner)
+
+            self._run(no_bounce_query)
+            no_bounce_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            assert no_bounce_hashes, "bounce-less read should create precompute jobs"
+
+            self._run(self._build_query())
+            bounce_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert bounce_hashes == no_bounce_hashes, (
+            "bounce and bounce-less reads must share one bucket namespace, "
+            f"got extra hashes: {bounce_hashes ^ no_bounce_hashes}"
+        )
+
+    @parameterized.expand(
+        [
+            ("with_bounce", True),
+            ("without_bounce", False),
+        ]
+    )
+    def test_lazy_response_bounce_column_follows_query(self, _name: str, include_bounce: bool) -> None:
+        # One row in the executor's 8-tuple wire shape; the builder must emit the
+        # bounce column only when the query asked for it.
+        rows = [("/a", 3, 1, 5, 2, 0.5, 0.25, 0.8)]
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=self._build_query(include_bounce_rate=include_bounce, compare=True),
+        )
+        response = runner._build_response_from_lazy_rows(rows, limit=10, offset=0)
+
+        expected_columns = [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.views",
+            *(["context.columns.bounce_rate"] if include_bounce else []),
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ]
+        assert response.columns == expected_columns
+        expected_row = [
+            "/a",
+            (3, 1),
+            (5, 2),
+            *([(0.5, 0.25)] if include_bounce else []),
+            0.8,
+            "",
+        ]
+        assert response.results == [expected_row]
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_bounce_less_read_with_bounce_sort_falls_through(self):
+        with self._enable_lazy():
+            self._run(
+                self._build_query(
+                    include_bounce_rate=False,
+                    order_by=[WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC],
+                )
+            )
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_avg_time_on_page_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(include_avg_time_on_page=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_scroll_depth_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(include_scroll_depth=True))
@@ -383,7 +501,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_path_cleaning_uses_lazy_path(self):
         # Path cleaning is baked into the precompute at INSERT time, so a
         # path-cleaning query is still lazy-eligible and creates a precompute job.
@@ -402,7 +520,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert "replaceRegexpAll" in repr(cleaned), f"{fn.__name__} must bake cleaning into the insert"
         assert "replaceRegexpAll" not in repr(raw), f"{fn.__name__} must store raw paths when cleaning is off"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_path_cleaning_gets_distinct_cache_entry(self):
         # Cleaning is part of the insert AST now, so doPathCleaning on/off map to
         # distinct query_hashes / jobs (a rules change spawns a fresh job).
@@ -440,7 +558,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         else:
             assert expected_metric in repr(expr)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sort_key_gets_distinct_cache_entry(self):
         # The cap metric is in the insert AST, so different sort keys map to distinct
         # capped jobs. This also exercises that the capped insert template parses/builds.
@@ -528,7 +646,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"the top-K rank must partition by the day bucket, got: {[w.partition_by for w in rank_windows]}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_uuid_session_mode_falls_through(self):
         query = self._build_query()
         query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
@@ -536,7 +654,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(query)
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_window_over_max_days_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))
@@ -549,7 +667,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("tokyo", "Asia/Tokyo"),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
         # Same flakiness as test_lazy_result_matches_raw_result — lazy returns
         # empty rows despite READY job on CI. Skipped until the read-after-write
@@ -577,7 +695,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         lazy_by_path = self._collect_metrics(lazy_response.results)
         assert lazy_by_path == raw_by_path, f"lazy/raw mismatch for {team_tz}: raw={raw_by_path}, lazy={lazy_by_path}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_half_hour_offset_timezone_falls_through(self):
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
@@ -586,7 +704,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query())
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_falls_back_when_current_period_not_ready(self):
         from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
             execute_lazy_precomputed_read,
@@ -606,7 +724,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert result is None, f"expected fall-back to raw when current precompute not ready, got {result!r}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_falls_back_when_previous_not_ready(self):
         from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
             execute_lazy_precomputed_read,
@@ -641,7 +759,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("conversion_rate", WebAnalyticsOrderByFields.CONVERSION_RATE),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_unsupported_orderby_falls_through(self, _name: str, field: WebAnalyticsOrderByFields) -> None:
         # Fields the lazy response can't sort on must not silently rewrite to
         # `visitors` — refuse and let the raw path serve the request.
@@ -649,6 +767,16 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             self._run(self._build_query(order_by=[field, WebAnalyticsOrderByDirection.DESC]))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_single_element_orderby_defaults_direction(self) -> None:
+        # The schema does not bound orderBy's length, so an API caller can send just
+        # the field. The query must complete with DESC defaulted, not IndexError on
+        # the missing direction — on the lazy sort resolution and the raw path alike.
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            response = self._run(self._build_query(order_by=[WebAnalyticsOrderByFields.VISITORS]))
+        assert response.results is not None
 
     @parameterized.expand(
         [
@@ -666,7 +794,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "`@parameterized.expand` so the expanded variants inherit the skip — putting "
         "it above the expand decorator lets the variants slip through (see #59614)."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_supported_orderby_is_eligible(
         self,
         _name: str,
@@ -682,7 +810,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
         "same lazy-read read-after-write issue as the parity tests."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_only_populated_returns_real_previous_bounce(self):
         """When current period has no events but previous does, the lazy path
         must produce real previous-period bounce rates (not NaN/None) and
@@ -726,7 +854,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             }
         return out
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_creates_job_for_multi_non_host_filter(self):
         # Filters the old restriction rejected (multiple, non-`$host`, non-`exact`)
         # precompute fine for any enrolled team.
@@ -739,7 +867,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(properties=props))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_distinct_filters_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
@@ -757,7 +885,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"distinct filter values must produce distinct cache keys, got overlap: {chrome_hashes & firefox_hashes}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_untouched_toggle_creates_job(self):
         # Enrolled teams default to opt-out: an untouched toggle (None) still
         # precomputes.
@@ -768,7 +896,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(query)
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_explicit_opt_out_falls_through(self):
         self._seed_two_sessions()
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
@@ -785,7 +913,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("stale_revalidation", "webAnalyticsStaleRevalidation"),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_ensure_wait_budget_by_trigger(self, _name: str, trigger: str | None) -> None:
         from datetime import UTC, datetime
 
@@ -826,7 +954,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("remainder_passed_to_compare", 2.0, 8.0),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_user_ensure_budget_is_shared_across_compare_periods(
         self, _name: str, first_ensure_seconds: float, expected_compare_budget: float | None
     ) -> None:
@@ -866,7 +994,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert ensure_mock.call_args_list[1].kwargs["wait_budget_seconds"] == expected_compare_budget
 
     @parameterized.expand([("no_compare", False), ("compare", True)])
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_read_scan_is_pruned_to_requested_windows(self, _name: str, compare: bool) -> None:
         from datetime import UTC, datetime
 
@@ -1021,7 +1149,7 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
             assert "session_id_v7 IN" not in insert_query
             assert modifiers is None
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_filtered_insert_matches_join_insert(self):
         """The pruned-join insert must store the same finalized per-path metrics as the
         plain join insert for the same filtered key. The fixture carries the divergence

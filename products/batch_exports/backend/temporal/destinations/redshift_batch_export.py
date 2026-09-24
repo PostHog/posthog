@@ -69,6 +69,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     s3_client,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -834,7 +835,10 @@ def _get_table_schemas(
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
             ("person_properties", properties_type),
+            ("person_id", "VARCHAR(200)"),
         ]
+        # A retry can consume files staged before a new default column was added.
+        table_schema = [field for field in table_schema if field[0] in record_batch_schema.names]
 
     else:
         table_schema = get_redshift_fields_from_record_schema(
@@ -1271,6 +1275,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Redshift",
@@ -1601,7 +1608,16 @@ async def check_and_raise_redshift_copy_error(
     error matches a known S3 read/access marker, raising the more generic `RedshiftS3CopyError` that
     points at the likely culprits (role read access or bucket region). Any other COPY error returns
     unchanged so it keeps its original message and retry behaviour.
+
+    Redshift can also report a missing permission to create temporary tables as an `InternalError_`.
+    We translate that specific diagnostic to `InsufficientPrivilege`, which the activity treats as
+    non-retryable.
     """
+    # this is a database permissions issue, not an S3 one
+    diagnostics = (str(err), err.diag.message_primary or "", err.diag.message_detail or "")
+    if any("permission denied to create temporary tables" in text.lower() for text in diagnostics):
+        raise psycopg.errors.InsufficientPrivilege(str(err)) from err
+
     if isinstance(authorization, AWSCredentials):
         probe_keys = [manifest_key, *files_uploaded[:1]]
         if await is_s3_read_access_denied(
@@ -1620,7 +1636,6 @@ async def check_and_raise_redshift_copy_error(
         "S3ServiceException",
         "Forbidden",
     )
-    diagnostics = (str(err), err.diag.message_primary or "", err.diag.message_detail or "")
     if any(marker in text for text in diagnostics for marker in markers):
         raise RedshiftS3CopyError(bucket) from err
 
@@ -1665,6 +1680,9 @@ async def _get_s3_bucket_aws_credentials(
     Otherwise, credentials are long lived and the second returned parameter is
     None.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     credentials = inputs.copy.s3_bucket.credentials
     if isinstance(credentials, IntegrationID):
         credentials = await _resolve_aws_s3_integration(credentials, inputs.batch_export.team_id)
@@ -1705,6 +1723,9 @@ async def _resolve_copy_authorization(
     staged files: a customer role ARN from an integration cannot be passed as
     `IAM_ROLE` in the COPY statement, since it is not attached to the cluster.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     authorization = inputs.copy.authorization
     if not isinstance(authorization, IntegrationID):
         return authorization, None
@@ -1774,6 +1795,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
+    if inputs.batch_export.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
+
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Redshift",

@@ -1,13 +1,14 @@
 import * as motion from 'motion/react-client'
 import { ComponentType } from 'react'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as floatPng from '@posthog/brand/hoggies/png/float'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { WavingHog } from 'lib/components/hedgehogs'
 
+const HedgehogFloat = pngHoggie(floatPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogShocked = pngHoggie(shockedPng)
 
@@ -51,9 +52,10 @@ function getBannerConfig(
         case 'live':
             return {
                 title: 'Your survey is live. Results will show up soon.',
-                description: 'As soon as people answer this survey, you will see results here. Check back soon.',
+                description:
+                    'As soon as people answer this survey, you will see results here. Go relax, and check back soon.',
                 bubbleText: 'Waiting for first replies',
-                Hog: WavingHog,
+                Hog: HedgehogFloat,
                 hogDuration: 1.1,
                 hogAnimation: { y: [0, -5, 0, -3, 0], rotate: [0, -4, 0, 2, 0] },
             }

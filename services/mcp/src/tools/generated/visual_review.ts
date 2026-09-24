@@ -133,6 +133,48 @@ const visualReviewReposList = (): ToolBase<
     },
 })
 
+const VisualReviewReposPartialUpdateSchema = () => {
+    const VisualReviewReposPartialUpdateBody = orvalSchemas.VisualReviewReposPartialUpdateBody()
+    const VisualReviewReposPartialUpdateParams = orvalSchemas.VisualReviewReposPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['repo_id'] }),
+        VisualReviewReposPartialUpdateParams.omit({ project_id: true })
+            .extend(VisualReviewReposPartialUpdateBody.shape)
+            .extend({
+                id: VisualReviewReposPartialUpdateParams.shape['id'].describe(
+                    "The repo's UUID, from `visual-review-repos-list`."
+                ),
+            })
+    )
+}
+
+const visualReviewReposPartialUpdate = (): ToolBase<
+    ReturnType<typeof VisualReviewReposPartialUpdateSchema>,
+    Schemas.Repo
+> => ({
+    name: 'visual-review-repos-partial-update',
+    schema: VisualReviewReposPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewReposPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.baseline_file_paths !== undefined) {
+            body['baseline_file_paths'] = params.baseline_file_paths
+        }
+        if (params.enable_pr_comments !== undefined) {
+            body['enable_pr_comments'] = params.enable_pr_comments
+        }
+        if (params.debt_digest_enabled !== undefined) {
+            body['debt_digest_enabled'] = params.debt_digest_enabled
+        }
+        const result = await context.api.request<Schemas.Repo>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const VisualReviewReposQuarantineListSchema = () => {
     const VisualReviewReposQuarantineListParams = orvalSchemas.VisualReviewReposQuarantineListParams()
     const VisualReviewReposQuarantineListQueryParams = orvalSchemas.VisualReviewReposQuarantineListQueryParams()
@@ -268,6 +310,50 @@ const visualReviewReposRunsList = (): ToolBase<
             },
             '/visual_review'
         )
+    },
+})
+
+const VisualReviewReposTolerationPileupsRetrieveSchema = () => {
+    const VisualReviewReposTolerationPileupsRetrieveParams =
+        orvalSchemas.VisualReviewReposTolerationPileupsRetrieveParams()
+    const VisualReviewReposTolerationPileupsRetrieveQueryParams =
+        orvalSchemas.VisualReviewReposTolerationPileupsRetrieveQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['repo_id'] }),
+        VisualReviewReposTolerationPileupsRetrieveParams.omit({ project_id: true })
+            .extend(VisualReviewReposTolerationPileupsRetrieveQueryParams.shape)
+            .extend({
+                id: VisualReviewReposTolerationPileupsRetrieveParams.shape['id'].describe(
+                    "The repo's UUID, from `visual-review-repos-list`."
+                ),
+            })
+    )
+}
+
+const visualReviewReposTolerationPileupsRetrieve = (): ToolBase<
+    ReturnType<typeof VisualReviewReposTolerationPileupsRetrieveSchema>,
+    Schemas.TolerationPileups
+> => ({
+    name: 'visual-review-repos-toleration-pileups-retrieve',
+    schema: VisualReviewReposTolerationPileupsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof VisualReviewReposTolerationPileupsRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TolerationPileups>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/toleration-pileups/`,
+            query: {
+                include_quarantined: params.include_quarantined,
+                limit: params.limit,
+                min_automatic_tolerations: params.min_automatic_tolerations,
+                min_tolerations: params.min_tolerations,
+                run_type: params.run_type,
+                window_days: params.window_days,
+            },
+        })
+        return result
     },
 })
 
@@ -418,8 +504,18 @@ const visualReviewRunsRetrieve = (): ToolBase<
 const VisualReviewRunsSnapshotHistoryListSchema = () => {
     const VisualReviewRunsSnapshotHistoryListParams = orvalSchemas.VisualReviewRunsSnapshotHistoryListParams()
     const VisualReviewRunsSnapshotHistoryListQueryParams = orvalSchemas.VisualReviewRunsSnapshotHistoryListQueryParams()
-    return VisualReviewRunsSnapshotHistoryListParams.omit({ project_id: true }).extend(
-        VisualReviewRunsSnapshotHistoryListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsSnapshotHistoryListParams.omit({ project_id: true })
+            .extend(VisualReviewRunsSnapshotHistoryListQueryParams.shape)
+            .extend({
+                id: VisualReviewRunsSnapshotHistoryListParams.shape['id'].describe(
+                    "UUID of the visual review run to look the snapshot up from — a run id, not the `id` of a snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required, and `identifier` is required alongside it."
+                ),
+                identifier: VisualReviewRunsSnapshotHistoryListQueryParams.shape['identifier'].describe(
+                    'Identifier of the snapshot to trace, for example a Storybook story id plus theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to `id`; without it the call is rejected rather than returning history for the whole run.'
+                ),
+            })
     )
 }
 
@@ -509,8 +605,18 @@ const visualReviewRunsTolerateCreate = (): ToolBase<
 const VisualReviewRunsToleratedHashesListSchema = () => {
     const VisualReviewRunsToleratedHashesListParams = orvalSchemas.VisualReviewRunsToleratedHashesListParams()
     const VisualReviewRunsToleratedHashesListQueryParams = orvalSchemas.VisualReviewRunsToleratedHashesListQueryParams()
-    return VisualReviewRunsToleratedHashesListParams.omit({ project_id: true }).extend(
-        VisualReviewRunsToleratedHashesListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['run_id'] }),
+        VisualReviewRunsToleratedHashesListParams.omit({ project_id: true })
+            .extend(VisualReviewRunsToleratedHashesListQueryParams.shape)
+            .extend({
+                id: VisualReviewRunsToleratedHashesListParams.shape['id'].describe(
+                    "UUID of the visual review run whose repo holds the tolerated hashes — a run id, not the `id` of a snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required, and `identifier` is required alongside it."
+                ),
+                identifier: VisualReviewRunsToleratedHashesListQueryParams.shape['identifier'].describe(
+                    'Identifier of the snapshot whose tolerated hashes you want, for example a Storybook story id plus theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to `id`; there is no way to list every tolerated hash in the repo from this tool.'
+                ),
+            })
     )
 }
 
@@ -541,10 +647,12 @@ const visualReviewRunsToleratedHashesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-flakiness-retrieve': visualReviewReposFlakinessRetrieve,
     'visual-review-repos-list': visualReviewReposList,
+    'visual-review-repos-partial-update': visualReviewReposPartialUpdate,
     'visual-review-repos-quarantine-list': visualReviewReposQuarantineList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
     'visual-review-repos-runs-counts-retrieve': visualReviewReposRunsCountsRetrieve,
     'visual-review-repos-runs-list': visualReviewReposRunsList,
+    'visual-review-repos-toleration-pileups-retrieve': visualReviewReposTolerationPileupsRetrieve,
     'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,

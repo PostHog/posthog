@@ -194,7 +194,7 @@ def _http_error(status_code: int) -> requests.HTTPError:
         (401, "rejected the credentials"),
         (403, "rejected the credentials"),
         (404, "was not found"),
-        (500, "Failed to read Google Analytics property metadata"),
+        (500, "couldn't reach Google Analytics"),
     ],
 )
 def test_validate_credentials_maps_http_errors(status_code, expected_substring):
@@ -234,14 +234,36 @@ def test_validate_credentials_maps_token_refresh_error():
 
 
 def test_validate_credentials_handles_session_failure():
+    # The credential-load exception can carry an OAuth token or an HTML error body, so the
+    # setup form gets a reconnect prompt and none of the raw text.
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
-        side_effect=Exception("no integration"),
+        side_effect=Exception("token ya29.SECRET rejected"),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
-    assert "Could not load Google Analytics credentials" in (message or "")
+    assert "Reconnect your Google account" in (message or "")
+    assert "ya29.SECRET" not in (message or "")
+
+
+def test_validate_credentials_hides_unexpected_metadata_failure_detail():
+    # An unexpected metadata failure used to reach the setup form as `str(e)`, which for a
+    # requests error is the full URL and response body.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=Exception("https://analyticsdata.googleapis.com/v1beta/properties/1?key=SECRET"),
+        ),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "couldn't reach Google Analytics" in (message or "")
+    assert "googleapis.com" not in (message or "")
 
 
 def test_validate_credentials_handles_missing_integration():
@@ -290,19 +312,24 @@ def test_retryable_errors_cover_exhausted_quota_retries():
     assert any(pattern in error_msg for pattern in patterns)
 
 
-def test_retryable_errors_cover_connection_reset():
-    # `session.post()` in `_run_report` can raise this transport-level `requests.ConnectionError`
-    # directly, outside its own retry loop (which only handles `RefreshError` and HTTP-level
-    # failures) — must stay classified as retryable so it doesn't page as a bug.
-    error_msg = "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
-    patterns = GoogleAnalyticsSource().get_retryable_errors()
-    assert error_message_matches(error_msg, patterns)
-
-
-def test_retryable_errors_cover_read_timeout():
-    # A read timeout talking to the Data API surfaces as a `requests.ConnectionError` from
-    # `session.post()` in `_run_report`, same as the connection-reset case above — must stay
-    # classified as retryable so it doesn't page as a bug.
-    error_msg = "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out."
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+        "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out.",
+        "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Max retries exceeded with url: "
+        "/v1beta/properties/123456789:runReport (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection "
+        "object at 0x7f00>: Failed to establish a new connection: [Errno -2] Name or service not known'))",
+        "('Connection broken: IncompleteRead(5398 bytes read, 4842 more expected)', IncompleteRead(...))",
+        "(\"Connection broken: InvalidChunkLength(got length b'', 0 bytes read)\", InvalidChunkLength(...))",
+        "(\"Connection broken: ConnectionResetError(104, 'Connection reset by peer')\", ConnectionResetError(104))",
+    ],
+)
+def test_retryable_errors_cover_connection_drops(error_msg):
+    # `_run_report` backs off on these inline, so they reach the activity only once that budget is
+    # spent. The next Temporal retry restarts from the last saved chunk, so they must stay
+    # classified as retryable and not page as a bug. The third is the wrapper urllib3 puts around a
+    # connect that never succeeded, once the shared adapter's own retries are exhausted, and the last
+    # three are the truncated-body shapes `requests` raises as `ChunkedEncodingError`.
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert error_message_matches(error_msg, patterns)

@@ -111,7 +111,7 @@ export const pipelineHealthLogic = kea<pipelineHealthLogicType>([
                     }
                     try {
                         const response = await api.get<DataHealthIssuesResponse>(
-                            `api/environments/${values.currentTeamIdStrict}/data_warehouse/data_health_issues/`
+                            `api/projects/${values.currentTeamIdStrict}/data_warehouse/data_health_issues/`
                         )
                         return response
                     } catch (error) {

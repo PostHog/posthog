@@ -8,12 +8,15 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel import (
-    PAGE_SIZE,
     DeelResumeConfig,
     deel_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import DEEL_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import (
+    DEEL_ENDPOINTS,
+    ENDPOINTS,
+    PAGE_SIZE,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -34,6 +37,27 @@ def _response(items: list[dict[str, Any]] | None, *, cursor: str | None = None, 
     return resp
 
 
+def _wrapped_response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _payments_response(
+    items: list[dict[str, Any]], *, next_cursor: str | None = None, has_more: bool = False
+) -> Response:
+    return _wrapped_response(
+        {"data": {"rows": items, "has_more": has_more, "next_cursor": next_cursor, "total": len(items)}}
+    )
+
+
+def _time_offs_response(
+    items: list[dict[str, Any]], *, next_token: str | None = None, has_next: bool = False
+) -> Response:
+    return _wrapped_response({"data": items, "next": next_token, "has_next_page": has_next})
+
+
 def _make_manager(resume_state: DeelResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -41,22 +65,29 @@ def _make_manager(resume_state: DeelResumeConfig | None = None) -> mock.MagicMoc
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
+def _wire_capture(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wire a mock session and capture each request's params and URL AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so snapshot a copy
     when each request is prepared instead of inspecting the final state.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
+    urls: list[str] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        urls.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
-    return param_snapshots
+    return param_snapshots, urls
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    params, _urls = _wire_capture(session, responses)
+    return params
 
 
 def _source(endpoint: str, manager: mock.MagicMock):
@@ -212,7 +243,7 @@ class TestDeelSourceResponse:
         response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
         if config.partition_key:
             assert response.partition_mode == "datetime"
@@ -225,3 +256,181 @@ class TestDeelSourceResponse:
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
             assert config.partition_key == "created_at"
+
+
+class TestPaymentsPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_data_rows_until_has_more_is_false(self, MockSession):
+        # Payments nest their rows and cursor under `data`, unlike every other Deel endpoint.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _payments_response([{"id": "p1"}], next_cursor="cur_1", has_more=True),
+                _payments_response([{"id": "p2"}], next_cursor="cur_2", has_more=False),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("payments", manager))
+
+        assert [r["id"] for r in rows] == ["p1", "p2"]
+        # /payments takes no page-size param, so sending one would be undocumented.
+        assert "limit" not in params[0]
+        assert "cursor" not in params[0]
+        assert params[1]["cursor"] == "cur_1"
+        assert manager.save_state.call_args_list == [mock.call(DeelResumeConfig(cursor="cur_1"))]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_has_more_is_false_despite_an_echoed_cursor(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_payments_response([{"id": "p1"}], next_cursor="cur_stale", has_more=False)])
+
+        manager = _make_manager()
+        rows = _rows(_source("payments", manager))
+
+        assert [r["id"] for r in rows] == ["p1"]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_has_more_is_true_but_the_cursor_is_unchanged(self, MockSession):
+        # A buggy or exhausted keyset can echo the same cursor back while still claiming
+        # more pages exist. Without an equality check the walk would re-request that page
+        # forever instead of stopping.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _payments_response([{"id": "p1"}], next_cursor="cur_1", has_more=True),
+                _payments_response([{"id": "p1"}], next_cursor="cur_1", has_more=True),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("payments", manager))
+
+        assert [r["id"] for r in rows] == ["p1", "p1"]
+        assert session.send.call_count == 2
+        manager.save_state.assert_called_once_with(DeelResumeConfig(cursor="cur_1"))
+
+
+class TestTimeOffsPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_next_token_with_page_size_param(self, MockSession):
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _time_offs_response([{"id": "t1"}], next_token="tok_1", has_next=True),
+                _time_offs_response([{"id": "t2"}], has_next=False),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("time_offs", manager))
+
+        assert [r["id"] for r in rows] == ["t1", "t2"]
+        # Time off sizes pages with `page_size`, not `limit`.
+        assert params[0]["page_size"] == PAGE_SIZE
+        assert "limit" not in params[0]
+        assert params[1]["next"] == "tok_1"
+
+
+class TestLegalEntitiesPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sends_cursor_param_and_explicit_sort_order(self, MockSession):
+        # Legal entities page on `cursor`, not the `after_cursor` contracts use.
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "le1"}], cursor="cur_le"), _response([{"id": "le2"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("legal_entities", manager))
+
+        assert [r["id"] for r in rows] == ["le1", "le2"]
+        assert params[0]["sort_order"] == "ASC"
+        assert params[0]["limit"] == PAGE_SIZE
+        assert params[1]["cursor"] == "cur_le"
+        assert "after_cursor" not in params[1]
+
+
+class TestFanoutEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_payment_breakdowns_carry_their_payment_id(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire_capture(
+            session,
+            [
+                _payments_response([{"id": "pay_1"}, {"id": "pay_2"}]),
+                _wrapped_response({"data": [{"contract_id": "c1", "invoice_id": "i1"}]}),
+                _wrapped_response({"data": [{"contract_id": "c2", "invoice_id": "i2"}]}),
+            ],
+        )
+
+        rows = _rows(_source("payment_breakdowns", _make_manager()))
+
+        assert urls[1:] == [
+            "https://api.letsdeel.com/rest/v2/payments/pay_1/breakdown",
+            "https://api.letsdeel.com/rest/v2/payments/pay_2/breakdown",
+        ]
+        # The parent id is renamed off `_payments_id` because it is part of the primary key.
+        assert [(r["payment_id"], r["contract_id"]) for r in rows] == [("pay_1", "c1"), ("pay_2", "c2")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cost_centers_carry_their_legal_entity_id(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire_capture(
+            session,
+            [
+                _response([{"id": "le_1"}]),
+                _wrapped_response({"data": [{"id": 7, "cost_center_name": "R&D"}]}),
+            ],
+        )
+
+        rows = _rows(_source("cost_centers", _make_manager()))
+
+        assert urls[1] == "https://api.letsdeel.com/rest/v2/legal-entities/le_1/cost-centers"
+
+        assert rows == [{"id": 7, "cost_center_name": "R&D", "legal_entity_id": "le_1"}]
+
+
+class TestTimeOffEvents:
+    @mock.patch(DEEL_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_people_by_query_param(self, MockClientSession, MockDeelSession):
+        _wire(MockClientSession.return_value, [_response([{"id": "prof_1"}, {"id": "prof_2"}])])
+        child_session = MockDeelSession.return_value
+        child_session.get.side_effect = [
+            _wrapped_response({"data": [{"id": "ev_1", "hris_profile_id": "prof_1"}]}),
+            _wrapped_response({"data": [{"id": "ev_2"}]}),
+        ]
+
+        rows = _rows(_source("time_off_events", _make_manager()))
+
+        assert [call.args[0] for call in child_session.get.call_args_list] == [
+            "https://api.letsdeel.com/rest/v2/time_offs/time-off-events"
+        ] * 2
+        assert [call.kwargs["params"]["hris_profile_id"] for call in child_session.get.call_args_list] == [
+            "prof_1",
+            "prof_2",
+        ]
+        # Deel omits hris_profile_id from some rows; it is half the primary key, so backfill it.
+        assert [(r["id"], r["hris_profile_id"]) for r in rows] == [("ev_1", "prof_1"), ("ev_2", "prof_2")]
+
+    @mock.patch(DEEL_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_person_that_disappeared_between_the_listing_and_the_fetch(
+        self, MockClientSession, MockDeelSession
+    ):
+        _wire(MockClientSession.return_value, [_response([{"id": "prof_1"}, {"id": "prof_2"}])])
+        gone = Response()
+        gone.status_code = 404
+        gone._content = b"{}"
+        MockDeelSession.return_value.get.side_effect = [
+            gone,
+            _wrapped_response({"data": [{"id": "ev_2", "hris_profile_id": "prof_2"}]}),
+        ]
+
+        rows = _rows(_source("time_off_events", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["ev_2"]

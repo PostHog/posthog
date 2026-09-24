@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import (
@@ -23,11 +24,7 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 
-from posthog.clickhouse.events_json import (
-    EVENTS_JSON_INDEXED_PROPERTY_NAMES,
-    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-)
+from posthog.clickhouse.events_json import EVENTS_JSON_INDEXED_PROPERTY_NAMES
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
 from posthog.clickhouse.property_groups import property_groups
 from posthog.schema_enums import PropertyGroupsMode
@@ -370,7 +367,7 @@ def _json_source_plan(
 ) -> PropertySourcePlan:
     has_minmax_index = _json_source_has_index(table_name, field_name, property_name, "minmax", context)
     has_bloom_filter_index = _json_source_has_index(table_name, field_name, property_name, "bloom_filter", context)
-    physical_type = _json_source_physical_type(table_name, field_name, property_name, context)
+    physical_type = ast.StringType(nullable=True)
 
     return PropertySourcePlan(
         kind=PropertySourceKind.JSON,
@@ -383,26 +380,6 @@ def _json_source_plan(
         has_bloom_filter_index=has_bloom_filter_index,
         restricted=restricted,
     )
-
-
-def _json_source_physical_type(
-    table_name: str | None,
-    field_name: str | None,
-    property_name: str | None,
-    context: HogQLContext | None,
-) -> ast.ConstantType:
-    if context is None or not context.uses_new_events_schema():
-        return ast.StringType(nullable=True)
-    if table_name != "events" or field_name is None or property_name is None:
-        return ast.StringType(nullable=True)
-
-    subcolumns = {
-        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-    }.get(field_name)
-    if subcolumns is None or property_name not in subcolumns:
-        return ast.StringType(nullable=True)
-    return constant_type_from_runtime_type(parse_sql_runtime_type(subcolumns[property_name]))
 
 
 def _json_source_has_index(
@@ -527,9 +504,9 @@ def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> P
     except (HogQLNotImplementedError, QueryError, ResolutionError):
         return PropertyScope.UNKNOWN
 
-    if isinstance(resolved_table, EventsTable):
+    if isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
         return PropertyScope.EVENT
-    if isinstance(resolved_table, (EventsPersonSubTable, PersonsTable, RawPersonsTable)):
+    if isinstance(resolved_table, EventsPersonSubTable | PersonsTable | RawPersonsTable):
         return PropertyScope.PERSON
     if isinstance(resolved_table, GroupsTable):
         return PropertyScope.GROUP

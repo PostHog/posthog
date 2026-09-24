@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,8 +27,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials as validate_metronome_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    DEFAULT_USAGE_DAILY_HISTORY_MONTHS,
+    DEFAULT_USAGE_HOURLY_HISTORY_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    METRONOME_ENDPOINTS,
+    USAGE_HISTORY,
+    usage_history_window,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -69,7 +72,20 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Appending would duplicate every period the lookback re-reads, so a bucketed usage
+            # table has to merge on its primary key.
+            merge_only=tuple(USAGE_HISTORY),
+            should_sync_default={name: METRONOME_ENDPOINTS[name].should_sync_default for name in ENDPOINTS},
+        )
+        for schema in schemas:
+            schema.default_incremental_lookback_seconds = METRONOME_ENDPOINTS[
+                schema.name
+            ].default_incremental_lookback_seconds
+        return schemas
 
     def validate_credentials(
         self,
@@ -100,12 +116,20 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            # Resolved per run rather than recorded once, so a depth the user edits after the first
+            # sync takes effect, and the window stays the size they asked for rather than widening
+            # as the source ages.
+            usage_history=usage_history_window(
+                inputs.schema_name,
+                config.usage_hourly_history_days,
+                config.usage_daily_history_months,
+            ),
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.METRONOME,
+            name=ExternalDataSourceType.METRONOME,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             keywords=["billing", "usage-based billing"],
             label="Metronome",
@@ -123,6 +147,22 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="usage_hourly_history_days",
+                        label="Hourly usage history (days)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder=str(DEFAULT_USAGE_HOURLY_HISTORY_DAYS),
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="usage_daily_history_months",
+                        label="Daily usage history (months)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder=str(DEFAULT_USAGE_DAILY_HISTORY_MONTHS),
+                        secret=False,
                     ),
                 ],
             ),

@@ -8,7 +8,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 RECENT_ISSUE_STATE_WINDOW = datetime.timedelta(seconds=60)
 
@@ -66,15 +66,27 @@ def latest_issue_state_watermark(team_id: int) -> datetime.datetime | None:
     )
 
 
+def issue_state_changed_within_window(
+    watermark: datetime.datetime | None, *, current_time: datetime.datetime | None = None
+) -> bool:
+    """Whether load_recent_issue_states can return a row, given the team's latest state change.
+
+    The watermark is the newest state_updated_at on the team, so a watermark outside the window
+    means no row can pass the overlay filter and the read is guaranteed to return nothing.
+    """
+    if watermark is None:
+        return False
+    return watermark >= (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
+
+
 def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | None = None) -> list[RecentIssueState]:
     threshold = (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
-    issues = (
+    # The filter matches the partial (team, state_updated_at) index, which this read depends on.
+    rows = list(
         ErrorTrackingIssue.objects.using(DEFAULT_DB_ALIAS)
         .filter(team_id=team_id, state_updated_at__gte=threshold)
-        .select_related("assignment")
-        .only(
+        .values(
             "id",
-            "team_id",
             "status",
             "severity",
             "name",
@@ -84,31 +96,23 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
         )[: MAX_RECENT_ISSUE_STATES + 1]
     )
 
-    recent_states: list[RecentIssueState] = []
-    for issue in issues:
-        try:
-            assignment = issue.assignment
-        except ErrorTrackingIssueAssignment.DoesNotExist:
-            assigned_user_id = None
-            assigned_role_id = None
-        else:
-            assigned_user_id = assignment.user_id
-            assigned_role_id = assignment.role_id
-
-        recent_states.append(
-            RecentIssueState(
-                team_id=issue.team_id,
-                issue_id=issue.id,
-                issue_status=issue.status,
-                issue_severity=issue.severity,
-                issue_name=issue.name,
-                issue_description=issue.description,
-                assigned_user_id=assigned_user_id,
-                assigned_role_id=assigned_role_id,
-            )
-        )
-
-    RECENT_ISSUE_STATE_ROW_COUNT.observe(len(recent_states))
-    if len(recent_states) > MAX_RECENT_ISSUE_STATES:
+    RECENT_ISSUE_STATE_ROW_COUNT.observe(len(rows))
+    # Truncating instead would leave is_present false for the dropped issues, which tells the query
+    # they did not change and makes it use their stale ClickHouse state. Discard the whole overlay so
+    # that every issue falls back to ClickHouse together.
+    if len(rows) > MAX_RECENT_ISSUE_STATES:
         return []
-    return recent_states
+
+    return [
+        RecentIssueState(
+            team_id=team_id,
+            issue_id=row["id"],
+            issue_status=row["status"],
+            issue_severity=row["severity"],
+            issue_name=row["name"],
+            issue_description=row["description"],
+            assigned_user_id=row["assignment__user_id"],
+            assigned_role_id=row["assignment__role_id"],
+        )
+        for row in rows
+    ]

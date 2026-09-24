@@ -1,19 +1,21 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
+    COHERE_API_VERSION_V1,
     cohere_source,
     validate_credentials as validate_cohere_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
+    ENDPOINTS,
+    RETIRED_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -28,8 +30,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CohereSource(SimpleSource[CohereSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v1",)
-    default_version = "v1"
+    # Cohere's v2 generation adds no route for anything this source reads: its own v2 reference
+    # documents datasets, models, and embed jobs at /v1/ paths. A "v2" pin would therefore name a
+    # wire Cohere does not serve for these tables. v1 is not sunset either - the 2025-09-15
+    # announcement retires individual endpoints, not the version - so v1 stays supported and
+    # undeprecated.
+    supported_versions = (COHERE_API_VERSION_V1,)
+    default_version = COHERE_API_VERSION_V1
     api_docs_url = "https://docs.cohere.com/reference/about"
 
     @property
@@ -39,7 +46,7 @@ class CohereSource(SimpleSource[CohereSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COHERE,
+            name=ExternalDataSourceType.COHERE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cohere",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -79,6 +86,9 @@ Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-ke
             # the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.cohere.com": "Your Cohere API key is invalid or has been revoked. Create a new key in your Cohere dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.cohere.com": "Your Cohere API key is missing the permissions needed to sync this data. Check the key permissions in your Cohere dashboard, then reconnect.",
+            # A schema created before the endpoint was retired keeps syncing until someone turns it
+            # off, and no retry brings a removed route back.
+            **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 
     def get_schemas(

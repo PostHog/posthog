@@ -36,13 +36,13 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
 # The distributed-ownership resolver the auto-assigner executes on that same
-# pull_request_target event (via `python -m posthog_owners`), with tools/owners
+# pull_request_target event (via `python -m owners_yaml`), with packages/owners-yaml
 # as the privileged sys.path root. Anything importable placed in that tree can
 # shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
 # shadow packages (yaml/__init__.py), and extension modules (yaml.so, *.pyd)
 # alike — so the whole directory is gated rather than enumerating suffixes.
 # DevEx maintains the resolver and reviews it with that risk in mind.
-tools/owners/** @PostHog/team-devex
+packages/owners-yaml/** @PostHog/team-devex
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer
@@ -57,9 +57,15 @@ posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 ee/api/scim/auth.py @PostHog/team-security
 
-# v1 data-modeling workflow is frozen during the v1 → v2 migration.
-# this will be removed from CODEOWNERS by June 1
-posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling
+# The Content Security Policy every app and admin page carries. A browser refuses a resource the
+# policy does not name and shows the user no error, so a policy mistake breaks a feature with no
+# signal, and a widened directive removes a control the same way. Neither shows up in a test or a
+# stack trace, which is why review is the control. The semgrep rule stops a view from setting the
+# header outside this file, and each exception it carries names the policy it allows, so a fourth
+# document needs this team too.
+posthog/csp_middleware.py @PostHog/team-security
+posthog/test/test_csp_middleware.py @PostHog/team-security
+.semgrep/rules/security/csp-header-outside-csp-middleware.* @PostHog/team-security
 
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
@@ -68,7 +74,7 @@ bin/dev-sandbox* @PostHog/team-security
 # becomes (probe permitting) an active server template in every environment on the next
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
 # probe only verifies liveness, so PR review is the vendor-identity gate.
-products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
+products/mcp_store/backend/catalog.py @PostHog/team-context-mcp
 
 # Adding a line here exempts a product from isolation, so the full Django backend suite
 # keeps running on every change it makes — a cost paid by everyone, not just its team.

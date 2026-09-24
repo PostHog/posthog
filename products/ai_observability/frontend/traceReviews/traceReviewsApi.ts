@@ -32,7 +32,7 @@ function isDuplicateTraceReviewError(error: unknown): boolean {
 }
 
 function getTraceReviewsBaseUrl(teamId: number = ApiConfig.getCurrentTeamId()): string {
-    return `/api/environments/${teamId}/llm_analytics/trace_reviews/`
+    return `/api/projects/${teamId}/llm_analytics/trace_reviews/`
 }
 
 export interface TraceReviewListFilters {

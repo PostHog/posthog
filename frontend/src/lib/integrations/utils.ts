@@ -19,6 +19,7 @@ import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconGoogleCalendar from 'public/services/google_calendar.png'
+import IconHelpScout from 'public/services/helpscout.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconInstagram from 'public/services/instagram.png'
 import IconIntercom from 'public/services/intercom.png'
@@ -42,6 +43,21 @@ import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
 import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
+
+/**
+ * What a "link an existing installation" banner offered, reported as counts on
+ * `integration_link_existing_offered`. `unnamed` counts entries shown by installation id because
+ * their account name is missing, which is the case a reader cannot recognize.
+ */
+export interface IntegrationLinkExistingCounts {
+    discoveryId?: string
+    installationIds?: string[]
+    responseAgeMs?: number
+    total: number
+    sibling: number
+    orphan: number
+    unnamed: number
+}
 
 /**
  * Where a user started an integration connect flow. Reported as the `surface` property on
@@ -84,6 +100,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     snapchat: IconSnapchat,
     stripe: IconStripe,
     intercom: IconIntercom,
+    helpscout: IconHelpScout,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
     linear: IconLinear,
@@ -151,6 +168,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'helpscout':
+            return 'Help Scout'
         case 'firebase':
             return 'Firebase'
         case 'apns':

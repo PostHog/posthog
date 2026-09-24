@@ -51,7 +51,7 @@ async def test_emits_success_signal_and_snapshot_on_match():
     snapshot_arg = snapshot_mock.call_args.kwargs["snapshot"]
     assert snapshot_arg.company_type == "STARTUP"
     assert snapshot_arg.icp_fit_score == 77
-    assert snapshot_arg.icp_fit_version == "v0.5"
+    assert snapshot_arg.icp_fit_version == "v0.6"
     assert snapshot_arg.icp_fit_status == "scored"
     # Launch signal emitted with success + the filled field keys + the fit status.
     signal = next(c for c in pha_client.capture.call_args_list if c.kwargs["event"] == "signup_enrichment_completed")

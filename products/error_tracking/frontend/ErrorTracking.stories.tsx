@@ -14,6 +14,7 @@ import { mswDecorator } from '~/mocks/browser'
 import {
     ErrorTrackingIssueRelease,
     ErrorTrackingQueryResponse,
+    ErrorTrackingRelationalIssue,
     ErrorTrackingReleasesQueryResponse,
     NodeKind,
     TrendsQueryResponse,
@@ -24,6 +25,7 @@ import { TEST_EVENTS } from './__mocks__/events'
 import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get'
 import { BreakdownPreset } from './components/Breakdowns/consts'
 import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
+import { manageFingerprintsLogic } from './components/FingerprintPreview/manageFingerprintsLogic'
 import {
     issueFilterPreviewLogic,
     IssueFilterPreview,
@@ -32,15 +34,23 @@ import {
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const FINGERPRINT_LIST_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5c'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
 const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
-const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
-    results: STORY_FINGERPRINTS.map((fingerprint, index) => ({
+const STORY_FINGERPRINT_SAMPLE_EXCEPTIONS = [
+    { type: 'TypeError', value: "Cannot read property 'billing' of undefined", lib: 'web' },
+    { type: 'TypeError', value: 'response.json is not a function', lib: 'posthog-node' },
+    { type: 'RangeError', value: 'Maximum call stack size exceeded', lib: 'web' },
+    { type: 'SyntaxError', value: 'Unexpected token < in JSON at position 0', lib: 'posthog-python' },
+    { type: 'ReferenceError', value: 'plan is not defined', lib: 'posthog-ruby' },
+    { type: 'NetworkError', value: 'Failed to fetch', lib: 'posthog-go' },
+]
+const STORY_FINGERPRINT_SAMPLES_RESPONSE = {
+    results: STORY_FINGERPRINTS.map((fingerprint, index) => [
         fingerprint,
-        x: Math.cos(index * 1.7) * (1 + (index % 3) * 0.4),
-        y: Math.sin(index * 1.7) * (1 + (index % 4) * 0.3),
-    })),
-    hasMore: false,
+        (index + 1) * 7,
+        [STORY_FINGERPRINT_SAMPLE_EXCEPTIONS[index % STORY_FINGERPRINT_SAMPLE_EXCEPTIONS.length]],
+    ]),
 }
 const STORY_STACK_FRAME_RESULTS = stackFrameResults.map((record) => ({
     ...record,
@@ -82,6 +92,13 @@ const STORY_PERSON = {
     created_at: '2024-07-01T10:00:00.000Z',
     properties: { email: 'developer@example.com' },
 }
+// The manage-fingerprints pane asks for one sample event per fingerprint, with its own column set.
+const STORY_FINGERPRINT_EVENT_RESPONSE = {
+    columns: ['uuid', 'properties', 'timestamp', 'distinct_id'],
+    hasMore: false,
+    results: [[STORY_EVENT_UUIDS[0], STORY_EVENT_PROPERTIES, STORY_TIMESTAMPS[0], STORY_PERSON.distinct_id]],
+}
+
 const STORY_EVENTS_RESPONSE = {
     columns: ['*', 'timestamp', 'person'],
     hasMore: false,
@@ -346,12 +363,21 @@ const STORY_ASSIGNEE_ROLES = Array.from({ length: 16 }, (_, index) => {
         created_by: MOCK_DEFAULT_BASIC_USER,
     }
 })
-const STORY_ISSUE = {
+const STORY_ISSUE: ErrorTrackingRelationalIssue = {
     ...errorTrackingTypeIssue,
     id: ISSUE_ID,
     name: 'Non-OK response',
     description: 'The billing request returned an unsuccessful response.',
     first_seen: STORY_TIMESTAMPS.at(-1)!,
+    external_issues: [
+        {
+            id: '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a6c',
+            external_url: 'https://github.com/example/example/issues/42',
+            external_id: '#42',
+            title: 'Checkout failed for annual subscriptions',
+            integration: { id: 1, kind: 'github', display_name: 'Example' },
+        },
+    ],
 }
 const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
     ...errorTrackingQueryResponse,
@@ -473,15 +499,22 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxReleases?: number }
+                        query?: {
+                            kind?: string
+                            issueId?: string
+                            select?: string[]
+                            where?: string[]
+                            maxReleases?: number
+                            query?: string
+                        }
                     }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingFingerprintProjectionQuery) {
-                        return [200, STORY_FINGERPRINT_PROJECTION_RESPONSE]
-                    }
                     if (body.query?.kind === NodeKind.EventsQuery) {
+                        if (body.query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                            return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
+                        }
                         return body.query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
@@ -489,9 +522,12 @@ const meta: Meta = {
                     if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
                         return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    if (body.query?.kind === NodeKind.HogQLQuery) {
+                        return body.query.query?.includes('$exception_fingerprint')
+                            ? [200, STORY_FINGERPRINT_SAMPLES_RESPONSE]
+                            : [200, { results: [] }]
+                    }
+                    return [200, STORY_SUMMARY_RESPONSE]
                 },
                 '/api/environments/:team_id/error_tracking/stack_frames/batch_get/': [
                     200,
@@ -506,6 +542,75 @@ export default meta
 type Story = StoryObj<{}>
 export const ListPage: Story = {}
 
+// The eight day buckets the insights tab spans under the story's mocked date and default range.
+const STORY_INSIGHTS_BUCKETS = [
+    '2024-07-02 00:00:00',
+    '2024-07-03 00:00:00',
+    '2024-07-04 00:00:00',
+    '2024-07-05 00:00:00',
+    '2024-07-06 00:00:00',
+    '2024-07-07 00:00:00',
+    '2024-07-08 00:00:00',
+    '2024-07-09 00:00:00',
+]
+
+// exceptions, affected users, sessions, sessions with a crash, releases — per bucket.
+const STORY_INSIGHTS_SERIES: number[][] = [
+    [26, 14, 168, 9, 2],
+    [22, 12, 174, 8, 2],
+    [19, 11, 181, 7, 2],
+    [24, 13, 176, 9, 3],
+    [17, 9, 188, 6, 3],
+    [15, 8, 192, 5, 3],
+    [18, 10, 179, 6, 3],
+    [16, 9, 182, 6, 3],
+]
+
+const STORY_INSIGHTS_RELEASES: [string, string, string, [string, number][]][] = [
+    [
+        'web',
+        '2.4.0',
+        '',
+        [
+            ['2024-07-05 00:00:00', 9],
+            ['2024-07-06 00:00:00', 11],
+            ['2024-07-07 00:00:00', 13],
+            ['2024-07-08 00:00:00', 14],
+            ['2024-07-09 00:00:00', 12],
+        ],
+    ],
+    [
+        'web',
+        '2.3.1',
+        '',
+        [
+            ['2024-07-02 00:00:00', 18],
+            ['2024-07-03 00:00:00', 15],
+            ['2024-07-04 00:00:00', 12],
+            ['2024-07-05 00:00:00', 10],
+        ],
+    ],
+    [
+        'ios',
+        '4.1',
+        '881',
+        [
+            ['2024-07-03 00:00:00', 5],
+            ['2024-07-04 00:00:00', 5],
+            ['2024-07-06 00:00:00', 4],
+        ],
+    ],
+    [
+        '',
+        '',
+        '',
+        [
+            ['2024-07-02 00:00:00', 8],
+            ['2024-07-07 00:00:00', 5],
+        ],
+    ],
+]
+
 export const InsightsPage: Story = {
     parameters: { pageUrl: urls.errorTracking({ activeTab: 'insights' }) },
     decorators: [
@@ -515,12 +620,30 @@ export const InsightsPage: Story = {
                     const body = (await request.json()) as {
                         query?: {
                             kind?: string
+                            query?: string
                             series?: { custom_name?: string }[]
                             trendsFilter?: { formulaNodes?: { custom_name?: string }[] }
                         }
                     }
                     if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return [200, { results: [[157, 76, 1240, 42]] }]
+                        const hogql = body.query.query ?? ''
+                        // The three HogQL queries behind the tab return different shapes, so the mock
+                        // keys off a phrase unique to each rather than answering them all alike.
+                        if (hogql.includes('previous_exceptions')) {
+                            return [200, { results: [[157, 186, 76, 71, 1240, 1190, 42, 51, 3, 2]] }]
+                        }
+                        if (hogql.includes('groupArray')) {
+                            return [200, { results: STORY_INSIGHTS_RELEASES }]
+                        }
+                        return [
+                            200,
+                            {
+                                results: STORY_INSIGHTS_BUCKETS.map((bucket, index) => [
+                                    bucket,
+                                    ...STORY_INSIGHTS_SERIES[index],
+                                ]),
+                            },
+                        ]
                     }
                     const label =
                         body.query?.trendsFilter?.formulaNodes?.[0]?.custom_name ??
@@ -576,20 +699,26 @@ function IssueScenePreviewStory({
     openBreakdown,
     propertyFilter,
     releasesViewMode,
+    manageFingerprintsOpen,
 }: {
     activePreview: IssueFilterPreview
     selectedEventProperties?: string
     openBreakdown?: BreakdownPreset
     propertyFilter?: { key: string; value: string }
     releasesViewMode?: IssueReleasesViewMode
+    manageFingerprintsOpen?: boolean
 }): JSX.Element {
     const { applyPropertyFilter, setActivePreview, setReleasesViewMode } = useActions(issueFilterPreviewLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic({ id: ISSUE_ID }))
     const { openBreakdownDetails } = useActions(miniBreakdownsLogic({ issueId: ISSUE_ID }))
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId: FINGERPRINT_LIST_ISSUE_ID }))
 
     useLayoutEffect(() => {
         setActivePreview(activePreview)
         setReleasesViewMode(releasesViewMode ?? 'list')
+        if (manageFingerprintsOpen) {
+            openManage()
+        }
         if (selectedEventProperties) {
             selectEvent({
                 event: '$exception',
@@ -615,6 +744,8 @@ function IssueScenePreviewStory({
         applyPropertyFilter,
         openBreakdown,
         openBreakdownDetails,
+        manageFingerprintsOpen,
+        openManage,
         propertyFilter,
         releasesViewMode,
         selectEvent,
@@ -654,6 +785,14 @@ export const ListPageWithIngestionWarning: Story = {
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+}
+
+export const GroupPageWithVisionCrossSell: Story = {
+    name: 'Issue scene with Replay vision cross-sell',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_ERROR_TRACKING],
+    },
 }
 
 export const GroupPageManyAssignees: Story = {
@@ -710,13 +849,19 @@ export const GroupPageCappedBreakdownPanel: Story = {
     ),
 }
 
-export const GroupPageFingerprintMap: Story = {
-    name: 'Issue scene with fingerprint map',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
-    },
+export const GroupPageFingerprintList: Story = {
+    name: 'Issue scene with fingerprint list',
+    parameters: { pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
+}
+
+export const GroupPageManageFingerprints: Story = {
+    name: 'Issue scene with manage fingerprints',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_SPLITTING],
+    },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" manageFingerprintsOpen />,
 }
 
 export const GroupPageReleases: Story = {

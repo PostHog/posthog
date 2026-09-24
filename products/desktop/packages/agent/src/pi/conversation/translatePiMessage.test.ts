@@ -194,6 +194,224 @@ describe("createPiMessageTranslator", () => {
     ]);
   });
 
+  it("adds canonical metadata to a bridged MCP tool result", () => {
+    const translator = createPiMessageTranslator();
+    const content: ToolResultMessage["content"] = [
+      { type: "text", text: "ok" },
+    ];
+
+    expect(
+      translator.translateToolExecutionEnd(
+        "action-1",
+        "mcp_posthog_code_tools_show_actions",
+        {
+          content,
+          details: {
+            posthog: {
+              mcp: { server: "posthog-code-tools", tool: "show_actions" },
+            },
+          },
+        },
+        false,
+        false,
+        12,
+      ),
+    ).toMatchObject([
+      {
+        type: "tool_call_updated",
+        toolCall: {
+          _meta: {
+            posthog: {
+              toolName: "mcp__posthog-code-tools__show_actions",
+              mcp: {
+                server: "posthog-code-tools",
+                tool: "show_actions",
+              },
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("keeps current-work calls out of the conversation", () => {
+    const translator = createPiMessageTranslator();
+    const message = makeAssistant([
+      {
+        id: "current-work-1",
+        type: "toolCall",
+        name: "set_current_work",
+        arguments: { status: "Writing regression tests" },
+      } as never,
+    ]);
+    const result: ToolResultMessage = {
+      role: "toolResult",
+      toolCallId: "current-work-1",
+      toolName: "set_current_work",
+      content: [
+        { type: "text", text: "Current work: Writing regression tests" },
+      ],
+      isError: false,
+      timestamp: 2,
+    };
+
+    expect(translator.translate(message)).toEqual([]);
+    expect(
+      translator.translateToolExecutionStart(
+        "current-work-1",
+        "set_current_work",
+        { status: "Writing regression tests" },
+        1,
+      ),
+    ).toEqual([]);
+    expect(
+      translator.translateToolExecutionUpdate(
+        "current-work-1",
+        "set_current_work",
+        { status: "Writing regression tests" },
+        { content: [] },
+        1,
+      ),
+    ).toEqual([]);
+    expect(
+      translator.translateToolExecutionEnd(
+        "current-work-1",
+        "set_current_work",
+        { content: [] },
+        false,
+        false,
+        2,
+      ),
+    ).toEqual([]);
+    expect(translator.translate(result)).toEqual([]);
+  });
+
+  it.each([
+    {
+      caseName: "directly-registered tool",
+      details: {
+        posthog: {
+          mcp: {
+            server: "posthog",
+            tool: "exec",
+            result: {
+              structuredContent: { results: [1, 2] },
+              _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+            },
+          },
+        },
+      },
+    },
+    {
+      caseName: "mcp proxy tool",
+      details: {
+        kind: "call",
+        server: "posthog",
+        tool: "exec",
+        piName: "mcp_demo_exec",
+        posthog: {
+          mcp: {
+            server: "posthog",
+            tool: "exec",
+            result: {
+              structuredContent: { results: [1, 2] },
+              _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+            },
+          },
+        },
+      },
+    },
+  ])(
+    "keeps a result's UI-app fields on rawOutput ($caseName)",
+    ({ details }) => {
+      const translator = createPiMessageTranslator();
+      const content: ToolResultMessage["content"] = [
+        {
+          type: "text",
+          text: "Full result is in this response's structuredContent field.",
+        },
+      ];
+
+      expect(
+        translator.translateToolExecutionEnd(
+          "exec-1",
+          "mcp",
+          { content, details },
+          false,
+          false,
+          12,
+        ),
+      ).toMatchObject([
+        {
+          type: "tool_call_updated",
+          toolCall: {
+            _meta: {
+              posthog: {
+                toolName: "mcp__posthog__exec",
+                mcp: { server: "posthog", tool: "exec" },
+              },
+            },
+            rawOutput: {
+              content,
+              structuredContent: { results: [1, 2] },
+              _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+            },
+          },
+        },
+      ]);
+    },
+  );
+
+  it("bounds an oversized MCP result on rawOutput (regression)", () => {
+    const translator = createPiMessageTranslator();
+    const content: ToolResultMessage["content"] = [
+      {
+        type: "text",
+        text: "x".repeat(1_100_000),
+      },
+    ];
+
+    expect(
+      translator.translateToolExecutionEnd(
+        "exec-1",
+        "mcp",
+        {
+          content,
+          details: {
+            posthog: {
+              mcp: {
+                server: "posthog",
+                tool: "exec",
+                result: {
+                  structuredContent: { rows: "y".repeat(1_100_000) },
+                  _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+                },
+              },
+            },
+          },
+        },
+        false,
+        false,
+        12,
+      ),
+    ).toMatchObject([
+      {
+        type: "tool_call_updated",
+        toolCall: {
+          rawOutput: {
+            content: [
+              {
+                type: "text",
+                text: expect.stringContaining("too large to store"),
+              },
+            ],
+            _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+          },
+        },
+      },
+    ]);
+  });
+
   it("classifies ls as a directory listing", () => {
     const translator = createPiMessageTranslator();
     const message = makeAssistant([
@@ -235,6 +453,7 @@ describe("createPiMessageTranslator", () => {
         "read-1",
         "read",
         { content },
+        false,
         false,
         2,
       ),

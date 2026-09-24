@@ -160,15 +160,16 @@ class TestApproveRun:
         ("result", "approve_all", "expect_committed"),
         [
             ("new", False, True),
-            ("changed", False, False),
+            ("changed", False, True),
             ("new", True, False),
+            ("changed", True, False),
         ],
     )
-    def test_finalize_commits_quarantined_new_only_when_approved_by_identifier(
+    def test_finalize_commits_quarantined_only_when_approved_by_identifier(
         self, repo, user, mocker, result, approve_all, expect_committed
     ):
-        # A quarantined NEW snapshot has no entry to protect, so an explicit approval lands in the
-        # commit. A quarantined CHANGED one keeps its entry, and approve_all never touches quarantine.
+        # An explicit approval commits a quarantined snapshot, so its baseline can follow the story.
+        # approve_all never touches quarantine, so a flapping hash cannot land in bulk.
         run = self._completed_quarantined_run(repo, mocker, result)
         if not approve_all:
             approvals.approve_snapshots(

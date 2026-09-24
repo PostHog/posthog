@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockCaptureToolCall, mockCaptureInitialize, mockCapture } = vi.hoisted(() => ({
+const { mockCaptureToolCall, mockCaptureInitialize, mockCaptureToolsList, mockCapture } = vi.hoisted(() => ({
     mockCaptureToolCall: vi.fn(),
     mockCaptureInitialize: vi.fn(),
+    mockCaptureToolsList: vi.fn(),
     // Raw `capture`; must never be used for the retired legacy `mcp_*` event names.
     mockCapture: vi.fn(),
 }))
@@ -11,12 +12,25 @@ vi.mock('@/lib/posthog', () => ({
     getPostHogClient: vi.fn(() => ({
         captureToolCall: mockCaptureToolCall,
         captureInitialize: mockCaptureInitialize,
+        captureToolsList: mockCaptureToolsList,
         capture: mockCapture,
     })),
 }))
 
-import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall, trackToolSpan } from '@/hono/analytics'
+import {
+    trackExecuteSqlGeneration,
+    trackInitEvent,
+    trackSkillInvoked,
+    trackToolCall,
+    trackToolsList,
+    trackToolSpan,
+} from '@/hono/analytics'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
+import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
@@ -63,12 +77,10 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         },
         allTools: [],
         scopeGatedTools: [],
+        flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -77,6 +89,7 @@ describe('Hono MCP analytics contexts', () => {
     beforeEach(() => {
         mockCaptureToolCall.mockClear()
         mockCaptureInitialize.mockClear()
+        mockCaptureToolsList.mockClear()
         mockCapture.mockClear()
     })
 
@@ -88,10 +101,40 @@ describe('Hono MCP analytics contexts', () => {
         expect(mockCapture).not.toHaveBeenCalled()
     })
 
+    it.each([
+        { impersonated: true, isError: false },
+        { impersonated: true, isError: true },
+        { impersonated: false, isError: false },
+        { impersonated: false, isError: true },
+    ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
+        const state = makeState({ isImpersonated: impersonated })
+
+        await trackToolCall('user-get', 12, isError, state, { is_impersonated: !impersonated })
+        await trackInitEvent(state)
+        await trackToolsList(['user-get'], state)
+
+        expect(mockCaptureToolCall).toHaveBeenCalledWith(
+            expect.objectContaining({
+                toolName: 'user-get',
+                isError,
+                properties: expect.objectContaining({ is_impersonated: impersonated }),
+            })
+        )
+        for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
+            expect(capture).toHaveBeenCalledWith(
+                expect.objectContaining({ properties: expect.objectContaining({ is_impersonated: impersonated }) })
+            )
+        }
+    })
+
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
         await trackInitEvent(makeState())
 
         expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
+        // The SDK maps its own `conversationId` field, so the property is stamped only when a
+        // handle exists. An explicit `undefined` would erase the SDK's value.
+        expect(mockCaptureInitialize.mock.calls[0]![0].conversationId).toBe('conversation-request')
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties.$mcp_conversation_id).toBe('conversation-request')
         expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',
@@ -99,12 +142,11 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_protocol_version: '2025-03-26',
             $mcp_transport: 'streamable-http',
             $mcp_session_id: 'mcp-session-request',
-            $mcp_conversation_id: 'conversation-request',
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',
             $mcp_auth_method: 'personal_api_key',
-            mcp_vendor_client: 'ClaudeAI',
+            $mcp_vendor_client: 'ClaudeAI',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',
             mcp_session_protocol_version: '2025-03-26',
@@ -139,6 +181,16 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
 
+    it.each([
+        { llmModel: undefined, llmModelMissingReason: 'unknown' as const, expected: 'unknown' },
+        { llmModel: 'example-model', llmModelMissingReason: 'unknown' as const, expected: undefined },
+        { llmModel: undefined, llmModelMissingReason: undefined, expected: undefined },
+    ])('emits a missing model reason only for unresolved calls: $llmModel', async ({ expected, ...analyticsMeta }) => {
+        await trackToolCall('user-get', 12, false, makeState(), undefined, analyticsMeta)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
+    })
+
     it('categorizes a proxied third-party tool and names its server', async () => {
         // A gateway tool has no catalog entry, so without the fallback it lands
         // uncategorized and disappears from every category-sliced view.
@@ -165,7 +217,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: live value wins when both live and session values are present',
             async (eventProp, contextField) => {
@@ -184,7 +236,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: falls back to the session-pinned value when the live request has none (the tools/call case)',
             async (eventProp, contextField) => {
@@ -203,7 +255,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: stays undefined (never an empty string) when both live and session values are absent',
             async (eventProp, contextField) => {
@@ -225,7 +277,7 @@ describe('Hono MCP analytics contexts', () => {
                 $mcp_client_version: '2.0',
                 $mcp_protocol_version: '2025-03-26',
                 $mcp_consumer: 'request-consumer',
-                mcp_vendor_client: 'ClaudeAI',
+                $mcp_vendor_client: 'ClaudeAI',
             })
         })
 
@@ -350,6 +402,31 @@ describe('Hono MCP analytics contexts', () => {
     })
 
     describe('trackToolSpan', () => {
+        it.each(['posthog_ai', 'claude'])(
+            'captures model output without adding native widget data for %s',
+            async (consumer) => {
+                const state = makeState()
+                const appData = { rows: [{ value: 'widget-only-data' }] }
+                const output = {
+                    content: [{ type: 'text', text: '1 row' }],
+                    _meta: { 'com.posthog.mcp/app_data': appData, resourceUri: 'ui://query' },
+                }
+                await trackToolSpan(
+                    'query-trends',
+                    {
+                        ...state,
+                        clientProfile: new MCPClientProfile({ consumer }),
+                    },
+                    { durationMs: 100, isError: false, output }
+                )
+
+                const captured = JSON.parse(mockCapture.mock.calls[0]![0].properties.$ai_output_state)
+                expect(captured.content).toEqual(output.content)
+                expect(captured._meta).toEqual(consumer === 'posthog_ai' ? { resourceUri: 'ui://query' } : output._meta)
+                expect(output._meta['com.posthog.mcp/app_data']).toBe(appData)
+            }
+        )
+
         it.each([
             ['a non-execute-sql tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
             ['any other non-execute-sql tool', 'query-logs', { query: 'SELECT 1' }, true],
@@ -478,6 +555,70 @@ describe('Hono MCP analytics contexts', () => {
 
             const { $ai_input_state } = mockCapture.mock.calls[0]![0].properties
             expect(JSON.parse($ai_input_state).payload[field]).toBe(redacted ? '[redacted]' : 'sensitive-value')
+        })
+    })
+
+    describe('trackSkillInvoked', () => {
+        it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
+            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            async (readKind) => {
+                await trackSkillInvoked(makeState(), {
+                    source: 'posthog',
+                    skill: 'retention-analysis',
+                    path: readKind === 'skill' ? undefined : 'references/functions.md',
+                    readKind,
+                })
+
+                expect(mockCapture).toHaveBeenCalledTimes(1)
+                expect(mockCapture.mock.calls[0]![0]).toMatchObject({
+                    event: 'skill invoked',
+                    properties: {
+                        skill_identifier: 'posthog:retention-analysis',
+                        skill_read_kind: readKind,
+                    },
+                })
+            }
+        )
+    })
+
+    describe('exec learn catalog skill-invoked dedupe', () => {
+        function skillsCatalog(): SkillCatalog {
+            return new SkillCatalog([
+                {
+                    name: 'retention-analysis',
+                    description: 'Retention.',
+                    files: [
+                        makeSkillFile('SKILL.md', '# Retention'),
+                        makeSkillFile('a.md', 'alpha'),
+                        makeSkillFile('b.md', 'beta'),
+                    ],
+                },
+                { name: 'funnels', description: 'Funnels.', files: [makeSkillFile('SKILL.md', '# Funnels')] },
+            ])
+        }
+
+        function skillsState(): ResolvedState {
+            return makeState({
+                clientProfile: { isClaudeChatHost: () => false } as any,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            })
+        }
+
+        it('counts one skill once per command but each command separately', async () => {
+            const catalog = new InstructionsBuilder('').buildExecLearnCatalog(skillsState(), skillsCatalog())!
+
+            // A batch that reads two files of one skill must dedupe to a single event.
+            await catalog.execute('posthog:retention-analysis a.md b.md')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(1))
+
+            // A separate command reading another skill still counts.
+            await catalog.execute('posthog:funnels')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(2))
+
+            expect(mockCapture.mock.calls.map((call) => call[0].properties.skill_identifier)).toEqual([
+                'posthog:retention-analysis',
+                'posthog:funnels',
+            ])
         })
     })
 })

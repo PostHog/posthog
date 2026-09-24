@@ -561,7 +561,8 @@ export const EvaluationsCreateParams = () => zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
+
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -609,7 +610,9 @@ export const EvaluationsCreateBody = () => zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -625,20 +628,48 @@ export const EvaluationsCreateBody = () => zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'sentiment'])
+            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
             .describe(
-                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
+                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
+                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                step: zod
+                    .number()
+                    .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
+                    .nullish()
+                    .describe('Optional positive input increment. Does not round evaluation results.'),
+                passing_rule: zod
+                    .object({
+                        operator: zod
+                            .enum(['gte', 'lte'])
+                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                        threshold: zod
+                            .number()
+                            .describe('Finite passing threshold within any configured score bounds.'),
+                    })
+                    .nullish()
+                    .describe(
+                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+            ),
         conditions: zod
             .array(
                 zod
@@ -776,7 +807,8 @@ export const EvaluationsPartialUpdateParams = () => zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
+
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -825,7 +857,9 @@ export const EvaluationsPartialUpdateBody = () => zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -841,21 +875,49 @@ export const EvaluationsPartialUpdateBody = () => zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'sentiment'])
+            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
             .optional()
             .describe(
-                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
+                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
+                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                step: zod
+                    .number()
+                    .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
+                    .nullish()
+                    .describe('Optional positive input increment. Does not round evaluation results.'),
+                passing_rule: zod
+                    .object({
+                        operator: zod
+                            .enum(['gte', 'lte'])
+                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                        threshold: zod
+                            .number()
+                            .describe('Finite passing threshold within any configured score bounds.'),
+                    })
+                    .nullish()
+                    .describe(
+                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+            ),
         conditions: zod
             .array(
                 zod
@@ -995,6 +1057,9 @@ export const EvaluationsTestHogCreateParams = () => zod.object({
         ),
 })
 
+export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
+export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
+
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
@@ -1009,10 +1074,52 @@ export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin = 
 export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
 
 export const EvaluationsTestHogCreateBody = () => zod.object({
+    output_type: zod
+        .enum(['boolean', 'numeric'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric')
+        .default(evaluationsTestHogCreateBodyOutputTypeDefault)
+        .describe(
+            'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric'
+        ),
+    output_config: zod
+        .object({
+            allows_na: zod
+                .boolean()
+                .optional()
+                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            true_is_failure: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                ),
+            min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
+            max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+            step: zod
+                .number()
+                .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
+                .nullish()
+                .describe('Optional positive input increment. Does not round evaluation results.'),
+            passing_rule: zod
+                .object({
+                    operator: zod
+                        .enum(['gte', 'lte'])
+                        .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                    threshold: zod.number().describe('Finite passing threshold within any configured score bounds.'),
+                })
+                .nullish()
+                .describe(
+                    'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                ),
+        })
+        .optional()
+        .describe('Output settings used to validate the preview, including numeric bounds and allows_na.'),
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N\/A.'),
+        .describe(
+            'Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+        ),
     sample_count: zod
         .number()
         .min(1)
@@ -2066,7 +2173,11 @@ export const LlmPromptsListParams = () => zod.object({
 })
 
 export const llmPromptsListQueryContentDefault = `full`
+export const llmPromptsListQueryLabelMax = 128
+
 export const llmPromptsListQueryOrderByDefault = `-created_at`
+
+export const llmPromptsListQueryResolveDefault = true
 
 export const LlmPromptsListQueryParams = () => zod.object({
     content: zod
@@ -2076,6 +2187,14 @@ export const LlmPromptsListQueryParams = () => zod.object({
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsListQueryLabelMax)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -2084,6 +2203,12 @@ export const LlmPromptsListQueryParams = () => zod.object({
         .default(llmPromptsListQueryOrderByDefault)
         .describe(
             "Field to sort the prompt list by. Prefix with '-' for descending order.\n\n\* `name` - name\n\* `-name` - -name\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at\n\* `version` - version\n\* `-version` - -version\n\* `latest_version` - latest_version\n\* `-latest_version` - -latest_version\n\* `version_count` - version_count\n\* `-version_count` - -version_count\n\* `first_version_created_at` - first_version_created_at\n\* `-first_version_created_at` - -first_version_created_at\n\* `prompt_size_bytes` - prompt_size_bytes\n\* `-prompt_size_bytes` - -prompt_size_bytes"
+        ),
+    resolve: zod
+        .boolean()
+        .default(llmPromptsListQueryResolveDefault)
+        .describe(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags."
         ),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
@@ -2133,6 +2258,8 @@ export const LlmPromptsNameRetrieveParams = () => zod.object({
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
 export const llmPromptsNameRetrieveQueryLabelMax = 128
 
+export const llmPromptsNameRetrieveQueryResolveDefault = true
+
 export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
@@ -2147,6 +2274,12 @@ export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
+        ),
+    resolve: zod
+        .boolean()
+        .default(llmPromptsNameRetrieveQueryResolveDefault)
+        .describe(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'."
         ),
     version: zod
         .number()

@@ -50,6 +50,8 @@ User ─────────────────────────
 
 ## Components
 
+For combined task creation, run-start responses, and MCP tools, see [Create tasks and start runs](../../../../../docs/internal/task-run-api.md).
+
 ### PostHog API
 
 `backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
@@ -148,6 +150,88 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 | Sandbox JWT     | RS256 tokens from `backend/services/connection_token.py`. 24h expiry, audience `posthog:sandbox_connection`       |
 | GitHub App      | Installation access tokens via the team's GitHub integration                                                      |
 | API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints                                            |
+
+### Claude subscription token relay
+
+A run created with `claude_model_access: "own-subscription"` uses the user's Claude plan for model usage.
+Sandbox compute still uses PostHog credits.
+The `posthog-code-claude-own-subscription-cloud` flag controls rollout.
+If the backend cannot confirm that the flag is enabled, an explicitly requested subscription run fails without switching to PostHog billing.
+
+Desktop stores a `claude setup-token` token in its encrypted local store.
+The server records the user who selected subscription billing in protected run state.
+Desktop and the command endpoint check this owner before sending a token.
+Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
+The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
+Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
+The separate event-ingest rollout flag does not control this path.
+The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
+If no token arrives within 120 seconds, the run fails with setup instructions.
+
+Subscription runs require the `--claudeSubscription` startup option.
+The launcher checks support before starting the process.
+Health polls stop at a wall-clock budget (120 seconds, or 150 for subscription runs) even when each poll is slow, and the exec limit sits a few seconds above that budget, leaving time for setup and diagnostics within the five-minute activity.
+When the exec limit is still hit, the launcher collects the same startup diagnostics as a failed poll and raises `SandboxTimeoutError` with them, because the Modal SDK reports an expired exec as return code -1 rather than raising.
+The PID check applies only when the PID file exists, so servers launched before deployment can still pass the health check.
+Continuation inherits the selected billing mode unless the caller explicitly changes it.
+Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.
+
+### ChatGPT subscription access tokens
+
+A run created with `codex_model_access: "own-subscription"` uses the user's ChatGPT plan for model usage.
+The `posthog-code-codex-own-subscription-cloud` flag controls rollout, and the run must use the Codex runtime.
+Owner recording and the owner check on `/command/` match the Claude path.
+No ChatGPT token travels through the credential relay. Desktop reads the local `auth.json` at connect time and uploads its tokens to PostHog. It deletes that file after acceptance if cleanup succeeds. A failed upload or cleanup can leave the file behind. Cloud runs do not use that local file.
+
+The user connects a ChatGPT account once: Desktop runs `codex login --device-auth` in an in-app terminal with a separate `CODEX_HOME`, then submits the resulting `auth.json` to `POST /api/users/@me/integrations/codex/`.
+The server refreshes the chain once, stores the rotated refresh token in a `UserIntegration` row (`kind="codex"`), and never returns it.
+`get_task_processing_context` fails the run early when the plan owner has no connected account or the account needs a new login.
+
+At launch the activity mints a run-scoped JWT (audience `posthog:sandbox_codex_subscription`, bound to the run and the sandbox id).
+The launcher writes it to a `chmod 600` file and the launch shell opens that file on fd 3 and deletes it before the agent-server starts, so the token is never in the environment or the command line.
+The agent-server reads fd 3 once at boot and closes it, so processes it starts never see the token.
+The launcher also tries to set `kernel.yama.ptrace_scope=1`. This is best effort only: the write fails in most containers because `/proc/sys` is read-only, and the local Docker sandbox runs with `CAP_SYS_PTRACE` for agentsh, which bypasses Yama.
+Code that runs inside the sandbox is trusted with the run's model access for the lifetime of the run in any case, because the Codex process itself holds the access token.
+
+The agent-server calls `POST /runs/{run_id}/subscription_token/` with its sandbox OAuth token and the run token in `X-Task-Run-Token`.
+The endpoint accepts only the run's own sandbox identity plus a valid run token for the same run and sandbox, and it returns a short-lived access token, the account id, the plan type, and the expiry.
+When Codex reports the token as rejected, the agent-server asks again with the SHA-256 digest of the rejected token. The server refreshes under a row lock only when that digest names the token it still holds, so two runs of one user that report the same token trigger one refresh and both receive the replacement.
+A dead chain answers `409 reauth_required`; the run stops with a message that names the settings page.
+
+```mermaid
+sequenceDiagram
+  participant W as Task worker
+  participant S as Sandbox shell
+  participant A as Agent server
+  participant C as Codex
+  participant P as PostHog API
+  participant O as OpenAI
+  W->>W: Mint a run token bound to the run and the sandbox
+  W->>S: Write the token to a chmod 600 file
+  S->>S: Open the file as fd 3, delete the file, exec the agent server
+  A->>A: Read fd 3 once and close it
+  A->>P: POST runs/{run_id}/subscription_token/ (sandbox OAuth + X-Task-Run-Token)
+  P->>P: Row lock. Refresh only when the access token is near expiry.
+  P->>O: Refresh with the stored refresh token
+  O-->>P: New access token + rotated refresh token
+  P-->>A: Access token, account id, plan type, expiry
+  A->>C: Start codex in chatgptAuthTokens mode
+  C->>O: Model calls
+  O-->>C: 401
+  C->>A: Refresh request (10 s)
+  A->>P: POST subscription_token/ with the rejected token digest
+  P-->>A: New token, or 409 reauth_required, or 502 openai_unavailable
+  A-->>C: New token, or the run stops
+```
+
+Codex in the sandbox signs in with `chatgptAuthTokens`, which forces ephemeral storage and writes no auth file.
+The sandbox OAuth token of a plan run (Claude or ChatGPT) omits `llm_gateway:read`, so nothing in the sandbox can reach the LLM gateway and bill PostHog credits.
+A sandbox environment with a restricted network gets `chatgpt.com` added to its allowlist when the run is on a ChatGPT plan, because Codex calls it directly.
+Subscription runs require the `--codexSubscription` startup option, and the launcher checks support before it starts the process.
+Cloud usage and local usage share one plan allowance, so a run can stop at a plan rate limit that no PostHog quota controls.
+
+Keep the flag off while deploying the backend and publishing the sandbox agent build, then enable it for the intended users.
+Desktop and backend use the same flag; a stale client cannot bypass the backend check.
 
 ## Sandbox providers
 

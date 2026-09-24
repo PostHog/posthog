@@ -7,11 +7,13 @@ import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasConnectorCallResult,
   CanvasDraft,
   CanvasSource,
   CanvasStateEntry,
   CanvasStateScope,
   CanvasVersion,
+  CanvasView,
   DashboardRecord,
 } from "./dashboardSchemas";
 import type {
@@ -44,6 +46,8 @@ export interface IDashboardsService {
   listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
   listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
+  // Everything needed to open a canvas, in one round trip.
+  view(id: string): Promise<CanvasView>;
   create(input: {
     channelId: string;
     name: string;
@@ -70,7 +74,6 @@ export interface IDashboardsService {
     prompt?: string;
     expectedCurrentVersionId: string | null;
   }): Promise<CanvasLayoutResult>;
-  saveContext(input: { id: string; context: string }): Promise<DashboardRecord>;
   setGenerationTask(input: {
     id: string;
     taskId: string | null;
@@ -103,6 +106,14 @@ export interface IDashboardsService {
     verb: string;
     payload: Record<string, unknown>;
   }): Promise<CanvasActionResult>;
+  // Call one declared connector tool with the viewer's own connection.
+  callConnector(input: {
+    id: string;
+    provider: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+    approval_token?: string;
+  }): Promise<CanvasConnectorCallResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).

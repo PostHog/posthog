@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { FileSystemIconColor, ProductManifest } from '~/types'
 
 import type { WarehousePropertiesSceneTab } from './frontend/scenes/WarehousePropertiesScene/warehousePropertiesSceneLogic'
 
@@ -25,6 +25,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Account details',
             iconType: 'cohort',
+            layout: 'app-full-scene-height',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>
@@ -51,20 +52,39 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        // Match before UUID routes; the wildcard also accepts characters excluded from named segments.
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
         // The detail scene serves these paths behind its flag and falls back to the list for legacy deep links.
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
+        '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
         '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
         '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
@@ -84,9 +104,12 @@ export const manifest: ProductManifest = {
         // Account detail path. The flag-off scene falls back to the filtered, expanded Accounts list.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
             `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+        customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
+            `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+        customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
         customerAnalyticsFeatureRequests: (requestId?: string): string =>
             `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
@@ -104,6 +127,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.CUSTOMER_ANALYTICS],
             category: ProductItemCategory.ANALYTICS,
             iconType: 'cohort',
+            iconColor: [
+                'var(--color-product-customer-analytics-light)',
+                'var(--color-product-customer-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.customerAnalytics(),
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,

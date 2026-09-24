@@ -84,7 +84,7 @@
         "fsevents": "^2.3.3"
     },
     "lint-staged": {
-        ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
+        ".claude/settings.json": "sh -c '.github/scripts/check-claude-settings.sh'",
         "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
         "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
         "products/**/manifest.tsx": [
@@ -101,7 +101,7 @@
         "products/desktop/**/*.{js,mjs,ts,tsx,json,jsonc,css}": "pnpm --dir products/desktop exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
         "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
-        "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
+        "!(posthog/hogql/grammar/*|products/*/skills/*/scripts/*|products/stamphog/packages/*/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
             "uv run --no-sync ty check"

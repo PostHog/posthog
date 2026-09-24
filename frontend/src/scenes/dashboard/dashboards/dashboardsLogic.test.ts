@@ -97,7 +97,9 @@ describe('dashboardsLogic', () => {
         initKeaTests()
 
         dashboardsModel.mount()
-        await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+        await expectLogic(dashboardsModel, () => dashboardsModel.actions.loadDashboardsIfNeeded()).toDispatchActions([
+            'loadDashboardsSuccess',
+        ])
         sceneLogic({ scenes }).mount()
 
         logic = dashboardsLogic({ tabId: '1' })
@@ -158,6 +160,22 @@ describe('dashboardsLogic', () => {
 
         expect(logic.values.filters.createdBy).toBe('All users')
         expect(router.values.searchParams.created_by).toBeUndefined()
+    })
+
+    it('replaces tag results for a new search and appends the next page', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadTagResultsSuccess(
+                { next: 'next-page', previous: null, results: ['alpha', 'beta'] },
+                { search: '', offset: 0 }
+            )
+        }).toMatchValues({ hasMoreTagResults: true, tagResults: ['alpha', 'beta'] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTagResultsSuccess(
+                { next: null, previous: 'previous-page', results: ['gamma'] },
+                { search: '', offset: 2 }
+            )
+        }).toMatchValues({ hasMoreTagResults: false, tagResults: ['alpha', 'beta', 'gamma'] })
     })
 
     describe('reflecting a completed move', () => {

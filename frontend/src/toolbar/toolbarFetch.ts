@@ -115,15 +115,12 @@ export async function toolbarFetch(
         })
     })
 
-    const durationMs = Math.round(performance.now() - startTime)
-    const { pathname } = combineUrl(url)
-
-    toolbarPosthogJS.capture('toolbar api request', {
+    captureToolbarApiRequest({
+        url,
         method,
-        pathname,
         status: response.status,
-        duration_ms: durationMs,
-        did_token_retry: didRetry,
+        durationMs: Math.round(performance.now() - startTime),
+        didTokenRetry: didRetry,
     })
 
     if (response.status === 403) {
@@ -134,6 +131,35 @@ export async function toolbarFetch(
         toolbarConfigLogic.actions.tokenExpired()
     }
     return response
+}
+
+/**
+ * The one place that emits `toolbar api request`, so every toolbar request reports the same
+ * shape. Exported for the requests that cannot go through `toolbarFetch` — the entitlements
+ * load carries the session cookie rather than a bearer token, and still belongs in this
+ * telemetry.
+ */
+export function captureToolbarApiRequest({
+    url,
+    method,
+    status,
+    durationMs,
+    didTokenRetry = false,
+}: {
+    url: string
+    method: string
+    /** HTTP status, or 0 when the request never reached the server. */
+    status: number
+    durationMs: number
+    didTokenRetry?: boolean
+}): void {
+    toolbarPosthogJS.capture('toolbar api request', {
+        method,
+        pathname: combineUrl(url).pathname,
+        status,
+        duration_ms: durationMs,
+        did_token_retry: didTokenRetry,
+    })
 }
 
 export interface ToolbarMediaUploadResponse {

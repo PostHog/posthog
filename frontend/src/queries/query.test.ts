@@ -283,6 +283,98 @@ describe('query', () => {
         })
     })
 
+    describe('polling a query the server has forgotten', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const submitted = (id: string): any => ({ query_status: { id, complete: false } })
+        const forgotten = (): ApiError => new ApiError('Query not found', 404, undefined, { detail: 'Query not found' })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            delete (window as any).POSTHOG_EXPORTED_DATA
+        })
+
+        it('runs the query again when its status has expired', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(submitted('gone'))
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await expect(performQuery(query, undefined, 'async')).resolves.toMatchObject({
+                results: ['from the cache'],
+            })
+
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            // Same ID, so anything holding it still points at the run the user is waiting for.
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe('gone')
+        })
+
+        it('reads the cache on the retry rather than forcing the same work twice', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(submitted('gone'))
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await performQuery(query, undefined, 'force_async')
+
+            // force_async disregards the cache, and the first run already cached what it computed.
+            expect(querySpy.mock.calls[0][1]?.refresh).toBe('force_async')
+            expect(querySpy.mock.calls[1][1]?.refresh).toBe('async')
+        })
+
+        it.each([
+            ['an error that is not a 404', new ApiError('boom', 500)],
+            [
+                'a warehouse whose connection is down',
+                new ApiError('unavailable', 404, undefined, { code: 'managed_warehouse_connection_unavailable' }),
+            ],
+        ])('does not resubmit on %s', async (_name, failure) => {
+            const querySpy = jest.spyOn(api, 'query').mockResolvedValueOnce(submitted('gone'))
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(failure)
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({
+                status: failure.status,
+            })
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up when the second attempt is forgotten too', async () => {
+            jest.spyOn(api, 'query').mockResolvedValue(submitted('gone'))
+            const statusSpy = jest.spyOn(api.queryStatus, 'get').mockRejectedValue(forgotten())
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({ status: 404 })
+
+            expect(statusSpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('runs the query again for a tile resuming a recompute, which polls by id but holds the query', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await expect(
+                performQuery(query, undefined, 'async', 'resumed', undefined, undefined, undefined, true)
+            ).resolves.toMatchObject({ results: ['from the cache'] })
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not even try to resubmit from a shared or exported view', async () => {
+            const querySpy = jest.spyOn(api, 'query')
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+            ;(window as any).POSTHOG_EXPORTED_DATA = { type: 'embed' }
+
+            await expect(
+                performQuery(query, undefined, 'async', 'gone', undefined, undefined, undefined, true)
+            ).rejects.toMatchObject({ status: 404 })
+
+            expect(querySpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({

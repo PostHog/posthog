@@ -66,6 +66,7 @@ from ..models import (
     TeamMCPGatewayConfig,
 )
 from ..policy import GatewayCaller, PolicyContext, is_destructive_tool, is_policy_state_allowed
+from .visibility import slack_dev_mcp_ui_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -261,6 +262,13 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         default=None,
         help_text="Fixed authentication type for catalog templates. Null for custom servers, where members choose.",
     )
+    auth_type = serializers.SerializerMethodField(
+        help_text=(
+            "How members connect to this server: the template's type for catalog servers, or the type the "
+            "custom server was added with. Null only for custom servers registered before the type was "
+            "recorded; members then choose."
+        )
+    )
     icon_key = serializers.CharField(
         source="template.icon_key",
         read_only=True,
@@ -296,6 +304,9 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
     is_revoked_for_you = serializers.SerializerMethodField(
         help_text="True when an admin has turned this server off for the requesting user."
     )
+    is_team_enabled = serializers.SerializerMethodField(
+        help_text="True when this server is enabled and available to the project."
+    )
 
     class Meta:
         model = MCPGatewayServer
@@ -306,6 +317,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "description",
             "category",
             "template_auth_type",
+            "auth_type",
             "is_team_enabled",
             "icon_key",
             "icon_domain",
@@ -331,6 +343,18 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    @extend_schema_field(serializers.ChoiceField(choices=AUTH_TYPE_CHOICES, allow_null=True))
+    def get_auth_type(self, obj: MCPGatewayServer) -> str | None:
+        if obj.template is not None:
+            return obj.template.auth_type
+        return obj.auth_type or None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_team_enabled(self, obj: MCPGatewayServer) -> bool:
+        if obj.template is not None and not obj.template.oauth_credentials_source_is_allowed_for_team(obj.team_id):
+            return False
+        return obj.is_team_enabled
 
     @extend_schema_field(serializers.IntegerField())
     def get_tool_count(self, obj: MCPGatewayServer) -> int:
@@ -700,9 +724,16 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,
-                    # Mirrors the run-path predicate (reachable_agent_grants plus the
-                    # is_team_enabled filter), so pickers can hide grants a run cannot mount.
-                    "reachable": server.is_team_enabled and not getattr(access, "grant_owner_revoked", False),
+                    # Mirrors the run path's grant, server, and credential-source checks so
+                    # pickers can hide grants a run cannot mount.
+                    "reachable": (
+                        server.is_team_enabled
+                        and (
+                            server.template is None
+                            or server.template.oauth_credentials_source_is_allowed_for_team(server.team_id)
+                        )
+                        and not getattr(access, "grant_owner_revoked", False)
+                    ),
                 }
             )
         return servers
@@ -923,6 +954,10 @@ class MCPGatewayServerViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[MCPGatewayServer]) -> QuerySet[MCPGatewayServer]:
         servers = MCPGatewayServer.objects.for_team(self.team_id)
+        if servers.filter(template__oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
+            user=cast(User, self.request.user), team=self.team
+        ):
+            servers = servers.exclude(template__oauth_credentials_source="slack_dev_app")
         if not self._is_project_admin():
             user_id = cast(int, self.request.user.id)
             servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=user_id)
@@ -1122,7 +1157,7 @@ class MCPGatewayServerViewSet(
         self._require_project_admin()
         data = request.validated_data
         try:
-            template = MCPServerTemplate.objects.get(id=data["template_id"], is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=data["template_id"])
         except MCPServerTemplate.DoesNotExist:
             raise NotFound("Template not found.")
 

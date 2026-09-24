@@ -1,6 +1,12 @@
 import type { Adapter } from "./adapter";
+import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { modelHarnessMeta, restrictedModelMeta } from "./models";
+import { isOfferedModel, labelForModel } from "./model-catalog";
+import {
+  customModelMeta,
+  modelHarnessMeta,
+  restrictedModelMeta,
+} from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
 export interface GatewayModel {
@@ -47,37 +53,9 @@ export interface CloudTaskModePreset {
   description: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
+export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
-
-export const BLOCKED_GATEWAY_MODEL_IDS = [
-  "gpt-5-mini",
-  "openai/gpt-5-mini",
-  "gpt-5.2",
-  "openai/gpt-5.2",
-  "gpt-5.3",
-  "openai/gpt-5.3",
-  "gpt-5.3-codex",
-  "openai/gpt-5.3-codex",
-  "gpt-5.4",
-  "openai/gpt-5.4",
-  "claude-opus-4-5",
-  "anthropic/claude-opus-4-5",
-  "claude-opus-4-6",
-  "anthropic/claude-opus-4-6",
-  "claude-opus-4-7",
-  "anthropic/claude-opus-4-7",
-  "claude-sonnet-4-5",
-  "anthropic/claude-sonnet-4-5",
-  "claude-sonnet-4-6",
-  "anthropic/claude-sonnet-4-6",
-  "claude-haiku-4-5",
-  "anthropic/claude-haiku-4-5",
-  "@cf/zai-org/glm-5.2",
-] as const;
-
-const BLOCKED_GATEWAY_MODELS = new Set<string>(BLOCKED_GATEWAY_MODEL_IDS);
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 
 const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
   {
@@ -114,8 +92,11 @@ const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
 export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const url = new URL(posthogHost);
   let gatewayBaseUrl: string;
+  const custom = getCustomCloud();
 
-  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+  if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
+    gatewayBaseUrl = custom.gatewayUrl;
+  } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     gatewayBaseUrl = `${url.protocol}//localhost:3308`;
   } else if (url.hostname === "host.docker.internal") {
     gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
@@ -151,7 +132,7 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
 
   return entries
     .filter(isGatewayModel)
-    .filter((model) => !isBlockedModelId(model.id))
+    .filter((model) => isOfferedModel(model.id))
     .map((model) => ({
       id: model.id,
       owned_by: model.owned_by ?? "",
@@ -161,10 +142,6 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
       allowed: model.allowed !== false,
       restriction_reason: model.restriction_reason ?? null,
     }));
-}
-
-export function isBlockedModelId(modelId: string): boolean {
-  return BLOCKED_GATEWAY_MODELS.has(modelId.toLowerCase());
 }
 
 export function isAnthropicModel(model: GatewayModel): boolean {
@@ -187,18 +164,6 @@ export function isOpenAIModel(model: GatewayModel): boolean {
 
 export function isCloudflareModelId(modelId: string): boolean {
   return modelId.startsWith("@cf/");
-}
-
-export function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
-export function isGlm53ModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3";
-}
-
-export function isGlm53FlashModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
 }
 
 export function isCloudflareModel(model: GatewayModel): boolean {
@@ -290,12 +255,10 @@ function formatProviderModelName(modelId: string): string {
   return [head, ...tail].join(" ");
 }
 
-const MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
-};
-
 export function formatGatewayModelName(model: GatewayModel): string {
-  const displayName = MODEL_DISPLAY_NAMES[model.id];
+  // The catalog names the models whose derived name reads wrong, so web and desktop show
+  // the same string for them; everything else still goes through the formatters below.
+  const displayName = labelForModel(model.id);
   if (displayName) {
     return displayName;
   }
@@ -342,11 +305,6 @@ export function adapterForModelId(modelId: string): Adapter {
     ? "codex"
     : "claude";
 }
-
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 function buildModelSelectOptions(
   models: readonly GatewayModel[],
@@ -440,7 +398,10 @@ export function buildProviderModelGroups(
       value: currentValue,
       name: currentValue,
       description: "Custom model",
-      _meta: modelHarnessMeta(adapter),
+      _meta: {
+        ...modelHarnessMeta(adapter),
+        ...customModelMeta(),
+      },
     });
   }
 
@@ -492,6 +453,7 @@ export function buildCloudTaskConfigOptions(
       value: resolvedModelId,
       name: resolvedModelId,
       description: "Custom model",
+      _meta: customModelMeta(),
     });
   }
 

@@ -71,7 +71,7 @@ class _DigestNotificationTestBase(APIBaseTest):
         self.mock_create_notification = self.create_notification_patcher.start()
 
         self.build_digest_patcher = patch(
-            f"{ACTIVITIES}.build_team_digest",
+            "products.web_analytics.backend.weekly_digest.build_team_digest",
             side_effect=lambda team: _make_team_digest(team),
         )
         self.mock_build_digest = self.build_digest_patcher.start()
@@ -149,6 +149,45 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         counts = _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
 
         assert counts.skipped_reason == "no_wa_data"
+        self.mock_create_notification.assert_not_called()
+
+    def test_a_failing_team_is_left_out_and_counted(self):
+        broken_team = Team.objects.create(organization=self.organization, name="Broken team")
+
+        def build(team):
+            if team.id == broken_team.id:
+                raise TimeoutError("Query timed out")
+            return _make_team_digest(team)
+
+        self.mock_build_digest.side_effect = build
+
+        counts = _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
+
+        assert counts.sent == 1
+        assert counts.teams_failed == 1
+        assert self.mock_create_notification.call_args.args[0].team_id == self.team.id
+
+    def test_raises_instead_of_skipping_when_every_team_fails(self):
+        self.mock_build_digest.side_effect = TimeoutError("Query timed out")
+
+        with self.assertRaises(RuntimeError):
+            _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
+
+        self.mock_create_notification.assert_not_called()
+
+    def test_raises_when_the_only_teams_with_data_may_be_the_failed_ones(self):
+        broken_team = Team.objects.create(organization=self.organization, name="Broken team")
+
+        def build(team):
+            if team.id == broken_team.id:
+                raise TimeoutError("Query timed out")
+            return _make_team_digest(team, visitors=0)
+
+        self.mock_build_digest.side_effect = build
+
+        with self.assertRaises(RuntimeError):
+            _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
+
         self.mock_create_notification.assert_not_called()
 
     def test_busiest_team_is_selected_when_user_has_multiple(self):

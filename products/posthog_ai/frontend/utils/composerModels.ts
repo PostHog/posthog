@@ -8,6 +8,14 @@ import {
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import {
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
+    DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
+    MODELS,
+    REASONING_EFFORT_LABELS,
+    RUNTIME_OPTIONS,
+} from 'products/tasks/frontend/modelCatalog.generated'
 
 import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
 
@@ -16,49 +24,34 @@ export interface ComposerEffortOption {
     label: string
 }
 
-// What a thinking model supports at minimum. Only reached for a model the catalogue hasn't described yet — while the
-// first fetch is in flight, or for a run started on a model since retired from the gateway.
+// What a thinking model supports at minimum. Only reached for a model the catalogue does not describe, which now means
+// a run started on a model since retired from the catalog.
 const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
     ReasoningEffortEnumApi.Low,
     ReasoningEffortEnumApi.Medium,
     ReasoningEffortEnumApi.High,
 ]
 
-// Used only when the tasks API can't answer: an unreachable LLM gateway makes the catalogue endpoint return an empty
-// list, and an empty model dropdown is worse than a stale one. The live catalogue is the source of truth — see
-// `modelCatalogueLogic`. Claude-only: without the catalogue we can't know a Codex model exists, and Claude is the default.
-export const FALLBACK_MODEL_CHOICES: ModelChoiceApi[] = [
-    {
-        runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-sonnet-5',
-        display_name: 'Claude Sonnet 5',
-        supported_efforts: FALLBACK_EFFORTS,
-    },
-    {
-        runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-opus-5',
-        display_name: 'Claude Opus 5',
-        supported_efforts: FALLBACK_EFFORTS,
-    },
-]
-
-export const DEFAULT_COMPOSER_MODEL = 'claude-sonnet-5'
+export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
-const EFFORT_LABELS: Record<string, string> = {
-    [ReasoningEffortEnumApi.Low]: 'Low',
-    [ReasoningEffortEnumApi.Medium]: 'Medium',
-    [ReasoningEffortEnumApi.High]: 'High',
-    [ReasoningEffortEnumApi.Xhigh]: 'Extra high',
-    [ReasoningEffortEnumApi.Max]: 'Max',
-    [ReasoningEffortEnumApi.Ultracode]: 'Ultracode',
+const EFFORT_LABELS: Record<string, string> = REASONING_EFFORT_LABELS
+
+// The catalogue is keyed by bare catalog ids, so a provider-qualified id is folded onto the model it names before
+// any lookup. A run stored as `anthropic/claude-opus-5` otherwise reads as an unknown model on this surface alone.
+function catalogueEntry(catalogue: ModelChoiceApi[], model: string | null | undefined): ModelChoiceApi | undefined {
+    if (!model) {
+        return undefined
+    }
+    const normalized = normalizeModelId(model)
+    return catalogue.find((option) => option.model === normalized)
 }
 
 export function getEffortsForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): ComposerEffortOption[] {
-    const efforts = catalogue.find((option) => option.model === model)?.supported_efforts ?? FALLBACK_EFFORTS
+    const efforts = catalogueEntry(catalogue, model)?.supported_efforts ?? FALLBACK_EFFORTS
     return efforts.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }))
 }
 
@@ -69,7 +62,7 @@ export function getRuntimeAdapterForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): RuntimeAdapterEnumApi {
-    return catalogue.find((option) => option.model === model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
+    return catalogueEntry(catalogue, model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
 }
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
@@ -85,29 +78,42 @@ export function modelsForRuntimeAdapter(
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
+// Everything still offered, plus the model this run is already on when the catalogue has since retired it — without
+// that entry the picker names the run's own model by its raw id. Call it through `useMemo`: composers re-render on
+// every keystroke.
+export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
+    const selected = catalogueEntry(catalogue, selectedModel)
+    return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
+}
+
+// The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
+// so the picker opens on Faster/Smarter; a default that sits off the ladder sends it straight to Advanced.
+function ladderDefaultModel(runtimeAdapter: RuntimeAdapterEnumApi): string | undefined {
+    return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].find(
+        (notch) => notch.effort === DEFAULT_COMPOSER_EFFORT
+    )?.model
+}
+
+export function getDefaultModelForRuntimeAdapter(
+    catalogue: ModelChoiceApi[],
+    runtimeAdapter: RuntimeAdapterEnumApi,
+    configuredModel?: string | null
+): string | null {
+    const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
+    const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    const ladderModel = ladderDefaultModel(runtimeAdapter)
+    return (
+        models.find((option) => option.model === preferredModel)?.model ??
+        models.find((option) => option.model === ladderModel)?.model ??
+        models[0]?.model ??
+        null
+    )
+}
+
 /** One stop on the Faster/Smarter slider: a model paired with the effort it runs at. */
 export interface CapabilityNotch {
     model: string
     effort: ReasoningEffortEnumApi
-}
-
-// The curated Faster → Smarter progression per harness, kept in step with the desktop app's ladder in
-// `products/desktop/packages/agent/src/adapters/reasoning-effort.ts` so both surfaces offer the same rungs.
-const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
-    [RuntimeAdapterEnumApi.Claude]: [
-        { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
-        { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.High },
-        { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
-        { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
-        { model: 'claude-fable-5', effort: ReasoningEffortEnumApi.Max },
-    ],
-    [RuntimeAdapterEnumApi.Codex]: [
-        { model: 'gpt-5.6-terra', effort: ReasoningEffortEnumApi.Low },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Low },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Medium },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.High },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Xhigh },
-    ],
 }
 
 /**
@@ -119,26 +125,52 @@ export function getCapabilityLadder(
     catalogue: ModelChoiceApi[],
     runtimeAdapter: RuntimeAdapterEnumApi
 ): CapabilityNotch[] {
-    return (CAPABILITY_LADDERS[runtimeAdapter] ?? []).filter((notch) =>
+    return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].filter((notch) =>
         catalogue.some((option) => option.model === notch.model && option.supported_efforts.includes(notch.effort))
     )
 }
 
-const RUNTIME_ADAPTER_LABELS: Record<RuntimeAdapterEnumApi, string> = {
-    [RuntimeAdapterEnumApi.Claude]: 'Claude',
-    [RuntimeAdapterEnumApi.Codex]: 'Codex',
-}
-
-export function getRuntimeAdapterLabel(runtimeAdapter: string): string {
-    return RUNTIME_ADAPTER_LABELS[runtimeAdapter as RuntimeAdapterEnumApi] ?? runtimeAdapter
+export function getHarnessLabel(harness: string): string {
+    return RUNTIME_OPTIONS.find((option) => (option.runtimeAdapter ?? option.runtime) === harness)?.label ?? harness
 }
 
 export function getModelLabel(catalogue: ModelChoiceApi[], model: string | null | undefined): string {
-    return catalogue.find((option) => option.model === model)?.display_name ?? model ?? 'Model'
+    return catalogueEntry(catalogue, model)?.display_name ?? model ?? 'Model'
 }
 
 export function getEffortLabel(effort: string | null | undefined): string {
     return effort ? (EFFORT_LABELS[effort] ?? effort) : 'Effort'
+}
+
+export interface ModelCostDisplay {
+    /** Per-token cost against the catalog baseline, ready to render: `2.5×`, `≈0.55×`. */
+    multiplier: string
+    /** The rates behind it: `Input $2 · Output $10 per 1M tokens`. */
+    summary: string
+}
+
+/** What a model costs, or `null` where the catalog quotes no rate and a picker shows none. */
+export function getModelCost(model: string | null | undefined): ModelCostDisplay | null {
+    if (!model) {
+        return null
+    }
+    const entry = MODELS.find((candidate) => candidate.id === normalizeModelId(model))
+    if (!entry?.costMultiplier || !entry.costSummary) {
+        return null
+    }
+    return { multiplier: entry.costMultiplier, summary: entry.costSummary }
+}
+
+// Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of
+// `resolveEffortForModel`: a settings row wants "no pick" when the effort no longer applies, where a
+// composer wants a concrete value to send. Mirrors the backend's `filter_unsupported_effort`.
+export function filterEffortForModel(
+    catalogue: ModelChoiceApi[],
+    effort: string | null | undefined,
+    model: string | null | undefined
+): ReasoningEffortEnumApi | null {
+    const allowed = getEffortsForModel(catalogue, model).map((option) => option.value)
+    return effort && allowed.includes(effort as ReasoningEffortEnumApi) ? (effort as ReasoningEffortEnumApi) : null
 }
 
 // Clamp an effort to one the selected model actually supports — the new-run path can inherit an effort from a
@@ -159,6 +191,22 @@ export function resolveEffortForModel(
         return effort as ReasoningEffortEnumApi
     }
     return allowed.includes(DEFAULT_COMPOSER_EFFORT) ? DEFAULT_COMPOSER_EFFORT : allowed[allowed.length - 1]
+}
+
+/**
+ * A run-create request that pins no runtime selection at all: the backend resolves the model
+ * triple from the stored team/user default (or its own fallback), and the permission mode
+ * rides along, clamped server-side to whichever runtime the default names. Used whenever the
+ * composer's selection is untouched — pinning the displayed fallback instead would freeze a
+ * value the server could have resolved better (and would go stale the moment the default
+ * changes or a fetch fails). The generated request types are discriminated on
+ * `runtime_adapter`, so this shape deliberately steps outside them.
+ */
+export function buildServerResolvedRunCreateRequest(
+    permissionMode: PermissionMode,
+    rest: Partial<TaskRunCreateRequestSchemaApi>
+): TaskRunCreateRequestSchemaApi {
+    return { ...rest, initial_permission_mode: permissionMode } as unknown as TaskRunCreateRequestSchemaApi
 }
 
 /**

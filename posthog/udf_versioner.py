@@ -15,8 +15,11 @@ UDF_VERSION = 12  # Last modified by: @aspicer, 2026-04-20 (RowBinary default, J
 EARLIEST_UDF_VERSION = 11
 
 UNVERSIONED_FUNCTIONS = {
+    "decompress",
     "JSONCleanPostHogEventProperties",
     "JSONCleanPostHogPersonProperties",
+    "JSONCleanPostHogTemporaryProperties",
+    "JSONDropKeysPool",
     "JSONStripEmptyStringsAndNulls",
 }
 

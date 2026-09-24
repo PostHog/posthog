@@ -1,8 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import {
     Composer,
@@ -12,7 +13,12 @@ import {
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
-import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
+import {
+    getRuntimeAdapterForModel,
+    pickerModels,
+    resolveEffortForModel,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import {
     cycleMode,
     getModesForRuntimeAdapter,
@@ -31,11 +37,24 @@ import { RepositorySelector } from './RepositorySelector'
 export function TaskComposer(): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, displayHeadline, consentBlocked } =
-        useValues(taskTrackerSceneLogic)
+    const {
+        newTaskData,
+        isSubmittingTask,
+        activeSuggestionGroup,
+        displayHeadline,
+        effectiveComposerOverride: composerOverride,
+        consentBlocked,
+        displayModel,
+        defaultModel,
+        displayEffort,
+        isDefaultSelection,
+        // Permission modes belong to the harness, so they follow the model actually shown — the
+        // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
+        composerAdapter,
+    } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
-    // Permission modes belong to the harness, so they follow the picked model.
-    const composerAdapter = getRuntimeAdapterForModel(catalogue, newTaskData.model)
+    const offeredModels = useMemo(() => pickerModels(catalogue, displayModel), [catalogue, displayModel])
+    const { myConfigLoading } = useValues(taskRunDefaultsLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -58,10 +77,10 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline}>
+                <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
                     {/* Temporary migration affordance — delete with the rest of the onboarding takeover
                         once everyone is on the new PostHog AI. */}
-                    <OnboardingReplayButton panelId={panelId} />
+                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
                 </Welcome>
 
                 <Suggestions.Root
@@ -72,10 +91,12 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        <RepositorySelector
-                            value={newTaskData.repositoryConfig}
-                            onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                        />
+                        {!composerOverride?.hideRepositorySelector && (
+                            <RepositorySelector
+                                value={newTaskData.repositoryConfig}
+                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                            />
+                        )}
                         <ComposerModeShortcut
                             onCycle={() =>
                                 setNewTaskData({
@@ -95,7 +116,9 @@ export function TaskComposer(): JSX.Element {
                                     <AttachedContextBar />
                                 </Composer.Header>
                                 <Composer.Field>
-                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
+                                    <Composer.Placeholder>
+                                        {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+                                    </Composer.Placeholder>
                                     <Composer.Textarea autoFocus data-attr="task-composer-input" />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
@@ -105,9 +128,12 @@ export function TaskComposer(): JSX.Element {
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
-                                        models={catalogue}
-                                        selectedModel={newTaskData.model}
-                                        selectedEffort={newTaskData.reasoningEffort}
+                                        models={offeredModels}
+                                        selectedModel={displayModel}
+                                        defaultModel={defaultModel}
+                                        isDefaultModelLoading={myConfigLoading}
+                                        selectedEffort={displayEffort}
+                                        isDefaultSelection={isDefaultSelection}
                                         onModelChange={(model) =>
                                             setNewTaskData({
                                                 model,
@@ -126,10 +152,19 @@ export function TaskComposer(): JSX.Element {
                                             })
                                         }
                                         onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+                                        // Clearing both pins is what hands the choice back to the resolved
+                                        // default — submit then omits the triple entirely.
+                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
+                                        onOpenDefaultSettings={() =>
+                                            router.actions.push(
+                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                            )
+                                        }
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>
-                            <Suggestions.Dropdown />
+                            {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
+                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
                                 showArrow
@@ -143,7 +178,7 @@ export function TaskComposer(): JSX.Element {
                         </Composer.Root>
                     </div>
 
-                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>

@@ -24,6 +24,8 @@ export interface PrepareTaskInputOptions {
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
+  claudeCloudModelAccess?: ModelAccess;
+  codexCloudModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -75,6 +77,8 @@ export function prepareTaskInput(
     adapter: options.adapter,
     codexModelAccess: options.codexModelAccess,
     claudeModelAccess: options.claudeModelAccess,
+    claudeCloudModelAccess: options.claudeCloudModelAccess,
+    codexCloudModelAccess: options.codexCloudModelAccess,
     runtime,
     model: options.model,
     reasoningLevel: options.reasoningLevel,

@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconCheckCircle } from '@posthog/icons'
 
-import { getCookie } from 'lib/api'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -20,8 +19,10 @@ import { isEmail } from 'lib/utils/url'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
+import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
@@ -33,9 +34,13 @@ import { LoginMethod, Region, SSOProvider } from '~/types'
 import { loginLogic } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
-const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
-
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
+function loginGreeting(isReturning: boolean): { note: string; sub: string } {
+    return isReturning
+        ? { note: '// welcome back', sub: "Welcome back. Let's go ship something." }
+        : { note: '// hey, good to see you', sub: "Let's go ship something." }
+}
 
 function loginMethodLabel(method: LoginMethod): string {
     if (method === 'password') {
@@ -120,10 +125,12 @@ export function LoginForm(): JSX.Element {
         availableLoginMethods,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
-    const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
+    const lastLoginMethod = useLastLoginMethod()
+    const greeting = loginGreeting(lastLoginMethod !== null)
     const prevEmail = usePrevious(login.email)
 
     useEffect(() => {
@@ -149,7 +156,7 @@ export function LoginForm(): JSX.Element {
     )
 
     return (
-        <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
+        <AuthScene notes={[greeting.note, '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <AuthSceneCard footer={footer}>
                 {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
@@ -162,9 +169,9 @@ export function LoginForm(): JSX.Element {
                             <>
                                 {/* This whole fragment is deleted when the title flips to the code-sent
                                     string, so even the separator space lives inside an element */}
-                                <span>{'Log in to '}</span>
+                                <span>{pendingConnection ? 'Log in to connect ' : 'Log in to '}</span>
                                 <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
-                                    @PostHog
+                                    {pendingConnection ? pendingConnection.clientName : '@PostHog'}
                                 </span>
                             </>
                         )
@@ -175,8 +182,10 @@ export function LoginForm(): JSX.Element {
                                 For your security, we've emailed a 6-digit verification code to{' '}
                                 <strong>{codeVerificationEmail}</strong>.
                             </>
+                        ) : pendingConnection ? (
+                            reviewAccessCopy(pendingConnection, 'After you log in')
                         ) : (
-                            "Welcome back. Let's go ship something."
+                            greeting.sub
                         )
                     }
                 />
@@ -371,7 +380,9 @@ export function LoginForm(): JSX.Element {
                                 <span>No sign-in method is set up for this account. Use</span>{' '}
                                 <Link
                                     to={[urls.passwordReset(), { email: login.email }]}
-                                    data-attr="forgot-password"
+                                    // Autocapture reports the click. Each reset entry point has its
+                                    // own `data-attr`, so one funnel can tell them apart.
+                                    data-attr="login-no-method-reset-password"
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
                                     Forgot password?
@@ -410,6 +421,13 @@ export function LoginForm(): JSX.Element {
                                 provider="saml"
                                 email={login.email}
                                 isLastUsed={lastLoginMethod === 'saml'}
+                            />
+                        )}
+                        {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
+                            <SSOEnforcedLoginButton
+                                provider="oidc"
+                                email={login.email}
+                                isLastUsed={lastLoginMethod === 'oidc'}
                             />
                         )}
                     </Form>

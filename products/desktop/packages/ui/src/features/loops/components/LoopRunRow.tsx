@@ -1,6 +1,5 @@
 import {
   Check,
-  CircleNotch,
   Clock,
   GitBranch,
   type Icon,
@@ -11,16 +10,14 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { cn } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { Badge } from "@posthog/ui/primitives/Badge";
-import { Button } from "@posthog/ui/primitives/Button";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
-import { Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useState } from "react";
 
 function statusColor(
@@ -47,8 +44,6 @@ function statusIcon(status: LoopSchemas.LoopRunStatusEnum): Icon {
     case "failed":
     case "cancelled":
       return X;
-    case "in_progress":
-      return CircleNotch;
     default:
       return Clock;
   }
@@ -100,17 +95,17 @@ function MetaItem({
   children: ReactNode;
 }) {
   return (
-    <Flex align="center" gap="1" className="min-w-0">
+    <div className="flex min-w-0 items-center gap-1">
       <IconComponent size={12} weight="bold" className="shrink-0 text-gray-9" />
-      <Text
+      <span
         className={cn(
           "truncate text-[11.5px] text-gray-10",
           mono && "[font-family:var(--font-mono)]",
         )}
       >
         {children}
-      </Text>
-    </Flex>
+      </span>
+    </div>
   );
 }
 
@@ -137,28 +132,25 @@ export function LoopRunRow({
   const [stopOpen, setStopOpen] = useState(false);
 
   return (
-    <Flex
-      align="center"
-      justify="between"
-      gap="3"
-      className="rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-3 py-2.5"
-    >
-      <Flex direction="column" className="min-w-0 gap-1.5">
-        <Flex align="center" gap="2" wrap="wrap">
+    <div className="flex items-center justify-between gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-3 py-2.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge color={statusColor(run.status)}>
-            <Spin spinning={run.status === "in_progress"}>
+            {run.status === "in_progress" ? (
+              <Spinner size="xs" />
+            ) : (
               <StatusIcon size={10} weight="bold" />
-            </Spin>
+            )}
             {run.status.replaceAll("_", " ")}
           </Badge>
-          <Text
+          <span
             className="text-[12px] text-gray-11"
             title={new Date(run.created_at).toLocaleString()}
           >
             {formatRelative(run.created_at)}
-          </Text>
-        </Flex>
-        <Flex align="center" gap="3" wrap="wrap" className="min-w-0">
+          </span>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           {run.branch ? (
             <MetaItem icon={GitBranch} mono>
               {run.branch}
@@ -168,35 +160,35 @@ export function LoopRunRow({
           <MetaItem icon={triggered ? Lightning : Play}>
             {triggered ? "Triggered" : "Manual"}
           </MetaItem>
-        </Flex>
+        </div>
         {run.error_message ? (
-          <Flex align="center" gap="1" className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1">
             <Warning
               size={12}
               weight="bold"
               className="shrink-0 text-(--red-11)"
             />
-            <Text className="truncate text-(--red-11) text-[11.5px]">
+            <span className="truncate text-(--red-11) text-[11.5px]">
               {run.error_message}
-            </Text>
-          </Flex>
+            </span>
+          </div>
         ) : null}
-      </Flex>
-      <Flex align="center" gap="2" className="shrink-0">
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
         {stoppable ? (
           <Button
-            variant="soft"
-            color="red"
-            size="1"
+            type="button"
+            variant="destructive-outline"
+            size="sm"
             onClick={() => setStopOpen(true)}
           >
             Stop run
           </Button>
         ) : null}
         <Button
-          variant="soft"
-          color="gray"
-          size="1"
+          type="button"
+          variant="outline"
+          size="sm"
           onClick={() => {
             track(ANALYTICS_EVENTS.LOOP_RUN_VIEWED, {
               loop_id: loopId,
@@ -211,7 +203,7 @@ export function LoopRunRow({
         >
           View run
         </Button>
-      </Flex>
+      </div>
       {stoppable || stopOpen ? (
         <StopCloudRunDialog
           open={stopOpen}
@@ -226,6 +218,6 @@ export function LoopRunRow({
           }}
         />
       ) : null}
-    </Flex>
+    </div>
   );
 }

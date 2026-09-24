@@ -7,6 +7,8 @@ from datetime import timedelta
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.db.models import Count
+from django.db.models.functions import Lower
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -18,13 +20,17 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import APIScopePermission
 from posthog.products import product_app_names
 
@@ -48,6 +54,32 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
+class OrderedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = Annotation.objects.filter(date_marker__isnull=False).order_by("date_marker")
+    serializer_class = AnnotationSerializer
+
+
+def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
+    queryset = stable_queryset_ordering(Annotation.objects.order_by("date_marker"))
+
+    assert queryset.query.order_by == ("date_marker", "pk")
+
+    expression_queryset = stable_queryset_ordering(FileSystem.objects.order_by(Lower("path")))
+
+    assert expression_queryset.query.order_by[-1] == "pk"
+
+
+def test_stable_queryset_ordering_leaves_sliced_and_grouped_querysets_unchanged() -> None:
+    sliced_queryset = Annotation.objects.order_by("date_marker")[:1]
+
+    assert stable_queryset_ordering(sliced_queryset) is sliced_queryset
+
+    grouped_queryset = Annotation.objects.values("team_id").annotate(count=Count("id")).order_by("team_id")
+
+    assert stable_queryset_ordering(grouped_queryset).query.order_by == ("team_id",)
+
+
 test_router = DefaultRouterPlusPlus()
 
 # A team_id-nested parent (distinct from the project_id-nested one below) so the mixin's
@@ -56,6 +88,8 @@ test_router = DefaultRouterPlusPlus()
 # which would mask the team_id-lookup behavior these tests cover.
 test_team_nested_router = test_router.register(r"team_nested", FooViewSet, "team_nested")
 test_team_nested_router.register(r"foos", FooViewSet, "team_nested_foos", ["team_id"])
+test_ordered_router = test_router.register(r"team_ordered", OrderedFooViewSet, "team_ordered")
+test_ordered_router.register(r"foos", OrderedFooViewSet, "team_ordered_foos", ["team_id"])
 
 test_projects_router = test_router.register(r"projects", FooViewSet, "projects")
 test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"])
@@ -135,6 +169,19 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
+
+    def test_team_nested_pagination_adds_primary_key_tiebreaker(self):
+        marker = timezone.now()
+        first = Annotation.objects.create(team=self.team, organization=self.organization, date_marker=marker)
+        second = Annotation.objects.create(team=self.team, organization=self.organization, date_marker=marker)
+
+        first_page = self.client.get(f"/api/team_ordered/{self.team.id}/foos/?limit=1")
+        second_page = self.client.get(f"/api/team_ordered/{self.team.id}/foos/?limit=1&offset=1")
+
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(second_page.status_code, 200)
+        self.assertEqual(first_page.json()["results"][0]["id"], first.id)
+        self.assertEqual(second_page.json()["results"][0]["id"], second.id)
 
     def test_project_nested_filtering(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/")
@@ -217,6 +264,79 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         assert (
             str(e.value) == "Method get_object is protected and should not be overridden. Use safely_get_object instead"
         )
+
+
+@override_settings(ROOT_URLCONF=__name__)
+class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(self.key_value),
+            scopes=["*"],
+        )
+        Annotation.objects.create(team=self.team, organization=self.organization)
+
+    def _get_with_key(self):
+        return self.client.get(
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+    def _deactivate(self, reason=None):
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = reason
+        self.organization.save(update_fields=["is_active", "is_not_active_reason"])
+
+    def test_personal_api_key_is_refused_once_the_organization_is_deactivated(self):
+        self.assertEqual(self._get_with_key().status_code, 200)
+
+        self._deactivate(reason="Access revoked due to unpaid balance.")
+
+        response = self._get_with_key()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertIn("Access revoked due to unpaid balance.", response.json()["detail"])
+
+    def test_session_auth_still_reaches_a_deactivated_organization(self):
+        self._deactivate()
+
+        response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_key_still_reaches_an_active_organization_of_the_same_user(self):
+        self._deactivate()
+        _, _, other_team = Organization.objects.bootstrap(user=self.user)
+        # bootstrap makes the new organization current, which would let a check that reads
+        # current_organization pass for the wrong reason. Put the deactivated one back.
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self.client.get(
+            f"/api/scoped_environments/{other_team.id}/scoped_foos/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_root_write_is_refused_for_a_deactivated_current_organization(self):
+        # A 400 here would mean the request reached the serializer, which is the bypass this guards.
+        self._deactivate()
+
+        response = self.client.post("/api/scoped_projects/", {}, HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+
+    def test_a_root_read_still_works_so_a_member_can_switch_organization(self):
+        self._deactivate()
+
+        response = self.client.get("/api/scoped_projects/", HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+
+        self.assertEqual(response.status_code, 200)
 
 
 @override_settings(ROOT_URLCONF=__name__)

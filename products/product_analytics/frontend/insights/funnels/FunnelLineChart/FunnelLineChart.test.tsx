@@ -37,7 +37,7 @@ describe('FunnelLineChart', () => {
 
             expect(getHogChart().seriesCount).toBe(1)
             expect(tooltip.element.textContent).toContain(FUNNEL_CONVERSION_SERIES_LABEL)
-            expect(tooltip.element.textContent).toContain('40%')
+            expect(tooltip.element.textContent).toContain('40% (80/200)')
         })
 
         it('renders a series per breakdown variant with the breakdown label on each tooltip row', async () => {

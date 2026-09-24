@@ -1,13 +1,17 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { toPaginatedResponse } from '~/mocks/handlers'
 
 import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
+
+const STALE_FLAG_ID = 1498
 
 const meta: Meta = {
     component: App,
@@ -19,11 +23,22 @@ const meta: Meta = {
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.featureFlags(),
         testOptions: { viewport: { width: 1300, height: 2000 } },
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/integrations': {},
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        realtime: { state: 'ready', ready_at: '2023-01-27T09:40:00Z', build: null },
+                    },
+                ]),
 
                 '/api/projects/:team_id/feature_flags': featureFlags,
                 '/api/projects/:team_id/feature_flags/1111111111111/': [
@@ -34,17 +49,51 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => [
-                    200,
-                    featureFlags.results.find((r) => r.id === Number(params['flagId'])),
-                ],
-                '/api/projects/:team_id/feature_flags/:flagId/status': () => [
-                    200,
-                    {
-                        status: 'active',
-                        reason: 'Feature flag is active',
-                    },
-                ],
+                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
+                    const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id !== STALE_FLAG_ID) {
+                        return [200, flag]
+                    }
+                    // A flag that stopped being called but still gates 40% of users. That is the
+                    // case the stale banner exists for, because "stale" reads most easily as "safe
+                    // to delete" when the flag is still live for real users.
+                    return [
+                        200,
+                        {
+                            ...flag,
+                            last_called_at: '2022-12-14T00:00:00Z',
+                            filters: { ...flag.filters, groups: [{ properties: [], rollout_percentage: 40 }] },
+                        },
+                    ]
+                },
+                '/api/projects/:team_id/feature_flags/:flagId/status': ({ params }) =>
+                    Number(params['flagId']) === STALE_FLAG_ID
+                        ? [
+                              200,
+                              {
+                                  status: 'stale',
+                                  reason: 'Flag has not been called in 45 days',
+                                  rollout: {
+                                      effectively_full_rollout: false,
+                                      has_targeting_conditions: false,
+                                      max_rollout_percentage: 40,
+                                      is_multivariate: false,
+                                  },
+                              },
+                          ]
+                        : [
+                              200,
+                              {
+                                  status: 'active',
+                                  reason: 'Feature flag is active',
+                                  rollout: {
+                                      effectively_full_rollout: false,
+                                      has_targeting_conditions: false,
+                                      max_rollout_percentage: 50,
+                                      is_multivariate: false,
+                                  },
+                              },
+                          ],
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
@@ -77,6 +126,36 @@ export const EditFeatureFlag: Story = {
     },
 }
 
+export const EditFeatureFlagConditionsWithRealtimeCohort: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(1779)}?edit=true`,
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => {
+        // Condition sets start collapsed, and the realtime tag sits on the expanded cohort row.
+        const expandAll = await waitFor(
+            () => {
+                const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="expand-all-conditions"]')
+                if (!button) {
+                    throw new Error('release conditions for flag 1779 not yet rendered')
+                }
+                return button
+            },
+            // The flag scene is a lazy chunk, so give a cold bundle time to arrive.
+            { timeout: 30000 }
+        )
+        expandAll.click()
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="collapse-all-conditions"]')) {
+                    throw new Error('condition sets not expanded yet')
+                }
+            },
+            { timeout: 5000 }
+        )
+    },
+}
+
 export const EditMultiVariateFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1502),
@@ -92,6 +171,12 @@ export const EditRemoteConfigFeatureFlag: Story = {
 export const EditEncryptedRemoteConfigFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1739),
+    },
+}
+
+export const StaleFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(STALE_FLAG_ID),
     },
 }
 

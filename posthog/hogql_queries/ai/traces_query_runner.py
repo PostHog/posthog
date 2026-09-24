@@ -31,7 +31,12 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
-from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import (
+    filled_property_filters,
+    parse_ai_properties,
+    parse_ai_property_value,
+    timestamp_bound_as_hogql,
+)
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -54,6 +59,8 @@ class TracesQueryDateRange(QueryDateRange):
     """
 
     CAPTURE_RANGE_MINUTES = 10
+    # Callers name calendar days: the trace list tool takes a date-only `date_to`.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()
@@ -70,12 +77,7 @@ class TracesQueryDateRange(QueryDateRange):
         )
 
     def date_to_for_filtering_as_hogql(self) -> ast.Expr:
-        return ast.Call(
-            name="assumeNotNull",
-            args=[
-                ast.Call(name="toDateTime", args=[ast.Constant(value=self.format_date(self.date_to_for_filtering()))])
-            ],
-        )
+        return timestamp_bound_as_hogql(self.date_to_for_filtering())
 
     def date_from(self) -> datetime:
         return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
@@ -223,6 +225,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             sentiment_lookup = SentimentEvaluationLookup(
                 by_trace_id=load_trace_sentiment_evaluations(
                     team=self.team,
+                    user=self.user,
                     trace_ids=result_trace_ids,
                     timings=self.timings,
                     modifiers=self.modifiers,
@@ -272,19 +275,27 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     argMin(distinct_id, timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        -- If all events with latency are generations, sum them all
-                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
-                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(toFloat(properties.$ai_latency),
-                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
-                             )
-                        -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(toFloat(properties.$ai_latency),
-                                   properties.$ai_parent_id IS NULL
-                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(toFloat(properties.$ai_latency),
+                                     event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0
+                               ), 0),
+                        CASE
+                            -- If all events with latency are generations, sum them all
+                            WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                                 AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                            THEN sumIf(toFloat(properties.$ai_latency),
+                                       event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                                 )
+                            -- Otherwise sum the direct children of the trace
+                            ELSE sumIf(toFloat(properties.$ai_latency),
+                                       properties.$ai_parent_id IS NULL
+                                       OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event IN ('$ai_generation', '$ai_embedding')
@@ -392,7 +403,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
         }
 
     @cached_property

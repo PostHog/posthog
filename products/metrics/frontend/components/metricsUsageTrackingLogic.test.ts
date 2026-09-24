@@ -9,11 +9,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import {
-    metricsQueryCreate,
-    metricsSamplesCreate,
-    metricsValuesRetrieve,
-} from 'products/metrics/frontend/generated/api'
+import { metricsQueryCreate, metricsSamplesCreate, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsSceneLogic } from '../metricsSceneLogic'
@@ -26,7 +22,7 @@ jest.mock('posthog-js')
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
@@ -74,7 +70,7 @@ describe('metricsUsageTrackingLogic', () => {
         } as AppContext
         initKeaTests()
         jest.mocked(posthog.capture).mockClear()
-        jest.mocked(metricsValuesRetrieve).mockReset().mockResolvedValue({ results: [] })
+        jest.mocked(metricsNamesRetrieve).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsSamplesCreate).mockReset().mockResolvedValue({ results: [] })
         logic = metricsUsageTrackingLogic()
@@ -110,7 +106,11 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsSamplesLogic.actions.setActiveTab('samples'),
             { tab: 'samples' },
         ],
-        ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
+        [
+            'metrics add to dashboard clicked',
+            () => metricsViewerLogic.actions.addToDashboard(),
+            { aggregation: 'sum', clause_count: 1, has_formula: false },
+        ],
         [
             // Reports the aggregation persisted on the insight, not the viewer's
             // current one — those diverge when the user changes the aggregation
@@ -124,7 +124,7 @@ describe('metricsUsageTrackingLogic', () => {
                     } as any,
                     {} as any
                 ),
-            { aggregation: 'p95' },
+            { aggregation: 'p95', clause_count: 1, has_formula: false },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()

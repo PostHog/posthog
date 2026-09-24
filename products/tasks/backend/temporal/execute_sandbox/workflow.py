@@ -23,7 +23,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, is_same_run_resume_state
+from products.tasks.backend.constants import is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
@@ -147,8 +147,6 @@ SHUTDOWN_REJECTION_DETAIL = "child_shutting_down"
 # to drive CI-vs-user-message metrics.
 FOLLOWUP_SOURCE_USER = "user"
 FOLLOWUP_SOURCE_CI = "ci"
-
-_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
 
 @dataclass
@@ -491,7 +489,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output)
-            await self._emit_progress("agent", "completed", "Started agent", "setup")
+            await self._emit_progress("agent", "completed", "Agent ready", "setup")
 
             await self._track_workflow_event(
                 "sandbox_started",
@@ -602,9 +600,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # setting it here the orchestrator would see `success=True` for
             # a run that died on an unhandled exception.
             self._completion_status = "failed"
-            self._completion_error = truncate_error_message(str(e))
+            cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else e
+            cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else str(e))
+            error_type = (
+                cause.type
+                if isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type
+                else type(e).__name__
+            )
+            error_message = truncate_error_message(cause_message)
+            self._completion_error = error_message
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
-            error_message = truncate_error_message(str(e))
             if self._context:
                 if self._current_progress_step is not None:
                     failed_step, failed_label, failed_group = self._current_progress_step
@@ -627,7 +632,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         "provider": self.context.provider,
                         "model": self.context.model,
                         "reasoning_effort": self.context.reasoning_effort,
-                        "error_type": type(e).__name__,
+                        "error_type": error_type,
                         "error_message": error_message,
                         "sandbox_id": current_sandbox_id,
                         **self._activity_error_properties(e),
@@ -635,7 +640,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     capture_analytics=False,
                 )
             await self._update_task_run_status(
-                "failed", error_message=error_message, run_id=run_id, error_type=type(e).__name__
+                "failed", error_message=error_message, run_id=run_id, error_type=error_type
             )
 
             return ExecuteSandboxOutput(
@@ -669,7 +674,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 # Clear the persisted sandbox id only after cleanup actually
                 # ran — otherwise the next workflow start has no record of an
                 # orphan to reap.
-                await self._clear_persisted_sandbox_id(run_id)
+                await self._clear_persisted_sandbox_id(run_id, cleanup_sandbox_id)
                 self._sandbox_id_for_cleanup = None
 
             # Emit the terminal "I'm done" signal to the orchestrator before
@@ -1135,7 +1140,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 detail="Resumed from a previous snapshot",
             )
         else:
-            await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
@@ -1157,9 +1162,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
         will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
-        def prepares_desktop(repository: str) -> bool:
-            return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
-
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
             await asyncio.gather(
@@ -1173,11 +1175,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
                         ),
-                        start_to_close_timeout=(
-                            _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT
-                            if prepares_desktop(repository)
-                            else timedelta(minutes=5)
-                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                     for repository in repositories_to_clone
@@ -1191,7 +1189,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if will_checkout and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
-            prepares_repository_desktop = prepares_desktop(checkout_repository)
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1206,9 +1203,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=(
-                    _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
-                ),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
@@ -1224,7 +1219,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
         await workflow.execute_activity(
             cleanup_sandbox,
-            CleanupSandboxInput(sandbox_id=sandbox_id),
+            CleanupSandboxInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1270,10 +1265,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     # Stale state will be reaped (idempotent) on the next start, so a
     # failure here doesn't compromise correctness.
     @log_on_fail("execute_sandbox_clear_sandbox_id_failed", level="warning", suppress=True)
-    async def _clear_persisted_sandbox_id(self, run_id: str) -> None:
+    async def _clear_persisted_sandbox_id(self, run_id: str, sandbox_id: str) -> None:
         await workflow.execute_activity(
             clear_persisted_sandbox_id,
-            ClearPersistedSandboxIdInput(run_id=run_id),
+            ClearPersistedSandboxIdInput(run_id=run_id, sandbox_id=sandbox_id),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

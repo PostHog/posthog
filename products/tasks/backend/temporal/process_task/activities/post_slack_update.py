@@ -24,6 +24,8 @@ SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT = "wait_for_spend_limit"
+SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
 
 _CONNECT_THEN_REPLAN_MARKERS = (
     "not connected",
@@ -70,6 +72,9 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_CANCELLED: (
         "Reply in this thread when you want to resume, and include any new direction I should follow."
     ),
+    SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT: (
+        "Wait for this run's spend limit to reset before replying in the thread."
+    ),
 }
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
@@ -98,7 +103,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        footer = load_run_footer(task_run.id)
+        footer = load_run_footer(task_run.id, integration_id=context.integration_id)
         handler = SlackThreadHandler(context, footer)
         # The buttons lead where the footer's links do, so they answer to the same reader.
         task_url = handler.reader_task_url()
@@ -109,7 +114,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
-                _post_cancelled_once(task_run, handler, task_url)
+                _post_cancelled_once(task_run, handler)
             elif task_run.status == TaskRun.Status.FAILED:
                 _post_failure_or_timeout(task_run, handler, task_url)
             return
@@ -124,7 +129,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             else:
                 handler.post_completion(task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
-            _post_cancelled_once(task_run, handler, task_url)
+            _post_cancelled_once(task_run, handler)
         elif task_run.status == TaskRun.Status.FAILED:
             _post_failure_or_timeout(task_run, handler, task_url)
         else:
@@ -262,6 +267,8 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
 
 def _classify_failure_recovery(error: str) -> str:
     normalized = error.lower()
+    if SLACK_SPEND_LIMIT_ERROR_FRAGMENT in normalized:
+        return SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT
     if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
         return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
     if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
@@ -294,7 +301,7 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
     _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
 
 
-def _post_cancelled_once(task_run: Any, handler: Any, task_url: str | None) -> None:
+def _post_cancelled_once(task_run: Any, handler: Any) -> None:
     from products.tasks.backend.models import TaskRun
 
     if _is_terminal_notified(task_run, TaskRun.Status.CANCELLED):
@@ -302,7 +309,7 @@ def _post_cancelled_once(task_run: Any, handler: Any, task_url: str | None) -> N
         return
 
     handler.update_reaction("hedgehog")
-    handler.post_cancelled(task_url, recovery_hint=_RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED])
+    handler.delete_progress()
     _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 
 

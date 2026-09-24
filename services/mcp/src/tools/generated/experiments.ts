@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     omitResponseFields,
@@ -19,9 +19,12 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 const ExperimentActivitySchema = () => {
     const ExperimentsActivityRetrieveParams = orvalSchemas.ExperimentsActivityRetrieveParams()
     const ExperimentsActivityRetrieveQueryParams = orvalSchemas.ExperimentsActivityRetrieveQueryParams()
-    return ExperimentsActivityRetrieveParams.omit({ project_id: true })
-        .extend(ExperimentsActivityRetrieveQueryParams.shape)
-        .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsActivityRetrieveParams.omit({ project_id: true })
+            .extend(ExperimentsActivityRetrieveQueryParams.shape)
+            .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+    )
 }
 
 const experimentActivity = (): ToolBase<
@@ -47,9 +50,12 @@ const experimentActivity = (): ToolBase<
 const ExperimentArchiveSchema = () => {
     const ExperimentsArchiveCreateBody = orvalSchemas.ExperimentsArchiveCreateBody()
     const ExperimentsArchiveCreateParams = orvalSchemas.ExperimentsArchiveCreateParams()
-    return ExperimentsArchiveCreateParams.omit({ project_id: true })
-        .extend(ExperimentsArchiveCreateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsArchiveCreateParams.omit({ project_id: true })
+            .extend(ExperimentsArchiveCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
+    )
 }
 
 const experimentArchive = (): ToolBase<
@@ -120,9 +126,12 @@ const experimentCalculateRunningTime = (): ToolBase<
 
 const ExperimentCleanupTaskSchema = () => {
     const ExperimentsFlagCleanupTaskRetrieveParams = orvalSchemas.ExperimentsFlagCleanupTaskRetrieveParams()
-    return ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
+        })
+    )
 }
 
 const experimentCleanupTask = (): ToolBase<
@@ -145,12 +154,18 @@ const experimentCleanupTask = (): ToolBase<
 const ExperimentCopyToProjectSchema = () => {
     const ExperimentsCopyToProjectCreateBody = orvalSchemas.ExperimentsCopyToProjectCreateBody()
     const ExperimentsCopyToProjectCreateParams = orvalSchemas.ExperimentsCopyToProjectCreateParams()
-    return ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
-        .extend(ExperimentsCopyToProjectCreateBody.shape)
-        .extend({
-            id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateParams.shape['id']),
-            target_team_id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateBody.shape['target_team_id']),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
+            .extend(ExperimentsCopyToProjectCreateBody.shape)
+            .extend({
+                id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateParams.shape['id']),
+                target_team_id: z.preprocess(
+                    castStringToInt,
+                    ExperimentsCopyToProjectCreateBody.shape['target_team_id']
+                ),
+            })
+    )
 }
 
 const experimentCopyToProject = (): ToolBase<ReturnType<typeof ExperimentCopyToProjectSchema>, Schemas.Experiment> => ({
@@ -199,7 +214,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
-        running_time_calculation: true,
+        parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
         saved_metrics_ids: true,
@@ -223,6 +238,9 @@ const ExperimentCreateSchema = () => {
     }).extend({
         feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
             'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
+        ),
+        running_time_calculation: ExperimentsCreateBody.shape['running_time_calculation'].describe(
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one."
         ),
     })
 }
@@ -249,8 +267,8 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
             }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
+            if (params.running_time_calculation !== undefined) {
+                body['running_time_calculation'] = params.running_time_calculation
             }
             if (params.exposure_criteria !== undefined) {
                 body['exposure_criteria'] = params.exposure_criteria
@@ -260,6 +278,9 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             }
             if (params.allow_unknown_events !== undefined) {
                 body['allow_unknown_events'] = params.allow_unknown_events
+            }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -277,11 +298,12 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
+                'running_time_calculation',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
+                'tags',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
@@ -336,7 +358,6 @@ const experimentCreateFromPrompt = (): ToolBase<
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -348,9 +369,12 @@ const experimentCreateFromPrompt = (): ToolBase<
 
 const ExperimentDeleteSchema = () => {
     const ExperimentsDestroyParams = orvalSchemas.ExperimentsDestroyParams()
-    return ExperimentsDestroyParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsDestroyParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsDestroyParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsDestroyParams.shape['id']),
+        })
+    )
 }
 
 const experimentDelete = (): ToolBase<ReturnType<typeof ExperimentDeleteSchema>, Schemas.Experiment> => ({
@@ -371,41 +395,45 @@ const experimentDelete = (): ToolBase<ReturnType<typeof ExperimentDeleteSchema>,
 const ExperimentDuplicateSchema = () => {
     const ExperimentsDuplicateCreateBody = orvalSchemas.ExperimentsDuplicateCreateBody()
     const ExperimentsDuplicateCreateParams = orvalSchemas.ExperimentsDuplicateCreateParams()
-    return ExperimentsDuplicateCreateParams.omit({ project_id: true })
-        .extend(
-            ExperimentsDuplicateCreateBody.omit({
-                description: true,
-                start_date: true,
-                end_date: true,
-                holdout_id: true,
-                parameters: true,
-                running_time_calculation: true,
-                excluded_variants: true,
-                secondary_metrics: true,
-                saved_metrics_ids: true,
-                filters: true,
-                archived: true,
-                deleted: true,
-                type: true,
-                exposure_criteria: true,
-                metrics: true,
-                metrics_secondary: true,
-                stats_config: true,
-                scheduling_config: true,
-                allow_unknown_events: true,
-                _create_in_folder: true,
-                conclusion: true,
-                conclusion_comment: true,
-                repository: true,
-                primary_metrics_ordered_uuids: true,
-                secondary_metrics_ordered_uuids: true,
-                only_count_matured_users: true,
-                update_feature_flag_params: true,
-                version: true,
-                original_experiment: true,
-            }).shape
-        )
-        .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsDuplicateCreateParams.omit({ project_id: true })
+            .extend(
+                ExperimentsDuplicateCreateBody.omit({
+                    description: true,
+                    start_date: true,
+                    end_date: true,
+                    holdout_id: true,
+                    parameters: true,
+                    running_time_calculation: true,
+                    excluded_variants: true,
+                    secondary_metrics: true,
+                    saved_metrics_ids: true,
+                    filters: true,
+                    archived: true,
+                    deleted: true,
+                    type: true,
+                    exposure_criteria: true,
+                    metrics: true,
+                    metrics_secondary: true,
+                    stats_config: true,
+                    scheduling_config: true,
+                    allow_unknown_events: true,
+                    _create_in_folder: true,
+                    conclusion: true,
+                    conclusion_comment: true,
+                    repository: true,
+                    primary_metrics_ordered_uuids: true,
+                    secondary_metrics_ordered_uuids: true,
+                    only_count_matured_users: true,
+                    update_feature_flag_params: true,
+                    version: true,
+                    original_experiment: true,
+                    tags: true,
+                }).shape
+            )
+            .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
+    )
 }
 
 const experimentDuplicate = (): ToolBase<ReturnType<typeof ExperimentDuplicateSchema>, unknown> => ({
@@ -432,17 +460,20 @@ const experimentDuplicate = (): ToolBase<ReturnType<typeof ExperimentDuplicateSc
 const ExperimentEndSchema = () => {
     const ExperimentsEndCreateBody = orvalSchemas.ExperimentsEndCreateBody()
     const ExperimentsEndCreateParams = orvalSchemas.ExperimentsEndCreateParams()
-    return ExperimentsEndCreateParams.omit({ project_id: true })
-        .extend(ExperimentsEndCreateBody.shape)
-        .extend({
-            id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']),
-            open_cleanup_pr: ExperimentsEndCreateBody.shape['open_cleanup_pr'].describe(
-                "When true, a background PostHog Code task removes the experiment's feature flag code and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
-            ),
-            repository: ExperimentsEndCreateBody.shape['repository'].describe(
-                "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
-            ),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsEndCreateParams.omit({ project_id: true })
+            .extend(ExperimentsEndCreateBody.shape)
+            .extend({
+                id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']),
+                open_cleanup_pr: ExperimentsEndCreateBody.shape['open_cleanup_pr'].describe(
+                    "When true, a background PostHog Code task removes the experiment's feature flag code and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+                ),
+                repository: ExperimentsEndCreateBody.shape['repository'].describe(
+                    "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+                ),
+            })
+    )
 }
 
 const experimentEnd = (): ToolBase<ReturnType<typeof ExperimentEndSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -475,9 +506,12 @@ const experimentEnd = (): ToolBase<ReturnType<typeof ExperimentEndSchema>, WithP
 
 const ExperimentFreezeExposureSchema = () => {
     const ExperimentsFreezeExposureCreateParams = orvalSchemas.ExperimentsFreezeExposureCreateParams()
-    return ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentFreezeExposure = (): ToolBase<
@@ -499,9 +533,12 @@ const experimentFreezeExposure = (): ToolBase<
 
 const ExperimentGetSchema = () => {
     const ExperimentsRetrieveParams = orvalSchemas.ExperimentsRetrieveParams()
-    return ExperimentsRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsRetrieveParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsRetrieveParams.shape['id']),
+        })
+    )
 }
 
 const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -670,9 +707,12 @@ const experimentHoldoutsRetrieve = (): ToolBase<
 
 const ExperimentLaunchSchema = () => {
     const ExperimentsLaunchCreateParams = orvalSchemas.ExperimentsLaunchCreateParams()
-    return ExperimentsLaunchCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsLaunchCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsLaunchCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsLaunchCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentLaunch = (): ToolBase<ReturnType<typeof ExperimentLaunchSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -734,6 +774,7 @@ const experimentList = (): ToolBase<
                     archived: params.archived,
                     created_by_id: params.created_by_id,
                     event: params.event,
+                    excluded_tags: params.excluded_tags,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
@@ -741,6 +782,7 @@ const experimentList = (): ToolBase<
                     prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
+                    tags: params.tags,
                 },
             })
             const filtered = {
@@ -759,6 +801,7 @@ const experimentList = (): ToolBase<
                         'status',
                         'created_at',
                         'updated_at',
+                        'tags',
                     ])
                 ),
             } as typeof result
@@ -778,9 +821,12 @@ const experimentList = (): ToolBase<
 const ExperimentMetricsRecalculationCreateSchema = () => {
     const ExperimentsMetricsRecalculationCreateBody = orvalSchemas.ExperimentsMetricsRecalculationCreateBody()
     const ExperimentsMetricsRecalculationCreateParams = orvalSchemas.ExperimentsMetricsRecalculationCreateParams()
-    return ExperimentsMetricsRecalculationCreateParams.omit({ project_id: true })
-        .extend(ExperimentsMetricsRecalculationCreateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsMetricsRecalculationCreateParams.omit({ project_id: true })
+            .extend(ExperimentsMetricsRecalculationCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
+    )
 }
 
 const experimentMetricsRecalculationCreate = (): ToolBase<
@@ -805,9 +851,12 @@ const experimentMetricsRecalculationCreate = (): ToolBase<
 const ExperimentMetricsRecalculationLatestRetrieveSchema = () => {
     const ExperimentsMetricsRecalculationLatestRetrieveParams =
         orvalSchemas.ExperimentsMetricsRecalculationLatestRetrieveParams()
-    return ExperimentsMetricsRecalculationLatestRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsMetricsRecalculationLatestRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']),
+        })
+    )
 }
 
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
@@ -844,9 +893,15 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
 
 const ExperimentMetricsRecalculationRetrieveSchema = () => {
     const ExperimentsMetricsRecalculationRetrieveParams = orvalSchemas.ExperimentsMetricsRecalculationRetrieveParams()
-    return ExperimentsMetricsRecalculationRetrieveParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({
+            id: ['experimentId', 'experiment_id'],
+            recalculation_id: ['run_id', 'runId', 'recalculationId'],
+        }),
+        ExperimentsMetricsRecalculationRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']),
+        })
+    )
 }
 
 const experimentMetricsRecalculationRetrieve = (): ToolBase<
@@ -880,11 +935,41 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
     },
 })
 
+const ExperimentMigrateSchema = () => {
+    const ExperimentsMigrateCreateParams = orvalSchemas.ExperimentsMigrateCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsMigrateCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsMigrateCreateParams.shape['id']),
+        })
+    )
+}
+
+const experimentMigrate = (): ToolBase<
+    ReturnType<typeof ExperimentMigrateSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-migrate',
+        schema: ExperimentMigrateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentMigrateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
 const ExperimentPauseSchema = () => {
     const ExperimentsPauseCreateParams = orvalSchemas.ExperimentsPauseCreateParams()
-    return ExperimentsPauseCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsPauseCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsPauseCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsPauseCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentPause = (): ToolBase<ReturnType<typeof ExperimentPauseSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -918,9 +1003,12 @@ const experimentPromptTemplates = (): ToolBase<ReturnType<typeof ExperimentPromp
 
 const ExperimentResetSchema = () => {
     const ExperimentsResetCreateParams = orvalSchemas.ExperimentsResetCreateParams()
-    return ExperimentsResetCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsResetCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsResetCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsResetCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentReset = (): ToolBase<ReturnType<typeof ExperimentResetSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -939,9 +1027,12 @@ const experimentReset = (): ToolBase<ReturnType<typeof ExperimentResetSchema>, W
 
 const ExperimentResumeSchema = () => {
     const ExperimentsResumeCreateParams = orvalSchemas.ExperimentsResumeCreateParams()
-    return ExperimentsResumeCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsResumeCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsResumeCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsResumeCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentResume = (): ToolBase<ReturnType<typeof ExperimentResumeSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -1119,20 +1210,71 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
     },
 })
 
+const ExperimentSetupContextSchema = () => {
+    const ExperimentsSetupContextCreateBody = orvalSchemas.ExperimentsSetupContextCreateBody()
+    return ExperimentsSetupContextCreateBody
+}
+
+const experimentSetupContext = (): ToolBase<
+    ReturnType<typeof ExperimentSetupContextSchema>,
+    WithInformationalResponse<Schemas.ExperimentSetupContextResponse>
+> => ({
+    name: 'experiment-setup-context',
+    schema: ExperimentSetupContextSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSetupContextSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.target_event !== undefined) {
+            body['target_event'] = params.target_event
+        }
+        if (params.target_url_contains !== undefined) {
+            body['target_url_contains'] = params.target_url_contains
+        }
+        if (params.target_properties !== undefined) {
+            body['target_properties'] = params.target_properties
+        }
+        if (params.metric_event !== undefined) {
+            body['metric_event'] = params.metric_event
+        }
+        if (params.metric_properties !== undefined) {
+            body['metric_properties'] = params.metric_properties
+        }
+        if (params.previous_experiments_limit !== undefined) {
+            body['previous_experiments_limit'] = params.previous_experiments_limit
+        }
+        if (params.shared_metrics_limit !== undefined) {
+            body['shared_metrics_limit'] = params.shared_metrics_limit
+        }
+        const result = await context.api.request<Schemas.ExperimentSetupContextResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/setup_context/`,
+            body,
+        })
+        return withInformationalResponse(
+            result,
+            'experiment-setup-context',
+            'Use it only as facts about this project when configuring a new experiment.'
+        )
+    },
+})
+
 const ExperimentShipVariantSchema = () => {
     const ExperimentsShipVariantCreateBody = orvalSchemas.ExperimentsShipVariantCreateBody()
     const ExperimentsShipVariantCreateParams = orvalSchemas.ExperimentsShipVariantCreateParams()
-    return ExperimentsShipVariantCreateParams.omit({ project_id: true })
-        .extend(ExperimentsShipVariantCreateBody.shape)
-        .extend({
-            id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']),
-            open_cleanup_pr: ExperimentsShipVariantCreateBody.shape['open_cleanup_pr'].describe(
-                "When true, a background PostHog Code task removes the experiment's feature flag code, keeping the shipped variant's code path, and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
-            ),
-            repository: ExperimentsShipVariantCreateBody.shape['repository'].describe(
-                "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
-            ),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsShipVariantCreateParams.omit({ project_id: true })
+            .extend(ExperimentsShipVariantCreateBody.shape)
+            .extend({
+                id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']),
+                open_cleanup_pr: ExperimentsShipVariantCreateBody.shape['open_cleanup_pr'].describe(
+                    "When true, a background PostHog Code task removes the experiment's feature flag code, keeping the shipped variant's code path, and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+                ),
+                repository: ExperimentsShipVariantCreateBody.shape['repository'].describe(
+                    "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+                ),
+            })
+    )
 }
 
 const experimentShipVariant = (): ToolBase<
@@ -1191,9 +1333,12 @@ const ExperimentTimeseriesResultsSchema = () => {
     const ExperimentsTimeseriesResultsRetrieveParams = orvalSchemas.ExperimentsTimeseriesResultsRetrieveParams()
     const ExperimentsTimeseriesResultsRetrieveQueryParams =
         orvalSchemas.ExperimentsTimeseriesResultsRetrieveQueryParams()
-    return ExperimentsTimeseriesResultsRetrieveParams.omit({ project_id: true })
-        .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
-        .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsTimeseriesResultsRetrieveParams.omit({ project_id: true })
+            .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
+            .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
+    )
 }
 
 const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTimeseriesResultsSchema>, unknown> => ({
@@ -1227,9 +1372,12 @@ const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTim
 
 const ExperimentUnarchiveSchema = () => {
     const ExperimentsUnarchiveCreateParams = orvalSchemas.ExperimentsUnarchiveCreateParams()
-    return ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentUnarchive = (): ToolBase<
@@ -1251,9 +1399,12 @@ const experimentUnarchive = (): ToolBase<
 
 const ExperimentUnfreezeExposureSchema = () => {
     const ExperimentsUnfreezeExposureCreateParams = orvalSchemas.ExperimentsUnfreezeExposureCreateParams()
-    return ExperimentsUnfreezeExposureCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsUnfreezeExposureCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsUnfreezeExposureCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsUnfreezeExposureCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentUnfreezeExposure = (): ToolBase<
@@ -1276,36 +1427,40 @@ const experimentUnfreezeExposure = (): ToolBase<
 const ExperimentUpdateSchema = () => {
     const ExperimentsPartialUpdateBody = orvalSchemas.ExperimentsPartialUpdateBody()
     const ExperimentsPartialUpdateParams = orvalSchemas.ExperimentsPartialUpdateParams()
-    return ExperimentsPartialUpdateParams.omit({ project_id: true })
-        .extend(
-            ExperimentsPartialUpdateBody.omit({
-                start_date: true,
-                end_date: true,
-                feature_flag_key: true,
-                secondary_metrics: true,
-                filters: true,
-                deleted: true,
-                type: true,
-                scheduling_config: true,
-                _create_in_folder: true,
-                repository: true,
-                primary_metrics_ordered_uuids: true,
-                secondary_metrics_ordered_uuids: true,
-                only_count_matured_users: true,
-                version: true,
-                original_experiment: true,
-            }).shape
-        )
-        .extend({
-            id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
-            feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
-                "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
-            ),
-            running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
-                "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
-            ),
-            saved_metrics_ids: SavedMetricsAttachSchema.optional(),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsPartialUpdateParams.omit({ project_id: true })
+            .extend(
+                ExperimentsPartialUpdateBody.omit({
+                    start_date: true,
+                    end_date: true,
+                    feature_flag_key: true,
+                    parameters: true,
+                    secondary_metrics: true,
+                    filters: true,
+                    deleted: true,
+                    type: true,
+                    scheduling_config: true,
+                    _create_in_folder: true,
+                    repository: true,
+                    primary_metrics_ordered_uuids: true,
+                    secondary_metrics_ordered_uuids: true,
+                    only_count_matured_users: true,
+                    version: true,
+                    original_experiment: true,
+                }).shape
+            )
+            .extend({
+                id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
+                feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
+                    "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
+                ),
+                running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
+                    "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
+                ),
+                saved_metrics_ids: SavedMetricsAttachSchema.optional(),
+            })
+    )
 }
 
 const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>, WithPostHogUrl<Schemas.Experiment>> =>
@@ -1326,9 +1481,6 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             }
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
-            }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
             }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
@@ -1366,6 +1518,9 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             if (params.update_feature_flag_params !== undefined) {
                 body['update_feature_flag_params'] = params.update_feature_flag_params
             }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
@@ -1382,23 +1537,59 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'running_time_calculation',
+                'excluded_variants',
                 'metrics',
                 'metrics_secondary',
                 'saved_metrics',
                 'conclusion',
                 'conclusion_comment',
+                'tags',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
+const ExperimentsBulkUpdateTagsCreateSchema = () => {
+    const ExperimentsBulkUpdateTagsCreateBody = orvalSchemas.ExperimentsBulkUpdateTagsCreateBody()
+    return ExperimentsBulkUpdateTagsCreateBody
+}
+
+const experimentsBulkUpdateTagsCreate = (): ToolBase<
+    ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>,
+    Schemas.BulkUpdateTagsResponse
+> => ({
+    name: 'experiments-bulk-update-tags-create',
+    schema: ExperimentsBulkUpdateTagsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/bulk_update_tags/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ExperimentsSessionEventDeltasCreateSchema = () => {
     const ExperimentsSessionEventDeltasCreateParams = orvalSchemas.ExperimentsSessionEventDeltasCreateParams()
-    return ExperimentsSessionEventDeltasCreateParams.omit({ project_id: true }).extend({
-        id: z.preprocess(castStringToInt, ExperimentsSessionEventDeltasCreateParams.shape['id']),
-    })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsSessionEventDeltasCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsSessionEventDeltasCreateParams.shape['id']),
+        })
+    )
 }
 
 const experimentsSessionEventDeltasCreate = (): ToolBase<
@@ -1447,6 +1638,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-metrics-recalculation-create': experimentMetricsRecalculationCreate,
     'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
     'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
+    'experiment-migrate': experimentMigrate,
     'experiment-pause': experimentPause,
     'experiment-prompt-templates': experimentPromptTemplates,
     'experiment-reset': experimentReset,
@@ -1456,11 +1648,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-saved-metrics-list': experimentSavedMetricsList,
     'experiment-saved-metrics-partial-update': experimentSavedMetricsPartialUpdate,
     'experiment-saved-metrics-retrieve': experimentSavedMetricsRetrieve,
+    'experiment-setup-context': experimentSetupContext,
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
+    'experiments-bulk-update-tags-create': experimentsBulkUpdateTagsCreate,
     'experiments-session-event-deltas-create': experimentsSessionEventDeltasCreate,
 }

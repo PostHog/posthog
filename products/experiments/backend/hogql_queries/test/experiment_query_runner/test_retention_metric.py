@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -10,6 +10,8 @@ from parameterized import parameterized
 
 from posthog.schema import (
     EventsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureNode,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
@@ -35,7 +37,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_basic_retention_calculation(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -190,7 +192,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_window_boundaries(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -325,7 +327,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_first_seen_vs_last_seen(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -494,7 +496,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_with_conversion_window(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -635,7 +637,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_no_completion_events(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -743,7 +745,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_multiple_variants(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -894,7 +896,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_day_zero_same_day_as_start(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1053,7 +1055,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("first_seen_window_start_one_precomputed", True, StartHandling.FIRST_SEEN, 1, 1, 1, 0),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_retention_same_start_and_completion_event_excludes_self(
         self,
         name,
@@ -1169,7 +1171,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_hour_based_same_hour(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1324,7 +1326,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_multiple_completions_in_window(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1460,7 +1462,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_start_event_before_exposure_not_excluded(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1616,7 +1618,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-25T12:00:00Z")
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1764,7 +1766,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-25T12:00:00Z")
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users_without_conversion_window(self, name, use_precomputation):
         # Retention metrics should respect only_count_matured_users even when no
@@ -1904,7 +1906,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-25T12:00:00Z")
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users_anchors_on_start_event(self, name, use_precomputation):
         # Maturity must be anchored on the user's start_event timestamp, not their
@@ -2025,3 +2027,249 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         assert result.variant_results is not None
         assert len(result.variant_results) == 1
         self.assertEqual(result.variant_results[0].number_of_samples, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    @snapshot_clickhouse_queries
+    def test_retention_anchored_on_exposure_event(self, name: str, use_precomputation: bool) -> None:
+        # The precomputed variant reads exposures from the preaggregated table;
+        # metric events always take the direct scan for an exposure start.
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        exposure_config = ExperimentEventExposureConfig(event="entered_experiment", properties=[])
+        experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureNode(),
+            completion_event=EventsNode(
+                event="return_visit",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        def _create_user(variant: str, user_id: str, return_day_offset: int | None) -> None:
+            _create_person(distinct_ids=[user_id], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="entered_experiment",
+                distinct_id=user_id,
+                timestamp="2020-01-02T12:00:00Z",
+                properties={feature_flag_property: variant},
+            )
+            if return_day_offset is not None:
+                _create_event(
+                    team=self.team,
+                    event="return_visit",
+                    distinct_id=user_id,
+                    timestamp=f"2020-01-{2 + return_day_offset:02d}T13:00:00Z",
+                    properties={feature_flag_property: variant},
+                )
+
+        # Control: 6 exposed. 4 return on day 3 (in window), 1 returns same day
+        # (day 0, outside the [1, 7] window), 1 never returns.
+        for i in range(4):
+            _create_user("control", f"user_control_{i}", return_day_offset=3)
+        _create_user("control", "user_control_4", return_day_offset=0)
+        _create_user("control", "user_control_5", return_day_offset=None)
+
+        # Test: 8 exposed, 5 return on day 2.
+        for i in range(5):
+            _create_user("test", f"user_test_{i}", return_day_offset=2)
+        for i in range(5, 8):
+            _create_user("test", f"user_test_{i}", return_day_offset=None)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        # Every exposed user is in the denominator; only in-window returns count.
+        self.assertEqual(result.baseline.number_of_samples, 6)
+        self.assertEqual(result.baseline.sum, 4)
+        self.assertEqual(result.variant_results[0].number_of_samples, 8)
+        self.assertEqual(result.variant_results[0].sum, 5)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    @snapshot_clickhouse_queries
+    def test_retention_exposure_start_excludes_exposure_as_its_own_completion(
+        self, name: str, use_precomputation: bool
+    ) -> None:
+        # Guards the exposure_event_uuid exclusion: with a day-0 window and the
+        # completion event equal to the exposure event, the exposure occurrence
+        # itself must not count as a return.
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        exposure_config = ExperimentEventExposureConfig(event="entered_experiment", properties=[])
+        experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureNode(),
+            completion_event=EventsNode(
+                event="entered_experiment",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=0,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        def _create_user(variant: str, user_id: str, fires_again: bool) -> None:
+            _create_person(distinct_ids=[user_id], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="entered_experiment",
+                distinct_id=user_id,
+                timestamp="2020-01-02T12:00:00Z",
+                properties={feature_flag_property: variant},
+            )
+            if fires_again:
+                _create_event(
+                    team=self.team,
+                    event="entered_experiment",
+                    distinct_id=user_id,
+                    timestamp="2020-01-02T13:00:00Z",
+                    properties={feature_flag_property: variant},
+                )
+
+        _create_user("control", "user_control_repeat", fires_again=True)
+        _create_user("control", "user_control_once", fires_again=False)
+        _create_user("test", "user_test_once", fires_again=False)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+
+        # Repeat firing counts as a return; the exposure alone does not.
+        self.assertEqual(result.baseline.number_of_samples, 2)
+        self.assertEqual(result.baseline.sum, 1)
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 0)
+
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
+    @snapshot_clickhouse_queries
+    def test_only_count_matured_users_with_exposure_start(self) -> None:
+        # Direct path only: the maturity predicate is identical on both
+        # exposure paths.
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 25, 0, 0, 0),
+        )
+        exposure_config = ExperimentEventExposureConfig(event="entered_experiment", properties=[])
+        experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
+
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureNode(),
+            completion_event=EventsNode(
+                event="return_visit",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=7,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        def _create_user(variant: str, user_id: str, exposure_timestamp: str, returns_on: str | None) -> None:
+            _create_person(distinct_ids=[user_id], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="entered_experiment",
+                distinct_id=user_id,
+                timestamp=exposure_timestamp,
+                properties={feature_flag_property: variant},
+            )
+            if returns_on is not None:
+                _create_event(
+                    team=self.team,
+                    event="return_visit",
+                    distinct_id=user_id,
+                    timestamp=returns_on,
+                    properties={feature_flag_property: variant},
+                )
+
+        # Matured: exposed Jan 2, window elapsed Jan 9 < now (Jan 25). Returns day 7.
+        _create_user("control", "user_control_matured", "2020-01-02T12:00:00Z", "2020-01-09T12:00:00Z")
+        # Not matured: exposed Jan 23, window elapses Jan 30 > now. Must be excluded.
+        _create_user("control", "user_control_recent", "2020-01-23T12:00:00Z", None)
+        _create_user("test", "user_test_matured", "2020-01-02T12:00:00Z", None)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 1)
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 0)

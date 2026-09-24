@@ -1,9 +1,15 @@
 version: 1
 owners: []
 rules:
+    - match: '/HogQLEditor/'
+      owners: team-data-tools
+    - match: '/MarkdownNotebook/'
+      owners: team-data-tools
     - match: '/ReverseProxyChecker/'
       owners: team-platform-features
     - match: '/RichContentEditor/'
       owners: team-data-tools
+    - match: '/SkillPicker/'
+      owners: team-self-driving
     - match: '/heatmaps/'
       owners: team-web-analytics

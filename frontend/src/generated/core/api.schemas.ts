@@ -236,6 +236,7 @@ export const DomainScopeEnumApi = {
 
 /**
  * * `saml` - Saml
+ * * `oidc` - Oidc
  * * `scim` - Scim
  * * `xaa` - Xaa
  */
@@ -243,6 +244,7 @@ export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof Config
 
 export const ConfigScopeEnumApi = {
     Saml: 'saml',
+    Oidc: 'oidc',
     Scim: 'scim',
     Xaa: 'xaa',
 } as const
@@ -262,6 +264,7 @@ export interface IdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -271,6 +274,22 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state: string
     /**
@@ -346,6 +365,7 @@ export interface PatchedIdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -355,6 +375,22 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc?: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret?: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state?: string
     /**
@@ -616,6 +652,11 @@ export interface ProjectBackwardCompatBasicApi {
     readonly is_demo: boolean
     readonly timezone: string
     readonly access_control: boolean
+    /**
+     * Labels applied to this project.
+     * @items.maxLength 255
+     */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedProjectBackwardCompatBasicListApi {
@@ -1751,6 +1792,8 @@ export interface TeamMarketingAnalyticsConfigApi {
      * * `time_decay` - Time Decay
      * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
+    /** Whether marketing analytics drops traffic matching the project's test-account filters. Off by default. */
+    filter_test_accounts?: boolean
     /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
     campaign_name_mappings?: MarketingAnalyticsCampaignNameMappingsApi
     /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
@@ -1800,6 +1843,23 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /**
+     * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_rate_limit_per_day?: number | null
+    /**
+     * How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_team_rate_limit_per_day?: number | null
+}
+
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+    require_tags?: boolean
 }
 
 /**
@@ -1817,7 +1877,10 @@ export const CookielessServerHashModeEnumApi = {
 } as const
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1834,6 +1897,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at: string
     readonly effective_membership_level: OrganizationMembershipLevelEnumApi
     readonly has_group_types: boolean
@@ -2581,6 +2649,11 @@ export interface ProjectBackwardCompatApi {
     readonly secret_api_token: string | null
     /** @nullable */
     readonly secret_api_token_backup: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -2604,6 +2677,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id: number
     /**
@@ -2616,6 +2694,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -2648,10 +2727,6 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2669,7 +2744,10 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
@@ -2686,6 +2764,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at?: string
     readonly effective_membership_level?: OrganizationMembershipLevelEnumApi
     readonly has_group_types?: boolean
@@ -3433,6 +3516,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly secret_api_token?: string | null
     /** @nullable */
     readonly secret_api_token_backup?: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret?: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -3456,6 +3544,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at?: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id?: number
     /**
@@ -3468,6 +3561,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3500,10 +3594,43 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly event_retention_months?: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly events_retention_enforced?: boolean
+}
+
+/**
+ * The project as the app context serves it, which is where the frontend reads it on page load.
+ *
+ * projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+ * is missing, so a field left out here is invisible to the app until something refetches.
+ */
+export interface ProjectApi {
+    readonly id: number
+    readonly organization_id: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    /**
+     * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -3788,6 +3915,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -3799,7 +3939,7 @@ export interface FileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3842,7 +3982,7 @@ export interface PatchedFileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -4045,7 +4185,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -4154,6 +4298,21 @@ export interface LeakedKeyReportResponseApi {
 }
 
 /**
+ * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
+export interface ToolbarEntitlementsErrorApi {
+    /** Why toolbar entitlements could not be retrieved. */
+    error: string
+}
+
+/**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
  */
@@ -4201,18 +4360,6 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number3: 3,
     Number6: 6,
     Number9: 9,
-} as const
-
-/**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
- */
-export type OrganizationDefaultExperimentStatsMethodEnumApi =
-    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
-
-export const OrganizationDefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
 } as const
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
@@ -4283,13 +4430,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4312,6 +4454,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 /**
@@ -4458,6 +4605,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4569,6 +4721,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -4698,6 +4855,61 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     /** @nullable */
     previous?: string | null
     results: UserGitHubIntegrationListResponseApi[]
+}
+
+/**
+ * * `connected` - Connected
+ * * `reauth_required` - Reauth Required
+ * * `not_connected` - Not Connected
+ */
+export type CodexIntegrationStatusEnumApi =
+    (typeof CodexIntegrationStatusEnumApi)[keyof typeof CodexIntegrationStatusEnumApi]
+
+export const CodexIntegrationStatusEnumApi = {
+    Connected: 'connected',
+    ReauthRequired: 'reauth_required',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserCodexIntegrationApi {
+    /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+     *
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected */
+    status: CodexIntegrationStatusEnumApi
+    /**
+     * The ChatGPT plan type OpenAI reports for the account.
+     * @nullable
+     */
+    plan_type?: string | null
+    /**
+     * The email of the connected ChatGPT account.
+     * @nullable
+     */
+    email?: string | null
+    /**
+     * When the account was connected.
+     * @nullable
+     */
+    connected_at?: string | null
+}
+
+export interface UserCodexAuthTokensApi {
+    /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+    access_token: string
+    /** The single-use ChatGPT refresh token from the same `tokens` object. */
+    refresh_token: string
+    /**
+     * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+     * @nullable
+     */
+    id_token?: string | null
+}
+
+export interface UserCodexConnectRequestApi {
+    /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+    tokens: UserCodexAuthTokensApi
 }
 
 export interface GitHubBranchesResponseApi {
@@ -4940,6 +5152,19 @@ export interface OnboardingSkipRequestApi {
 }
 
 /**
+ * Request body for PATCH /api/users/@me/product_intro_seen.
+ */
+export interface PatchedProductIntroSeenApi {
+    /**
+     * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+     * @maxLength 128
+     */
+    product_key?: string
+    /** Whether the intro counts as seen. Send false to show it again. */
+    seen?: boolean
+}
+
+/**
  * * `ios` - iOS
  * * `android` - Android
  * * `web` - Web
@@ -4988,6 +5213,24 @@ export interface UserPushTokenUnregisterRequestApi {
      * @maxLength 512
      */
     token: string
+}
+
+export interface TwoFactorStatusApi {
+    /** Whether the user has any 2FA method enabled. */
+    is_enabled: boolean
+    /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+    backup_codes_remaining: number
+    /**
+     * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+     * @nullable
+     */
+    method: string | null
+    /** Whether the user has at least one verified passkey. */
+    has_passkeys: boolean
+    /** Whether the user has an authenticator app set up. */
+    has_totp: boolean
+    /** Whether passkeys count as a 2FA method. */
+    passkeys_enabled_for_2fa: boolean
 }
 
 /**
@@ -5138,7 +5381,23 @@ export type OrganizationsProjectsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch
 }
+
+export type OrganizationsProjectsListTagsMatch =
+    (typeof OrganizationsProjectsListTagsMatch)[keyof typeof OrganizationsProjectsListTagsMatch]
+
+export const OrganizationsProjectsListTagsMatch = {
+    All: 'all',
+    Any: 'any',
+} as const
 
 export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
@@ -5160,6 +5419,10 @@ export type ExportsListParams = {
 
 export type FileSystemListParams = {
     /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5171,6 +5434,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {
@@ -5402,3 +5672,5 @@ export type UsersLoginSessionsListParams = {
     email?: string
     is_staff?: boolean
 }
+
+export type UsersProductIntroSeenPartialUpdate200 = { [key: string]: boolean }

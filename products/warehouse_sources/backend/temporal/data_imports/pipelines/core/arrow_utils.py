@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 import json
 import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -19,6 +20,8 @@ from arro3.core.types import ArrowSchemaExportable
 from circular_dict import CircularDict
 from dateutil import parser
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
+from psycopg.types.multirange import Multirange
+from psycopg.types.range import Range
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
@@ -63,12 +66,19 @@ class BillingLimitsWillBeReachedException(NonReportableError):
     and subclassing NonReportableError keeps it out of error tracking."""
 
 
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
+# import teardown that records why an incremental sync is blocked, so keep the wording in step with
+# them. The raised message continues past this prefix with the keys that were used.
+DUPLICATE_PRIMARY_KEYS_ERROR = "The primary keys for this table are not unique"
+
+
 class DuplicatePrimaryKeysException(Exception):
     pass
 
 
-# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
-# v3 load consumer, so both keep recognizing the condition — keep the wording in step with them.
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), by the
+# v3 load consumer, and by the import teardown that records why an incremental sync is blocked, so
+# all three keep recognizing the condition. Keep the wording in step with them.
 MISSING_PRIMARY_KEYS_ERROR = "Primary key required for incremental syncs"
 
 
@@ -78,6 +88,26 @@ class MissingPrimaryKeysException(Exception):
 
     def __init__(self, message: str = MISSING_PRIMARY_KEYS_ERROR) -> None:
         super().__init__(message)
+
+
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), so the
+# schema is paused with guidance instead of retrying rows whose shape cannot change. Keep the
+# wording in step with that entry.
+NON_MAPPING_ROW_ERROR = "Rows from this table are not JSON objects"
+
+
+class NonMappingRowError(Exception):
+    """A batch carries a row that isn't a key/value object, so there are no column names to build a
+    table from.
+
+    Usually a REST resource whose selected response field holds arrays or scalars instead of
+    objects, for example a reporting endpoint that returns bare row arrays and its column names
+    separately. The same shape comes back on every retry until the source config selects objects.
+    The message carries only the row's type, because row contents can hold customer data.
+    """
+
+    def __init__(self, row_type: str) -> None:
+        super().__init__(f"{NON_MAPPING_ROW_ERROR} (a row arrived as {row_type})")
 
 
 class QueryTimeoutException(Exception):
@@ -728,9 +758,58 @@ def _convert_uuid_to_string(row: dict) -> dict:
     return {key: str(value) if isinstance(value, uuid.UUID) else value for key, value in row.items()}
 
 
+RANGE_TYPES = (Range, Multirange)
+
+# Postgres quotes a bound in its range text output when the bound is empty or holds a character
+# that range syntax itself uses.
+_RANGE_BOUND_NEEDS_QUOTES = re.compile(r'[\s",\\()\[\]]')
+
+
+def _format_range_bound(value: Any) -> str:
+    # An infinite bound is written as nothing at all, so "[5,)" is a range with no upper bound.
+    if value is None:
+        return ""
+
+    text = str(value)
+    if text == "" or _RANGE_BOUND_NEEDS_QUOTES.search(text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    return text
+
+
+def _format_range(value: Range | Multirange) -> str:
+    """Render a psycopg range or multirange the way Postgres writes it as text.
+
+    pyarrow has no type for either object, so the column has to be stored as a string. The Postgres
+    text form ("[4,5)", "empty", "{[1,4),[7,9)}") is what the Postgres source's own range loader
+    already produces for the range types it covers, so every range column reads the same way in the
+    warehouse. `str()` on these objects gives a Python rendering instead, which writes an infinite
+    bound as "None" and cannot be read back as a range.
+    """
+    if isinstance(value, Multirange):
+        return "{" + ",".join(_format_range(item) for item in value) + "}"
+
+    if value.isempty:
+        return "empty"
+
+    lower_bracket = "[" if value.lower_inc else "("
+    upper_bracket = "]" if value.upper_inc else ")"
+
+    return f"{lower_bracket}{_format_range_bound(value.lower)},{_format_range_bound(value.upper)}{upper_bracket}"
+
+
+def _json_default(obj: Any) -> str:
+    if isinstance(obj, RANGE_TYPES):
+        return _format_range(obj)
+
+    # orjson reads a TypeError from `default` as "still not serializable", so the caller falls
+    # through to its own fallbacks.
+    raise TypeError
+
+
 def _json_dumps(obj: Any) -> str:
     try:
-        return orjson.dumps(obj).decode()
+        return orjson.dumps(obj, default=_json_default).decode()
     except TypeError:
         try:
             return json.dumps(obj)
@@ -1269,6 +1348,11 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     if issubclass(type_, uuid.UUID):
         return pa.string()
 
+    # Range and multirange values are rendered as Postgres text later in `_process_batch`, for the
+    # same reason.
+    if issubclass(type_, RANGE_TYPES):
+        return pa.string()
+
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
@@ -1337,12 +1421,21 @@ def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str
 
 
 def _process_batch(
-    table_data: list[dict],
+    # Not `list[dict]`: a source can hand the pipeline rows that aren't objects, which the guard
+    # below rejects.
+    table_data: list[Any],
     schema: Optional[pa.Schema] = None,
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
 ) -> pa.Table:
+    # Every step below reads a row as a mapping, so without this check a keyless row fails deep in
+    # the conversion with a bare `'list' object has no attribute 'items'`, which names neither the
+    # cause nor a fix.
+    for row in table_data:
+        if not isinstance(row, Mapping):
+            raise NonMappingRowError(type(row).__name__)
+
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
 
     # Support both given schemas and inferred schemas
@@ -1707,6 +1800,18 @@ def _process_batch(
                 [None if s is None else str(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
             columnar_table_data[field_name] = str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # Convert Postgres range and multirange values to their text form. The source declares such
+        # a column as a string, and pyarrow rejects the psycopg object with "Expected bytes, got a
+        # 'Range'/'Multirange' object" when it builds the column array.
+        if issubclass(py_type, RANGE_TYPES):
+            range_str_array = pa.array(
+                [None if s is None else _format_range(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
+            columnar_table_data[field_name] = range_str_array
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))

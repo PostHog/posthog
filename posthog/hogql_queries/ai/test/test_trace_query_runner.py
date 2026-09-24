@@ -4,24 +4,42 @@ from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.conf import settings
+
+from parameterized import parameterized
+
 from posthog.schema import (
+    CachedSessionQueryResponse,
+    CachedTraceQueryResponse,
+    CachedTracesQueryResponse,
     DateRange,
     EventPropertyFilter,
     LLMTrace,
     LLMTraceEvent,
     PersonPropertyFilter,
     PropertyOperator,
+    SessionQuery,
     TraceQuery,
+    TracesQuery,
 )
 
-from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
-from posthog.models import PropertyDefinition, Team
-from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
+from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
+from posthog.models import PropertyDefinition, Team, User
+from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -272,6 +290,173 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         for field, value in expected_event.items():
             self.assertEqual(getattr(event, field), value, f"Field {field} does not match")
 
+    @parameterized.expand(
+        [
+            ("trace", "ai_events"),
+            ("trace", "events"),
+            ("session", "ai_events"),
+            ("session", "events"),
+            ("traces", "events"),
+        ]
+    )
+    @time_machine.travel("2025-01-15T12:00:00Z", tick=False)
+    def test_member_property_denial_survives_reconstruction_and_cache(self, runner_kind: str, table: str) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        denied_user = self._create_user("restricted@example.com")
+        denied_membership = denied_user.organization_memberships.get(organization=self.organization)
+        denied_properties = {
+            "$ai_input",
+            "$ai_input_state",
+            "$ai_output_state",
+            "$ai_tools",
+            "$ai_input_tokens",
+            "$ai_total_cost_usd",
+            "$ai_is_error",
+            "private_note",
+        }
+        for name in denied_properties | {"$ai_sentiment_messages"}:
+            property_definition, _ = PropertyDefinition.objects.get_or_create(
+                team=self.team, name=name, type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=property_definition,
+                organization_member=denied_membership,
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+
+        events: list[dict[str, Any]] = [
+            {
+                "event": event_name,
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": datetime(2025, 1, 15, 0, minute, tzinfo=UTC),
+                "properties": {
+                    "$ai_trace_id": "restricted-trace",
+                    "$ai_generation_id": "restricted-generation",
+                    "$ai_session_id": "restricted-session",
+                    "$ai_parent_id": "restricted-trace",
+                    "$ai_input": [{"role": "user", "content": "Private input"}],
+                    "$ai_input_state": {"note": "Private input state"},
+                    "$ai_output_state": {"note": "Private output state"},
+                    "$ai_tools": [{"name": "private_tool"}],
+                    "$ai_output": "Public output",
+                    "$ai_input_tokens": 7,
+                    "$ai_total_cost_usd": 0.25,
+                    "$ai_is_error": True,
+                    "private_note": "Private custom property",
+                    "public_note": "Public custom property",
+                },
+            }
+            for minute, event_name in enumerate(("$ai_trace", "$ai_generation"))
+        ]
+        events.append(
+            {
+                "event": "$ai_evaluation",
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": datetime(2025, 1, 15, 0, 2, tzinfo=UTC),
+                "properties": {
+                    "$ai_trace_id": "restricted-trace",
+                    "$ai_evaluation_runtime": "sentiment",
+                    "$ai_target_event_id": "restricted-generation",
+                    "$ai_sentiment_label": "negative",
+                    "$ai_sentiment_score": 0.8,
+                    "$ai_sentiment_scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+                    "$ai_sentiment_messages": {"0": {"label": "negative", "score": 0.8}},
+                    "$ai_sentiment_message_count": 1,
+                },
+            }
+        )
+        if table == "ai_events":
+            bulk_create_ai_events(events)
+        else:
+            bulk_create_events(events)
+        stored = events[0]["properties"]
+        if table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # The JSON ingest cleaner drops the heavy AI properties, and the table stores declared String paths as text.
+            # The runner converts the numeric ones back, but not $ai_is_error.
+            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES} | {
+                "$ai_is_error": "true"
+            }
+
+        def make_runner(user: User) -> TraceQueryRunner | SessionQueryRunner | TracesQueryRunner:
+            date_range = DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")
+            if runner_kind == "trace":
+                return TraceQueryRunner(
+                    team=self.team,
+                    user=user,
+                    query=TraceQuery(traceId="restricted-trace", dateRange=date_range, includeSentiment=True),
+                )
+            if runner_kind == "session":
+                return SessionQueryRunner(
+                    team=self.team,
+                    user=user,
+                    query=SessionQuery(sessionId="restricted-session", dateRange=date_range, includeSentiment=True),
+                )
+            return TracesQueryRunner(
+                team=self.team, user=user, query=TracesQuery(dateRange=date_range, includeSentiment=True)
+            )
+
+        allowed_runner = make_runner(self.user)
+        allowed = allowed_runner.run()
+        assert isinstance(allowed, (CachedTraceQueryResponse, CachedSessionQueryResponse, CachedTracesQueryResponse))
+        assert len(allowed.results) == 1
+        allowed_trace = allowed.results[0]
+        assert allowed_trace.inputState == stored.get("$ai_input_state")
+        assert allowed_trace.outputState == stored.get("$ai_output_state")
+        assert allowed_trace.events
+        for event in allowed_trace.events:
+            for property_name in denied_properties:
+                assert event.properties.get(property_name) == stored.get(property_name)
+        assert allowed_trace.sentiment is not None
+        assert allowed_trace.sentiment.messages
+        if runner_kind != "traces":
+            generation = next(event for event in allowed_trace.events if event.event == "$ai_generation")
+            assert generation.sentiment is not None
+            assert generation.sentiment.messages
+
+        denied_runner = make_runner(denied_user)
+        assert denied_runner.get_cache_key() != allowed_runner.get_cache_key()
+        for index, response in enumerate((denied_runner.run(), make_runner(denied_user).run())):
+            assert isinstance(
+                response, (CachedTraceQueryResponse, CachedSessionQueryResponse, CachedTracesQueryResponse)
+            )
+            assert len(response.results) == 1
+            trace = response.results[0]
+            assert trace.inputState is None
+            assert trace.outputState is None
+            assert trace.sentiment is not None
+            assert not trace.sentiment.messages
+            assert trace.events
+            for event in trace.events:
+                if event.sentiment is not None:
+                    assert not event.sentiment.messages
+                assert denied_properties.isdisjoint(event.properties)
+                assert event.properties.get("$ai_output") == stored.get("$ai_output")
+                assert event.properties["public_note"] == "Public custom property"
+            if index == 1:
+                assert response.is_cached
+
+        if table == "ai_events":
+            aggregates = execute_hogql_query(
+                query="""
+                    SELECT sum(input_tokens), sum(total_cost_usd), countIf(is_error),
+                           countIf(input_tokens > 0), countIf(total_cost_usd > 0)
+                    FROM posthog.ai_events
+                """,
+                team=self.team,
+                user=denied_user,
+            )
+            assert len(aggregates.results) == 1
+            tokens, cost, errors, positive_tokens, positive_cost = aggregates.results[0]
+            assert tokens in (None, 0)
+            assert cost in (None, 0)
+            assert (errors, positive_tokens, positive_cost) == (0, 0, 0)
+
     def test_field_mapping(self):
         """Test that field mapping works correctly for a single trace."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -445,7 +630,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             response.results[0].events[0].properties.items(),
         )
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_person_properties(self):
         """Test that person data is not loaded server-side (frontend handles it via lazy loader)."""
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
@@ -462,7 +647,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].distinctId, "person1")
         self.assertIsNone(response.results[0].person)
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_prefers_trace_event(self):
         """When a $ai_trace event exists, its distinct_id should be used even if
         other events in the trace have an earlier timestamp with a different distinct_id."""
@@ -492,7 +677,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].distinctId, "real-user-id")
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_falls_back_without_trace_event(self):
         """When no $ai_trace event exists, the distinct_id from the earliest event should be used."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -511,7 +696,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].distinctId, "person1")
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_date_range(self):
         """Test that date range filtering works correctly."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -965,6 +1150,111 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.totalCost, 1.0)
         self.assertEqual(trace.totalLatency, 3.9)
         self.assertEqual(trace.events[0].properties.get("$ai_input"), [{"role": "user", "content": "Foo"}])
+
+    def test_bound_events_to_date_range_holds_events_and_totals_to_date_to(self):
+        trace_id = str(uuid.uuid4())
+        start = datetime(2024, 12, 1, 0, 0, tzinfo=UTC)
+
+        def generation(timestamp: datetime, latency: float, tokens: int, cost: float) -> dict[str, Any]:
+            return {
+                "event": "$ai_generation",
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": timestamp,
+                "properties": {
+                    "$ai_trace_id": trace_id,
+                    "$ai_parent_id": trace_id,
+                    "$ai_latency": latency,
+                    "$ai_input_tokens": tokens,
+                    "$ai_output_tokens": tokens,
+                    "$ai_total_cost_usd": cost,
+                },
+            }
+
+        # The later generation sits past date_to but inside the 7 day forward capture buffer, so it
+        # is only excluded if the exact upper bound is applied.
+        bulk_create_ai_events(
+            [
+                generation(start, latency=1.5, tokens=10, cost=0.02),
+                generation(start + timedelta(hours=2), latency=3.0, tokens=7, cost=0.05),
+            ]
+        )
+
+        query = TraceQuery(
+            traceId=trace_id,
+            dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+        )
+
+        unbounded = TraceQueryRunner(team=self.team, query=query).calculate().results[0]
+        self.assertEqual(len(unbounded.events), 2)
+        self.assertEqual(unbounded.totalLatency, 4.5)
+        self.assertEqual(unbounded.totalCost, 0.07)
+        self.assertEqual(unbounded.inputTokens, 17)
+        self.assertEqual(unbounded.outputTokens, 17)
+
+        bounded = TraceQueryRunner(team=self.team, query=query, bound_events_to_date_range=True).calculate().results[0]
+        self.assertEqual(len(bounded.events), 1)
+        self.assertEqual(bounded.totalLatency, 1.5)
+        self.assertEqual(bounded.totalCost, 0.02)
+        self.assertEqual(bounded.inputTokens, 10)
+        self.assertEqual(bounded.outputTokens, 10)
+
+    def test_bound_events_to_date_range_keeps_the_whole_calendar_day(self):
+        trace_id = str(uuid.uuid4())
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 12, 1, 14, 30, tzinfo=UTC),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, "$ai_latency": 1.0},
+                }
+            ]
+        )
+
+        trace = (
+            TraceQueryRunner(
+                team=self.team,
+                query=TraceQuery(
+                    traceId=trace_id,
+                    dateRange=DateRange(date_from="2024-12-01", date_to="2024-12-01"),
+                ),
+                bound_events_to_date_range=True,
+            )
+            .calculate()
+            .results[0]
+        )
+        self.assertEqual(len(trace.events), 1)
+
+    def test_bound_events_to_date_range_keeps_sub_second_events(self):
+        trace_id = str(uuid.uuid4())
+        # A cutoff rounded down to the whole second would drop this event.
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 12, 1, 0, 10, 0, 250000, tzinfo=UTC),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, "$ai_latency": 1.0},
+                }
+            ]
+        )
+
+        trace = (
+            TraceQueryRunner(
+                team=self.team,
+                query=TraceQuery(
+                    traceId=trace_id,
+                    dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00.500000Z"),
+                ),
+                bound_events_to_date_range=True,
+            )
+            .calculate()
+            .results[0]
+        )
+        self.assertEqual(len(trace.events), 1)
 
     def test_sums_distinguish_reported_zero_from_no_report(self):
         zero_trace_id = str(uuid.uuid4())
@@ -1523,6 +1813,48 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should NOT double-count the children of Span A
         self.assertEqual(response.results[0].totalLatency, 450.0)
 
+    def test_latency_root_trace_event_reports_wall_clock(self):
+        """
+        Test the root $ai_trace latency wins over the sum of its children.
+
+        Tree structure:
+        Trace "trace_root_latency" (1.806s wall clock)
+        └── Generation ($ai_parent_id=trace_id, 0.917s, contained in the trace)
+
+        Expected: the root value 1.806s, rounded to 1.81, not 1.806 + 0.917
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_root_latency"
+
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="root-latency-trace",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_latency": 1.806},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_latency": 0.917, "$ai_parent_id": trace_id},
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].totalLatency, 1.81)
+
     def test_latency_no_span_id_automatic_leaves(self):
         """
         Test events without $ai_span_id are automatic leaves.
@@ -1733,7 +2065,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
         self.assertEqual(response.results[0].totalLatency, 300.0)
 
-    @freeze_time("2025-01-15T12:00:00Z")
+    @time_machine.travel("2025-01-15T12:00:00Z", tick=False)
     def test_fallback_to_events_when_ai_events_empty(self):
         """When ai_events has no data, the fallback to events returns correct results with proper numeric types."""
         trace_id = "fallback-test-trace"

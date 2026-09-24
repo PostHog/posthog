@@ -11,18 +11,19 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
+import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
+import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
+import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { MetricSourceModal } from 'products/experiments/frontend/modals/MetricSourceModal/MetricSourceModal'
+import { SharedMetricDetailsModal } from 'products/experiments/frontend/modals/SharedMetricDetailsModal/SharedMetricDetailsModal'
+import { SharedMetricModal } from 'products/experiments/frontend/modals/SharedMetricModal/SharedMetricModal'
+import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
 
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
-import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
-import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
-import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
@@ -36,7 +37,6 @@ import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Hypothesis } from './Hypothesis'
-import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
@@ -167,12 +167,14 @@ export function ExperimentView(): JSX.Element {
                             context="experiment"
                         />
                     )}
-                    <Info />
+                    <ExperimentMetaBar />
                     <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden
                         activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
                         onChange={(key) => setActiveTabKey(key)}
+                        // Override sceneInset's -mt-4 pull-up so the tabs keep 24px from whatever sits above them
+                        className="mt-2"
                         sceneInset
                         // Keep the tab bar full-width, but cap the content under each tab for readability
                         tabs={tabs.map((tab) =>

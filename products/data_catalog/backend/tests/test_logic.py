@@ -172,6 +172,11 @@ class TestValidateMetricDefinition(BaseTest):
                 ["events"],
             ),
             (
+                "table_function_still_reaches_the_denied_table_filter",
+                "select count() from numbers(10) join events on 1",
+                ["events", "numbers"],
+            ),
+            (
                 "join_constraint_subquery",
                 "select count() from persons join groups on persons.id in (select person_id from events)",
                 ["events", "groups", "persons"],
@@ -208,6 +213,10 @@ class TestValidateMetricDefinition(BaseTest):
             ("no_kind", {"query": "select 1"}),
             ("markdown_empty", {"kind": "MarkdownDefinition", "markdown": "   "}),
             ("markdown_smuggled_query", {"kind": "MarkdownDefinition", "markdown": "x", "query": "select 1"}),
+            (
+                "value_read_as_a_bare_field",
+                {"kind": "HogQLQuery", "query": "select threshold", "values": {"threshold": 10}},
+            ),
         ]
     )
     def test_rejects_invalid_definitions(self, _name: str, definition: dict) -> None:

@@ -6,8 +6,8 @@ rules and every resource that has resource-level rows. Return one change record 
 scope) pair whose level differs. Members are never enumerated: members with the same applicable
 rules resolve identically, so one subject-level record covers all of them.
 
-Read-only. Nothing here changes enforcement. The settings preview page and the divergent-org
-sweep command are the only callers.
+Read-only. Nothing here changes enforcement. The settings preview page and the
+migration command are the only callers.
 """
 
 from collections.abc import Iterator
@@ -23,7 +23,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.object_names import display_model, resolve_object_names
+from products.access_control.backend.facade.object_names import (
+    display_model,
+    model_has_field,
+    resolve_object_names,
+    resources_with_object_access_controls,
+)
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
@@ -31,6 +36,8 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     ResolvedAccess,
     UserAccessControl,
+    _AccessControl,
+    model_to_resource,
     ordered_access_levels,
 )
 from products.access_control.backend.models.access_control import AccessControl
@@ -89,13 +96,8 @@ class _LoadedObject:
     short_id: Optional[str]
 
 
-def _deciding_subject_name(
-    subject: SubjectAccessControl,
-    access: ResolvedAccess,
-    role_names: dict[str, str],
-    member_names: dict[str, str],
-) -> Optional[str]:
-    """Name of the member or role whose row decided `access`.
+def deciding_subject_row(subject: SubjectAccessControl, access: ResolvedAccess) -> Optional[_AccessControl]:
+    """The member or role row that decided `access`, or None when no such row did.
 
     The walks report which kind of subject decided (`source_subject`) but not which row. The
     deciding row is re-picked from the same cached pool: the highest row of that kind in the
@@ -114,7 +116,19 @@ def _deciding_subject_name(
     rows = [row for row in subject._get_access_controls(filters) if subject._row_subject(row) == access.source_subject]
     if not rows:
         return None
-    row = subject._highest_access_from_rows(access.source_resource, rows)
+    return subject._highest_access_from_rows(access.source_resource, rows)
+
+
+def deciding_subject_name(
+    subject: SubjectAccessControl,
+    access: ResolvedAccess,
+    role_names: dict[str, str],
+    member_names: dict[str, str],
+) -> Optional[str]:
+    """Name of the member or role whose row decided `access`."""
+    row = deciding_subject_row(subject, access)
+    if row is None:
+        return None
     if row.role_id is not None:
         return role_names.get(str(row.role_id))
     if row.organization_member_id is not None:
@@ -170,7 +184,7 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
     role_ids_by_user: dict[int, list[str]] = {}
     for rm in RoleMembership.objects.filter(
         role__organization_id=team.organization_id, user_id__in=[membership.user_id for membership in memberships]
-    ):
+    ).valid_for_authorization():
         role_ids_by_user.setdefault(rm.user_id, []).append(str(rm.role_id))
 
     subjects: list[_Subject] = [
@@ -217,32 +231,54 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
     return _Subjects(subjects=subjects, role_names=role_names, member_names=member_names)
 
 
+def object_models(resource: str) -> list[type[Model]]:
+    """Return the model classes that an object rule on `resource` can point at.
+
+    Return the display model first when one exists, then every other team-scoped model
+    behind the resource's routes that the resolver maps back to `resource`. Return an
+    empty list when no such model exists: the preview cannot resolve those rules.
+    """
+    display = display_model(resource)
+    route_models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
+    models = sorted(
+        (
+            model
+            for model in route_models
+            if model_has_field(model, "team")
+            and model_to_resource(model) == resource
+            and (display is None or model is not display.model)
+        ),
+        key=lambda model: model.__name__,
+    )
+    return [display.model, *models] if display is not None else models
+
+
 def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, _LoadedObject]:
-    """Map {object_id -> loaded object} for one resource. Empty when the resource has no
-    display model, which also means resolution has no model class to work with."""
+    """Map {object_id -> loaded object} for one resource. Empty when nothing backs the resource."""
     if resource == "project":
         # Project rules point at the team itself
         if str(team.pk) not in object_ids:
             return {}
         return {str(team.pk): _LoadedObject(instance=team, name=team.name, short_id=None)}
 
-    display = display_model(resource)
-    if display is None:
-        return {}
     names = resolve_object_names(resource, object_ids, team.pk)
-    try:
-        instances = display.model._base_manager.filter(team_id=team.pk, pk__in=object_ids)
-    except Exception as e:
-        capture_exception(e, {"resource": resource})
-        return {}
     result: dict[str, _LoadedObject] = {}
-    for obj in instances:
-        object_id = str(obj.pk)
-        name = names.get(object_id)
-        short_id = getattr(obj, "short_id", None)
-        result[object_id] = _LoadedObject(
-            instance=obj, name=name.name if name else None, short_id=str(short_id) if short_id else None
-        )
+    for model in object_models(resource):
+        try:
+            instances = list(model._base_manager.filter(team_id=team.pk, pk__in=object_ids))
+        except Exception as e:
+            capture_exception(e, {"resource": resource, "model": model.__name__})
+            continue
+        for obj in instances:
+            object_id = str(obj.pk)
+            name = names.get(object_id)
+            short_id = getattr(obj, "short_id", None)
+            result.setdefault(
+                object_id,
+                _LoadedObject(
+                    instance=obj, name=name.name if name else None, short_id=str(short_id) if short_id else None
+                ),
+            )
     return result
 
 
@@ -284,13 +320,13 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 object_short_id=object_short_id,
                 current=replace(
                     current,
-                    subject_name=_deciding_subject_name(
+                    subject_name=deciding_subject_name(
                         subject.access, current, subject_index.role_names, subject_index.member_names
                     ),
                 ),
                 proposed=replace(
                     proposed,
-                    subject_name=_deciding_subject_name(
+                    subject_name=deciding_subject_name(
                         subject.access, proposed, subject_index.role_names, subject_index.member_names
                     ),
                 ),
@@ -382,16 +418,34 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
     return changes
 
 
-def iter_resolution_changes(organization_id: Optional[str] = None) -> "Iterator[tuple[Team, list[ResolutionChange]]]":
+def iter_resolution_changes(
+    organization_id: Optional[str] = None, *, only_pending: bool = False
+) -> "Iterator[tuple[Team, list[ResolutionChange]]]":
     """Yield (team, changes) for every team with access rules, ordered by organization.
 
     Resolution is evaluated as one acting active member per organization; teams of
-    organizations with no active member are skipped.
+    organizations with no active member are skipped. Without `organization_id`, organizations
+    with object rules the preview cannot resolve are skipped too, because their preview would
+    be incomplete. With `only_pending`, organizations already on the most-specific resolution
+    are skipped: they are migrated already.
     """
     team_ids = AccessControl.objects.values_list("team_id", flat=True).distinct()
     teams = Team.objects.filter(id__in=team_ids).select_related("organization").order_by("organization_id")
     if organization_id is not None:
         teams = teams.filter(organization_id=organization_id)
+    else:
+        # The preview cannot resolve object rules on a resource with no model. Skip those
+        # organizations: an empty preview does not show that nothing changes for them.
+        object_rules = AccessControl.objects.exclude(resource_id=None).exclude(resource__in=_SKIPPED_RESOURCES)
+        object_resources = set(object_rules.values_list("resource", flat=True))
+        unresolvable = {
+            resource for resource in object_resources if resource != "project" and not object_models(resource)
+        }
+        teams = teams.exclude(
+            organization_id__in=object_rules.filter(resource__in=unresolvable).values("team__organization_id")
+        )
+    if only_pending:
+        teams = teams.exclude(organization__uses_most_specific_access_resolution=True)
 
     acting_membership_by_org: dict[str, Optional[OrganizationMembership]] = {}
     for team in teams.iterator():

@@ -1,11 +1,11 @@
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 import type { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import {
     buildBulkEnablePayloads,
-    clonePayloadPreservingFiles,
+    bulkSyncMethodDisabledReason,
     effectiveLookbackDays,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
@@ -196,25 +196,6 @@ describe('removeEmptySensitiveValues', () => {
     })
 })
 
-describe('clonePayloadPreservingFiles', () => {
-    it('preserves File instances in nested payloads', () => {
-        const keyFile = new File(['{"project_id":"my-project"}'], 'service-account.json', {
-            type: 'application/json',
-        })
-        const payload = {
-            key_file: [keyFile],
-            config: { use_custom_region: { enabled: true, region: 'us-east1' } },
-        }
-
-        const cloned = clonePayloadPreservingFiles(payload) as Record<string, any>
-
-        expect(cloned).not.toBe(payload)
-        expect(cloned.config).not.toBe(payload.config)
-        expect(cloned.key_file[0]).toBeInstanceOf(File)
-        expect(cloned.key_file[0]).toBe(keyFile)
-    })
-})
-
 describe('schemasEligibleForSync', () => {
     it('keeps only schemas that are enabled with a sync method', () => {
         const schemas = [
@@ -228,6 +209,27 @@ describe('schemasEligibleForSync', () => {
 
     it('returns an empty list when nothing is eligible', () => {
         expect(schemasEligibleForSync([makeSchema({ sync_type: null, should_sync: true })])).toEqual([])
+    })
+})
+
+describe('bulkSyncMethodDisabledReason', () => {
+    it.each([
+        ['full_refresh' as const, [{ sync_type: 'incremental' }], undefined],
+        ['append' as const, [{ sync_type: 'incremental', incremental_field: 'updated_at' }], undefined],
+        [
+            'append' as const,
+            [{ sync_type: 'incremental', incremental_field: 'updated_at' }, { sync_type: 'full_refresh' }],
+            'Append needs an incremental field, which some selected tables have not got',
+        ],
+        [
+            'full_refresh' as const,
+            [{ sync_type: 'incremental' }, { sync_type: 'cdc' }],
+            'Deselect the CDC and webhook tables first',
+        ],
+        ['full_refresh' as const, [{ sync_type: 'webhook' }], 'Deselect the CDC and webhook tables first'],
+    ])('%s over %j', (syncType, overrides, expected) => {
+        const schemas = overrides.map((override) => makeSchema(override as Partial<ExternalDataSourceSchema>))
+        expect(bulkSyncMethodDisabledReason(schemas, syncType)).toEqual(expected)
     })
 })
 

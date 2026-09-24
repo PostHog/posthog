@@ -160,6 +160,45 @@ class JiraIntegration:
 
         return {"key": issue["key"], "id": issue.get("id", "")}
 
+    def close_issue(self, issue_key: str) -> None:
+        """Transition an issue into a done status. Raises on failure.
+
+        Jira has no generic "close" verb: an issue closes through a workflow transition, and both
+        the transition names and ids differ per project. So read the available transitions and take
+        the first one that lands in the "done" status category.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        headers = {
+            "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/{issue_key}/transitions"
+
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            raise ValidationError(f"Failed to read Jira transitions (status {response.status_code})")
+
+        transition_id = next(
+            (
+                transition["id"]
+                for transition in response.json().get("transitions", []) or []
+                if common.dot_get(transition, "to.statusCategory.key") == "done" and transition.get("id")
+            ),
+            None,
+        )
+        if transition_id is None:
+            raise ValidationError(f"No done transition available for Jira issue {issue_key}")
+
+        response = requests.post(url, headers=headers, json={"transition": {"id": transition_id}}, timeout=10)
+        if response.status_code != 204:
+            raise ValidationError(f"Failed to close Jira issue {issue_key} (status {response.status_code})")
+
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Jira issues for the link-existing flow.
 

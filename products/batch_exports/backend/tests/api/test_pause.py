@@ -25,32 +25,14 @@ pytestmark = [
 ]
 
 
-def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
+def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organization, team, user, s3_batch_export_data):
     """Test pausing and unpausing a BatchExport."""
-
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
 
     client.force_login(user)
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     assert batch_export["paused"] is False
@@ -76,26 +58,8 @@ def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organizati
 
 
 def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     from posthog.api.test.test_team import create_team
     from posthog.api.test.test_user import create_user
 
@@ -108,7 +72,7 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     batch_export_id = batch_export["id"]
@@ -142,26 +106,8 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
 
 
 def test_pause_and_unpause_are_partitioned_by_team_id(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     from posthog.api.test.test_team import create_team
 
     other_team = create_team(organization)
@@ -169,7 +115,7 @@ def test_pause_and_unpause_are_partitioned_by_team_id(
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     batch_export_id = batch_export["id"]
@@ -200,33 +146,15 @@ def test_pause_and_unpause_are_partitioned_by_team_id(
 
 
 def test_pause_batch_export_that_is_already_paused(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """Test pausing a BatchExport that is already paused doesn't actually do anything."""
-
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
 
     client.force_login(user)
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     assert batch_export["paused"] is False
@@ -252,33 +180,15 @@ def test_pause_batch_export_that_is_already_paused(
 
 
 def test_unpause_batch_export_that_is_already_unpaused(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """Test unpausing a BatchExport that is already unpaused doesn't actually do anything."""
-
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
 
     client.force_login(user)
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     assert batch_export["paused"] is False
@@ -294,32 +204,14 @@ def test_unpause_batch_export_that_is_already_unpaused(
     assert last_updated_at == data["last_updated_at"]
 
 
-def test_pause_non_existent_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
+def test_pause_non_existent_batch_export(client: HttpClient, temporal, organization, team, user, s3_batch_export_data):
     """Test pausing a BatchExport that doesn't exist."""
-
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
 
     client.force_login(user)
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     assert batch_export["paused"] is False
@@ -333,32 +225,14 @@ def test_pause_non_existent_batch_export(client: HttpClient, temporal, organizat
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
+def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organization, team, user, s3_batch_export_data):
     """Test unpausing a BatchExport can trigger a backfill."""
-
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-    # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
 
     client.force_login(user)
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
 
     assert batch_export["paused"] is False

@@ -46,8 +46,8 @@ PHASE_LATEST = "latest"
 # Raised when Shopify's OAuth token endpoint returns a 4xx that we can't attribute to a more
 # specific cause below. The app credentials are invalid or revoked, so re-entering them is the
 # only fix. `ShopifySource.get_non_retryable_errors` matches on this exact text to fail the job
-# fast. The raised message also carries Shopify's own `error`/`error_description` (see
-# `_oauth_error_detail`) so support can see what Shopify objected to.
+# fast. Shopify's own `error`/`error_description` and the status code go to the log rather than
+# into the message, which the wizard shows to the user.
 SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
     "Shopify rejected your app credentials. Check the client ID and secret in your Shopify app and re-enter them here."
 )
@@ -121,6 +121,17 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 # The field name varies, so the match anchors on the stable leading phrase.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
+# Shopify's Protected Customer Data restriction — an app can only read PII fields (customer
+# names, addresses, emails, phone numbers) when the store's plan grants that access, regardless
+# of the token's granted scopes. The plan can't change on retry, so
+# `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast. The
+# object name and the docs URL vary per request, so the match anchors on the stable sentence
+# in between.
+SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR = (
+    "Access to personally identifiable information (PII) like customer names, addresses, "
+    "emails, phone numbers is only available on Shopify, Advanced, and Plus plans"
+)
+
 # Shopify's Admin API returns 402 Payment Required when the store is frozen for an unpaid
 # bill — the shop owner must settle their outstanding Shopify balance to unfreeze the store,
 # so retrying the import cannot recover. `requests.raise_for_status` renders this as
@@ -133,6 +144,13 @@ SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
     "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
     "the import will resume."
 )
+
+# 404 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint above) —
+# Shopify serves no Admin API at a subdomain with no live store behind it, so the store closed or
+# was renamed after the source was connected. Retrying can't bring it back, so
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the per-store URL)
+# to fail the job fast, with the same copy the token endpoint's 404 uses.
+SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH = "404 Client Error: Not Found"
 
 # 401 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint
 # above) — the token was accepted when minted but is no longer valid for the store, e.g. the
@@ -420,15 +438,6 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
-def _oauth_error_detail(error: _OAuthError, status_code: int) -> str:
-    """Shopify's raw error appended to the raised message so support can see what Shopify said."""
-    if error.code and error.description:
-        return f"Shopify {error.code}: {error.description}, HTTP {status_code}"
-    if error.code:
-        return f"Shopify {error.code}, HTTP {status_code}"
-    return f"HTTP {status_code}"
-
-
 @retry(
     # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
@@ -467,10 +476,11 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
         # is gone. Reconnecting the app can't fix that, so point the user at the store id
         # instead of telling them their credentials are bad.
         if access_res.status_code == 404:
-            raise Exception(f"{SHOPIFY_STORE_NOT_FOUND_ERROR} (HTTP 404)")
+            raise Exception(SHOPIFY_STORE_NOT_FOUND_ERROR)
         # Any other 4xx means the app credentials are invalid/revoked — re-auth is the only fix,
-        # so surface a non-retryable message. Read Shopify's own `error`/`error_description` so
-        # the user gets the specific cause and support can see what Shopify rejected.
+        # so surface a non-retryable message. Read Shopify's own `error`/`error_description` to
+        # pick the message that names the cause, and log the raw values for support: the message
+        # itself is what the wizard shows, so it carries no vendor code or status.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
             oauth_error = _parse_oauth_error(access_res)
             logger.warning(
@@ -480,9 +490,7 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
                 shopify_error=oauth_error.code,
                 shopify_error_description=oauth_error.description,
             )
-            message = _access_token_auth_error_message(oauth_error.code)
-            detail = _oauth_error_detail(oauth_error, access_res.status_code)
-            raise Exception(f"{message} ({detail})")
+            raise Exception(_access_token_auth_error_message(oauth_error.code))
         # 429 (rate limit) and 5xx (e.g. a 502 Bad Gateway from Shopify's edge) are transient —
         # retry locally with backoff instead of failing the import, mirroring the GraphQL path.
         raise ShopifyRetryableError(

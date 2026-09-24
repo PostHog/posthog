@@ -1,9 +1,14 @@
+import json
+import asyncio
+import hashlib
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
 import temporalio.activity
@@ -14,11 +19,12 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
@@ -34,7 +40,8 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
     skip_because_of_weekend,
 )
-from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
+from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -45,16 +52,26 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.metrics import get_metric_meter
 
-from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    MAX_CONCURRENT_MODEL_CALLS,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+    is_llm_detector_config,
+)
+from products.alerts.backend.facade.destinations import count_active_alert_destinations
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -63,17 +80,37 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
+# AI-detector checks hold a thread for the model call, up to a minute each. On the shared
+# default pool that would let a slow model stall every alert's database work on the worker,
+# so they run on their own pool, sized to the detector's own concurrency bound. A check
+# past that bound queues here without holding any thread.
+_LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_MODEL_CALLS, thread_name_prefix="insight-alert-llm-evaluate"
+)
+
+
+@frozen
+class _RetrievedAlerts:
+    alerts: list[AlertInfo]
+    due_count: int
+    oldest_due_at: datetime | None
+    polled_at: datetime
+
 
 @temporalio.activity.defn
-async def retrieve_due_alerts() -> list[AlertInfo]:
+async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
+    if inputs is None:
+        inputs = ScheduleDueAlertChecksWorkflowInputs()
+
     @database_sync_to_async(thread_sensitive=False)
-    def get_alerts() -> list[AlertInfo]:
-        now = datetime.now(UTC)
+    def get_alerts() -> _RetrievedAlerts:
+        polled_at = datetime.now(UTC)
 
         calculation_interval_order = Case(
             *(
@@ -84,18 +121,37 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             output_field=IntegerField(),
         )
 
-        alerts = (
+        due_alerts_query = (
             AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
+                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
             )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
-            .annotate(_interval_order=calculation_interval_order)
-            .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+        )
+        alerts_query = (
+            due_alerts_query.annotate(_interval_order=calculation_interval_order)
+            .annotate(
+                _team_rank=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("team_id")],
+                    order_by=[
+                        F("_interval_order").asc(),
+                        F("next_check_at").asc(nulls_first=True),
+                        F("id").asc(),
+                    ],
+                ),
+            )
+            .order_by(
+                "_team_rank",
+                "_interval_order",
+                F("next_check_at").asc(nulls_first=True),
+                "team_id",
+                "id",
+            )
+            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
-        return [
+        alerts = [
             AlertInfo(
                 alert_id=str(a.id),
                 team_id=a.team_id,
@@ -103,11 +159,43 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts
+            for a in alerts_query
         ]
 
-    async with Heartbeater():
-        return await get_alerts()
+        due_alert_metrics = due_alerts_query.aggregate(
+            due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
+        )
+        return _RetrievedAlerts(
+            alerts=alerts,
+            due_count=due_alert_metrics["due_count"],
+            oldest_due_at=due_alert_metrics["oldest_due_at"],
+            polled_at=polled_at,
+        )
+
+    retrieved = await get_alerts()
+    try:
+        await asyncio.to_thread(
+            record_due_insight_alert_metrics,
+            retrieved.due_count,
+            retrieved.oldest_due_at,
+            retrieved.polled_at,
+        )
+    except Exception:
+        logger.exception("Failed to record due insight alert metrics")
+
+    try:
+        meter = get_metric_meter()
+        meter.create_counter(
+            "insight_alert_scheduler_capacity",
+            "Alert scheduling capacity made available across successful retrieval runs",
+        ).add(inputs.max_alerts_per_run)
+        meter.create_counter(
+            "insight_alert_scheduler_alerts_selected",
+            "Due alerts selected across successful alert scheduler retrieval runs",
+        ).add(len(retrieved.alerts))
+    except Exception:
+        logger.exception("Failed to record alert scheduler capacity metrics")
+    return retrieved.alerts
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
@@ -197,12 +285,16 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             state_fields = apply_unsnooze(alert)
             alert.save(update_fields=["snoozed_until", *state_fields])
 
+        # Query upgrades mutate the in-memory insight. Track the saved inputs before
+        # validation so a schema upgrade is not mistaken for a concurrent edit.
+        evaluation_fingerprint = _evaluation_fingerprint(alert)
         try:
             insight = alert.insight
-            with upgrade_query(insight):
+            with upgrade_insight(insight):
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
                 threshold_config = alert.threshold.configuration if alert.threshold else None
+                validate_alert_insight_query(insight.query, team=alert.team, user=alert.created_by)
                 validate_alert_config(
                     insight.query,
                     alert.condition,
@@ -215,10 +307,25 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             disable_invalid_alert(alert, str(e))
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=str(e))
 
-        return PrepareAlertResult(action=PrepareAction.EVALUATE)
+        return PrepareAlertResult(
+            action=PrepareAction.EVALUATE,
+            uses_llm_detector=is_llm_detector_config(alert.detector_config),
+            evaluation_fingerprint=evaluation_fingerprint,
+        )
 
     async with Heartbeater():
         return await _prepare()
+
+
+def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:
+    """The error payload for an evaluation that ran out of retries without writing a check.
+
+    A provider the judge cannot reach is not the owner's configuration, and the raw transport
+    error is not written for them, so that case gets its own code and its own wording.
+    """
+    if inputs.error_type == LLMDetectorUnavailableError.__name__:
+        return {"code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE, "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE}
+    return {"message": inputs.error_message}
 
 
 def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
@@ -233,26 +340,12 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
 @temporalio.activity.defn
 async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
+    info = temporalio.activity.info()
+    evaluation_id = f"{info.workflow_run_id}:{info.activity_id}"
 
-    @database_sync_to_async(thread_sensitive=False)
-    def _evaluate() -> EvaluateAlertResult:
-        # Guard against the race where the alert is disabled/deleted between prepare_alert and
-        # evaluate_alert (e.g. user disables via API mid-workflow). Retries can't recover from
-        # either case, so surface as non-retryable to avoid a retry storm.
-        try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
-        except AlertConfiguration.DoesNotExist:
-            raise ApplicationError(
-                f"Alert {inputs.alert_id} not found between prepare and evaluate",
-                non_retryable=True,
-            )
-
-        if not alert.enabled:
-            raise ApplicationError(
-                f"Alert {inputs.alert_id} disabled between prepare and evaluate",
-                non_retryable=True,
-            )
-
+    def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
+        evaluated_alert = alert
+        evaluated_fingerprint = _evaluation_fingerprint(alert)
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
         # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
@@ -266,24 +359,35 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         breaches: list[str] | None = None
         error: dict | None = None
+        invalid_configuration: str | None = None
         alert_evaluation_result = None
 
         try:
-            alert_evaluation_result = check_alert_for_insight(alert)
+            alert_evaluation_result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
             breaches = alert_evaluation_result.breaches
+            if is_llm_detector_config(alert.detector_config):
+                record_ai_detector_check_outcome("evaluated")
         except CH_TRANSIENT_ERRORS:
             raise
+        except AlertDataUnavailableError as err:
+            error = {"message": str(err)}
+        except LLMDetectorUnavailableError:
+            # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
+            # re-raise so the retry policy gets another attempt. Once the attempts run out the
+            # retry-exhausted path records an errored check, the same outcome as any other
+            # evaluation that never produced a value.
+            raise
+        except LLMDetectorMisconfiguredError as err:
+            # Same fail-loud outcome as a bad query shape below, counted apart because a
+            # withdrawn consent or rollout is the owner's to fix and never a provider failure.
+            record_ai_detector_check_outcome("misconfigured")
+            invalid_configuration = str(err)
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
-            alert_check = disable_invalid_alert(alert, str(err))
-            return EvaluateAlertResult(
-                alert_check_id=str(alert_check.id),
-                should_notify=False,  # disable_invalid_alert already emailed subscribers
-                new_state=AlertState.ERRORED,
-            )
+            invalid_configuration = str(err)
         except TableAccessDeniedError as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             # A revoked creator's access-denied error is a known limitation - report it as an event
@@ -319,43 +423,43 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}
 
-        # A non-transient failure: write the errored check and return. Transient errors were
-        # re-raised above for the retry policy, and the investigation gating below only fires on a
-        # FIRING transition, so the errored path skips it.
-        if error is not None:
-            with transaction.atomic():
-                alert = (
-                    AlertConfiguration.objects.select_for_update(of=("self",))
-                    .select_related("insight", "team", "threshold")
-                    .get(id=inputs.alert_id)
-                )
-                alert_check, should_notify = _write_errored_alert_check(alert, error)
-            return EvaluateAlertResult(
-                alert_check_id=str(alert_check.id),
-                should_notify=should_notify,
-                new_state=AlertState.ERRORED,
-            )
-
         should_start_investigation = False
         should_gate_notification = False
         should_run_metrics_investigation = False
         with transaction.atomic():
-            alert = (
-                AlertConfiguration.objects.select_for_update(of=("self",))
-                .select_related("insight", "team", "threshold")
-                .get(id=inputs.alert_id)
+            current_alert = _lock_evaluation_alert(
+                alert_id=inputs.alert_id, team_id=evaluated_alert.team_id, insight_id=evaluated_alert.insight_id
             )
+            if current_alert is None or not _evaluation_inputs_match(evaluated_fingerprint, current_alert):
+                # Leave the current state and due time intact. The next scheduler tick can
+                # evaluate the edited alert; a disabled or deleted alert needs no further work.
+                return EvaluateAlertResult(
+                    alert_check_id=None,
+                    should_notify=False,
+                    new_state=AlertState(current_alert.state if current_alert else evaluated_alert.state),
+                )
+            alert = current_alert
+            if invalid_configuration is not None:
+                alert_check = disable_invalid_alert(
+                    alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
+                )
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=True, new_state=AlertState.ERRORED
+                )
+            if error is not None:
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=should_notify, new_state=AlertState.ERRORED
+                )
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 
-            if should_trigger_investigation(
-                alert,
-                previous_state=previous_state,
-                new_state=alert_check.state,
-            ):
-                if claim_investigation_slot(alert, alert_check):
-                    should_start_investigation = True
-                    should_gate_notification = bool(alert.investigation_gates_notifications)
+            investigation = decide_investigation(alert, alert_check)
+            if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
+                should_start_investigation = True
+                should_gate_notification = investigation.is_first_of_episode and bool(
+                    alert.investigation_gates_notifications
+                )
 
             # Claim the cooldown slot inside the transaction so a flapping or
             # concurrently-retried alert can't pile up investigations.
@@ -381,7 +485,87 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         )
 
     async with Heartbeater():
-        return await _evaluate()
+        # Route and evaluate the same snapshot. A second read after choosing the executor
+        # could pick up an AI detector and run its model call on the shared pool.
+        alert = await _load_alert_for_evaluation(inputs)
+        uses_llm_detector = is_llm_detector_config(alert.detector_config)
+        if uses_llm_detector != inputs.uses_llm_detector:
+            # The prepare phase picked the task queue from the detector type it read, and only
+            # the AI worker holds the model credentials. An edit since then means this worker may
+            # not be able to run the alert as it now stands, so leave it to the next scheduler
+            # tick, which prepares and routes it again.
+            logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
+            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
+        executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
+        return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
+
+
+def _lock_evaluation_alert(*, alert_id: str, team_id: int, insight_id: int) -> AlertConfiguration | None:
+    # Call inside transaction.atomic(). Insight deletion takes the same lock order.
+    if not lock_insight_for_evaluation(insight_id=insight_id, team_id=team_id):
+        return None
+    alert = (
+        AlertConfiguration.objects.select_for_update(of=("self",), no_key=True)
+        .select_related("insight", "team", "threshold")
+        .filter(id=alert_id, team_id=team_id)
+        .first()
+    )
+    if alert is None or alert.insight_id != insight_id:
+        return None
+    # Threshold is nullable, so PostgreSQL cannot lock it through the outer join.
+    if alert.threshold_id is not None:
+        alert.threshold = Threshold.objects.select_for_update(no_key=True).get(id=alert.threshold_id, team_id=team_id)
+    return alert
+
+
+def _evaluation_inputs_match(evaluated_fingerprint: str, current: AlertConfiguration) -> bool:
+    return evaluated_fingerprint == _evaluation_fingerprint(current)
+
+
+def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
+    fields = (
+        "enabled",
+        "insight_id",
+        "created_by_id",
+        "condition",
+        "config",
+        "detector_config",
+        "threshold_id",
+        "calculation_interval",
+        "next_check_at",
+        "skip_weekend",
+        "schedule_start_time",
+        "schedule_restriction",
+        "snoozed_until",
+    )
+    values = [
+        *(getattr(alert, field) for field in fields),
+        alert.insight.name,
+        alert.insight.query,
+        alert.insight.deleted,
+        alert.threshold.configuration if alert.threshold else None,
+    ]
+    return hashlib.sha256(json.dumps(values, cls=DjangoJSONEncoder, sort_keys=True).encode()).hexdigest()
+
+
+@database_sync_to_async(thread_sensitive=False)
+def _load_alert_for_evaluation(inputs: EvaluateAlertActivityInputs) -> AlertConfiguration:
+    queryset = AlertConfiguration.objects.select_related("insight", "team", "threshold")
+    if inputs.team_id is not None:
+        queryset = queryset.filter(team_id=inputs.team_id)
+    try:
+        alert = queryset.get(id=inputs.alert_id)
+    except AlertConfiguration.DoesNotExist:
+        raise ApplicationError(
+            f"Alert {inputs.alert_id} not found between prepare and evaluate",
+            non_retryable=True,
+        )
+    if not alert.enabled:
+        raise ApplicationError(
+            f"Alert {inputs.alert_id} disabled between prepare and evaluate",
+            non_retryable=True,
+        )
+    return alert
 
 
 @temporalio.activity.defn
@@ -399,12 +583,21 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
     @database_sync_to_async(thread_sensitive=False)
     def _record() -> RecordFailedEvaluationResult:
         try:
+            queryset = AlertConfiguration.objects.all()
+            if inputs.team_id is not None:
+                queryset = queryset.filter(team_id=inputs.team_id)
+            snapshot = queryset.only("team_id", "insight_id").get(id=inputs.alert_id)
             with transaction.atomic():
-                alert = (
-                    AlertConfiguration.objects.select_for_update(of=("self",))
-                    .select_related("insight", "team", "threshold")
-                    .get(id=inputs.alert_id)
+                alert = _lock_evaluation_alert(
+                    alert_id=inputs.alert_id,
+                    team_id=snapshot.team_id,
+                    insight_id=snapshot.insight_id,
                 )
+                if alert is None or (
+                    inputs.evaluation_fingerprint is not None
+                    and inputs.evaluation_fingerprint != _evaluation_fingerprint(alert)
+                ):
+                    return RecordFailedEvaluationResult()
                 # Disabling an alert mid-check makes evaluate_alert raise a non-retryable "disabled
                 # between prepare and evaluate" error into this path. That is a normal user action,
                 # not an alert failure, so it must not gain an errored check or email subscribers.
@@ -417,10 +610,16 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                 # machine keeps that from sending a duplicate notification.
                 if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
                     return RecordFailedEvaluationResult()
-                alert_check, should_notify = _write_errored_alert_check(alert, {"message": inputs.error_message})
+                error = _failed_evaluation_error(inputs)
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
+
+        # Counted here and not on the failing attempt, so one scheduled check stays one increment
+        # however many times Temporal retried it.
+        if error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
+            record_ai_detector_check_outcome("unavailable")
 
         logger.warning(
             "alerts.recorded_failed_evaluation",
@@ -477,12 +676,36 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
     error_message = str(error.get("message") or "Unknown error").strip().rstrip(".")[:1000] or "Unknown error"
     alert_name = alert.name or "Alert"
     source_url = f"/project/{alert.team_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    next_check_at = next_scheduled_check_time(alert)
-    next_check_message = (
-        f"PostHog will try again on {next_check_at}."
-        if next_check_at
-        else "PostHog will try again at the next scheduled check."
-    )
+    error_code = error.get("code")
+    if error_code == "invalid_configuration":
+        # The check turned the alert off, so a promise to try again would be false.
+        title = f"{alert_name[:75]} was turned off"
+        body = (
+            f"PostHog turned this alert off because it could not be evaluated: {error_message}. "
+            "Fix the alert or insight settings, then turn the alert back on."
+        )
+    else:
+        next_check_at = next_scheduled_check_time(alert)
+        next_check_message = (
+            f"PostHog will try again on {next_check_at}."
+            if next_check_at
+            else "PostHog will try again at the next scheduled check."
+        )
+        title = f"{alert_name[:75]} could not be evaluated"
+        if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
+            # A check the AI detector could not complete is not something the owner can fix,
+            # so this case drops the advice to review the alert settings.
+            body = (
+                f"PostHog could not evaluate this alert: {error_message}. "
+                f"{next_check_message} If it fails again, contact support."
+            )
+        else:
+            body = (
+                f"PostHog could not evaluate this alert: {error_message}. "
+                "This can happen when the insight or alert settings need attention, or when PostHog has a "
+                f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
+                "contact support."
+            )
 
     for user_id, _ in get_alert_error_notification_recipients(alert):
         try:
@@ -491,13 +714,8 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
                     team_id=alert.team_id,
                     notification_type=NotificationType.PIPELINE_FAILURE,
                     priority=Priority.NORMAL,
-                    title=f"{alert_name[:75]} could not be evaluated",
-                    body=(
-                        f"PostHog could not evaluate this alert: {error_message}. "
-                        "This can happen when the insight or alert settings need attention, or when PostHog has a "
-                        f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
-                        "contact support."
-                    ),
+                    title=title,
+                    body=body,
                     target_type=TargetType.USER,
                     target_id=str(user_id),
                     resource_type="insight",

@@ -1,7 +1,7 @@
 import { CheckIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { toSuggestedReviewerWriteContent } from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type {
   AvailableSuggestedReviewer,
@@ -24,6 +24,7 @@ import {
   useReportActionResultTracker,
   useReportActionTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useDeferredValue, useMemo, useState } from "react";
 
 function reviewerMatchesAvailable(
@@ -123,6 +124,9 @@ export function ReviewerSearchList({
       github_login: option.github_login,
       github_name: option.name || null,
       relevant_commits: [],
+      // The server settles a manual add on this source. Without it the row claims the agent
+      // picked the reviewer until the refetch lands.
+      source_label: "Added by teammate",
       user: {
         id: 0,
         uuid: option.uuid,
@@ -187,9 +191,7 @@ export function ReviewerSearchList({
       <div className="max-h-[280px] overflow-y-auto">
         {artefactsLoading ||
         (isFetching && !availableReviewers?.results.length) ? (
-          <div className="flex items-center justify-center py-3">
-            <Spinner />
-          </div>
+          <LoadingState className="py-3" />
         ) : failedWithoutData ? (
           <div className="flex flex-col items-start gap-2 px-1 py-2">
             <span className="text-[13px] text-gray-10">

@@ -26,15 +26,17 @@ from products.feature_flags.backend.facade.api import (
     ship_variant,
     update_flag,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
     replace_release_conditions,
     replace_variant_distribution,
     restrict_groups_to_cohort,
+    roll_out_to_everyone,
     set_feature_enrollment,
-    set_first_release_condition_rollout,
     set_holdout,
+    set_release_condition_rollout,
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
@@ -42,6 +44,19 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
+    @parameterized.expand([("user", False), ("system", True)])
+    def test_unsupported_stored_config_cannot_be_updated(self, _name: str, system: bool) -> None:
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        flag = self._create_flag(filters=filters)
+        original_version = flag.version
+        with self.assertRaises(ValidationError) as exc:
+            update_flag(flag, {"active": False}, team=self.team, user=None if system else self.user)
+        assert exc.exception.get_codes() == {"filters": ["unsupported_config_version"]}
+        flag.refresh_from_db()
+        assert flag.active is True
+        assert flag.filters == filters
+        assert flag.version == original_version
+
     def _create_flag(self, *, active: bool = True, filters: dict | None = None) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -153,6 +168,35 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         change_request = ChangeRequest.objects.get(team=self.team)
         assert change_request.intent["http_method"] == "PATCH"
         assert change_request.resource_id == str(flag.id)
+
+    def test_update_does_not_resurrect_a_flag_deleted_after_it_was_read(self):
+        # A bulk delete leaves `version` untouched, so the version check cannot see it. The write
+        # has to apply this request to the locked row, which still carries the delete.
+        flag = self._create_flag()
+        stale = FeatureFlag.objects.get(pk=flag.pk)
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        update_flag(stale, {"name": "renamed"}, team=self.team, user=self.user)
+
+        refreshed = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert refreshed.deleted is True
+        assert refreshed.name == "renamed"
+
+    def test_update_leaves_the_instance_it_was_given_current(self):
+        # The write applies to the row read under the lock, not to the object the caller passed.
+        # Callers keep their own reference and re-serialize it, so it has to come back carrying
+        # what was written rather than what the write replaced.
+        flag = self._create_flag()
+
+        update_flag(
+            flag,
+            {"name": "renamed", "filters": {"groups": [{"properties": [], "rollout_percentage": 40}]}},
+            team=self.team,
+            user=self.user,
+        )
+
+        assert flag.name == "renamed"
+        assert flag.filters["groups"][0]["rollout_percentage"] == 40
 
     def test_system_create_logs_system_activity(self):
         with self.captureOnCommitCallbacks(execute=True):
@@ -352,6 +396,27 @@ class TestRollOutVariant:
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == {}
         assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_preserves_holdout(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+            "holdout": {"id": 42, "exclusion_percentage": 5},
+        }
+
+        assert _roll_out_variant(current_filters, "test")["holdout"] == {"id": 42, "exclusion_percentage": 5}
+        assert _roll_out_variant(current_filters, "test", release_to_everyone=True)["holdout"] == {
+            "id": 42,
+            "exclusion_percentage": 5,
+        }
+
+        del current_filters["holdout"]
+        assert "holdout" not in _roll_out_variant(current_filters, "test")
 
     def test_transform_filters_default_does_not_mutate_input(self):
         """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
@@ -647,45 +712,167 @@ class TestSetFeatureEnrollment:
 
 
 class TestReleaseConditionTransforms:
-    @parameterized.expand(
-        [
-            (
-                "survey_sampling_shape",
-                {"groups": [{"variant": "", "rollout_percentage": 100, "properties": []}]},
-            ),
-            (
-                "multi_group_with_multivariate_and_payloads",
-                {
-                    "groups": [
-                        {"variant": "", "rollout_percentage": 100, "properties": [{"key": "email", "type": "person"}]},
-                        {"properties": [], "rollout_percentage": 50},
-                    ],
-                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
-                    "payloads": {"control": "{}"},
-                    "aggregation_group_type_index": 1,
-                },
-            ),
-        ]
-    )
-    def test_set_first_release_condition_rollout_only_changes_first_group_rollout(self, _name, filters):
+    @parameterized.expand([("first", 0), ("second", 1), ("last", 2)])
+    def test_set_release_condition_rollout_changes_only_the_indexed_condition(self, _name, condition_index):
+        filters: dict[str, Any] = {
+            "groups": [
+                {"properties": [{"key": "email", "type": "person"}], "rollout_percentage": 10, "variant": "control"},
+                {"properties": [], "rollout_percentage": 20},
+                {"properties": [{"key": "$os", "type": "person"}], "rollout_percentage": 30},
+            ],
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+            "payloads": {"control": "{}"},
+            "aggregation_group_type_index": 1,
+            "holdout": {"id": 7, "exclusion_percentage": 5},
+        }
         original = deepcopy(filters)
 
-        result = set_first_release_condition_rollout(filters, 20)
+        result = set_release_condition_rollout(filters, condition_index, 55)
 
-        assert result["groups"][0]["rollout_percentage"] == 20
-        result["groups"][0]["rollout_percentage"] = original["groups"][0]["rollout_percentage"]
+        assert result["groups"][condition_index]["rollout_percentage"] == 55
+        result["groups"][condition_index]["rollout_percentage"] = original["groups"][condition_index][
+            "rollout_percentage"
+        ]
         assert result == original
-        assert filters == original  # input not mutated
+        assert filters == original
 
     @parameterized.expand(
         [
-            ("missing_groups", {}, KeyError),
-            ("empty_groups", {"groups": []}, IndexError),
+            ("past_the_end", {"groups": [{"properties": [], "rollout_percentage": 10}]}, 1),
+            # Python would resolve -1 to the last condition, which is a rule the caller never named.
+            ("negative", {"groups": [{"properties": [], "rollout_percentage": 10}]}, -1),
+            ("no_conditions", {"groups": []}, 0),
+            ("missing_groups_key", {}, 0),
         ]
     )
-    def test_set_first_release_condition_rollout_raises_without_a_group(self, _name, filters, expected_error):
-        with pytest.raises(expected_error):
-            set_first_release_condition_rollout(filters, 20)
+    def test_set_release_condition_rollout_raises_for_an_index_the_flag_has_no_condition_at(
+        self, _name, filters, condition_index
+    ):
+        with pytest.raises(IndexError):
+            set_release_condition_rollout(filters, condition_index, 55)
+
+    def test_roll_out_to_everyone_prepends_a_catch_all_and_preserves_the_rest(self):
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [{"key": "email", "type": "person"}], "rollout_percentage": 10}],
+            "payloads": {"true": '"on"'},
+            "aggregation_group_type_index": 1,
+            "holdout": {"id": 7, "exclusion_percentage": 5},
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        original = deepcopy(filters)
+
+        result = roll_out_to_everyone(filters)
+
+        assert result["groups"] == [{"properties": [], "rollout_percentage": 100}, *original["groups"]]
+        assert {key: value for key, value in result.items() if key != "groups"} == {
+            key: value for key, value in original.items() if key != "groups"
+        }
+        assert filters == original
+
+    def test_roll_out_to_everyone_gives_the_named_variant_the_whole_distribution(self):
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [{"key": "email", "type": "person"}], "rollout_percentage": 10}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 60, "name": "Control"},
+                    {"key": "test", "rollout_percentage": 40},
+                ]
+            },
+            "payloads": {"control": "{}"},
+        }
+        original = deepcopy(filters)
+
+        result = roll_out_to_everyone(filters, variant_key="test")
+
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "rollout_percentage": 0, "name": "Control"},
+            {"key": "test", "rollout_percentage": 100},
+        ]
+        assert result["groups"] == [{"properties": [], "rollout_percentage": 100}, *original["groups"]]
+        assert result["payloads"] == original["payloads"]
+        assert filters == original
+
+    @parameterized.expand(
+        [
+            ("boolean", None),
+            ("multivariate", "test"),
+        ]
+    )
+    def test_roll_out_to_everyone_adds_no_second_catch_all(self, _name, variant_key):
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
+            },
+        }
+
+        result = roll_out_to_everyone(roll_out_to_everyone(filters, variant_key=variant_key), variant_key=variant_key)
+
+        assert result["groups"] == [{"properties": [], "rollout_percentage": 100}]
+
+    @parameterized.expand(
+        [
+            ("absent", {"properties": []}),
+            ("null", {"properties": [], "rollout_percentage": None}),
+        ]
+    )
+    def test_roll_out_to_everyone_treats_an_implicit_full_rollout_as_a_catch_all(self, _name, leading):
+        # The matcher reads an absent or null rollout_percentage as 100, and nothing on the
+        # write path fills it in, so a stored flag can lead with either form.
+        filters: dict[str, Any] = {"groups": [leading, {"properties": [], "rollout_percentage": 10}]}
+
+        result = roll_out_to_everyone(filters)
+
+        assert result["groups"] == filters["groups"]
+
+    @parameterized.expand(
+        [
+            ("condition_matches_the_flag", 3, {"aggregation_group_type_index": 3}, 1),
+            ("group_condition_on_a_person_flag", None, {"aggregation_group_type_index": 3}, 2),
+            ("person_condition_on_a_group_flag", 3, {"aggregation_group_type_index": None}, 2),
+            ("condition_omits_the_key_on_a_group_flag", 3, {}, 1),
+        ]
+    )
+    def test_roll_out_to_everyone_prepends_unless_the_leading_condition_covers_the_flag(
+        self, _name, flag_aggregation, condition_aggregation, expected_groups
+    ):
+        # The matcher skips a condition whose group type the evaluation does not supply, so one
+        # aggregating differently from the flag serves only part of the population. The schema
+        # keeps an absent key distinct from a null one, so a stored condition can carry either,
+        # and only the absent form falls back to the flag's own value.
+        filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100, **condition_aggregation}]}
+        if flag_aggregation is not None:
+            filters["aggregation_group_type_index"] = flag_aggregation
+
+        result = roll_out_to_everyone(filters)
+
+        assert len(result["groups"]) == expected_groups
+        assert result["groups"][-1] == filters["groups"][0]
+
+    def test_roll_out_to_everyone_replaces_a_leading_condition_that_pins_a_variant(self):
+        # A `variant` override at 100% serves that variant to everyone whatever the distribution
+        # says, so keeping it would silently ignore the variant the caller asked to roll out.
+        filters: dict[str, Any] = {
+            "groups": [{"properties": [], "rollout_percentage": 100, "variant": "control"}],
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 100}, {"key": "test", "rollout_percentage": 0}]
+            },
+        }
+
+        result = roll_out_to_everyone(filters, variant_key="test")
+
+        assert result["groups"][0] == {"properties": [], "rollout_percentage": 100}
+        assert result["groups"][1] == {"properties": [], "rollout_percentage": 100, "variant": "control"}
+
+    @parameterized.expand(
+        [
+            ("unknown_variant", {"multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]}}),
+            ("flag_has_no_variants", {"groups": []}),
+        ]
+    )
+    def test_roll_out_to_everyone_raises_for_a_variant_the_flag_does_not_define(self, _name, filters):
+        with pytest.raises(ValueError):
+            roll_out_to_everyone(filters, variant_key="test")
 
     def test_replace_release_conditions_swaps_groups_and_preserves_the_rest(self):
         filters: dict[str, Any] = {
@@ -742,6 +929,20 @@ class TestExperimentRuleFromFilters:
                 ),
             ),
             (
+                "explicit_version_1",
+                {
+                    "version": 1,
+                    "groups": [{"properties": [], "rollout_percentage": 40}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+                ExperimentRuleConfig(
+                    variants=[{"key": "control", "rollout_percentage": 100}],
+                    rollout_percentage=40,
+                    assign_variant_by=None,
+                    holdout=None,
+                ),
+            ),
+            (
                 "empty_filters",
                 {},
                 ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
@@ -780,3 +981,28 @@ class TestExperimentRuleFromFilters:
     )
     def test_derivation(self, _name, filters, expected):
         assert experiment_rule_from_filters(filters) == expected
+
+    @parameterized.expand(
+        [
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, "v2"),
+            (
+                "version_string",
+                {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "version_boolean",
+                {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "unknown_future_version",
+                {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+        ]
+    )
+    def test_non_v1_formats_do_not_enter_the_v1_branch(self, _name, filters, expected_kind):
+        with pytest.raises(ConfigFormatError) as exc_info:
+            experiment_rule_from_filters(filters)
+        assert exc_info.value.config_format.kind == expected_kind

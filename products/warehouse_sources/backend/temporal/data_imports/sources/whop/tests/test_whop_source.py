@@ -1,8 +1,8 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
     ALL_WEBHOOK_EVENTS,
@@ -48,6 +48,21 @@ class TestWhopSource:
         # duplicate; only a merge on `id` dedupes them.
         assert schema.supports_append is (endpoint in INCREMENTAL_ENDPOINTS and endpoint not in MERGE_ONLY_ENDPOINTS)
 
+    @pytest.mark.parametrize(
+        "observed_error,non_retryable",
+        [
+            (
+                "400 Client Error: Bad Request for url: https://api.whop.com/api/v1/payments"
+                "?first=100&company_id=biz_example | api error: code=bad_request",
+                True,
+            ),
+            ("429 Client Error: Too Many Requests for url: https://api.whop.com/api/v1/payments", False),
+            ("503 Server Error: Service Unavailable for url: https://api.whop.com/api/v1/payments", False),
+        ],
+    )
+    def test_a_rejected_request_stops_the_sync_and_an_overload_does_not(self, observed_error, non_retryable):
+        assert error_message_matches(observed_error, self.source.get_non_retryable_errors()) is non_retryable
+
     def test_canonical_descriptions_only_describe_real_schemas(self):
         # A key that doesn't match a schema name is silently ignored, so the descriptions would
         # never reach the table they were written for.
@@ -89,20 +104,24 @@ class TestWhopSource:
         }
 
     @pytest.mark.parametrize(
-        "company_id, probe_result, schema_name, expected_valid",
+        "company_id, probe_result, schema_name, expected_valid, expected_message",
         [
-            ("biz_test", (True, 200), None, True),
+            ("biz_test", (True, 200), None, True, None),
             # A 403 means a genuine key without company:basic:read; users may only grant the scopes
             # for the tables they sync, so source creation must not be blocked on it.
-            ("biz_test", (False, 403), None, True),
-            ("biz_test", (False, 403), "payments", False),
-            ("biz_test", (False, 401), None, False),
-            ("biz_test", (False, 404), None, False),
-            ("biz_test", (False, None), None, False),
-            ("company-1", (True, 200), None, False),
+            ("biz_test", (False, 403), None, True, None),
+            ("biz_test", (False, 403), "payments", False, "permission to read this resource"),
+            ("biz_test", (False, 401), None, False, "rejected your API key"),
+            ("biz_test", (False, 404), None, False, "could not find that company"),
+            # An unreachable or overloaded Whop is not a bad key — saying it is sends the customer
+            # off to rotate a key that works.
+            ("biz_test", (False, None), None, False, "Couldn't reach Whop"),
+            ("biz_test", (False, 429), None, False, "Couldn't reach Whop"),
+            ("biz_test", (False, 503), None, False, "Couldn't reach Whop"),
+            ("company-1", (True, 200), None, False, "start with"),
         ],
     )
-    def test_validate_credentials(self, company_id, probe_result, schema_name, expected_valid):
+    def test_validate_credentials(self, company_id, probe_result, schema_name, expected_valid, expected_message):
         config = WhopSourceConfig(api_key="test-api-key", company_id=company_id)
 
         with mock.patch(API_CLIENT_PATCH) as api_client:
@@ -110,7 +129,10 @@ class TestWhopSource:
             is_valid, message = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
-        assert (message is None) is expected_valid
+        if expected_message is None:
+            assert message is None
+        else:
+            assert expected_message in (message or "")
 
     def test_validate_credentials_skips_the_probe_for_a_malformed_company_id(self):
         config = WhopSourceConfig(api_key="test-api-key", company_id="acme")

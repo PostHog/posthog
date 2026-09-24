@@ -4,10 +4,14 @@ Each head is a cohort (which reports are scoreable examples), a binary label, an
 label is "the outcome happened within `horizon_days` of the scoring moment", evaluated from the
 cumulative label columns the dataset dag snapshots. Cohort and label are vectorized over a frame
 of `inbox_report_labels` columns, so the same definitions read the snapshot at scoring time (label
-must still be 0) and the snapshot `horizon_days` later (the label).
+must still be 0) and the snapshot `horizon_days` later (the label). The report's birth day is the
+exception: it has no earlier scoring moment, so an outcome already visible there is a future
+positive for that moment rather than an outcome of an earlier one, and the label may already be 1.
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the seven heads with
-enough positives to ship; the other seven stay workspace-only until they are readable.
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Seven heads are dense
+enough to read on the holdout. `thumbs_up` and `reviewer_fix` are the explicit human-feedback pair:
+they are rare, so they are carried for the pooled newborn grade and as scorer inputs rather than
+for a holdout AUC. The rest stay workspace-only.
 """
 
 from collections.abc import Callable
@@ -65,6 +69,14 @@ def refunded(frame: pd.DataFrame) -> pd.Series:
     return _count(frame, "refund_count") > 0
 
 
+def thumbed_up(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "feedback_positive_count") > 0
+
+
+def reviewer_fixed(frame: pd.DataFrame) -> pd.Series:
+    return (_count(frame, "reviewer_add_count") + _count(frame, "reviewer_remove_count")) > 0
+
+
 @frozen
 class Head:
     name: str
@@ -93,17 +105,17 @@ HEADS: tuple[Head, ...] = (
         name="dismiss_wrong",
         cohort=impressed,
         label=dismissed_as_wrong,
-        horizon_days=7,
+        horizon_days=14,
         min_holdout_positives=30,
         status_labels=True,
     ),
     # Which reports get a PR at all? Cohort is every report the sweep would score.
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
-    # Of the reports that got a PR, which got it merged? Completes the open -> pr_created -> pr_merged
-    # funnel; the negative is "pr_created, no merge within the horizon".
+    # Which reports end up with a merged PR? The cohort is everyone, so the label carries the whole
+    # report-to-merge path rather than conditioning on a PR that does not exist yet at birth.
     Head(
         name="pr_merged",
-        cohort=pr_created,
+        cohort=everyone,
         label=pr_merged,
         horizon_days=14,
         min_holdout_positives=30,
@@ -131,6 +143,34 @@ HEADS: tuple[Head, ...] = (
         min_holdout_positives=20,
         label_columns=("refund_count",),
     ),
+    # Of the reports someone opened, which drew a thumbs up at the end of the body? Every thumbed
+    # report was opened first, so the cohort loses nothing. About one opened report in a hundred
+    # gets one, so the holdout AUC stays noise for weeks and the pooled newborn grade is the read.
+    Head(
+        name="thumbs_up",
+        cohort=opened,
+        label=thumbed_up,
+        horizon_days=7,
+        min_holdout_positives=10,
+        label_columns=("feedback_positive_count",),
+    ),
+    # Of the reports users saw, which had their suggested reviewers corrected? An add and a remove
+    # are one label: a removal alone is housekeeping that usually follows a PR, while the pair reads
+    # as "a person corrected the reviewers". As slow to land as dismiss_wrong, hence the 14 days.
+    Head(
+        name="reviewer_fix",
+        cohort=impressed,
+        label=reviewer_fixed,
+        horizon_days=14,
+        min_holdout_positives=20,
+        label_columns=("reviewer_add_count", "reviewer_remove_count"),
+    ),
 )
 
 HEADS_BY_NAME: dict[str, Head] = {head.name: head for head in HEADS}
+# Heads that share a horizon are labeled from the same later snapshot, so a reader that walks the
+# horizons touches each snapshot once instead of once per head.
+HEADS_BY_HORIZON: dict[int, tuple[Head, ...]] = {
+    horizon: tuple(head for head in HEADS if head.horizon_days == horizon)
+    for horizon in sorted({head.horizon_days for head in HEADS})
+}

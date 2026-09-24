@@ -31,20 +31,21 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { McpDateFilter } from './components/McpDateFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
-import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -54,7 +55,6 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
-import { formatBucketLabel } from './timeBuckets'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
 import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
@@ -247,7 +247,6 @@ function StatTiles({
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
-    const sparkLabels = daily.labels.map((label) => formatBucketLabel(label, interval))
 
     const tiles: {
         label: string
@@ -314,11 +313,12 @@ function StatTiles({
                     key={tile.label}
                     {...tile}
                     loading={loading}
-                    labels={sparkLabels}
+                    labels={daily.labels}
+                    interval={interval}
                     theme={theme}
                     restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
-                    sparklineDashedFromIndex={incompleteTail ? sparkLabels.length - 1 : undefined}
+                    sparklineDashedFromIndex={incompleteTail ? daily.labels.length - 1 : undefined}
                 />
             ))}
         </div>
@@ -472,14 +472,6 @@ function TrendChart({
 }
 
 export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
-    return (
-        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
-            <MCPAnalyticsToolDetailContent toolName={toolName} />
-        </FeaturePreviewSceneGate>
-    )
-}
-
-function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.Element {
     const {
         summary,
         summaryLoading,
@@ -507,7 +499,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         pinnedInterval,
         incompleteTail,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+    const { selectFailure, setDateFilter, loadAllSections } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
@@ -539,6 +531,33 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
+
+            <div className="flex flex-wrap items-center gap-3 px-4 pb-2">
+                <McpSharedFilters
+                    pageKey="mcp-tool-detail"
+                    dataAttrPrefix="mcp-tool-detail"
+                    onRefresh={loadAllSections}
+                    refreshing={
+                        summaryLoading ||
+                        descriptionsLoading ||
+                        dailyStatsLoading ||
+                        failureBucketsLoading ||
+                        sampleIntentRowsLoading ||
+                        intentCoverageLoading ||
+                        neighborsBeforeRowsLoading ||
+                        neighborsAfterRowsLoading ||
+                        byHarnessRowsLoading ||
+                        topUserRowsLoading
+                    }
+                >
+                    <McpDateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={setDateFilter}
+                        dataAttr="mcp-tool-detail-date-filter"
+                    />
+                </McpSharedFilters>
+            </div>
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />

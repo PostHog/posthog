@@ -28,7 +28,6 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalScoutSuggestionSet
-from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_chat import consume_daily_attempt, refund_daily_attempt
 from products.signals.backend.scout_harness.suggestions import (
     dismiss_suggestion,
@@ -96,7 +95,8 @@ class ScoutSuggestionSetSerializer(serializers.Serializer):
         help_text=(
             "`fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past "
             "the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). "
-            "`empty`: nothing to suggest yet."
+            "`empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing "
+            "was generated."
         ),
     )
     generated_at = serializers.DateTimeField(
@@ -212,7 +212,7 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 description="Organization has not approved AI data processing, or suggestions are off for this project."
             ),
             409: OpenApiResponse(description="A refresh is already running for this project."),
-            429: OpenApiResponse(description="Daily refresh cap reached, or the project is over its Signals quota."),
+            429: OpenApiResponse(description="Daily refresh cap reached."),
         },
         summary="Refresh suggested scouts",
         description=(
@@ -229,8 +229,6 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise exceptions.PermissionDenied(
                 "Enable AI data processing for this organization to get scout suggestions."
             )
-        if is_team_signals_quota_limited(team.api_token):
-            raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
         # The same kill switch and blocklist the scheduled planner honors, so a caller with
         # `signal_scout:write` cannot pull a paid scan on a project an operator has turned off.
         if not suggestions_allowed_for_team(read_suggestion_settings(), team.id):

@@ -17,6 +17,7 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -33,7 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
+    RESOURCE_SCHEMAS,
+    HoistedColumn,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
@@ -186,7 +191,7 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
-@dataclass
+@frozen
 class MetaAdsSchema:
     name: str
     primary_keys: list[str]
@@ -201,6 +206,8 @@ class MetaAdsSchema:
     is_stats: bool = False
     # The Graph API returns the node itself rather than a paged `data` list (`GET /act_<id>`).
     single_object: bool = False
+    # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
+    hoisted_columns: tuple[HoistedColumn, ...] = ()
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -220,6 +227,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             partition_format=schema_def.get("partition_format"),
             is_stats=schema_def.get("is_stats", False),
             single_object=schema_def.get("single_object", False),
+            hoisted_columns=schema_def.get("hoisted_columns", ()),
         )
 
         schemas[resource_name] = schema
@@ -442,6 +450,14 @@ META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
 # https://developers.facebook.com/docs/graph-api/overview/rate-limiting
 META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 
+# Meta error code 2642: the `paging.next` cursor used to follow a page was rejected as invalid.
+# Terminal for this job — `_iter_time_range_pagination`/`_iter_simple_pagination` save that same
+# cursor to resumable state before fetching it, so a Temporal retry of this job would resume with
+# the identical cursor and fail the same way every time. A later sync run gets a fresh job id (and
+# so a fresh resumable-state key, see `ResumableSourceManager`), which starts pagination from
+# scratch with a new cursor.
+META_INVALID_CURSOR_ERROR_CODE = 2642
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
@@ -449,6 +465,8 @@ META_AUTH_ERROR_MESSAGE = (
 META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
 )
+
+META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
 
 # Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
 # with the key there.
@@ -489,6 +507,12 @@ def _is_rate_limit_error(response: Response) -> bool:
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
+def _is_invalid_cursor_error(response: Response) -> bool:
+    """Return True for Meta's "Invalid cursors values" error (code 2642), which retrying this
+    job can't recover from — see `META_INVALID_CURSOR_ERROR_CODE`."""
+    return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
+
+
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     """Raise a descriptive exception for a non-200 Meta API response.
 
@@ -508,6 +532,10 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     if _is_rate_limit_error(response):
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
+        )
+    if _is_invalid_cursor_error(response):
+        raise Exception(
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
         )
     if _is_transient_error(response) and not _should_shrink_request(response):
         raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
@@ -883,6 +911,30 @@ def _fetch_single_object(url: str, params: dict, access_token: str) -> collectio
     yield [response.json()]
 
 
+def _hoisted_values(row: dict, hoisted_columns: tuple[HoistedColumn, ...]) -> dict:
+    values = {}
+    for hoisted in hoisted_columns:
+        nested = row.get(hoisted.source_field)
+        values[hoisted.column] = nested.get(hoisted.key) if isinstance(nested, dict) else None
+    return values
+
+
+def _hoist_columns(
+    batches: collections.abc.Iterable[list[dict]], hoisted_columns: tuple[HoistedColumn, ...]
+) -> collections.abc.Generator[list[dict]]:
+    """Add each hoisted column to every row, read out of the row's nested object.
+
+    The column is always written, as ``None`` when the nested object is missing or is not an
+    object, so every row of the table carries the same columns whatever Meta returns for it.
+    """
+    if not hoisted_columns:
+        yield from batches
+        return
+
+    for batch in batches:
+        yield [{**row, **_hoisted_values(row, hoisted_columns)} for row in batch]
+
+
 def _make_paginated_api_request(
     url: str,
     params: dict,
@@ -945,7 +997,7 @@ def meta_ads_source(
 ) -> SourceResponse:
     """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
-    schema = get_schemas()[resource_name]
+    schema = schema_for_resource(get_schemas(), resource_name)
 
     sync_lookback_days = getattr(config, "sync_lookback_days", None)
     if sync_lookback_days is None or sync_lookback_days < 1:
@@ -993,7 +1045,10 @@ def meta_ads_source(
         formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
         if schema.single_object:
-            yield from _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token)
+            yield from _hoist_columns(
+                _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token),
+                schema.hoisted_columns,
+            )
             return
 
         params = {
@@ -1006,8 +1061,9 @@ def meta_ads_source(
         if schema.is_stats:
             params.update(_attribution_params(config))
 
-        yield from _make_paginated_api_request(
-            formatted_url, params, access_token, time_range, resumable_source_manager
+        yield from _hoist_columns(
+            _make_paginated_api_request(formatted_url, params, access_token, time_range, resumable_source_manager),
+            schema.hoisted_columns,
         )
 
     return SourceResponse(

@@ -7,6 +7,39 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AIContextAccountPropertyApi {
+    /** Customer analytics account property definition id. */
+    id: string
+    /** Display name of the account property. */
+    name: string
+}
+
+export interface AIReplyPlaybookApi {
+    /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
+    readonly inherited_instructions: string
+    /**
+     * Team addendum on top of the inherited playbook. Null means the team inherits the default instructions.
+     * @nullable
+     */
+    readonly custom_instructions: string | null
+    /** True when a non-empty custom addendum is saved for this team. */
+    readonly is_customized: boolean
+    /** Version of the generic default playbook layer currently in the repo. */
+    readonly default_version: number
+    /**
+     * Version of the PostHog overlay when docs_source is posthog; null otherwise.
+     * @nullable
+     */
+    readonly posthog_overlay_version: number | null
+    /**
+     * Documentation source for this team. 'posthog' enables PostHog docs-search and the PostHog overlay.
+     * @nullable
+     */
+    readonly docs_source: string | null
+    /** Maximum character length for ai_reply_custom_instructions. */
+    readonly max_chars: number
+}
+
 /**
  * * `widget` - Widget
  * * `email` - Email
@@ -123,6 +156,17 @@ export interface TicketPersonApi {
 }
 
 /**
+ * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.
+ */
+export type TicketApiSessionContext = {
+    /** Page the reporter was on. */
+    readonly current_url?: string
+    /** Replay of the session the ticket came from. */
+    readonly replay_url?: string
+    [key: string]: unknown
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
@@ -157,7 +201,7 @@ export interface TicketApi {
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
-    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
     readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
@@ -170,7 +214,8 @@ export interface TicketApi {
     readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
-    readonly session_context: unknown
+    /** Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version. */
+    readonly session_context: TicketApiSessionContext
     /**
      * SLA deadline set via workflows. Null means no SLA.
      * @nullable
@@ -382,6 +427,40 @@ export interface AiFeedbackRequestApi {
 }
 
 /**
+ * * `used` - used
+ * * `edited` - edited
+ */
+export type AiDraftHumanOutcomeEnumApi = (typeof AiDraftHumanOutcomeEnumApi)[keyof typeof AiDraftHumanOutcomeEnumApi]
+
+export const AiDraftHumanOutcomeEnumApi = {
+    Used: 'used',
+    Edited: 'edited',
+} as const
+
+/**
+ * Payload for recording whether a human adopted an AI draft.
+ */
+export interface AiHumanOutcomeRequestApi {
+    /**
+     * ID of the private AI draft being adopted.
+     * @maxLength 200
+     */
+    message_id: string
+    /** used when the human inserts the draft as-is; edited after they change it in the composer.
+     *
+     * * `used` - used
+     * * `edited` - edited */
+    outcome: AiDraftHumanOutcomeEnumApi
+}
+
+export interface TicketErrorApi {
+    /** Human-readable error message. */
+    detail: string
+    /** Machine-readable error code. */
+    error_type?: string
+}
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {
@@ -395,8 +474,15 @@ export interface TicketMessageApi {
     readonly author_type: string
     /** Display name of the author. */
     readonly author_name: string
+    /**
+     * Email of the authoring PostHog user, when the message was written by one (support replies and internal notes). Null for customer and AI messages.
+     * @nullable
+     */
+    readonly author_email: string | null
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** True when the complete inbound email body can be retrieved. */
+    readonly has_full_email_content: boolean
     /** Edit count. 0 means never edited. */
     readonly version: number
     readonly created_at: string
@@ -411,6 +497,11 @@ export interface PaginatedTicketMessageListApi {
     results: TicketMessageApi[]
 }
 
+export interface TicketFullEmailApi {
+    /** Full inbound email body in Markdown. */
+    readonly content: string
+}
+
 /**
  * Payload for updating a private note on a ticket.
  */
@@ -422,11 +513,6 @@ export interface PatchedTicketNoteUpdateRequestApi {
     message?: string
     /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
     rich_content?: unknown
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**
@@ -480,35 +566,48 @@ export const BulkUpdateTagsActionEnumApi = {
     Set: 'set',
 } as const
 
-export interface BulkUpdateTagsRequestApi {
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
     /**
-     * List of object IDs to update tags on.
+     * List of object UUIDs to update tags on.
      * @maxItems 500
      */
-    ids: number[]
+    ids: string[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
      *
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
-export interface BulkUpdateTagsItemApi {
-    id: number
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
     tags: string[]
 }
 
-export interface BulkUpdateTagsErrorApi {
-    id: number
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
     reason: string
 }
 
-export interface BulkUpdateTagsResponseApi {
-    updated: BulkUpdateTagsItemApi[]
-    skipped: BulkUpdateTagsErrorApi[]
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
 export interface ComposeTicketApi {
@@ -548,6 +647,14 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
+export interface TicketUnreadCountResponseApi {
+    /**
+     * Unread messages across the non-resolved tickets the caller can see.
+     * @minimum 0
+     */
+    count: number
+}
+
 /**
  * * `widget` - widget
  * * `email` - email
@@ -584,22 +691,30 @@ export const TicketSlaFilterEnumApi = {
 
 /**
  * * `persisted` - persisted
+ * * `suggested` - suggested
+ * * `escalated_with_findings` - escalated_with_findings
  * * `escalated_with_best` - escalated_with_best
  * * `escalated_no_reply` - escalated_no_reply
  * * `skipped_unactionable` - skipped_unactionable
  * * `blocked_unsafe` - blocked_unsafe
  * * `blocked_unsafe_reply` - blocked_unsafe_reply
+ * * `clarified` - clarified
+ * * `suggested_clarification` - suggested_clarification
  * * `in_progress` - in_progress
  */
 export type AiTriageResultEnumApi = (typeof AiTriageResultEnumApi)[keyof typeof AiTriageResultEnumApi]
 
 export const AiTriageResultEnumApi = {
     Persisted: 'persisted',
+    Suggested: 'suggested',
+    EscalatedWithFindings: 'escalated_with_findings',
     EscalatedWithBest: 'escalated_with_best',
     EscalatedNoReply: 'escalated_no_reply',
     SkippedUnactionable: 'skipped_unactionable',
     BlockedUnsafe: 'blocked_unsafe',
     BlockedUnsafeReply: 'blocked_unsafe_reply',
+    Clarified: 'clarified',
+    SuggestedClarification: 'suggested_clarification',
     InProgress: 'in_progress',
 } as const
 
@@ -668,9 +783,9 @@ export interface TicketViewFiltersApi {
      * * `on-track` - on-track
      * * `all` - all */
     sla?: TicketSlaFilterEnumApi
-    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
+    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
     aiTriageResult?: AiTriageResultEnumApi[]
-    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
     assignee?: TicketViewFiltersApiAssigneeItem[]
     /** Tag names to match, combined according to tagsMatch. */
     tags?: string[]
@@ -752,13 +867,20 @@ export interface UserBasicApi {
 }
 
 export interface TicketViewApi {
+    /** Internal UUID of the view. */
     readonly id: string
+    /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
     readonly short_id: string
-    /** @maxLength 400 */
+    /**
+     * Display name of the view, as it appears in the ticket views list.
+     * @maxLength 400
+     */
     name: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /** When the view was created. */
     readonly created_at: string
+    /** The user who created this view. */
     readonly created_by: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
@@ -774,13 +896,20 @@ export interface PaginatedTicketViewListApi {
 }
 
 export interface PatchedTicketViewApi {
+    /** Internal UUID of the view. */
     readonly id?: string
+    /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
     readonly short_id?: string
-    /** @maxLength 400 */
+    /**
+     * Display name of the view, as it appears in the ticket views list.
+     * @maxLength 400
+     */
     name?: string
     /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
     filters?: TicketViewFiltersApi
+    /** When the view was created. */
     readonly created_at?: string
+    /** The user who created this view. */
     readonly created_by?: UserBasicApi
     /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
     is_favorited?: boolean
@@ -877,7 +1006,7 @@ export interface ZendeskImportErrorApi {
 
 export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string
     /**

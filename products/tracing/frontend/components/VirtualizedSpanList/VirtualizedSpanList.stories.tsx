@@ -64,3 +64,17 @@ export const Default: Story = {}
 export const Empty: Story = {
     args: { dataSource: [] },
 }
+
+// One row per badge tier, plus two rows with no errors, so the column's alignment shows.
+export const WithErrorBadges: Story = {
+    args: {
+        spanErrors: {
+            badges: new Map([
+                ['span-1', { tier: 'trace', count: 4 }],
+                ['span-3', { tier: 'session', count: 9 }],
+                ['span-5', { tier: 'span', count: 1 }],
+            ]),
+            onShow: () => {},
+        },
+    },
+}

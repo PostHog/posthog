@@ -2,6 +2,7 @@ import {
   CLOUD_USAGE_LIMIT_ERROR_MESSAGE,
   type TaskSessionStorageAccess,
 } from "@posthog/api-client/posthog-client";
+import { cloudAccessFor } from "@posthog/core/sessions/cloudModelAccess";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -150,6 +151,32 @@ export class TaskService {
           };
         }
         throw error;
+      }
+    }
+
+    if (input.workspaceMode === "cloud" && input.runtime !== "pi") {
+      const adapter = input.adapter ?? "claude";
+      try {
+        const access = await this.sessionService.resolveCloudModelAccess(
+          adapter,
+          adapter === "claude"
+            ? input.claudeCloudModelAccess
+            : input.codexCloudModelAccess,
+        );
+        input = {
+          ...input,
+          claudeCloudModelAccess: cloudAccessFor(access, "claude"),
+          codexCloudModelAccess: cloudAccessFor(access, "codex"),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          failedStep: "validation",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not check subscription billing.",
+        };
       }
     }
 

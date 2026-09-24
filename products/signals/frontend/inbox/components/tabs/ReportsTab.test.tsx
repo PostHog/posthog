@@ -38,7 +38,7 @@ interface SectionCountStub {
 // One count per state's fixed filter, so the summed total is unambiguous.
 const COUNT_BY_FILTER: SectionCountStub[] = [
     { match: (p) => p.get('has_implementation_pr') === 'true', count: 4 },
-    { match: (p) => p.get('has_implementation_pr') === 'false', count: 7 },
+    { match: (p) => p.get('view') === 'needs_decision', count: 7 },
     { match: (p) => (p.get('status') ?? '').includes('suppressed'), count: 2 },
 ]
 
@@ -69,7 +69,6 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
         status,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',
@@ -84,6 +83,7 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
 function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: () => void }): void {
     const withPr = makeReport('with-pr', SignalReportStatus.READY)
     const needsPr = makeReport('needs-pr', SignalReportStatus.READY)
+    const failed = makeReport('failed', SignalReportStatus.FAILED)
     const resolved = makeReport('resolved', SignalReportStatus.RESOLVED)
     useMocks({
         get: {
@@ -98,8 +98,8 @@ function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: ()
                 const results =
                     params.get('has_implementation_pr') === 'true'
                         ? [withPr]
-                        : params.get('has_implementation_pr') === 'false'
-                          ? [needsPr]
+                        : params.get('view') === 'needs_decision'
+                          ? [needsPr, failed]
                           : isResolved
                             ? [resolved]
                             : []
@@ -206,6 +206,10 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull()
+            expect(document.querySelector('[data-attr="report-card-failed"]')).toHaveAttribute(
+                'data-section',
+                'needs-decision'
+            )
         })
         expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
 
@@ -226,6 +230,7 @@ describe('ReportsTab', () => {
 
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).toBeNull()
+            expect(document.querySelector('[data-attr="report-card-failed"]')).toBeNull()
         })
         expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
     })

@@ -3,7 +3,9 @@ import './Dashboard.scss'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
@@ -19,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -27,8 +29,8 @@ import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
-import { DashboardOverridesBanner } from './DashboardOverridesBanner'
-import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
+import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
@@ -42,7 +44,7 @@ function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }
 
 interface DashboardProps {
     id?: string
-    dashboard?: DashboardType<QueryBasedInsightModel>
+    dashboard?: DashboardType
     placement?: DashboardPlacement
     themes?: DataColorThemeModel[]
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
@@ -161,7 +163,11 @@ function DashboardScene({
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
-            <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
+            {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
+            {placement !== DashboardPlacement.Export && (
+                <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
+            )}
+            <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState
@@ -182,8 +188,8 @@ function DashboardScene({
                         '-mt-4': placement == DashboardPlacement.ProjectHomepage,
                     })}
                 >
-                    <DashboardOverridesBanner />
                     <DashboardRetentionBanner />
+                    <DashboardQueryScanBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

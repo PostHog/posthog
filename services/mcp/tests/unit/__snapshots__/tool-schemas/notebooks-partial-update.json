@@ -2,13 +2,14 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "description": "Notebook content as a ProseMirror JSON document structure."
+            "description": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown."
         },
         "deleted": {
             "description": "Whether the notebook has been soft-deleted.",
             "type": "boolean"
         },
         "short_id": {
+            "description": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
             "type": "string"
         },
         "text_content": {
@@ -49,7 +50,7 @@
                         "type": "string"
                     },
                     "value": {
-                        "description": "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                        "description": "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                     }
                 },
                 "required": ["name", "type"],

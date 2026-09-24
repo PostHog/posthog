@@ -27,6 +27,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
+    generate_random_token_heatmap_screenshot,
     generate_random_token_project,
     generate_random_token_secret,
     mask_key_value,
@@ -41,8 +42,6 @@ from posthog.settings.utils import get_list
 # Relocated to the Django-free posthog.week_start_day module so the HogQL engine can use it
 # without booting Django; re-exported here for existing callers.
 from posthog.week_start_day import WeekStartDay  # noqa: F401
-
-from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
@@ -703,41 +702,6 @@ class Team(UUIDTClassicModel):
         "admin",
     )
 
-    experiment_recalculation_time = field_access_control(
-        models.TimeField(
-            null=True,
-            blank=True,
-            help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
-        ),
-        "project",
-        "admin",
-    )
-
-    default_experiment_confidence_level = field_access_control(
-        models.DecimalField(
-            max_digits=3,
-            decimal_places=2,
-            null=True,
-            blank=True,
-            help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
-        ),
-        "project",
-        "admin",
-    )
-
-    default_experiment_stats_method = field_access_control(
-        models.CharField(
-            max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod,
-            default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
-            help_text="Default statistical method for new experiments in this environment.",
-            null=True,
-            blank=True,
-        ),
-        "project",
-        "admin",
-    )
-
     business_model = field_access_control(
         models.CharField(
             max_length=10,
@@ -756,6 +720,12 @@ class Team(UUIDTClassicModel):
     # TRANSITIONAL: These accessors exist for backward compat with existing
     # `team.<product>_config` call sites. New products should NOT add accessors
     # here — use get_or_create_team_extension() at call sites instead.
+    #
+    # One exception, and the reason every config below is also a team/project serializer field: a
+    # config exposed that way needs the attribute. DRF skips a required=False field whose attribute
+    # is missing, so dropping one of these accessors strips the setting from every API response
+    # without raising. A config no serializer exposes needs no accessor here, and is reached through
+    # the helper the way TeamFeatureFlagDefaultsConfig is.
 
     @cached_property
     def revenue_analytics_config(self):
@@ -773,15 +743,19 @@ class Team(UUIDTClassicModel):
     def customer_analytics_config(self):
         from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
-        return get_or_create_team_extension(
-            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-        )
+        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
 
     @cached_property
     def workflows_config(self):
         from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
+
+    @cached_property
+    def feature_flag_policy_config(self):
+        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
+        return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
 
     @property
     def default_modifiers(self) -> dict:
@@ -1094,6 +1068,47 @@ class Team(UUIDTClassicModel):
             ),
         )
 
+    @property
+    def heatmaps_screenshot_secret(self) -> str | None:
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        config = TeamHeatmapConfig.objects.filter(team_id=self.pk).first()
+        return config.screenshot_secret if config else None
+
+    def rotate_heatmaps_screenshot_secret_and_save(self, *, user: "User", is_impersonated_session: bool) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.models.team.extensions import get_or_create_team_extension
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        get_or_create_team_extension(self, TeamHeatmapConfig)
+        with transaction.atomic():
+            config = TeamHeatmapConfig.objects.select_for_update().get(team_id=self.pk)
+            old_secret = config.screenshot_secret
+            config.screenshot_secret = generate_random_token_heatmap_screenshot()
+            config.save(update_fields=["screenshot_secret"])
+
+            log_activity(
+                organization_id=self.organization_id,
+                team_id=self.pk,
+                user=cast("User", user),
+                was_impersonated=is_impersonated_session,
+                scope="Team",
+                item_id=self.pk,
+                activity="updated",
+                detail=Detail(
+                    name=str(self.name),
+                    changes=[
+                        Change(
+                            type="Team",
+                            action="created" if old_secret is None else "changed",
+                            field="heatmaps_screenshot_secret",
+                            before="redacted" if old_secret else None,
+                            after="redacted",
+                        )
+                    ],
+                ),
+            )
+
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
         from posthog.models.utils import mask_key_value
@@ -1209,6 +1224,7 @@ class Team(UUIDTClassicModel):
 
                 role_user_ids = (
                     RoleMembership.objects.filter(role_id__in=roles_with_access)
+                    .valid_for_authorization()
                     .values_list("organization_member__user_id", flat=True)
                     .distinct()
                 )

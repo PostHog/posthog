@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The repository .envrc exports COMPOSE_PROJECT_NAME=posthog. Without an override, this script's cleanup
+# (down -v --remove-orphans) removes every container of the local development stack.
+export COMPOSE_PROJECT_NAME=clickhouse-util-udfs-test
+
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 TEMP_DIR=$(mktemp -d)
 UDFS=(
+    decompress
     json_drop_keys
+    json_drop_keys_pool
     json_clean_posthog_event_properties
     json_clean_posthog_person_properties
+    json_clean_posthog_temporary_properties
     json_strip_empty_strings_and_nulls
 )
 
@@ -17,17 +24,34 @@ cleanup() {
 }
 trap cleanup EXIT
 
-query_for() {
-    local input="file('$1/stateless/$2', 'TabSeparated', 'x String')"
+# JSONDropKeysPool must match JSONDropKeys, so both run against the same fixtures.
+fixtures_for() {
     case "$1" in
+        json_drop_keys_pool) echo json_drop_keys ;;
+        *) echo "$1" ;;
+    esac
+}
+
+query_for() {
+    local input="file('$(fixtures_for "$1")/stateless/$2', 'TabSeparated', 'x String')"
+    case "$1" in
+        decompress)
+            echo "SELECT hex(decompress(unhex(data), codec)) FROM file('$1/stateless/$2', 'TabSeparated', 'codec String, data String') SETTINGS max_block_size = 2, max_threads = 1 FORMAT TabSeparated"
+            ;;
         json_drop_keys)
             echo "SELECT JSONDropKeys(['a'])(x) FROM $input FORMAT TabSeparated"
+            ;;
+        json_drop_keys_pool)
+            echo "SELECT JSONDropKeysPool(x, ['a']) FROM $input SETTINGS max_block_size = 2, max_threads = 1 FORMAT TabSeparated"
             ;;
         json_clean_posthog_event_properties)
             echo "SELECT JSONCleanPostHogEventProperties(x) FROM $input FORMAT TabSeparated"
             ;;
         json_clean_posthog_person_properties)
             echo "SELECT JSONCleanPostHogPersonProperties(x) FROM $input FORMAT TabSeparated"
+            ;;
+        json_clean_posthog_temporary_properties)
+            echo "SELECT JSONCleanPostHogTemporaryProperties(x) FROM $input FORMAT TabSeparated"
             ;;
         json_strip_empty_strings_and_nulls)
             echo "SELECT JSONStripEmptyStringsAndNulls(x) FROM $input FORMAT TabSeparated"
@@ -39,7 +63,7 @@ docker compose -f "$COMPOSE_FILE" up -d --wait
 docker compose -f "$COMPOSE_FILE" cp "$ROOT_DIR/testdata/." clickhouse:/var/lib/clickhouse/user_files/
 
 for udf in "${UDFS[@]}"; do
-    stateless_dir="$ROOT_DIR/testdata/$udf/stateless"
+    stateless_dir="$ROOT_DIR/testdata/$(fixtures_for "$udf")/stateless"
 
     for test_file in "$stateless_dir"/*.tsv; do
         test_name=$(basename "$test_file")
@@ -67,3 +91,55 @@ for udf in "${UDFS[@]}"; do
         echo "Passed $udf/$test_name."
     done
 done
+
+query=$(cat <<'SQL'
+WITH
+    number % 2 = 0 AS compressed,
+    if(compressed, unhex('170000006068656c6c6f200600d06f2068656c6c6f2068656c6c6f'), 'plain') AS data
+SELECT countIf(
+    if(compressed, decompress(data, 'LZ4SizePrefixed'), data)
+        != if(compressed, 'hello hello hello hello', 'plain')
+)
+FROM numbers(10000)
+SETTINGS short_circuit_function_evaluation = 'force_enable', max_block_size = 128, max_threads = 2
+SQL
+)
+output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
+if [[ "$output" != "0" ]]; then
+    echo "Expected mixed compressed/plain rows to round-trip across pool chunks, got: $output" >&2
+    exit 1
+fi
+echo "Passed mixed compressed/plain pool chunks."
+
+query=$(cat <<'SQL'
+SELECT countIf(
+    JSONDropKeysPool(concat('{"a":', toString(number), ',"b":', toString(number), '}'), if(number % 2 = 0, ['a'], ['b']))
+        != concat('{"', if(number % 2 = 0, 'b', 'a'), '":', toString(number), '}')
+)
+FROM numbers(10000)
+SETTINGS max_block_size = 128, max_threads = 2
+SQL
+)
+output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
+if [[ "$output" != "0" ]]; then
+    echo "Expected per-row JSONDropKeysPool keys to apply across pool chunks, got: $output" >&2
+    exit 1
+fi
+echo "Passed per-row JSONDropKeysPool keys."
+
+query=$(cat <<'SQL'
+WITH concat('{"x":', repeat('[', 24), '[0]', repeat(',null]', 24), '}') AS raw
+SELECT
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogEventProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    JSONExtractString(toJSONString(CAST(JSONCleanPostHogPersonProperties(raw) AS JSON(max_dynamic_paths=0))), '$unparseable_properties') = raw,
+    toJSONString(CAST(JSONCleanPostHogTemporaryProperties(raw) AS JSON(max_dynamic_paths=0))) = '{}'
+SETTINGS max_threads = 1, max_memory_usage = 268435456
+FORMAT TabSeparated
+SQL
+)
+output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
+if [[ "$output" != $'1\t1\t1' ]]; then
+    echo "Expected array quarantine to preserve the input and produce castable JSON, got: $output" >&2
+    exit 1
+fi
+echo "Passed nested-array quarantine JSON casts."

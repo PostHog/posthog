@@ -1,13 +1,14 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
 import {
   applyModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
+import { CodexCloudSection } from "@posthog/ui/features/settings/sections/CodexCloudSection";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
+import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/settings/subscriptionActions";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -17,6 +18,50 @@ import { type ReactElement, useEffect, useState } from "react";
 
 const SIGN_IN_POLL_TIMEOUT_MS = 10 * 60_000 + 15_000;
 const SIGN_IN_LAUNCH_FEEDBACK_MS = 4_000;
+
+interface CodexAccountStatus {
+  email?: string;
+  subscriptionType?: string;
+}
+
+function connectedAccountLabel(status: CodexAccountStatus | undefined): string {
+  if (!status?.email) return "ChatGPT account connected";
+  const plan = status.subscriptionType
+    ? ` (${status.subscriptionType} plan)`
+    : "";
+  return `Connected as ${status.email}${plan}`;
+}
+
+function ConnectedAccount({
+  status,
+  signingOut,
+  onSignOut,
+  className,
+}: {
+  status: CodexAccountStatus | undefined;
+  signingOut: boolean;
+  onSignOut: () => void;
+  className?: string;
+}): ReactElement {
+  return (
+    <span className={`flex items-center gap-1.5 ${className ?? ""}`}>
+      <span
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-(--green-9)"
+        aria-hidden
+      />
+      {connectedAccountLabel(status)}
+      <span aria-hidden>&middot;</span>
+      <button
+        type="button"
+        className="cursor-pointer hover:underline"
+        disabled={signingOut}
+        onClick={onSignOut}
+      >
+        Sign out
+      </button>
+    </span>
+  );
+}
 
 export function CodexSubscriptionSettings(): ReactElement | null {
   const subscription = useAdapterSubscription("codex");
@@ -28,7 +73,7 @@ export function CodexSubscriptionSettings(): ReactElement | null {
   const statusQuery = hostTRPC.agent.codexSubscriptionStatus.queryOptions();
   const { data: status } = useQuery({
     ...statusQuery,
-    enabled: subscription.flagEnabled,
+    enabled: subscription.flagEnabled || subscription.cloudFlagEnabled,
     refetchInterval: (query) =>
       awaitingLogin && query.state.data?.loginState !== "logged-in"
         ? 2000
@@ -107,72 +152,115 @@ export function CodexSubscriptionSettings(): ReactElement | null {
     },
   });
 
-  if (!subscription.flagEnabled) {
+  if (!subscription.flagEnabled && !subscription.cloudFlagEnabled) {
     return null;
   }
 
-  if (!loggedIn) {
+  if (!subscription.cloudFlagEnabled) {
+    if (!loggedIn) {
+      return (
+        <SettingsCardRow
+          label="ChatGPT account"
+          description={
+            awaitingLogin
+              ? "Finish signing in with your browser. This updates automatically"
+              : "Connect to run local and worktree Codex sessions on your ChatGPT plan"
+          }
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            loading={connecting}
+            disabled={connecting}
+            onClick={() => login.mutate()}
+          >
+            {connecting
+              ? "Opening browser..."
+              : awaitingLogin
+                ? "Try again"
+                : "Connect ChatGPT account"}
+          </Button>
+        </SettingsCardRow>
+      );
+    }
+
     return (
       <SettingsCardRow
-        label="ChatGPT account"
+        label="Use your ChatGPT subscription"
         description={
-          awaitingLogin
-            ? "Finish signing in with your browser. This updates automatically"
-            : "Connect to run local and worktree Codex sessions on your ChatGPT plan"
+          <span className="flex flex-col gap-1">
+            <span>
+              Local and worktree Codex sessions run on your ChatGPT plan instead
+              of PostHog credits. Cloud tasks always use PostHog credits
+            </span>
+            <ConnectedAccount
+              status={status}
+              signingOut={signOut.isPending}
+              onSignOut={() => signOut.mutate()}
+            />
+          </span>
         }
       >
-        <Button
-          variant="outline"
+        <Switch
           size="sm"
-          loading={connecting}
-          disabled={connecting}
-          onClick={() => login.mutate()}
-        >
-          {connecting
-            ? "Opening browser..."
-            : awaitingLogin
-              ? "Try again"
-              : "Connect ChatGPT account"}
-        </Button>
+          checked={subscription.subscriptionOn}
+          onCheckedChange={(checked) =>
+            subscription.setSubscriptionOn(checked === true)
+          }
+        />
       </SettingsCardRow>
     );
   }
 
   return (
     <SettingsCardRow
-      label="Use your ChatGPT subscription"
-      description={
-        <span className="flex flex-col gap-1">
-          <span>
-            Local and worktree Codex sessions run on your ChatGPT plan instead
-            of PostHog credits. Cloud tasks always use PostHog credits
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full bg-(--green-9)"
-              aria-hidden
-            />
-            ChatGPT account connected
-            <span aria-hidden>&middot;</span>
-            <button
-              type="button"
-              className="cursor-pointer hover:underline"
-              disabled={signOut.isPending}
-              onClick={() => signOut.mutate()}
-            >
-              Sign out
-            </button>
-          </span>
-        </span>
-      }
+      stacked
+      label="ChatGPT subscription"
+      description="Choose where to use your ChatGPT plan. Model use counts toward your plan limits."
     >
-      <Switch
-        size="sm"
-        checked={subscription.subscriptionOn}
-        onCheckedChange={(checked) =>
-          subscription.setSubscriptionOn(checked === true)
-        }
-      />
+      <div className="flex flex-col gap-5 pt-2">
+        {subscription.flagEnabled ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-xs">Local tasks</span>
+              {loggedIn ? (
+                <Switch
+                  size="sm"
+                  aria-label="Use your ChatGPT plan for local tasks"
+                  checked={subscription.subscriptionOn}
+                  onCheckedChange={(checked) =>
+                    subscription.setSubscriptionOn(checked === true)
+                  }
+                />
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={connecting}
+                  disabled={connecting}
+                  onClick={() => login.mutate()}
+                >
+                  {connecting ? "Opening browser..." : "Connect in a browser"}
+                </Button>
+              )}
+            </div>
+            <span className="text-muted-foreground text-xs">
+              Run local and worktree Codex sessions on your ChatGPT plan.
+            </span>
+            {loggedIn ? (
+              <ConnectedAccount
+                status={status}
+                signingOut={signOut.isPending}
+                onSignOut={() => signOut.mutate()}
+                className="text-muted-foreground text-xs"
+              />
+            ) : null}
+          </div>
+        ) : null}
+        <CodexCloudSection
+          cloudSubscriptionOn={subscription.cloudSubscriptionOn}
+        />
+      </div>
     </SettingsCardRow>
   );
 }

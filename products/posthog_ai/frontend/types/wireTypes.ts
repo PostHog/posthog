@@ -28,6 +28,10 @@ export interface AcpNotification {
  */
 export interface StoredLogEntry {
     type: 'notification'
+    event_id?: string
+    first_event_id?: string
+    /** Client-side ownership; the shared backend log payload stays unchanged. */
+    source_run_id?: string
     timestamp?: string
     notification: AcpNotification
 }
@@ -152,6 +156,7 @@ export interface SessionUpdateToolCall {
     kind?: string
     status?: string
     rawInput?: Record<string, unknown>
+    rawOutput?: unknown
     input?: Record<string, unknown>
     locations?: { path: string; line?: number }[]
     content?: unknown[]
@@ -173,6 +178,7 @@ export interface SessionUpdateClaudeCodeMeta {
 }
 
 export interface SessionUpdateToolCallMeta {
+    posthog?: { toolName: string; mcp?: { server: string; tool: string }; parentToolCallId?: string }
     claudeCode?: SessionUpdateClaudeCodeMeta
 }
 
@@ -307,6 +313,42 @@ export function isSessionUpdateUsage(update: unknown): update is SessionUpdateUs
     return isRecord(update) && update.sessionUpdate === 'usage_update'
 }
 
+/** The agent's full slash-command list. Each frame replaces the previous list. */
+export interface SessionUpdateAvailableCommands {
+    sessionUpdate: 'available_commands_update'
+    availableCommands?: unknown
+}
+
+export function isSessionUpdateAvailableCommands(update: unknown): update is SessionUpdateAvailableCommands {
+    return isRecord(update) && update.sessionUpdate === 'available_commands_update'
+}
+
+/** An agent-advertised command, guarded down from the loosely-typed ACP `AvailableCommand`. */
+export interface AgentCommand {
+    name: string
+    description: string
+    hint?: string
+}
+
+export function parseAvailableCommands(raw: unknown): AgentCommand[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw.flatMap((command): AgentCommand[] => {
+        if (!isRecord(command) || typeof command.name !== 'string' || !command.name) {
+            return []
+        }
+        const hint = isRecord(command.input) && typeof command.input.hint === 'string' ? command.input.hint : undefined
+        return [
+            {
+                name: command.name.replace(/^\//, ''),
+                description: typeof command.description === 'string' ? command.description : '',
+                ...(hint ? { hint } : {}),
+            },
+        ]
+    })
+}
+
 /**
  * The user's own turn, echoed back by the agent adapter and persisted to the run log as a
  * `session/update` (not a `_posthog/*` ext-notification). Carries the full prompt text in a single
@@ -397,6 +439,8 @@ export interface PosthogRunStartedParams {
 export interface PosthogTurnCompleteParams {
     sessionId?: string
     stopReason?: string
+    /** The turn's gateway trace id, when the agent's traceparent hook reported one. */
+    traceId?: string
 }
 
 export interface PosthogNotificationParamsByMethod {

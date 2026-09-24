@@ -145,23 +145,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_201_CREATED,
         )
 
-    def test_no_default_filters_on_insight_query(self) -> None:
-        _, insight_json = self.dashboard_api.create_insight(
-            {
-                "name": "Insight with persons table query",
-                "query": {
-                    "kind": "DataTableNode",
-                    "columns": ["person", "id", "created_at", "person.$delete"],
-                    "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
-                    },
-                },
-            },
-            expected_status=status.HTTP_201_CREATED,
-        )
-        assert insight_json["filters"] == {}
-
     def test_can_save_insights_query_to_an_insight(self) -> None:
         self.dashboard_api.create_insight(
             {
@@ -261,25 +244,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["code"] == "insight_requires_at_least_one_series"
         assert response.json()["attr"] == "query"
         assert Insight.objects.count() == insight_count_before
-
-    @patch(
-        "products.product_analytics.backend.presentation.insight_write_validation.feature_enabled_or_false",
-        return_value=True,
-    )
-    def test_accepts_filters_the_rules_reject_when_the_stored_query_still_renders(self, _flag: Any) -> None:
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "name": "Insight with a query",
-                "query": {"kind": "StickinessQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            }
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"filters": {"insight": "TRENDS", "events": []}},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
 
     def test_can_list_insights_including_those_with_only_queries(self) -> None:
         self.dashboard_api.create_insight({"name": "Insight with filters"})

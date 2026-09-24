@@ -41,8 +41,15 @@ class GenerateDigestDataInput(BaseModel):
     common: CommonInput
 
 
+class TeamIdRange(BaseModel):
+    """A half-open [start, end) range of team ids."""
+
+    start: int
+    end: int
+
+
 class GenerateDigestDataBatchInput(BaseModel):
-    batch: tuple[int, int]
+    team_id_range: TeamIdRange
     digest: Digest
     common: CommonInput
 
@@ -366,10 +373,3 @@ class PlaylistCount(BaseModel):
     refreshed_at: datetime
     error_count: int
     errored_at: Optional[datetime]
-
-
-class ClickHouseResponse(BaseModel):
-    meta: list
-    data: list
-    statistics: dict
-    rows: int

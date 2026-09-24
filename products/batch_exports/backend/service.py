@@ -6,7 +6,6 @@ from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 import temporalio
@@ -26,9 +25,6 @@ from temporalio.client import (
     WorkflowHandle,
 )
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.hogql import HogQLContext
-
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
@@ -40,6 +36,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from products.batch_exports.backend.facade.contracts import AWSCredentials
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
@@ -137,6 +134,7 @@ class BatchExportField(typing.TypedDict):
 
 
 class BatchExportSchema(typing.TypedDict):
+    hogql_query: typing.NotRequired[str]
     fields: list[BatchExportField]
     # HogQL binds these at any type; narrowing breaks Temporal input decoding.
     values: dict[str, typing.Any]
@@ -155,12 +153,14 @@ class BatchExportEventPropertyFilter:
 SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
 
 
-@dataclass
+@dataclass(frozen=False)
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str] | None]] | None = None
     hogql_query: str | None = None
+    # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
+    user_id: int | None = None
 
 
 @dataclass
@@ -186,7 +186,7 @@ def _field_is_type(f: Field, target: type) -> bool:
     return False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
 
@@ -269,55 +269,54 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     and on the worker side deserializes into `S3BatchExportInputs`, with any
     missing fields falling through to the defaults declared here.
 
+    Credentials and the provider endpoint are never carried here: the activity resolves them from
+    the linked Integration at run time (see `integration_id`).
+
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
-        aws_access_key_id: Access key id used to authenticate with S3. Optional; integration-backed
-            exports resolve credentials from the linked Integration at run time (see `integration_id`),
-            while legacy exports carry them inline.
-        aws_secret_access_key: Secret access key used to authenticate with S3. See `aws_access_key_id`.
         compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
         file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
-        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
+        legacy_parquet_extension: Whether Parquet files keep the compression codec in their
+            extension, e.g. `.parquet.zst` rather than `.parquet`. Defaults to True because a
+            schedule created before this field existed has no value for it, so the missing field
+            decodes to this default and the export keeps the names it already writes.
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(frozen=False, kw_only=True)
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
-    Per-destination dataclasses extend this with provider-specific fields. Credentials are optional:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Per-destination dataclasses extend this with provider-specific fields. Credentials are never
+    carried here: the activity resolves them from the linked Integration at run time (see
+    `integration_id`).
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)
@@ -328,20 +327,19 @@ class AwsS3BatchExportInputs(S3FamilyBaseInputs):
     kms_key_id: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
     Covers providers like DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH, Backblaze, etc.
-    `endpoint_url` is resolved from the linked Integration at run time when `integration_id` is set,
-    otherwise carried inline (legacy).
+    `endpoint_url` lives on the linked Integration alongside the credentials, so it is resolved at
+    run time rather than configured per export.
     """
 
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     """Inputs for a file download batch export workflow.
 
@@ -361,27 +359,22 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     max_file_size_mb: int | None = None
     compression: str | None = None
     expires_in_seconds: int = 3600
+    main_activity_timeout_seconds: int | None = None
+    stage_activity_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=False, kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
-    account, user, authentication_type and the credential fields are optional here:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`).
     """
 
     database: str
     warehouse: str
     schema: str
-    account: str | None = None
-    user: str | None = None
     table_name: str = "events"
-    authentication_type: str = "password"
-    password: str | None = field(default=None, repr=False)
-    private_key: str | None = field(default=None, repr=False)
-    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
@@ -402,21 +395,6 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
 
 IAMRole = str
 IntegrationID = int
-
-
-@dataclass(frozen=False)
-class AWSCredentials:
-    aws_access_key_id: str
-    aws_secret_access_key: str = field(repr=False)
-    aws_session_token: str | None = field(default=None, repr=False)
-    expiration: dt.datetime | None = field(default=None)
-
-    @property
-    def expiry_time(self) -> str | None:
-        """ISO-8601 expiration time for temporary credentials, if available."""
-        if self.expiration is None:
-            return None
-        return self.expiration.isoformat()
 
 
 @frozen
@@ -527,7 +505,7 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     use_automatic_schema_evolution: bool = True
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Azure Blob Storage export workflow.
 
@@ -540,6 +518,7 @@ class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)
@@ -997,8 +976,8 @@ async def start_batch_export_workflow(
 def start_file_download_batch_export(
     batch_export: BatchExportOnDemand,
     workflow_id: str,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime | None,
     batch_export_model: BatchExportModel,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
@@ -1007,18 +986,28 @@ def start_file_download_batch_export(
     include_events: list[str] | None = None,
     exclude_events: list[str] | None = None,
 ) -> None:
+    incomplete_interval = data_interval_start is None or data_interval_end is None
+    if incomplete_interval and (batch_export_model.name != "hogql" or batch_export_run_id is None):
+        raise ValueError("Only on-demand HogQL exports can omit interval bounds")
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
         batch_export_model=batch_export_model,
         batch_export_run_id=batch_export_run_id,
         team_id=batch_export.team_id,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
+        data_interval_start=data_interval_start.isoformat() if data_interval_start is not None else None,
+        data_interval_end=data_interval_end.isoformat() if data_interval_end is not None else None,
         compression=compression,
         file_format=format,
         max_file_size_mb=max_size_mb,
         include_events=include_events,
         exclude_events=exclude_events,
+        # Persist timeout choices in the workflow input so configuration changes do not affect replay.
+        main_activity_timeout_seconds=settings.BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS
+        if incomplete_interval
+        else None,
+        stage_activity_timeout_seconds=settings.BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME + 300
+        if incomplete_interval
+        else None,
     )
     temporal = sync_connect()
 
@@ -1066,7 +1055,12 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.select_related("batch_export", "batch_export__destination").filter(id=run_id)
+    model = BatchExportRun.objects.select_related(
+        "batch_export",
+        "batch_export__destination",
+        "batch_export_on_demand",
+        "batch_export_on_demand__destination",
+    ).filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
@@ -1203,15 +1197,6 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         else settings.BATCH_EXPORTS_TASK_QUEUE
     )
 
-    context = HogQLContext(
-        team_id=batch_export.team.id,
-        enable_select_queries=True,
-        limit_top_select=False,
-    )
-    # Export models are only events/persons/sessions; warehouse tables and views are denied.
-    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
-    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
-
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -1226,6 +1211,10 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                         name=batch_export.model or "events",
                         schema=batch_export.schema,
                         filters=batch_export.filters,
+                        hogql_query=batch_export.hogql_query,
+                        user_id=batch_export.last_modified_by_id
+                        if batch_export.model == BatchExport.Model.HOGQL
+                        else None,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing
@@ -1362,7 +1351,7 @@ async def aupdate_records_total_count(
 
 
 async def afetch_last_run_records_completed(
-    parent_id: UUID,
+    batch_export_id: UUID,
     *,
     matching_interval_duration: dt.timedelta | None,
     before_or_at_interval_end: dt.datetime | None = None,
@@ -1370,9 +1359,9 @@ async def afetch_last_run_records_completed(
 ) -> int | None:
     """Async fetch the `records_completed` of the most recent completed run for a batch export.
 
-    Used as a rough estimate to pick how many staging files to write. A run belongs to exactly one of
-    a `BatchExport` (scheduled) or a `BatchExportOnDemand`, and their ids are globally unique UUIDs, so
-    we match `parent_id` against either parent.
+    Used as a rough estimate to pick how many staging files to write. Only scheduled `BatchExport`
+    runs are matched. A `BatchExportOnDemand` is created for each request and runs once, so it has no
+    earlier run to estimate from, and `compute_num_partitions` does not call this for one.
 
     The `before_or_at_interval_end` and `not_older_than` filters are relative to the interval being
     processed (which improves accuracy for backfills):
@@ -1388,7 +1377,7 @@ async def afetch_last_run_records_completed(
     Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
     queryset = BatchExportRun.objects.filter(
-        Q(batch_export_id=parent_id) | Q(batch_export_on_demand_id=parent_id),
+        batch_export_id=batch_export_id,
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )
@@ -1406,7 +1395,8 @@ async def afetch_last_run_records_completed(
         return None
     if matching_interval_duration is not None:
         start = run["data_interval_start"]
-        last_interval_duration = run["data_interval_end"] - start if start is not None else None
+        end = run["data_interval_end"]
+        last_interval_duration = end - start if start is not None and end is not None else None
         if last_interval_duration != matching_interval_duration:
             return None
     return run["records_completed"]
@@ -1436,13 +1426,13 @@ async def afetch_batch_export_runs_in_range(
     return [run async for run in queryset]
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BatchExportInsertInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
     team_id: int
     data_interval_start: str | None
-    data_interval_end: str
+    data_interval_end: str | None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None

@@ -48,8 +48,9 @@ PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
 
 
 if TYPE_CHECKING:
+    from personhog.types.v1 import person_pb2
+
     from posthog.personhog_client.client import PersonHogClient
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
 
 
 _get_client = require_personhog_client
@@ -187,6 +188,35 @@ def _batched_get_distinct_ids_for_persons(
     return distinct_ids_by_person
 
 
+def _paginated_get_distinct_ids_for_person(
+    team_id: int,
+    person_id: int,
+    page_size: int = 5000,
+) -> list[DistinctIdForPerson]:
+    """Fetch all distinct IDs for a single person using keyset pagination."""
+    client = _get_client()
+    all_dids: list[DistinctIdForPerson] = []
+    cursor_id: int = 0
+
+    while True:
+        request = GetDistinctIdsForPersonRequest(
+            team_id=team_id,
+            person_id=person_id,
+            limit=page_size,
+            cursor_id=cursor_id,
+        )
+
+        resp = client.get_distinct_ids_for_person(request)
+        for d in resp.distinct_ids:
+            all_dids.append(DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)))
+
+        if not resp.HasField("next_cursor_id"):
+            break
+        cursor_id = resp.next_cursor_id
+
+    return all_dids
+
+
 if TEST:
 
     def bulk_create_persons(persons_list: list[dict]):
@@ -314,6 +344,23 @@ def create_person_distinct_id(
 def _fetch_persons_by_distinct_ids_via_personhog(
     team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
 ) -> list[Person]:
+    # distinct_id_limit=0 skips the per-person distinct-id fetch, like the UUID variant. Each person
+    # then carries only the requested distinct IDs that resolved to it, which the lookup RPC already
+    # returns, so a caller can tell which requested IDs matched no person at all.
+    if distinct_id_limit == 0:
+        matched_results = _batched_get_persons_by_distinct_ids(
+            team_id, distinct_ids, "get_persons_by_distinct_ids", deduplicate_by_person=False
+        )
+        matched_by_person: dict[int, list[str]] = {}
+        person_by_id: dict[int, person_pb2.Person] = {}
+        for r in matched_results:
+            person_by_id.setdefault(r.person.id, r.person)
+            matched_by_person.setdefault(r.person.id, []).append(r.distinct_id)
+        return [
+            proto_person_to_model(person, distinct_ids=matched_by_person[person_id])
+            for person_id, person in person_by_id.items()
+        ]
+
     valid_results = _batched_get_persons_by_distinct_ids(team_id, distinct_ids, "get_persons_by_distinct_ids")
 
     person_ids = [r.person.id for r in valid_results]

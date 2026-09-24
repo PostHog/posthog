@@ -1,4 +1,13 @@
 import type { LogLevel as LogLevelType, OnLogCallback } from "../types";
+import { redactSecrets } from "./redact-secrets";
+
+function toJsonValue(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
+}
 
 export interface LoggerConfig {
   debug?: boolean;
@@ -36,6 +45,8 @@ export class Logger {
   }
 
   private emitLog(level: LogLevelType, message: string, data?: unknown) {
+    message = redactSecrets(message) as string;
+    data = redactSecrets(data);
     if (this.onLog) {
       this.onLog(level, this.scope, message, data);
       return;
@@ -51,7 +62,14 @@ export class Logger {
   error(message: string, error?: Error | unknown) {
     const data =
       error instanceof Error
-        ? { message: error.message, stack: error.stack }
+        ? {
+            message: error.message,
+            stack: error.stack,
+            ...("code" in error &&
+              error.code !== undefined && { code: error.code }),
+            ...("data" in error &&
+              error.data !== undefined && { data: toJsonValue(error.data) }),
+          }
         : error;
 
     this.emitLog("error", message, data);

@@ -395,6 +395,7 @@ export interface accessControlsLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
@@ -404,14 +405,17 @@ export interface accessControlsLogicActions {
             | 'clickhouse_test_cluster_perf'
             | 'cohort'
             | 'comment'
+            | 'context_layer_internal'
             | 'conversation'
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -566,6 +570,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -575,14 +580,17 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -714,6 +722,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -723,14 +732,17 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -834,6 +846,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -843,14 +856,17 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -1575,8 +1591,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         // Settings navigation carries search params across sections, so our params would otherwise follow the
         // user to other settings pages and re-apply the same tab and filters on their way back. Drop them on the way out.
         const { pathname, searchParams, hashParams } = router.values.currentLocation
-        const { access_tab, access_role_id, ...rest } = searchParams
-        if (access_tab !== undefined || access_role_id !== undefined) {
+        const { access_tab, access_role_id, access_member_id, ...rest } = searchParams
+        if (access_tab !== undefined || access_role_id !== undefined || access_member_id !== undefined) {
             router.actions.replace(pathname, rest, hashParams)
         }
     }),
@@ -1589,6 +1605,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
             if (tab === 'roles' && searchParams.access_role_id) {
                 actions.setFilters({ roleIds: [searchParams.access_role_id] })
+            }
+            if (tab === 'members' && searchParams.access_member_id) {
+                sidePanelStateLogic.actions.openSidePanel(
+                    SidePanelTab.AccessDetail,
+                    `member:${searchParams.access_member_id}`
+                )
             }
         },
     })),

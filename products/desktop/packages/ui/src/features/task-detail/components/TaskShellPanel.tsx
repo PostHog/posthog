@@ -5,9 +5,9 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { type ReactNode, useEffect } from "react";
 import { usePanelLayoutStore } from "../../panels/panelLayoutStore";
 import { useSessionSelector } from "../../sessions/sessionStore";
@@ -88,11 +88,7 @@ export function TaskShellPanel({ taskId, task, shellId }: TaskShellPanelProps) {
   }
 
   if (!workspacePath || !sessionStatus || sessionStatus === "connecting") {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="size-5 text-(--gray-9)" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (

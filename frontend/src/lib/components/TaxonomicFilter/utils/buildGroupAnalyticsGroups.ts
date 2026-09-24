@@ -4,9 +4,10 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/T
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { toParams } from 'lib/utils/url'
 import { getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import { Group, GroupType } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 export type AggregationLabel = (groupTypeIndex: number) => { singular: string; plural: string }
 
@@ -23,7 +24,7 @@ export function buildGroupAnalyticsTaxonomicGroupNames(
         name: capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural),
         searchPlaceholder: aggregationLabel(type.group_type_index).plural,
         type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-        endpoint: combineUrl(`api/environments/${teamId}/groups/`, {
+        endpoint: combineUrl(`api/projects/${teamId}/groups/`, {
             group_type_index: type.group_type_index,
         }).url,
         getPopoverHeader: () => 'Group Names',

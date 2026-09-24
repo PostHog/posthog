@@ -7,8 +7,8 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withInformationalResponse,
-    omitResponseFields,
     pickResponseFields,
+    omitResponseFields,
     type WithPostHogUrl,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
@@ -119,6 +119,109 @@ const productsEnable = (): ToolBase<ReturnType<typeof ProductsEnableSchema>, Sch
     },
 })
 
+const ProjectCreateSchema = () => {
+    const OrganizationsProjectsCreateBody = orvalSchemas.OrganizationsProjectsCreateBody()
+    return OrganizationsProjectsCreateBody.omit({
+        product_description: true,
+        tags: true,
+        app_urls: true,
+        anonymize_ips: true,
+        completed_snippet_onboarding: true,
+        test_account_filters: true,
+        test_account_filters_default_checked: true,
+        path_cleaning_filters: true,
+        is_demo: true,
+        timezone: true,
+        data_attributes: true,
+        person_display_name_properties: true,
+        correlation_config: true,
+        autocapture_opt_out: true,
+        autocapture_exceptions_opt_in: true,
+        autocapture_web_vitals_opt_in: true,
+        autocapture_web_vitals_allowed_metrics: true,
+        autocapture_exceptions_errors_to_ignore: true,
+        capture_console_log_opt_in: true,
+        capture_performance_opt_in: true,
+        session_recording_opt_in: true,
+        session_recording_sample_rate: true,
+        session_recording_minimum_duration_milliseconds: true,
+        session_recording_linked_flag: true,
+        session_recording_network_payload_capture_config: true,
+        session_recording_masking_config: true,
+        session_recording_url_trigger_config: true,
+        session_recording_url_blocklist_config: true,
+        session_recording_event_trigger_config: true,
+        session_recording_trigger_match_type_config: true,
+        session_recording_trigger_groups: true,
+        session_recording_retention_period: true,
+        session_replay_config: true,
+        survey_config: true,
+        access_control: true,
+        week_start_day: true,
+        primary_dashboard: true,
+        live_events_columns: true,
+        recording_domains: true,
+        inject_web_apps: true,
+        extra_settings: true,
+        modifiers: true,
+        has_completed_onboarding_for: true,
+        surveys_opt_in: true,
+        heatmaps_opt_in: true,
+        flags_persistence_default: true,
+        receive_org_level_activity_logs: true,
+        business_model: true,
+        conversations_enabled: true,
+        conversations_settings: true,
+        logs_settings: true,
+        proactive_tasks_enabled: true,
+        revenue_analytics_config: true,
+        marketing_analytics_config: true,
+        customer_analytics_config: true,
+        workflows_config: true,
+        feature_flag_policy_config: true,
+        base_currency: true,
+        capture_dead_clicks: true,
+        cookieless_server_hash_mode: true,
+        human_friendly_comparison_periods: true,
+        feature_flag_confirmation_enabled: true,
+        feature_flag_confirmation_message: true,
+        default_evaluation_contexts_enabled: true,
+        require_evaluation_contexts: true,
+        default_data_theme: true,
+        onboarding_tasks: true,
+        web_analytics_pre_aggregated_tables_enabled: true,
+    }).extend({
+        name: OrganizationsProjectsCreateBody.shape['name'].describe(
+            'Name for the new project. Must be unique within the organization, ignoring case. If omitted, PostHog generates a default name.'
+        ),
+    })
+}
+
+const projectCreate = (): ToolBase<ReturnType<typeof ProjectCreateSchema>, Schemas.ProjectBackwardCompat> => ({
+    name: 'project-create',
+    schema: ProjectCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProjectCreateSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.ProjectBackwardCompat>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'organization',
+            'api_token',
+            'created_at',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const ProjectGetSchema = () => {
     const OrganizationsProjectsRetrieveParams = orvalSchemas.OrganizationsProjectsRetrieveParams()
     return OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
@@ -150,6 +253,7 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
             'secret_api_token',
             'secret_api_token_backup',
             'live_events_token',
+            'heatmaps_screenshot_secret',
             'default_modifiers',
         ]) as typeof result
         return filtered
@@ -185,6 +289,9 @@ const projectSettingsUpdate = (): ToolBase<
         }
         if (params.product_description !== undefined) {
             body['product_description'] = params.product_description
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.app_urls !== undefined) {
             body['app_urls'] = params.app_urls
@@ -350,6 +457,9 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.workflows_config !== undefined) {
             body['workflows_config'] = params.workflows_config
         }
+        if (params.feature_flag_policy_config !== undefined) {
+            body['feature_flag_policy_config'] = params.feature_flag_policy_config
+        }
         if (params.base_currency !== undefined) {
             body['base_currency'] = params.base_currency
         }
@@ -388,14 +498,25 @@ const projectSettingsUpdate = (): ToolBase<
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'api_token',
+            'secret_api_token',
+            'secret_api_token_backup',
+            'live_events_token',
+            'heatmaps_screenshot_secret',
+            'default_modifiers',
+        ]) as typeof result
+        return filtered
     },
 })
 
 const UserGetSchema = () => {
     const UsersRetrieveParams = orvalSchemas.UsersRetrieveParams()
     return UsersRetrieveParams.extend({
-        uuid: UsersRetrieveParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
+        uuid: UsersRetrieveParams.shape['uuid']
+            .default('@me')
+            .optional()
+            .describe('User UUID, or `@me` to target the authenticated user.'),
     })
 }
 
@@ -537,6 +658,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'media-image-upload-start': mediaImageUploadStart,
     'media-images-list': mediaImagesList,
     'products-enable': productsEnable,
+    'project-create': projectCreate,
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
     'user-get': userGet,

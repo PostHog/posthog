@@ -4,10 +4,13 @@ import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
-import { EventHeaders } from '~/types'
+import { EventHeaders, Team } from '~/types'
+
+const PERSON_ONLY_EVENTS = ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify']
 
 type NormalizeProcessPersonFlagInput = {
     event: PluginEvent
+    team: Team
     headers: EventHeaders
 }
 
@@ -36,14 +39,30 @@ export function createNormalizeProcessPersonFlagStep<TInput extends NormalizePro
         const forceDisablePersonProcessing = !decision.processPerson && decision.reason === 'header'
 
         if (!decision.processPerson && decision.reason === 'property') {
-            if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
+            if (PERSON_ONLY_EVENTS.includes(event.event)) {
+                const details = {
+                    eventUuid: event.uuid,
+                    event: event.event,
+                    distinctId: event.distinct_id,
+                }
+
+                // applyPersonProcessingRestrictionsStep stamps $process_person_profile=false
+                // for an opted-out team, so the property alone cannot say who set it.
+                if (input.team.person_processing_opt_out === true) {
+                    warnings.push({
+                        type: 'event_dropped_person_processing_disabled',
+                        details,
+                        // The cause is a standing project setting, so debounce per event name.
+                        key: event.event,
+                        alwaysSend: false,
+                    })
+
+                    return Promise.resolve(drop('person_processing_disabled', [], warnings))
+                }
+
                 warnings.push({
                     type: 'invalid_event_when_process_person_profile_is_false',
-                    details: {
-                        eventUuid: event.uuid,
-                        event: event.event,
-                        distinctId: event.distinct_id,
-                    },
+                    details,
                     alwaysSend: true,
                 })
 

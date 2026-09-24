@@ -1,5 +1,6 @@
 import json
 import uuid
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
@@ -15,8 +16,18 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
+from posthog.models import (
+    DataDeletionRequest,
+    Group,
+    GroupTypeMapping,
+    GroupUsageMetric,
+    Organization,
+    OrganizationMembership,
+    Tag,
+    Team,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
@@ -24,6 +35,7 @@ from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mappi
 
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
+from products.aeo.backend.facade.testing import create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -32,6 +44,7 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
+from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
@@ -46,6 +59,7 @@ from products.customer_analytics.backend.facade.testing import (
     create_account_relationship_definition,
     create_custom_property_definition,
     create_custom_property_value,
+    create_customer_task,
     create_feature_request,
     create_feature_request_account_link,
     create_feature_request_evidence,
@@ -117,6 +131,10 @@ class TestSystemTablesTeamScoping(BaseTest):
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
     def test_system_table_has_team_id_filter(self, table_name):
+        if table_name == "data_deletion_requests":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
         db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(
             team_id=self.team.pk,
@@ -169,12 +187,40 @@ class TestSystemTablesTeamScoping(BaseTest):
         assert "storage_ptr" not in table.fields
         assert "content_hash" not in table.fields
 
+    def test_data_deletion_requests_exposes_only_customer_safe_fields(self):
+        table = SystemTables().children["data_deletion_requests"].get()
+        assert isinstance(table, Table)
+
+        assert {name for name, field in table.fields.items() if not field.hidden} == {
+            "id",
+            "status",
+            "query",
+            "variables",
+            "selected_count",
+            "created_by_id",
+            "created_by_staff",
+            "created_at",
+            "updated_at",
+            "approved_at",
+            "selection_calculated_at",
+        }
+
 
 def _create_batch_export(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+
+
+def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest:
+    return DataDeletionRequest.objects.create(
+        team_id=team.pk,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query=f"SELECT uuid FROM events WHERE event = '{label}'",
+        status=RequestStatus.PENDING,
+    )
 
 
 def _create_batch_export_backfill(team: Team, label: str):
@@ -184,7 +230,7 @@ def _create_batch_export_backfill(team: Team, label: str):
         BatchExportDestination,
     )
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
     )
@@ -194,7 +240,7 @@ def _create_batch_export_backfill(team: Team, label: str):
 def _create_batch_export_run(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
     )
@@ -204,7 +250,7 @@ def _create_batch_export_run(team: Team, label: str):
 def _create_batch_export_on_demand(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     with team_scope(team.pk):
         return BatchExportOnDemand.objects.create(team=team, destination=destination)
 
@@ -233,6 +279,10 @@ def _create_account(team: Team, label: str):
 
 def _create_custom_property_definition(team: Team, label: str):
     return create_custom_property_definition(team_id=team.pk, name=f"def_{label}")
+
+
+def _create_customer_task(team: Team, label: str):
+    return create_customer_task(team_id=team.pk, name=f"customer_task_{label}")
 
 
 def _create_account_relationship(team: Team, label: str):
@@ -290,6 +340,11 @@ def _create_cohort(team: Team, label: str) -> Cohort:
 
 def _create_annotation(team: Team, label: str) -> Annotation:
     return Annotation.objects.create(team=team, content=f"annotation_{label}")
+
+
+def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
+    # autoresearch is sealed: the row is planted through its facade, so only the id comes back.
+    return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -860,12 +915,14 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
+    ("aeo_citation_checks", create_citation_check),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_pipelines", _create_autoresearch_pipeline),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),
@@ -879,6 +936,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
+    ("customer_tasks", _create_customer_task),
     ("_account_meetings", _create_account_meeting),
     ("_account_channel_summaries", _create_account_channel_summary),
     ("_account_email_threads", _create_account_email_thread),
@@ -889,6 +947,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("dataset_items", _create_dataset_item),
     ("dataset_revisions", _create_dataset_revision),
     ("datasets", _create_dataset),
+    ("data_deletion_requests", _create_data_deletion_request),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
@@ -974,8 +1033,15 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
 
+    def _authorize_data_deletion_requests(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+
     @parameterized.expand(SYSTEM_TABLE_FACTORIES)
     def test_system_table_returns_only_own_team_data(self, table_name, factory):
+        if table_name == "data_deletion_requests":
+            self._authorize_data_deletion_requests()
+
         obj_team1 = factory(self.team, "team1")
         obj_team2 = factory(self.other_team, "team2")
 
@@ -996,6 +1062,32 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         assert response.results == [("high",)]
+
+    def test_data_deletion_requests_excludes_non_query_backed_requests(self):
+        self._authorize_data_deletion_requests()
+
+        visible = _create_data_deletion_request(self.team, "visible")
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            events=["hidden"],
+            start_time=timezone.now(),
+            end_time=timezone.now(),
+            status=RequestStatus.PENDING,
+        )
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            hogql_query="",
+            status=RequestStatus.PENDING,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.data_deletion_requests", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert ids == {str(visible.pk)}
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):

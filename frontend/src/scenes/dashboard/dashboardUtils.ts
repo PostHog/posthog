@@ -1,3 +1,4 @@
+import { deepEqual as equal } from 'fast-equals'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -27,14 +28,12 @@ import {
     DashboardWidgetType,
     InsightFilterOverrideContext,
     InsightModel,
-    QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 
-export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
     if (!queryStatus?.error) {
         return null
@@ -50,7 +49,7 @@ export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError 
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
-    dashboard: DashboardType<InsightModel> | null | undefined
+    dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
     if (!dashboard) {
         return undefined
@@ -69,6 +68,7 @@ export function dashboardToSaveableTemplate(
                         body: tile.text.body,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.insight) {
@@ -79,6 +79,7 @@ export function dashboardToSaveableTemplate(
                         query: tile.insight.query,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.button_tile) {
@@ -92,6 +93,7 @@ export function dashboardToSaveableTemplate(
                         },
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 if (tile.widget) {
@@ -101,6 +103,7 @@ export function dashboardToSaveableTemplate(
                         config: tile.widget.config,
                         layouts: tile.layouts,
                         color: tile.color,
+                        transparent_background: tile.transparent_background,
                     }
                 }
                 throw new Error('Unknown tile type')
@@ -109,7 +112,7 @@ export function dashboardToSaveableTemplate(
     }
 }
 
-export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsightModel>): string {
+export function getDashboardTileDisplayName(tile: DashboardTile): string {
     if (tile.insight) {
         return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
     }
@@ -133,7 +136,7 @@ export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsigh
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
+    tile: Pick<DashboardTile, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
@@ -168,21 +171,21 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
+export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
 // the tile's existing data and render as an empty insight instead of an error.
-export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+export function isRefreshRejectionStub(insight: InsightModel): boolean {
     return !!insight.query_status?.error && insight.result == null
 }
 
@@ -270,7 +273,7 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
  */
 export async function getInsightWithRetry(
     currentTeamId: number | null,
-    insight: QueryBasedInsightModel,
+    insight: InsightModel,
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
@@ -280,7 +283,7 @@ export async function getInsightWithRetry(
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
-): Promise<QueryBasedInsightModel | null> {
+): Promise<InsightModel | null> {
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -295,7 +298,7 @@ export async function getInsightWithRetry(
 
     while (attempt < maxAttempts) {
         try {
-            const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+            const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
                 from_dashboard: dashboardId, // needed to load insight in correct context
                 client_query_id: queryId,
@@ -314,7 +317,7 @@ export async function getInsightWithRetry(
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: 'force_async',
                             from_dashboard: dashboardId,
                             client_query_id: queryId,
@@ -329,7 +332,7 @@ export async function getInsightWithRetry(
                         if (insightResponse?.query_status?.id) {
                             const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
                             if (finalStatus.complete && !finalStatus.error) {
-                                const cacheUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
                                     from_dashboard: dashboardId,
                                     client_query_id: queryId,
@@ -400,8 +403,8 @@ export async function getInsightWithRetry(
     return null
 }
 
-export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
-    const variables: Record<string, Partial<HogQLVariable>> = {}
+export const parseURLVariables = (searchParams: Record<string, any>): Record<string, HogQLVariable['value']> => {
+    const variables: Record<string, HogQLVariable['value']> = {}
 
     const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
     if (raw) {
@@ -418,7 +421,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, HogQLVariable['value']>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -457,20 +460,61 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
 }
 
 /**
- * Search params for a dashboard filter change. A filter that constrains nothing drops the param instead
- * of writing an empty one, so clearing the last filter doesn't leave the dashboard looking overridden on
- * its next load. Spreading the encoded filter can't do this — it never removes a key already in the URL.
+ * An insight opened from a dashboard keys its variable overrides by variable id, while the dashboard URL keys them
+ * by code name. Convert them back so a link to the dashboard reopens it with the same filters and variable values.
+ */
+export const dashboardSearchParamsFromOverrides = (
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    filtersOverride: DashboardFilter | null | undefined
+): Record<string, string> => {
+    const urlVariables: Record<string, any> = {}
+
+    for (const variable of Object.values(variablesOverride ?? {})) {
+        if (!variable?.code_name) {
+            continue
+        }
+        const value = variable.isNull ? null : variable.value
+        if (value !== undefined) {
+            urlVariables[variable.code_name] = value
+        }
+    }
+
+    return { ...encodeURLVariables(urlVariables), ...encodeURLFilters(filtersOverride ?? {}) }
+}
+
+/**
+ * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
+ * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
  */
 export function searchParamsWithUrlFilters(
     searchParams: Record<string, any>,
-    filters: DashboardFilter
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter = {}
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
-    if (isDashboardFilterEmpty(filters)) {
+    if (!dashboardFilterOverrideChangesFilters(filters, persistedFilters)) {
         delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
         return nextSearchParams
     }
     return { ...nextSearchParams, ...encodeURLFilters(filters) }
+}
+
+export function dashboardFilterOverrideChangesFilters(
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter
+): boolean {
+    return Object.entries(filters).some(([key, value]) => {
+        const persistedValue = (persistedFilters as Record<string, unknown>)[key]
+        if (key === 'properties') {
+            const properties = Array.isArray(value) ? value : []
+            const persistedProperties = Array.isArray(persistedValue) ? persistedValue : []
+            return !equal(properties, persistedProperties)
+        }
+        if (value == null && persistedValue == null) {
+            return false
+        }
+        return !equal(value, persistedValue)
+    })
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
@@ -512,15 +556,4 @@ const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
 
 export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
     return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
-}
-
-export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
-    return (
-        source !== null &&
-        (isLayoutEditEventSource(source) ||
-            source === DashboardEventSource.DashboardFilters ||
-            source === DashboardEventSource.DashboardVariableOverride ||
-            source === DashboardEventSource.DashboardInsightColorsModal ||
-            source === DashboardEventSource.DashboardHeaderOverridesBanner)
-    )
 }

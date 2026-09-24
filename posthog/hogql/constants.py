@@ -42,6 +42,14 @@ MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
 # Default limit for PostHog AI queries
 DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
+MAX_SELECT_DATA_CATALOG_LIMIT = 10000
+DEFAULT_DATA_CATALOG_RETURNED_ROWS = 1000
+# Cap on series x cohort breakdown values x compare, because each expanded series becomes its own
+# ClickHouse query on its own thread holding its own Postgres connection.
+MAX_EXPANDED_INSIGHT_QUERIES = 200
+# How many of those per-series queries run at the same time inside one request.
+INSIGHT_QUERY_FANOUT_CONCURRENCY = 10
+
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -81,6 +89,7 @@ type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
+    SQL_ALERT = "sql_alert"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
@@ -88,12 +97,14 @@ class LimitContext(StrEnum):
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
     POSTHOG_AI = "posthog_ai"
+    DATA_CATALOG = "data_catalog"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
+        LimitContext.SQL_ALERT,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.EXPORT:
@@ -110,6 +121,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return sys.maxsize  # Max python int
     elif limit_context == LimitContext.POSTHOG_AI:
         return MAX_SELECT_POSTHOG_AI_LIMIT  # 500
+    elif limit_context == LimitContext.DATA_CATALOG:
+        return MAX_SELECT_DATA_CATALOG_LIMIT  # 10k
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -118,10 +131,12 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC, LimitContext.SQL_ALERT):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.DATA_CATALOG:
+        return DEFAULT_DATA_CATALOG_RETURNED_ROWS  # 1000
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:

@@ -5,7 +5,12 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import {
+    AxisSeriesSettings,
+    DataVisualizationLogicProps,
+    dataVisualizationLogic,
+    formatDataWithSettings,
+} from './dataVisualizationLogic'
 
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
@@ -133,6 +138,30 @@ describe('dataVisualizationLogic', () => {
                     },
                 },
             ],
+        })
+    })
+
+    it('initializes axes when columns load after selecting a visualization type', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            results: [['signed_up', 'Safari', 11]],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [expect.objectContaining({ name: 'total_count' })],
         })
     })
 
@@ -332,6 +361,25 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('shows taxonomy display names for x-axis values of a column named event', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['event', 'count'],
+            types: [
+                ['event', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['$pageview', 3],
+                ['signed_up', 1],
+            ],
+        })
+
+        logic.actions.clearAxis()
+        logic.actions.updateXSeries('event')
+
+        expect(logic.values.xData?.data).toEqual(['Pageview', 'signed_up'])
+    })
+
     it('does not resolve to a time-series chart when there is only one row', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
@@ -392,20 +440,45 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
-    it('stamps labels onto the slices when a pie chart is newly picked', async () => {
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'stamps labels onto the slices when a pie display is newly picked',
+        async (displayType) => {
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'labels' }) }),
+            })
+        }
+    )
+
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'does not override existing pie slice content when re-picking a pie display',
+        async (displayType) => {
+            logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'values' }) }),
+            })
+        }
+    )
+
+    it('defaults a newly selected donut total and preserves an explicit setting', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: true }),
+            }),
         })
-    })
 
-    it('does not override existing pie slice content when re-picking pie', async () => {
-        logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+        logic.actions.updateChartSettings({ pie: { showTotal: false } })
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: false }),
+            }),
         })
     })
 
@@ -500,13 +573,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 
@@ -645,5 +718,67 @@ describe('dataVisualizationLogic', () => {
         })
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
+
+    it('keeps y-axis values unrounded at zero decimal places and plots missing values as zero', async () => {
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                chartSettings: {
+                    showNullsAsZero: true,
+                    yAxis: [{ column: 'value', settings: { formatting: { decimalPlaces: 0 } } }],
+                },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Nullable(Float64)']],
+            results: [[42.195], [null], ['NaN']],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            yData: [expect.objectContaining({ data: [42.195, 0, 0] })],
+        })
+    })
+
+    it('ignores retained decimal places under the short style for table values', async () => {
+        const settings: AxisSeriesSettings = { formatting: { style: 'short', decimalPlaces: 0 } }
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                tableSettings: { columns: [{ column: 'value', settings }] },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Float64']],
+            results: [[12.345]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
+        })
+    })
+
+    it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'formats zero decimal places under the none style',
+            42.195,
+            { formatting: { style: 'none', decimalPlaces: 0 } },
+            '42',
+        ],
+        ['keeps full precision when decimal places are unset', 42.5, undefined, '42.5'],
+    ])('%s', (_name, value, settings, expected) => {
+        expect(formatDataWithSettings(value, settings)).toBe(expected)
     })
 })

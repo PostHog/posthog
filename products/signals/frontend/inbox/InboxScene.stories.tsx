@@ -19,6 +19,7 @@ import {
     mockTask,
     mockTeamConfig,
     pullRequestReports,
+    reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
@@ -40,6 +41,14 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/integrations/github/available_installations/': {
+            discovery_id: '11111111-1111-4111-8111-111111111111',
+            discovered_at: '2026-06-11T00:00:00Z',
+            installations: [],
+            personal_github_connected: false,
+            personal_github_login: null,
+            personal_discovery_status: 'not_connected',
+        },
         '/api/projects/:id/signals/reports': () => [
             200,
             { results: allReports, count: allReports.length, next: null, previous: null },
@@ -57,6 +66,8 @@ const sceneMocks = mswDecorator({
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
         ],
+        // Must precede the `:taskId` handler, which would otherwise swallow this path.
+        '/api/projects/:id/tasks/repo_routing_rules/': () => [200, []],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
         '/api/projects/:id/signals/config': () => [200, mockTeamConfig],
@@ -79,6 +90,7 @@ const meta: Meta = {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
@@ -90,6 +102,26 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+function reportWithEvidenceItems(count: number): Story {
+    return {
+        decorators: [
+            routeTo(urls.inboxReport('reports', reportTabReports[0].id)),
+            mswDecorator({
+                get: {
+                    '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
+                        200,
+                        { report: null, signals: mockSignals(req.params.reportId as string, count) },
+                    ],
+                },
+            }),
+        ],
+    }
+}
+
+export const ReportWithManyEvidenceItems: Story = reportWithEvidenceItems(12)
+export const ReportWithTwoEvidenceItems: Story = reportWithEvidenceItems(2)
+export const ReportWithoutEvidence: Story = reportWithEvidenceItems(0)
 
 // Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
 export const Triage: Story = {
@@ -165,6 +197,7 @@ export const EmptyControl: Story = {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
     },
     decorators: [

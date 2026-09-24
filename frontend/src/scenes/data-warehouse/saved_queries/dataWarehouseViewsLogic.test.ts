@@ -1,9 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel so the spy replaces
 // `.error` on the same `lemonToast` singleton the logic calls at runtime.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -17,6 +19,14 @@ const rejection = {
     attr: null,
 }
 
+const deleteRefusal = {
+    type: 'validation_error',
+    code: 'has_dependents',
+    detail: "Can't delete orders yet. These read from it: orders_daily (view). Update or delete them first.",
+    attr: null,
+    extra: { node_id: 'node-7' },
+}
+
 describe('dataWarehouseViewsLogic', () => {
     let logic: ReturnType<typeof dataWarehouseViewsLogic.build>
     let databaseLogic: ReturnType<typeof databaseTableListLogic.build>
@@ -24,7 +34,7 @@ describe('dataWarehouseViewsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [] },
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
             },
             delete: {
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': [204],
@@ -42,6 +52,22 @@ describe('dataWarehouseViewsLogic', () => {
         databaseLogic.unmount()
     })
 
+    it.each([200, 500])('reconciles a reverted view after a %s response and releases its controls', async (status) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/revert_materialization/': [status, {}],
+            },
+        })
+        logic.actions.addMaterializingViews(['view-1'])
+
+        logic.actions.revertMaterialization('view-1')
+        expect(logic.values.materializationActionLoading).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.materializationActionLoading).toBe(false)
+        expect(logic.values.materializingViewIds).toEqual(status === 200 ? [] : ['view-1'])
+    })
+
     // Regression: delete must drop the view from the sidebar (via the loader's optimistic filter)
     // and refresh the picker (schema), but must NOT reload the whole list — that replaces every
     // row's identity and makes the tree flash.
@@ -52,9 +78,10 @@ describe('dataWarehouseViewsLogic', () => {
         let listCalls = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => {
+                '/api/projects/:team_id/warehouse_saved_queries/': ({ request }) => {
+                    expect(new URL(request.url).searchParams.get('include_columns')).toBe('false')
                     listCalls += 1
-                    return [200, { results: [{ id: 'view-123', name: 'v' }] }]
+                    return [200, { results: [{ id: 'view-123', name: 'v', columns: [] }] }]
                 },
             },
             delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [204] },
@@ -62,7 +89,7 @@ describe('dataWarehouseViewsLogic', () => {
 
         logic.actions.loadDataWarehouseSavedQueries()
         await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
-        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(['view-123'])
+        expect(logic.values.dataWarehouseSavedQueries).toEqual([{ id: 'view-123', name: 'v' }])
         expect(listCalls).toBe(1)
 
         await expectLogic(logic, () => {
@@ -81,7 +108,7 @@ describe('dataWarehouseViewsLogic', () => {
 
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
                     200,
                     { results: [{ id: 'view-404', name: 'v' }] },
                 ],
@@ -101,6 +128,29 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
     })
 
+    // Regression: the blocked node's id arrives on the response body's `extra`, which the error
+    // object keeps on `data`. Read off the error's root it was always undefined, so a refused
+    // delete offered no way to see what reads the view.
+    it('points a refused delete at the lineage of the node that blocked it', async () => {
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        useMocks({
+            delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [400, deleteRefusal] },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteDataWarehouseSavedQuery('view-blocked')
+        }).toDispatchActions(['deleteDataWarehouseSavedQueryFailure'])
+
+        const refusalToast = toastErrorSpy.mock.calls.find(([message]) => message === deleteRefusal.detail)?.[1] as
+            | { button?: { label: string; action: () => void } }
+            | undefined
+        expect(refusalToast?.button?.label).toBe('Open lineage')
+
+        refusalToast?.button?.action()
+        expect(router.values.location.pathname).toContain(urls.nodeDetail('node-7', 'lineage'))
+        toastErrorSpy.mockRestore()
+    })
+
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual
     // refresh because is_materialized flips asynchronously and the list was fetched only once. The
     // poll must keep reloading until it settles, then stop (not loop forever).
@@ -110,7 +160,7 @@ describe('dataWarehouseViewsLogic', () => {
         let listCalls = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => {
                     listCalls += 1
                     return [200, { results: [{ id: 'view-1', name: 'v1', is_materialized: isMaterialized }] }]
                 },
@@ -196,7 +246,7 @@ describe('dataWarehouseViewsLogic', () => {
         jest.useFakeTimers()
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
                     200,
                     {
                         results: [
@@ -265,6 +315,62 @@ describe('dataWarehouseViewsLogic', () => {
 
         expect(calls).toEqual(['update', 'materialize'])
         expect(patchBody?.incremental).toEqual(incremental)
+    })
+
+    // Regression: reverting a materialization leaves the stored incremental config behind, so
+    // materializing again with full refresh selected has to clear it. Sending nothing left the old
+    // config in place and the next run went on refreshing incrementally.
+    it('clears a stored incremental config when materializing without one', async () => {
+        const calls: string[] = []
+        let patchBody: Record<string, any> | undefined
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                    calls.push('update')
+                    patchBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'view-1', name: 'v1' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    calls.push('materialize')
+                    return [200]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour', null)
+        }).toFinishAllListeners()
+
+        expect(calls).toEqual(['update', 'materialize'])
+        expect(patchBody?.incremental).toBeNull()
+    })
+
+    // The save-as-view flow creates the view with its config already stored, so passing nothing
+    // must leave it alone rather than clear what was just written.
+    it('does not touch the incremental config when none is passed', async () => {
+        const calls: string[] = []
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => {
+                    calls.push('update')
+                    return [200, { id: 'view-1', name: 'v1' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    calls.push('materialize')
+                    return [200]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour')
+        }).toFinishAllListeners()
+
+        expect(calls).toEqual(['materialize'])
     })
 
     // Regression: when the config write is rejected (the server re-checks eligibility), the view

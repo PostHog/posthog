@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
     repositories: string[];
     createdBy: null;
@@ -34,6 +34,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
+  CreateChannelModal: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">New space dialog</div> : null,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
@@ -93,6 +97,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
+  useSpacePresence: () => new Map(),
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
       spaceIds.map((spaceId) => {
@@ -169,6 +174,7 @@ import {
   useSidebarSearchStore,
 } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -221,6 +227,10 @@ describe("ChannelsList", () => {
     useSpaceTreeStore.setState({
       expandedSpaceIds: new Set(),
       highlightedValue: undefined,
+    });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
     });
     useSidebarSearchStore.setState({
       focusRequest: 0,
@@ -297,6 +307,19 @@ describe("ChannelsList", () => {
       expect(screen.queryByRole("heading", { name: "Spaces" })).toBeNull();
       expect(screen.getByText("Channels")).toBeTruthy();
     });
+
+    // The heading's "+" is the list's way to a new space now that nothing
+    // floats over it; off the layout the floating button still offers one.
+    it("starts a new space from the Spaces heading on the layout only", async () => {
+      const view = renderList();
+      await userEvent.click(screen.getByRole("button", { name: "New space" }));
+      expect(screen.getByRole("dialog")).toHaveTextContent("New space dialog");
+
+      view.unmount();
+      mocks.channelsLayout = false;
+      renderList();
+      expect(screen.queryByRole("button", { name: "New space" })).toBeNull();
+    });
   });
 
   describe("search", () => {
@@ -336,6 +359,16 @@ describe("ChannelsList", () => {
       expect(screen.getByText("personal").parentElement?.textContent).toBe(
         "personal",
       );
+    });
+
+    it("offers a new space when nothing matches", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.type(screen.getByLabelText("Search spaces"), "zzz");
+      await user.click(screen.getByRole("button", { name: "New space" }));
+
+      expect(screen.getByRole("dialog")).toHaveTextContent("New space dialog");
     });
 
     it("says so when nothing matches", async () => {
@@ -551,6 +584,26 @@ describe("ChannelsList", () => {
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("shows inert archive progress for a session in the expanded tree", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      act(() => useArchivingTasksStore.getState().startArchiving("task-new"));
+
+      const row = screen.getByText("Ship the tree").closest("button");
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+
+      if (row) {
+        fireEvent.click(row);
+        fireEvent.contextMenu(row);
+      }
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).toBeNull();
     });
 
     // The row after the last session: the keyboard has to know about it, or the

@@ -1,12 +1,14 @@
 #!/usr/bin/env node
+import { closeSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
+import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "@posthog/harness/extensions/posthog-mcp-policy";
+import { EFFORT_LEVELS, SERVICE_TIERS } from "@posthog/shared/domain-types";
 import { Command } from "commander";
 import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
-import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "../posthog-exec-permission";
 import { AgentServer } from "./agent-server";
 import { launcherToProcessMs } from "./boot-phases";
+import { CredentialRelayError } from "./credential-relay";
 import { PiAgentServer } from "./pi-agent-server";
 import {
   claudeCodeConfigSchema,
@@ -50,6 +52,7 @@ const envSchema = z.object({
   POSTHOG_CODE_REASONING_EFFORT: z
     .enum(["off", "minimal", ...EFFORT_LEVELS])
     .optional(),
+  POSTHOG_CODE_SERVICE_TIER: z.enum(SERVICE_TIERS).optional(),
   POSTHOG_CODE_CONTEXT_WINDOW: z.enum(["200k", "1m"]).optional(),
   POSTHOG_CODE_FAST_MODE: z
     .enum(["true", "false"])
@@ -80,6 +83,32 @@ const envSchema = z.object({
 });
 
 const program = new Command();
+
+const CODEX_RUN_TOKEN_FD = 3;
+
+/**
+ * The launcher opens the run token on fd 3 (`exec 3< file`) and deletes the
+ * file before this process starts, so the token exists only here. Read it once
+ * and close the descriptor before anything else can be spawned.
+ */
+function readCodexRunToken(): string {
+  let token = "";
+  try {
+    token = readFileSync(CODEX_RUN_TOKEN_FD, "utf8").trim();
+  } catch {
+    token = "";
+  } finally {
+    try {
+      closeSync(CODEX_RUN_TOKEN_FD);
+    } catch {
+      // Already closed or never opened; nothing to release.
+    }
+  }
+  if (!token) {
+    program.error("--codexSubscription requires the run token on fd 3");
+  }
+  return token;
+}
 
 function parseBooleanOption(
   raw: string | undefined,
@@ -142,6 +171,11 @@ program
     "interactive",
   )
   .option("--repositoryPath <path>", "Path to the repository")
+  .option("--claudeSubscription", "Use a relayed Claude subscription token")
+  .option(
+    "--codexSubscription",
+    "Run on the owner's ChatGPT plan; the run token arrives on fd 3",
+  )
   .option(
     "--repoReadyFile <path>",
     "Sentinel file; session creation blocks until it exists (set while cloning concurrently)",
@@ -187,6 +221,23 @@ program
     }
 
     const env = envResult.data;
+    if (
+      options.claudeSubscription &&
+      (env.POSTHOG_AGENT_RUNTIME === "pi" ||
+        env.POSTHOG_CODE_RUNTIME_ADAPTER === "codex")
+    ) {
+      program.error("--claudeSubscription requires the Claude runtime");
+    }
+    if (
+      options.codexSubscription &&
+      (env.POSTHOG_AGENT_RUNTIME === "pi" ||
+        env.POSTHOG_CODE_RUNTIME_ADAPTER !== "codex")
+    ) {
+      program.error("--codexSubscription requires the Codex runtime");
+    }
+    const codexRunToken = options.codexSubscription
+      ? readCodexRunToken()
+      : undefined;
     delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
     // The telemetry token is only ever consumed here (into the server config);
@@ -286,7 +337,15 @@ program
       ),
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
+      claudeModelAccess: options.claudeSubscription
+        ? "own-subscription"
+        : "posthog-gateway",
+      codexModelAccess: options.codexSubscription
+        ? "own-subscription"
+        : "posthog-gateway",
+      codexRunToken,
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
+      serviceTier: env.POSTHOG_CODE_SERVICE_TIER,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,
       fastMode: env.POSTHOG_CODE_FAST_MODE,
     };
@@ -323,7 +382,13 @@ program
     process.on("uncaughtException", handleFatalError);
     process.on("unhandledRejection", handleFatalError);
 
-    await server.start();
+    try {
+      await server.start();
+    } catch (error) {
+      if (error instanceof CredentialRelayError && error.code === "cancelled")
+        return;
+      await handleFatalError(error);
+    }
   });
 
 program.parse();

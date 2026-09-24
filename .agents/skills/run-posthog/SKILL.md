@@ -13,7 +13,7 @@ All paths below are relative to the repo root.
 
 ## Prerequisites
 
-- **flox** 1.12+ provisions the toolchain — `curl -L https://downloads.flox.dev/by-env/stable/install.sh | sudo bash`
+- **flox** 1.16+ provisions the toolchain — `curl -L https://downloads.flox.dev/by-env/stable/install.sh | sudo bash`
 - **Docker** — OrbStack preferred on macOS (`brew install --cask orbstack`)
 - **1Password CLI** (optional) — `brew install 1password-cli`, only if `.env.local` contains `op://` refs
 

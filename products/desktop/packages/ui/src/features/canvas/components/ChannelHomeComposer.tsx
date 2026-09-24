@@ -6,7 +6,12 @@ import {
   isValidConfigValue,
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
-import { type AgentRuntime, adapterForModelId } from "@posthog/shared";
+import { preferredRunsOnPi } from "@posthog/core/task-detail/previewConfig";
+import {
+  type AgentRuntime,
+  adapterForModelId,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   subscriptionModelAccess,
@@ -47,6 +52,7 @@ import { useCloudTargetSelection } from "../../task-detail/hooks/useCloudTarget"
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../../task-detail/hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
+import { useTaskRunDefaults } from "../../task-detail/hooks/useTaskRunDefaults";
 import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
 import {
   resolveTaskRepositoryDraft,
@@ -120,6 +126,7 @@ export const ChannelHomeComposer = forwardRef<
     lastUsedInitialTaskMode,
     setLastUsedReasoningEffort,
     setLastUsedModel,
+    _hasHydrated: settingsHydrated,
   } = useSettingsStore();
 
   const adapter = lastUsedAdapter;
@@ -134,8 +141,16 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
+  const { defaults: runDefaults, isSettled: runDefaultsSettled } =
+    useTaskRunDefaults();
+  const hasLocalModelPick = useSettingsStore(
+    (state) =>
+      state.lastUsedModel != null ||
+      state.lastUsedReasoningEffort != null ||
+      state.lastUsedPiModel != null,
+  );
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
 
@@ -145,24 +160,46 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   useEffect(() => {
-    if (didResolveRuntimeRef.current || !flagsLoaded) {
+    if (
+      didResolveRuntimeRef.current ||
+      !settingsHydrated ||
+      !flagsLoaded ||
+      !runDefaultsSettled
+    ) {
       return;
     }
 
     didResolveRuntimeRef.current = true;
-    setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
-    );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
+    const wantsPi =
+      lastUsedAgentRuntime === "pi" ||
+      (!hasLocalModelPick && preferredRunsOnPi(runDefaults));
+    setRuntime(piHarnessEnabled && wantsPi ? "pi" : "acp");
+  }, [
+    flagsLoaded,
+    hasLocalModelPick,
+    lastUsedAgentRuntime,
+    piHarnessEnabled,
+    runDefaults,
+    runDefaultsSettled,
+    settingsHydrated,
+  ]);
 
   const { hasGithubIntegration, isLoadingIntegrations } =
     useUserRepositoryIntegration();
 
-  const { workspaceMode, setWorkspaceMode } = useResolvedWorkspaceMode({
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+  } = useResolvedWorkspaceMode({
     hasGithubIntegration,
     isLoadingIntegrations,
     allowWorktree: false,
   });
+  const cloudGithubUnavailable =
+    workspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
   const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -215,6 +252,10 @@ export const ChannelHomeComposer = forwardRef<
     fastModeOption?.type === "select"
       ? fastModeOption.currentValue === "on"
       : undefined;
+  const preferredPiModelId =
+    !hasLocalModelPick && preferredRunsOnPi(runDefaults)
+      ? runDefaults.model
+      : null;
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
     // Pi runs any gateway model, so a session pick outside Pi's curated
@@ -222,14 +263,23 @@ export const ChannelHomeComposer = forwardRef<
     (selectedPiModelId
       ? syntheticPiModelSelection(modelOption, selectedPiModelId)
       : undefined) ??
+    (preferredPiModelId
+      ? (piModelCatalog.find((model) => model.id === preferredPiModelId) ??
+        syntheticPiModelSelection(modelOption, preferredPiModelId))
+      : undefined) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
+  const preferredPiThinkingLevel =
+    preferredPiModelId && currentPiModel?.id === preferredPiModelId
+      ? (runDefaults.reasoning_effort as PiThinkingLevel | null)
+      : null;
+  const piThinkingFallback = preferredPiThinkingLevel ?? "high";
   const currentPiThinkingLevel = piThinkingLevels.includes(
-    selectedPiThinkingLevel ?? "high",
+    selectedPiThinkingLevel ?? piThinkingFallback,
   )
-    ? (selectedPiThinkingLevel ?? "high")
+    ? (selectedPiThinkingLevel ?? piThinkingFallback)
     : piThinkingLevels[0];
   const supportsPiThinking = piThinkingLevels.some((level) => level !== "off");
   const taskModel = runtime === "pi" ? currentPiModel?.id : currentModel;
@@ -280,7 +330,7 @@ export const ChannelHomeComposer = forwardRef<
     allowNoRepo: true,
     channelContext: effectiveChannelContext,
     channelContextPath: wiki.path,
-    submissionBlocked: wiki.blocked,
+    submissionBlocked: wiki.blocked || !isWorkspaceModeResolved,
     channelName,
     channelId,
     channelContextId: channelId,
@@ -455,6 +505,8 @@ export const ChannelHomeComposer = forwardRef<
           overrideModes={["local", "cloud"]}
           cloudTarget={cloudTarget}
           onCloudTargetChange={setCloudTarget}
+          hasGithubIntegration={hasGithubIntegration}
+          isLoadingGithubIntegration={isLoadingIntegrations}
           size="1"
           disabled={isBusy}
         />
@@ -462,7 +514,7 @@ export const ChannelHomeComposer = forwardRef<
           cloud={workspaceMode === "cloud"}
           repositoryCount={taskRepositories.length}
           hasFolder={!!taskFolder}
-          disabled={isBusy}
+          disabled={isBusy || cloudGithubUnavailable}
           onOpen={() => setRepositoryDialogOpen(true)}
         />
       </div>

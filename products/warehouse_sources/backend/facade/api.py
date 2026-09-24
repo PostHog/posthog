@@ -13,13 +13,16 @@ don't drag heavy imports onto the ``django.setup()`` path.
 
 Write paths (create/update of sources, schemas, tables, jobs) remain inside
 ``products/data_warehouse`` for now — a legacy-leak swept in Phase 2 — so this
-first facade serves the read consumers and the framework-free helpers.
+first facade serves the read consumers and the framework-free helpers. The one
+exception is ``soft_delete_tables``: consumers may not iterate the model to call
+``soft_delete()`` themselves, so the facade does it for them.
 """
 
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -35,10 +38,16 @@ from products.warehouse_sources.backend.file_uploads import (
 from products.warehouse_sources.backend.models.column_statistics import (
     WarehouseColumnStatistics as _WarehouseColumnStatistics,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import (
+    ExternalDataJob as _ExternalDataJob,
+    latest_completed_job_subquery,
+)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
+from products.warehouse_sources.backend.models.table import (
+    HIDDEN_COLUMNS,
+    DataWarehouseTable as _DataWarehouseTable,
+)
 
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
@@ -58,10 +67,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from . import contracts
 
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
 __all__ = [
     # capability functions
     "get_source",
     "list_sources",
+    "list_source_health",
     "list_revenue_sources",
     "list_revenue_source_settings",
     "get_schema",
@@ -71,6 +84,9 @@ __all__ = [
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "allowed_table_ids",
+    "all_queryable_tables",
+    "all_queryable_table_columns",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
@@ -101,6 +117,7 @@ __all__ = [
 # weight off the ``django.setup()`` import path — only the namespaced-resource registry loads them.
 _LAZY = {
     "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "github_source_credential": "github_warehouse_repos",
     "reconcile_github_repositories": "github_warehouse_repos",
 }
 
@@ -250,6 +267,31 @@ def list_sources(
     return [_to_source(s) for s in qs]
 
 
+def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
+    """Live sources with the timestamp of their newest completed run and their newest schema error.
+
+    One correlated probe per source for each of the two lookups, so the cost tracks the number
+    of sources rather than the length of the team's job history.
+    """
+    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
+    # recently updated so a consumer sees the freshest failure.
+    latest_error = Subquery(
+        _ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
+        .order_by("-updated_at")
+        .values("latest_error")[:1]
+    )
+    rows = (
+        _ExternalDataSource.objects.filter(team_id=team_id, deleted=False)
+        .annotate(
+            last_run_at=latest_completed_job_subquery(team_id, "created_at"),
+            latest_error=latest_error,
+        )
+        .order_by("source_type", "id")
+        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
+    )
+    return [contracts.ExternalDataSourceHealth(**row) for row in rows]
+
+
 def _revenue_source_queryset(
     team_id: int,
     *,
@@ -340,13 +382,14 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
     """The warehouse table or saved query a query reaches under this name, else None.
 
     Resolves the dotted source forms (``stripe.charges``) the same way a query does, and skips
-    soft-deleted rows and orphans of a deleted source. None means the name reaches neither, so it
-    carries no object-level access control -- a PostHog table such as ``events``, or nothing at all.
+    soft-deleted rows, orphans of a deleted source, and direct-connection tables the default HogQL
+    scope hides. None means the name reaches neither, so it carries no object-level access control
+    -- a PostHog table such as ``events``, or nothing at all.
 
     For a caller recording what a query read: the identity survives the name being freed and taken
     by something else, which is what makes it usable as evidence later.
     """
-    resolved = _get_view_or_table_by_name(team_id, name)
+    resolved = _get_view_or_table_by_name(team_id, name, exclude_direct_access=True)
     if resolved is None:
         return None
     kind = (
@@ -363,6 +406,38 @@ def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
     return dict(rows.values_list("id", "name"))
 
 
+def all_queryable_table_keys(team_id: int) -> dict[UUID, contracts.TableNames]:
+    """Every queryable table of this team, by id, under both the names it answers to. One query.
+
+    A caller matching what a query read against what a person may reach has to know both spellings.
+    """
+    from posthog.hogql.database.database import (  # noqa: PLC0415 -- keeps HogQL off this module's import path
+        get_data_warehouse_table_name,
+    )
+
+    rows = (
+        _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id)
+        .select_related("external_data_source")
+        .only(
+            "id",
+            "name",
+            "external_data_source_id",
+            "external_data_source__id",
+            "external_data_source__access_method",
+            "external_data_source__source_type",
+            "external_data_source__prefix",
+        )
+    )
+    return {
+        table.id: contracts.TableNames(
+            row_name=table.name,
+            queryable_key=get_data_warehouse_table_name(table.external_data_source, table.name),
+        )
+        for table in rows
+    }
+
+
 def direct_access_table_ids(team_id: int) -> set[UUID]:
     """The queryable tables belonging to direct-access sources in this team. One query."""
     rows = (
@@ -373,16 +448,149 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
     return set(rows)
 
 
+def allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
+) -> frozenset[UUID]:
+    """The queryable tables this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one table does not pay for the whole warehouse. ``None`` asks about every table; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_table",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_table_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_table_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
+    candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
+    tables = list(
+        candidates.select_related("external_data_source").only(
+            "id", "created_by_id", "external_data_source_id", "external_data_source__id"
+        )
+    )
+    sources = {
+        table.external_data_source_id: table.external_data_source
+        for table in tables
+        if table.external_data_source is not None
+    }
+    user_access_control.preload_object_access_controls([*tables, *sources.values()])
+    return frozenset(
+        table.id for table in tables if user_access_control.check_access_level_for_object(table, required_level)
+    )
+
+
+def all_queryable_tables(team_id: int) -> list[contracts.DataWarehouseTable]:
+    """Every table in this team that is still queryable, with its recorded columns. One query."""
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    return [_to_table(table) for table in rows]
+
+
+def all_queryable_table_columns(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, dict[str, str]]:
+    """Each queryable table's columns, by id, under the names HogQL exposes and with their ClickHouse types.
+
+    Not the raw column store: a curated source exposes some raw columns under another name
+    (Stripe's ``customer`` answers to ``customer_id``) and the internal sync columns under none at
+    all, so a caller reading the store directly hands out names a query cannot resolve.
+
+    ``table_ids`` narrows the tables loaded; ``None`` asks about every one, an empty collection
+    about none. One query.
+    """
+    if table_ids is not None and not table_ids:
+        return {}
+    rows = (
+        _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id)
+        .select_related("external_data_source")
+        .only(
+            "id",
+            "name",
+            "columns",
+            "external_data_source_id",
+            "external_data_source__id",
+            "external_data_source__prefix",
+        )
+    )
+    if table_ids is not None:
+        rows = rows.filter(id__in=list(table_ids))
+    return {table.id: _hogql_visible_columns(table) for table in rows}
+
+
+def _hogql_visible_columns(table: _DataWarehouseTable) -> dict[str, str]:
+    from products.warehouse_sources.backend.models.external_table_definitions import (  # noqa: PLC0415 -- keeps the HogQL ast import off this module's import path
+        get_hogql_column_name_mapping,
+    )
+
+    # The same raw -> visible mapping DataWarehouseTable.get_user_facing_columns applies, keeping
+    # the stored type rather than the cleaned one so a consumer still reads any Nullable() wrapper.
+    hogql_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
+    return {
+        hogql_by_raw.get(name, name): type_
+        for name, entry in (table.columns or {}).items()
+        if name not in HIDDEN_COLUMNS and (type_ := _clickhouse_column_type(entry)) is not None
+    }
+
+
+def _clickhouse_column_type(entry: object) -> str | None:
+    # A table records either a bare type string (older rows) or a dict keyed "clickhouse".
+    if isinstance(entry, dict):
+        entry = entry.get("clickhouse")
+    return entry if isinstance(entry, str) else None
+
+
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:
     qs = _DataWarehouseTable.objects.filter(team_id=team_id, external_data_source_id=source_id).exclude(deleted=True)
     return [_to_table(t) for t in qs]
 
 
-def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:
+def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
+    """Soft-delete the team's tables with these names and return how many were deleted.
+
+    Goes through ``DataWarehouseTable.soft_delete`` so the joins that reference a table
+    are retired with it, instead of leaving a dangling join behind a hidden table.
+    Already-deleted tables are skipped, so calling this twice is safe.
+    """
+    tables = _DataWarehouseTable.objects.filter(team_id=team_id, name__in=names).exclude(deleted=True)
+    deleted = 0
+    for table in tables:
+        table.soft_delete()
+        deleted += 1
+    return deleted
+
+
+MAX_JOBS_PER_SOURCE = 100
+
+
+def list_jobs_for_source(
+    source_id: UUID, team_id: int, limit: int = MAX_JOBS_PER_SOURCE
+) -> list[contracts.ExternalDataJob]:
+    """The source's newest jobs, most recent first, at most `MAX_JOBS_PER_SOURCE` of them.
+
+    The cap is not optional in effect: a busy source runs millions of jobs, so an unbounded
+    read here would scan and sort that whole history to serve one caller.
+    """
     qs = (
         _ExternalDataJob.objects.select_related("schema", "pipeline")
         .filter(team_id=team_id, pipeline_id=source_id)
-        .order_by("-created_at")
+        .order_by("-created_at")[: min(max(limit, 1), MAX_JOBS_PER_SOURCE)]
     )
     return [_to_job(j) for j in qs]
 

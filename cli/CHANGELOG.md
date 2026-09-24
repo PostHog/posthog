@@ -1,5 +1,47 @@
 # posthog-cli
 
+## 0.18.7 — 2026-09-24
+
+### Patch changes
+
+- [0298cb7450a](https://github.com/PostHog/posthog/commit/0298cb7450ac6480b26f1c170806ab048d5e0f34) Add `posthog-cli update`. It updates in place when you installed with the install script, and prints the right command when npm, Homebrew or cargo owns the binary. The old `posthog-cli-update` is no longer installed; it could not reach a release and never worked. — Thanks @hpouillot!
+
+## 0.18.6 — 2026-09-24
+
+### Patch changes
+
+- [4dedd8363d1](https://github.com/PostHog/posthog/commit/4dedd8363d1505e376bfc0269375b935f95d6e41) Publish to crates.io again, so `cargo install posthog-cli` gets the current version. The crate had been left on 0.5.11 since December. — Thanks @hpouillot!
+
+## 0.18.5 — 2026-09-23
+
+### Patch changes
+
+- [d9d6409aa72](https://github.com/PostHog/posthog/commit/d9d6409aa72c8a4ee0d446d6009d6d753efc9de1) Install with Homebrew: `brew install posthog/tap/posthog-cli`. Installers now download from releases.posthog.com, falling back to GitHub Releases. — Thanks @hpouillot!
+
+## 0.18.4 — 2026-09-23
+
+### Patch changes
+
+- [52ffa0e76a3](https://github.com/PostHog/posthog/commit/52ffa0e76a3fbfa5298bb8bcf5743f8c5f44bbcf) Publish release artifacts to releases.posthog.com alongside GitHub Releases. The install script now has a stable URL, https://releases.posthog.com/posthog-cli/install.sh, which always installs the current version. — Thanks @hpouillot!
+
+## 0.18.3 — 2026-09-16
+
+### Patch changes
+
+- [b6486bfe18a](https://github.com/PostHog/posthog/commit/b6486bfe18a1476a5959e6334c916faf79309f2e) Stop reporting expected sourcemap upload outcomes as warnings. Missing releases and skipped empty sourcemaps now use lower log levels when uploads continue. — Thanks @posthog[bot]!
+
+## 0.18.2 — 2026-09-11
+
+### Patch changes
+
+- [342f1f1c551](https://github.com/PostHog/posthog/commit/342f1f1c551caeb5883ec191fd5400240f5683e0) Ask the server which chunks it still needs before starting upload batches. A build whose chunks are mostly already uploaded now makes a few API calls instead of two per batch of 50. — Thanks @ablaszkiewicz!
+
+## 0.18.1 — 2026-09-07
+
+### Patch changes
+
+- [fcbcec2ef4d](https://github.com/PostHog/posthog/commit/fcbcec2ef4d1123d985c66dffbc45933a6742558) Remove credentials from the git remote URL stored in release metadata. Rotate any token an earlier version stored. — Thanks @ablaszkiewicz!
+
 ## 0.18.0 — 2026-09-02
 
 ### Minor changes

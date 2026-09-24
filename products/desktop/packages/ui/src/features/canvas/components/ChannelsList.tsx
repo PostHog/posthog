@@ -10,21 +10,16 @@ import {
   PlusIcon,
   StarIcon,
   TrashIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import type { ChannelPresence } from "@posthog/core/canvas/presence";
 import {
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Autocomplete,
   AutocompleteItem,
   AutocompleteList,
   Button,
   ButtonGroup,
-  AlertDialog as ConfirmDialog,
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -55,10 +50,12 @@ import {
   ChannelItemHoverCard,
   SpaceHoverCard,
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
-import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
+import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import { SpaceActionDialogs } from "@posthog/ui/features/canvas/components/SpaceActionDialogs";
 import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import {
   TaskRowContextMenu,
@@ -78,6 +75,7 @@ import {
   type SpaceTasks,
   usePrefetchSpaceTasks,
   useRecentSpaceTasks,
+  useSpacePresence,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import {
   SpaceTaskActionsProvider,
@@ -104,6 +102,7 @@ import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/si
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import {
   TaskBadgeStack,
   TaskStatusDot,
@@ -116,6 +115,7 @@ import {
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -333,6 +333,18 @@ function SpaceAttentionDot({
 }
 
 /**
+ * The caret opens a space onto its sessions without entering it, so it reports
+ * on its own rather than as a nav click.
+ */
+function trackSpaceDisclosure(channelId: string, expanded: boolean): void {
+  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    action_type: expanded ? "collapse_channel" : "expand_channel",
+    surface: "sidebar",
+    channel_id: channelId,
+  });
+}
+
+/**
  * The tree's disclosure caret, in its own fixed slot ahead of the space glyph.
  * Always drawn: a control that only appears on hover moves the row's contents
  * as the pointer crosses the list, and leaves the tree invisible to anyone who
@@ -412,6 +424,12 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
   return (spaceId, taskId) => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "open_task",
+      surface: "sidebar",
+      channel_id: spaceId,
+      task_id: taskId,
+    });
     keepListForRoute(spaceId);
     // Still scoped: the space is where the session lives, so anything that then
     // asks for the channel pane opens on the right one.
@@ -449,6 +467,14 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   const actions = useSpaceTaskActionsContext();
+  const archivePresentation = useArchivingTasksStore((state) =>
+    state.hiddenArchivingTaskIds.has(item.id)
+      ? "hidden"
+      : state.archivingTaskIds.has(item.id)
+        ? "progress"
+        : null,
+  );
+  const isArchiving = archivePresentation === "progress";
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
   const isHighlighted = useSpaceTreeStore(
@@ -491,20 +517,31 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
     [item, spaceId, actions, canHandoff],
   );
 
+  if (archivePresentation === "hidden") return null;
+
   const row = (
     <SpaceRowSurface
       asOption={asOption}
       optionValue={item.key}
       data-selected={isActive || undefined}
-      onClick={() => openTask(spaceId, item.id)}
+      aria-busy={isArchiving || undefined}
+      disabled={isArchiving}
+      onClick={isArchiving ? undefined : () => openTask(spaceId, item.id)}
       // A step in from its space's name, clear of the guide that runs between
       // the two columns.
-      className="pl-8"
+      className={cn("pl-8", isArchiving && "opacity-50")}
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
       <span className="flex min-w-0 items-center gap-1.5">
-        <TaskStatusDot dot={taskDot(status ?? {})} />
+        {isArchiving ? (
+          <>
+            <DotsCircleSpinner size={12} className="text-muted-foreground" />
+            <span className="sr-only">Archiving</span>
+          </>
+        ) : (
+          <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
+        )}
         <span
           className={cn(
             "truncate text-[13px]",
@@ -521,6 +558,9 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       )}
     </SpaceRowSurface>
   );
+
+  const tipped = <TaskStatusTooltips>{row}</TaskStatusTooltips>;
+  if (isArchiving) return tipped;
 
   return (
     <TaskRowContextMenu menu={menu}>
@@ -583,7 +623,14 @@ function ViewAllRow({
     <SpaceRowSurface
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
-      onClick={onOpenSpace}
+      onClick={() => {
+        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          action_type: "view_more_tasks",
+          surface: "sidebar",
+          channel_id: spaceId,
+        });
+        onOpenSpace();
+      }}
       className={cn("pl-8 text-[13px]", ROW_LABEL_TONE)}
     >
       {/* The arrow takes the slot a session's status dot has, so the guide's
@@ -702,7 +749,7 @@ function SpaceTaskRows({
 
 // The channel actions and their dialogs. Single source of truth so the dropdown
 // and context menus stay in lockstep.
-function useChannelActions(channel: Channel): {
+export function useChannelActions(channel: Channel): {
   actions: ChannelActionItem[];
   autoArchiveOpen: boolean;
   setAutoArchiveOpen: (open: boolean) => void;
@@ -847,10 +894,27 @@ function useChannelActions(channel: Channel): {
               },
             },
           ];
+    // Only a private space has a member list; public and personal spaces do not.
+    const membersActions: ChannelActionItem[] =
+      channel.channelType === "private"
+        ? [
+            {
+              key: "members",
+              label: "Members",
+              icon: <UsersThreeIcon size={14} />,
+              onSelect: () =>
+                void navigate({
+                  to: "/spaces/$channelId/settings",
+                  params: { channelId: channel.id },
+                }),
+            },
+          ]
+        : [];
     const editableSpaceActions: ChannelActionItem[] =
       channel.channelType === "personal"
         ? []
         : [
+            ...membersActions,
             {
               key: "rename",
               label: `Rename ${noun}…`,
@@ -890,6 +954,7 @@ function useChannelActions(channel: Channel): {
     channel.channelType,
     channel.id,
     isStarred,
+    navigate,
     noun,
     toggleStar,
   ]);
@@ -912,7 +977,7 @@ function useChannelActions(channel: Channel): {
 // Renders the shared channel actions into either menu primitive. Branching by
 // `kind` (rather than a union-typed component) keeps the item/separator props
 // type-checked against each primitive.
-function ChannelActionItems({
+export function ChannelActionItems({
   actions,
   kind,
 }: {
@@ -959,7 +1024,7 @@ function ChannelActionItems({
 
 // Hover-revealed "..." menu on a channel header. Presentation only — the action
 // list comes from `useChannelActions`, so it matches the right-click menu.
-function ChannelMenu({
+export function ChannelMenu({
   channelName,
   actions,
   open,
@@ -1012,6 +1077,7 @@ const ChannelSection = memo(
     hotkeySlot,
     expanded = false,
     tasks,
+    presence,
     onToggleExpanded,
   }: {
     channel: Channel;
@@ -1026,6 +1092,8 @@ const ChannelSection = memo(
     expanded?: boolean;
     /** The space's recent sessions and its total; only read while expanded. */
     tasks?: SpaceTasks;
+    /** Who's recently active here, shown as faces after the name. */
+    presence?: ChannelPresence;
     /**
      * Absent while searching, where the list is flat. Takes the space id rather
      * than closing over it, so the list can hand every row the same function and
@@ -1047,6 +1115,10 @@ const ChannelSection = memo(
     const [menuOpen, setMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
     const hasAttention = unreadSessions > 0 || blockedSessions > 0;
+    const people = presence?.people ?? [];
+    // Faces and dots share one trailing slot, so the row's hover margin belongs
+    // to whichever the space has rather than to whichever ends the row.
+    const hasMarks = hasAttention || people.length > 0;
     const prefetchSessions = usePrefetchSpaceTasks();
     const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
@@ -1054,20 +1126,8 @@ const ChannelSection = memo(
     useEffect(() => () => clearTimeout(prefetchTimer.current), []);
     // Shared by the "..." dropdown and the right-click context menu so both offer
     // the same star / edit / rename / delete actions.
-    const {
-      actions,
-      autoArchiveOpen,
-      setAutoArchiveOpen,
-      saveAutoArchive,
-      isUpdatingAutoArchive,
-      renameOpen,
-      setRenameOpen,
-      confirmDeleteOpen,
-      setConfirmDeleteOpen,
-      confirmDelete,
-      isDeleting,
-    } = useChannelActions(channel);
-    const renameMounted = useMountedOnceOpened(renameOpen);
+    const channelActions = useChannelActions(channel);
+    const { actions } = channelActions;
 
     const newTask = () => {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -1100,6 +1160,7 @@ const ChannelSection = memo(
 
     const glyph = channelGlyph(channel.name, {
       personal: channel.channelType === "personal",
+      private: channel.channelType === "private",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -1164,7 +1225,10 @@ const ChannelSection = memo(
                       <SpaceDisclosure
                         expanded={expanded}
                         spaceName={channel.name}
-                        onToggle={() => onToggleExpanded(channel.id)}
+                        onToggle={() => {
+                          trackSpaceDisclosure(channel.id, expanded);
+                          onToggleExpanded(channel.id);
+                        }}
                       />
                     )}
                     {glyph}
@@ -1174,9 +1238,9 @@ const ChannelSection = memo(
                         "text-[13px]",
                         // mr-11 clears the two icon-xs hover buttons pinned at
                         // right-1. It belongs on whatever ends the row's content —
-                        // put it on the name while the dot is there and the gap
-                        // opens between them, carrying the dot off to the buttons.
-                        !hasAttention && "group-hover/chan:mr-11",
+                        // put it on the name while the marks are there and the gap
+                        // opens between them, carrying them off to the buttons.
+                        !hasMarks && "group-hover/chan:mr-11",
                         // Bold is unread's alone; full contrast is shared with the
                         // channel you're in. Either way there's no hover brighten
                         // left to do, so those rows skip it.
@@ -1189,29 +1253,42 @@ const ChannelSection = memo(
                     >
                       {channel.name}
                     </OverflowTickerText>
-                    {/* Both dots in one slot, so the hover margin belongs to the
-                      pair rather than to whichever of them happens to end the
-                      row. */}
-                    {hasAttention && (
+                    {/* Faces and dots in one slot, so the hover margin belongs
+                      to the group rather than to whichever of them happens to
+                      end the row. */}
+                    {hasMarks && (
                       <span
                         className={cn(
-                          "flex shrink-0 items-center gap-1",
+                          "flex shrink-0 items-center gap-1.5",
                           "group-hover/chan:mr-11",
                           menuOpen && "mr-11",
                         )}
                       >
+                        {/* Who's recently active here, faded while the space is
+                          open — the sessions below carry their own faces then. */}
+                        {people.length > 0 && (
+                          <PresenceAvatars
+                            people={people}
+                            liveUuids={presence?.liveUuids}
+                            className={cn(expanded && "opacity-60")}
+                          />
+                        )}
                         {/* Blue first, because the rows below are sorted with
                           what wants you at the top — the pair reads as a
                           summary of that list, in its order. */}
-                        <SpaceAttentionDot
-                          count={blockedSessions}
-                          tone="blocked"
-                          faded={expanded}
-                        />
-                        <SpaceAttentionDot
-                          count={unreadSessions}
-                          faded={expanded}
-                        />
+                        {hasAttention && (
+                          <span className="flex shrink-0 items-center gap-1">
+                            <SpaceAttentionDot
+                              count={blockedSessions}
+                              tone="blocked"
+                              faded={expanded}
+                            />
+                            <SpaceAttentionDot
+                              count={unreadSessions}
+                              faded={expanded}
+                            />
+                          </span>
+                        )}
                       </span>
                     )}
                     {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
@@ -1235,97 +1312,48 @@ const ChannelSection = memo(
                 <ChannelActionItems actions={actions} kind="context" />
               </ContextMenuContent>
             </ContextMenu>
+            {/* Inside the card's trigger rather than beside it. These overlay
+                the row's own right edge, so reaching for one is not leaving
+                the row — and the card, which the trigger's bounds decide,
+                should read it that way too. Still positioned against
+                `group/chan`, which is the nearest positioned ancestor either
+                way. */}
+            <div className="absolute top-1 right-1">
+              <ButtonGroup>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label={`New task in ${channel.name}`}
+                        className={cn(
+                          "gap-1 transition-opacity group-hover:border-border",
+                          menuOpen
+                            ? "opacity-100"
+                            : "opacity-0 group-hover/chan:opacity-100",
+                        )}
+                        onClick={newTask}
+                      >
+                        <PlusIcon size={12} weight="bold" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="top">New task</TooltipContent>
+                </Tooltip>
+                <ChannelMenu
+                  channelName={channel.name}
+                  actions={actions}
+                  open={menuOpen}
+                  onOpenChange={setMenuOpen}
+                />
+              </ButtonGroup>
+            </div>
           </SpaceHoverCard>
-          {/* Hover actions stay visible while the menu is open. */}
-          <div className="absolute top-1 right-1">
-            <ButtonGroup>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      aria-label={`New task in ${channel.name}`}
-                      className={cn(
-                        "gap-1 transition-opacity group-hover:border-border",
-                        menuOpen
-                          ? "opacity-100"
-                          : "opacity-0 group-hover/chan:opacity-100",
-                      )}
-                      onClick={newTask}
-                    >
-                      <PlusIcon size={12} weight="bold" />
-                    </Button>
-                  }
-                />
-                <TooltipContent side="top">New task</TooltipContent>
-              </Tooltip>
-              <ChannelMenu
-                channelName={channel.name}
-                actions={actions}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-              />
-            </ButtonGroup>
-          </div>
-          {/* One modal for both the dropdown and context-menu "Rename" actions. */}
-          {renameMounted && (
-            <RenameChannelModal
-              channel={channel}
-              open={renameOpen}
-              onOpenChange={setRenameOpen}
-            />
-          )}
-          {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
-          <ConfirmDialog
-            open={confirmDeleteOpen}
-            onOpenChange={setConfirmDeleteOpen}
-          >
-            <AlertDialogContent className="max-w-md">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {channel.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently deletes the {noun} and can’t be undone.
-                  <ul className="list-disc ps-4">
-                    <li>
-                      The {noun} and its{" "}
-                      <span className="font-medium">CONTEXT.md</span> are
-                      deleted.
-                    </li>
-                    <li>
-                      Every canvas saved in this {noun} is permanently deleted.
-                    </li>
-                    <li>
-                      Filed tasks are removed from the {noun}, but the tasks
-                      themselves are not deleted.
-                    </li>
-                  </ul>
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogClose
-                  render={<Button variant="outline">Cancel</Button>}
-                />
-                <Button
-                  variant="primary"
-                  loading={isDeleting}
-                  onClick={() =>
-                    void confirmDelete().then((ok) => {
-                      if (ok) setConfirmDeleteOpen(false);
-                    })
-                  }
-                >
-                  Delete {noun}
-                </Button>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </ConfirmDialog>
-          <AutoArchiveSettingsDialog
+          <SpaceActionDialogs
             channel={channel}
-            open={autoArchiveOpen}
-            onOpenChange={setAutoArchiveOpen}
-            onSave={saveAutoArchive}
-            isSaving={isUpdatingAutoArchive}
+            noun={noun}
+            actions={channelActions}
           />
         </div>
         {expanded && (
@@ -1352,6 +1380,9 @@ const ChannelSection = memo(
     prev.blockedSessions === next.blockedSessions &&
     prev.hotkeySlot === next.hotkeySlot &&
     prev.tasks === next.tasks &&
+    // By reference: useSpacePresence reuses a channel's object until its faces
+    // change, so this stays equal across polls that touched other spaces.
+    prev.presence === next.presence &&
     prev.onToggleExpanded === next.onToggleExpanded &&
     prev.channel.id === next.channel.id &&
     prev.channel.name === next.channel.name &&
@@ -1528,7 +1559,10 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
             <SpaceDisclosure
               expanded={expanded}
               spaceName={PERSONAL_CHANNEL_LABEL}
-              onToggle={() => onToggleExpanded(meChannel.id)}
+              onToggle={() => {
+                trackSpaceDisclosure(meChannel.id, expanded);
+                onToggleExpanded(meChannel.id);
+              }}
             />
           )}
           {glyph}
@@ -1614,6 +1648,50 @@ const CHANNELS_SECTION_ID = "channels:all";
 /** A heading's identity in the flat list, kept clear of any channel's id. */
 const sectionValue = (sectionId: string) => `section:${sectionId}`;
 
+// Starts a new space. On the Spaces heading it is the same hover-revealed
+// plus a space row shows; inline (the no-match state) it is a labelled button.
+function NewSpaceButton({
+  appearance = "heading",
+}: {
+  appearance?: "heading" | "inline";
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      {appearance === "inline" ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          onClick={() => setOpen(true)}
+        >
+          <PlusIcon size={12} weight="bold" />
+          New space
+        </Button>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="icon-xs"
+                aria-label="New space"
+                className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/group-row:opacity-100"
+                onClick={() => setOpen(true)}
+              >
+                <PlusIcon size={12} weight="bold" />
+              </Button>
+            }
+          />
+          <TooltipContent side="top">New space</TooltipContent>
+        </Tooltip>
+      )}
+      <CreateChannelModal open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
 // A collapsible sidebar group ("Starred" / "Channels"). Base UI directly rather
 // than quill's Collapsible: quill styles its trigger as a button (which fought
 // the label styling) and animates the panel height (which janked on a list this
@@ -1629,11 +1707,15 @@ function ChannelGroup({
   flat,
   keepMounted = true,
   asOption = false,
+  trailing,
   children,
 }: {
   sectionId: string;
   label: string;
   className?: string;
+  /** A control on the heading's right. Beside the trigger, not in it: the
+   *  heading is a button, and a button can't hold another. */
+  trailing?: ReactNode;
   /** Layout-only: removes the legacy tree indent; rows apply their own inset. */
   flat?: boolean;
   /**
@@ -1665,41 +1747,48 @@ function ChannelGroup({
       }}
       className={cn(className, "mb-2")}
     >
-      {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
+      <div className="group/group-row relative">
+        {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
           real button so the whole row is clickable. Wrapped in an option when
           the keyboard walks the list, so the heading is a stop on the way down
           rather than a gap the highlight jumps over. */}
-      <Collapsible.Trigger
-        className={cn(
-          "group/group-trigger flex w-full items-center gap-2 py-1",
-          // quill wraps an option's children in its own flex row, so the caret's
-          // `ml-auto` has nothing to push against until that row is full width.
-          // The highlight is the rows' own hover fill rather than quill's focus
-          // ring, for the reason SpaceRowSurface gives.
-          asOption &&
-            "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
-        )}
-        render={
-          asOption ? (
-            <AutocompleteItem
-              value={sectionValue(sectionId)}
-              render={<MenuLabel render={<button type="button" />} />}
-            />
-          ) : (
-            <MenuLabel render={<button type="button" />} />
-          )
-        }
-      >
-        {label}
-        {/* On the right, because the heading's name is the left edge every row
+        <Collapsible.Trigger
+          className={cn(
+            "group/group-trigger flex w-full items-center gap-2 py-1",
+            // quill wraps an option's children in its own flex row, so the caret's
+            // `ml-auto` has nothing to push against until that row is full width.
+            // The highlight is the rows' own hover fill rather than quill's focus
+            // ring, for the reason SpaceRowSurface gives.
+            asOption &&
+              "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
+          )}
+          render={
+            asOption ? (
+              <AutocompleteItem
+                value={sectionValue(sectionId)}
+                render={<MenuLabel render={<button type="button" />} />}
+              />
+            ) : (
+              <MenuLabel render={<button type="button" />} />
+            )
+          }
+        >
+          {label}
+          {/* On the right, because the heading's name is the left edge every row
             beneath it lines up to. Always drawn: which way the section is, is
             the one thing this row has to say. */}
-        {isOpen ? (
-          <CaretDownIcon size={12} className="shrink-0" />
-        ) : (
-          <CaretRightIcon size={12} className="shrink-0" />
+          {isOpen ? (
+            <CaretDownIcon size={12} className="shrink-0" />
+          ) : (
+            <CaretRightIcon size={12} className="shrink-0" />
+          )}
+        </Collapsible.Trigger>
+        {trailing && (
+          <div className="-translate-y-1/2 absolute top-1/2 right-1">
+            {trailing}
+          </div>
         )}
-      </Collapsible.Trigger>
+      </div>
       {/* Stay mounted while collapsed. Every row builds a context menu, a
           dropdown, a tooltip and two dialogs up front, so unmounting on close
           makes each expand rebuild the lot (~940ms for 46 channels, vs ~80ms
@@ -1714,8 +1803,8 @@ function ChannelGroup({
 // The channel list is the list pane of the sidebar slider. The personal channel
 // is pinned at the top; starred channels surface in their own section
 // so the ones you use most stay in reach; the rest sit under a "Channels"
-// label. Creating anything goes through the floating ChannelsFab, mounted by
-// the sidebar outside this scroll region.
+// label. Creating a task goes through the create button in the nav rail (off
+// the layout, the floating ChannelsFab the sidebar mounts outside this list).
 export function ChannelsList() {
   const { channels: allChannels, isLoading } = useChannels();
   // ChannelHotkeys owns the keys these slots describe; sharing the derivation
@@ -1777,6 +1866,9 @@ export function ChannelsList() {
     [allChannels, expandedSpaceIds, treeOn],
   );
   const tasksBySpace = useRecentSpaceTasks(openSpaceIds);
+  // Who's recently active in each space, for the faces on every row — one
+  // project-wide query, not one per space.
+  const presenceBySpace = useSpacePresence();
   // Pin / archive / command centre for every session row, built once here
   // rather than once per row.
   const spaceTaskActions = useSpaceTaskActions();
@@ -1963,13 +2055,17 @@ export function ChannelsList() {
           isUnread={isUnread(channel.id)}
           unreadSessions={unreadSessions(channel.id)}
           blockedSessions={blockedSessions(channel.id)}
+          presence={presenceBySpace.get(channel.id)}
         />
       ))}
       {noMatches && (
-        <Empty className="px-2 py-1 text-subtle-foreground text-xs">
+        <Empty className="items-start gap-2 px-2 py-1 text-subtle-foreground text-xs">
           <EmptyHeader className="text-left">
             No {channelsLayout ? "spaces" : "channels"} match “{query.trim()}”.
           </EmptyHeader>
+          {/* Filtering hides the Spaces heading and its "+", so the space you
+              searched for and didn't find can still be made from here. */}
+          <NewSpaceButton appearance="inline" />
         </Empty>
       )}
     </>
@@ -1999,6 +2095,7 @@ export function ChannelsList() {
             hotkeySlot={channelsLayout ? slotFor(channel) : undefined}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
+            presence={presenceBySpace.get(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -2010,6 +2107,8 @@ export function ChannelsList() {
         flat={channelsLayout}
         keepMounted={!channelsLayout}
         asOption={channelsLayout}
+        // Off the layout the floating create button already offers a channel.
+        trailing={channelsLayout ? <NewSpaceButton /> : undefined}
       >
         {!isLoading && channels.length === 0 && (
           <Empty className="px-2 py-1 text-subtle-foreground text-xs">
@@ -2027,6 +2126,7 @@ export function ChannelsList() {
             blockedSessions={blockedSessions(channel.id)}
             expanded={isExpanded(channel.id)}
             tasks={tasksOf(channel.id)}
+            presence={presenceBySpace.get(channel.id)}
             onToggleExpanded={toggleSpace}
           />
         ))}
@@ -2044,7 +2144,9 @@ export function ChannelsList() {
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
     "sidebar-autocomplete-tree flex flex-col gap-px",
-    "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
+    // The layout keeps the create button in the rail, so nothing floats over
+    // the list's end and it needs no clearance there.
+    "!max-h-none !px-2 !pt-2 !pb-2 scroll-py-8",
     scrollClass,
   );
 

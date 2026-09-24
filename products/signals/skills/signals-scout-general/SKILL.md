@@ -1,5 +1,6 @@
 ---
 name: signals-scout-general
+scout-display-name: General
 description: >
   Cross-product Signals scout. Looks for cross-product correlations and explores the surfaces
   the per-product specialist scouts don't cover.
@@ -7,8 +8,9 @@ compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
   scratchpad-remember/forget) + signal_scout_report:write (for emit-report/edit-report,
   granted because this scout authors reports directly via the report channel), llm_skill:read, plus standard
-  analytics reads. Uses the signals-scout MCP family: project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report, members-list.
+  analytics reads. Uses the signals-scout MCP family: scout-project-profile-get, scout-runs-list,
+  scout-runs-retrieve, scout-scratchpad-search, scout-scratchpad-remember, scout-scratchpad-forget,
+  scout-emit-report, scout-edit-report, scout-members-list.
 allowed_tools:
   - emit_report
   - edit_report
@@ -53,7 +55,7 @@ Search the inbox before you author — a report covering this finding may alread
 - **Remember** via `scout-scratchpad-remember` if it's below the bar but worth carrying forward, or to record what you ruled out and why.
 - **Skip** if the scratchpad or inbox already covers it.
 
-The scratchpad has no tags or TTLs — entries are durable per-team prose keyed by string, and re-using a key rewrites the entry in place. Encode the category in the key prefix:
+The scratchpad has no tags — entries are durable per-team prose keyed by string, and re-using a key rewrites the entry in place. `expires_at` is the opt-in TTL for a memory that is only true for a while; the harness prompt carries the rules for it. Encode the category in the key prefix:
 
 | Prefix        | Use for                                                                                                                              |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |

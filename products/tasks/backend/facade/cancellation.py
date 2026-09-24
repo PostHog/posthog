@@ -3,6 +3,7 @@ import logging
 from typing import Any, Literal
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from temporalio.service import RPCError, RPCStatusCode
@@ -87,7 +88,7 @@ def _publish_cancel_fallback_completion(run: TaskRun) -> bool:
         publish_run_stream_completion(str(run.id))
         TaskRun.update_state_atomic(run.id, updates={"cancel_fallback_cleanup_complete": False})
     except Exception:
-        logger.warning("Failed to complete stream for workflow-gone run %s", run.id, exc_info=True)
+        logger.warning("Failed to complete stream for cancelled run %s", run.id, exc_info=True)
         return False
     return True
 
@@ -126,6 +127,18 @@ def cancel_task_run(
     status_at_request = run.status
     error_message = (reason or "").strip()[:500] or "Stopped by user"
 
+    def capture_cancel_request(task_run: TaskRun, signal_outcome: str) -> None:
+        task_run.capture_event(
+            "task_run_cancel_requested",
+            {
+                "cancel_source": source,
+                "cancel_reason": error_message,
+                "requested_by_user_id": requested_by_user_id,
+                "workflow_signal_outcome": signal_outcome,
+                "status_at_request": status_at_request,
+            },
+        )
+
     marker: dict[str, Any] = {
         "cancel_requested_at": django_timezone.now().isoformat(),
         "cancel_source": source,
@@ -133,9 +146,47 @@ def cancel_task_run(
     if requested_by_user_id is not None:
         marker["cancel_requested_by_user_id"] = requested_by_user_id
     try:
-        TaskRun.update_state_atomic(run.id, updates=marker)
+        if only_if_awaiting_first_message:
+            with transaction.atomic():
+                run = TaskRun.objects.select_for_update().get(id=run.id, task_id=task_id, team_id=team_id)
+                can_release = (
+                    not run.is_terminal
+                    and bool((run.state or {}).get("await_user_message"))
+                    and not (run.state or {}).get("warm_activation_started")
+                )
+                if can_release:
+                    run.state = {**(run.state or {}), **marker}
+                    run.save(update_fields=["state", "updated_at"])
+            if not can_release:
+                return "already_activated", tasks_api._task_run_detail_to_dto(run)
+        else:
+            TaskRun.update_state_atomic(run.id, updates=marker)
     except Exception:
         logger.warning("Failed to record cancel request marker for task run %s", run.id, exc_info=True)
+        if only_if_awaiting_first_message:
+            return "unavailable", tasks_api._task_run_detail_to_dto(run)
+
+    if run.scheduled_at is not None and run.status == TaskRun.Status.NOT_STARTED:
+        dto = tasks_api.update_task_run(
+            run.id,
+            task_id,
+            team_id,
+            validated_data={"status": TaskRun.Status.CANCELLED, "error_message": error_message},
+            only_if_not_started=True,
+        )
+        if dto is not None:
+            capture_cancel_request(run, "not_needed")
+            run.refresh_from_db(fields=["state"])
+            if not _publish_cancel_fallback_completion(run):
+                return "unavailable", dto
+            return "accepted", dto
+        run = tasks_api._get_visible_run(run_id, task_id, team_id)
+        if run is None:
+            return "not_found", None
+        if run.is_terminal:
+            if not _publish_cancel_fallback_completion(run):
+                return "unavailable", tasks_api._task_run_detail_to_dto(run)
+            return "already_terminal", tasks_api._task_run_detail_to_dto(run)
 
     _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)
 
@@ -168,14 +219,5 @@ def cancel_task_run(
         push_dispatcher.notify_task_run_cancelled(run)
         dto = tasks_api._task_run_detail_to_dto(run)
 
-    run.capture_event(
-        "task_run_cancel_requested",
-        {
-            "cancel_source": source,
-            "cancel_reason": error_message,
-            "requested_by_user_id": requested_by_user_id,
-            "workflow_signal_outcome": signal_outcome,
-            "status_at_request": status_at_request,
-        },
-    )
+    capture_cancel_request(run, signal_outcome)
     return "accepted", dto

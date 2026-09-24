@@ -1,6 +1,6 @@
 import uuid
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -20,9 +20,15 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.artefact_schemas import (
+    # Re-exported so the Slack mention handler can label the task it starts from a report's
+    # notification thread without naming the relationship vocabulary itself.
+    TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -36,7 +42,7 @@ from products.signals.backend.scout_harness.workflow_runs import (
     # rule, the workflow cooldown, single-flight, dispatch) happens here.
     start_workflow_scout_run as start_workflow_scout_run,
 )
-from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
+from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -161,6 +167,44 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
+    """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
+    from products.signals.backend.slack_report_threads import (
+        report_id_for_slack_thread as report_id_for_slack_thread_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return report_id_for_slack_thread_impl(
+        team_id=team_id, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def report_team_id_for_slack_thread(
+    *, team_ids: Sequence[int], slack_workspace_id: str, channel: str, thread_ts: str
+) -> int | None:
+    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 — avoids importing model layer at facade import time
+        report_team_id_for_slack_thread as report_team_id_for_slack_thread_impl,
+    )
+
+    return report_team_id_for_slack_thread_impl(
+        team_ids=team_ids, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+    from products.signals.backend.models import SignalReport, SignalReportAction
+    from products.signals.backend.task_run_artefacts import record_report_task
+
+    SignalReport.objects.get(team_id=team_id, id=report_id)
+    record_report_task(team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_DISCUSSION)
+    SignalReportAction.record(
+        team_id=team_id,
+        report_id=report_id,
+        user_id=user_id,
+        action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+    )
 
 
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
@@ -343,6 +387,18 @@ def has_enabled_source(team_id: int) -> bool:
     ):
         return True
     return _has_emitting_replay_scanner(team_id)
+
+
+def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
+    """True once someone in the org has acted on a Self-driving report — resolved or dismissed one.
+
+    Growth's product push reads this to stop advertising Self-driving to an org that already
+    engages with it, and to close an active Self-driving campaign as adopted.
+    """
+    return SignalReport.objects.filter(
+        team__organization_id=organization_id,
+        status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED],
+    ).exists()
 
 
 def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
@@ -728,6 +784,7 @@ def forward_report_discussion_note(
     report_id: str | None,
     relationship: str | None,
     text: str,
+    question: str | None,
     user_id: int | None,
     scoped_team_ids: Sequence[int] | None,
     api_scopes: Sequence[str] | None,
@@ -740,10 +797,9 @@ def forward_report_discussion_note(
     relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
     returns the note id, or None when nothing was forwarded.
     """
-    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
-        TASK_RUN_TYPE_DISCUSSION,
+    from products.signals.backend.discussion_notes import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        forward_discussion_note,
     )
-    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
 
     if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
         return None
@@ -752,6 +808,7 @@ def forward_report_discussion_note(
         team=team,
         report_id=report_id,
         text=text,
+        question=question,
         user_id=user_id,
         scoped_team_ids=scoped_team_ids,
         api_scopes=api_scopes,
@@ -766,6 +823,58 @@ class SignalSourceSliceOutcomes:
     report_count: int
     pr_count: int
     merged_pr_count: int
+    # Newest first, so a caller can link to what the counts are counting.
+    reports: "list[SignalSourceSliceReport]"
+    pull_requests: "list[SignalSourceSlicePullRequest]"
+
+
+@frozen
+class SignalSourceSlicePullRequest:
+    """One implementation PR opened on a report the slice's signals were grouped into."""
+
+    url: str
+    merged: bool
+
+
+@frozen
+class SignalSourceSliceReport:
+    """One inbox report a source slice's signals were grouped into."""
+
+    id: str
+    title: str | None
+    status: str
+    created_at: datetime
+
+
+def _live_reports_for_signal_source_slice(
+    team: Team, *, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> tuple[SourceSliceSignalStats, list[SignalSourceSliceReport]]:
+    """The slice's signal stats, plus its reports newest first.
+
+    CH metadata is not authoritative, so only report ids that parse and still exist for this team
+    survive.
+    """
+    stats = fetch_signal_stats_for_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    candidate_ids = []
+    for report_id in stats.report_ids:
+        try:
+            candidate_ids.append(uuid.UUID(report_id))
+        except ValueError:
+            continue
+    if not candidate_ids:
+        return stats, []
+    reports = [
+        SignalSourceSliceReport(
+            id=str(row["id"]), title=row["title"], status=row["status"], created_at=row["created_at"]
+        )
+        for row in SignalReport.objects.filter(team=team, id__in=candidate_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .order_by("-created_at")
+        .values("id", "title", "status", "created_at")
+    ]
+    return stats, reports
 
 
 def get_outcomes_for_signal_source_slice(
@@ -776,38 +885,48 @@ def get_outcomes_for_signal_source_slice(
 
     Reports are counted only if the row still exists for this team and is not soft-deleted; a
     report usually aggregates signals from several sources, so these are contributions, not sole
-    causes. PR counts come from the same implementation-PR resolution the inbox uses (latest
-    PR-bearing task run per report), deduplicated by URL since reports can share a task's PR.
+    causes. PR counts include all linked implementation PRs, deduplicated by URL because several
+    reports can share a PR.
     """
     from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
-        fetch_implementation_pr_state_for_reports,
+        fetch_implementation_prs_for_reports,
     )
 
-    stats = fetch_signal_stats_for_source_slice(
+    stats, reports = _live_reports_for_signal_source_slice(
         team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
     )
-    # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
-    candidate_ids = []
-    for report_id in stats.report_ids:
-        try:
-            candidate_ids.append(uuid.UUID(report_id))
-        except ValueError:
-            continue
-    report_ids = [
-        str(rid)
-        for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids)
-        .exclude(status=SignalReport.Status.DELETED)
-        .values_list("id", flat=True)
-    ]
-    prs = fetch_implementation_pr_state_for_reports(report_ids)
-    pr_urls = {pr.url for pr in prs.values()}
-    merged_pr_urls = {pr.url for pr in prs.values() if pr.merged}
+    report_ids = [report.id for report in reports]
+    prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
+    # Reports arrive newest first, so the first sighting of a URL keeps that order; several reports can share a PR.
+    pull_requests: dict[str, SignalSourceSlicePullRequest] = {}
+    for report_id in report_ids:
+        for pr in prs.get(report_id, []):
+            known = pull_requests.get(pr.url)
+            pull_requests[pr.url] = SignalSourceSlicePullRequest(
+                url=pr.url, merged=pr.merged or bool(known and known.merged)
+            )
     return SignalSourceSliceOutcomes(
         signal_count=stats.signal_count,
         report_count=len(report_ids),
-        pr_count=len(pr_urls),
-        merged_pr_count=len(merged_pr_urls),
+        pr_count=len(pull_requests),
+        merged_pr_count=sum(1 for pr in pull_requests.values() if pr.merged),
+        reports=reports,
+        pull_requests=list(pull_requests.values()),
     )
+
+
+def get_reports_for_signal_source_slice(
+    *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> list[SignalSourceSliceReport]:
+    """The same slice as `get_outcomes_for_signal_source_slice`, hydrated instead of counted, newest first.
+
+    Grouping runs after the emitting caller returns, so an empty list means "not grouped yet" as
+    much as "never grouped".
+    """
+    _, reports = _live_reports_for_signal_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    return reports
 
 
 @frozen
@@ -963,69 +1082,6 @@ def scout_reports_for_source(
     return reports
 
 
-@frozen
-class ScoutSummary:
-    """One scout standing on another product's object, in the shape that product needs to render
-    or manage it without reaching into scout tables."""
-
-    config_id: str
-    skill_name: str
-    source_id: str | None
-    enabled: bool
-    run_cron_schedule: str | None
-    run_interval_minutes: int
-    output_destinations: dict[str, Any]
-    description: str
-    created_at: datetime
-    created_by_id: int | None
-    last_run_at: datetime | None
-
-
-def list_scouts_for_source(
-    team_id: int, source_product: str, source_ids: list[str] | None = None
-) -> list[ScoutSummary]:
-    """The scouts a product stood up on its own objects, oldest first.
-
-    `(source_product, source_id)` was recorded at creation and is not user-editable, so the rows
-    returned are exactly the ones the calling product owns. Descriptions come from the live skill;
-    a scout whose skill was archived comes back with an empty description, matching the scout UI.
-    """
-    # Imported inside the call for the same reason as `create_scout_for_source`: keeps the skills
-    # API surface off the facade's import path.
-    from products.skills.backend.models.skills import (
-        LLMSkill,  # noqa: PLC0415 — keeps the API surface off the import path
-    )
-
-    configs_qs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product)
-    if source_ids is not None:
-        configs_qs = configs_qs.filter(source_id__in=source_ids)
-    configs = list(configs_qs.order_by("created_at"))
-    descriptions = dict(
-        LLMSkill.objects.filter(
-            team_id=team_id,
-            name__in=[config.skill_name for config in configs],
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", "description")
-    )
-    return [
-        ScoutSummary(
-            config_id=str(config.id),
-            skill_name=config.skill_name,
-            source_id=config.source_id,
-            enabled=config.enabled,
-            run_cron_schedule=config.run_cron_schedule,
-            run_interval_minutes=config.run_interval_minutes,
-            output_destinations=config.output_destinations or {},
-            description=descriptions.get(config.skill_name, ""),
-            created_at=config.created_at,
-            created_by_id=config.created_by_id,
-            last_run_at=config.last_run_at,
-        )
-        for config in configs
-    ]
-
-
 def update_scout_for_source(
     team_id: int,
     source_product: str,
@@ -1084,3 +1140,14 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+def repair_report_actionability_cache(
+    *, team_id: int | None, batch_size: int, after: str | None = None
+) -> Iterator[RepairedBatch]:
+    """Recompute the cached actionability of every report from its artefact log, in batches.
+
+    For the `backfill_report_actionability` command. Receivers keep the cache current on every
+    artefact write, so this only repairs rows that drifted.
+    """
+    return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)

@@ -5,7 +5,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from django.conf import settings
 from django.core.management import call_command
@@ -39,7 +39,7 @@ def team(org):
 
 
 def create_export(
-    team, interval="hour", interval_offset=None, paused=False, destination_type="S3", tz="UTC", model=None
+    team, interval="hour", interval_offset=None, paused=False, destination_type="AwsS3", tz="UTC", model=None
 ):
     destination = BatchExportDestination.objects.create(type=destination_type, config={})
     return BatchExport.objects.create(
@@ -86,13 +86,13 @@ class TestGetBatchExports:
         assert get_batch_exports(batch_export_id=str(export.id)) == []
 
     def test_filter_by_destination_type(self, team):
-        s3_export = create_export(team, destination_type="S3")
+        s3_export = create_export(team, destination_type="AwsS3")
         create_export(team, destination_type="Databricks")
 
         results = get_batch_exports()
         assert len(results) == 2
 
-        results = get_batch_exports(destination_type="S3")
+        results = get_batch_exports(destination_type="AwsS3")
         assert len(results) == 1
         assert results[0].id == s3_export.id
 
@@ -116,8 +116,12 @@ class TestGetBatchExports:
         assert get_batch_exports(batch_export_id=str(uuid4())) == []
 
 
-@freeze_time("2026-03-15 12:00:00")
 class TestFindMissingIntervals:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-03-15 12:00:00", tick=False):
+            yield
+
     def test_no_exports_returns_empty(self, team):
         assert find_missing_intervals([], *lookback(24)) == []
 

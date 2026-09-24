@@ -4,7 +4,13 @@ import {
   OPTION_DOCS_URL_META_KEY,
 } from "@posthog/shared";
 import { Theme } from "@radix-ui/themes";
-import { configure, fireEvent, render, screen } from "@testing-library/react";
+import {
+  configure,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { cloneElement } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -71,6 +77,8 @@ function subscriptionState(
     flagEnabled: boolean;
     subscriptionOn: boolean;
     loggedIn: boolean;
+    cloudFlagEnabled: boolean;
+    cloudSubscriptionOn: boolean;
   }>,
 ) {
   const state = {
@@ -119,7 +127,7 @@ function thoughtOption(
 }
 
 function claudeModelOption(
-  currentValue = "claude-opus-5",
+  currentValue = "claude-opus-5-5",
 ): SessionConfigOption {
   return {
     type: "select",
@@ -129,13 +137,15 @@ function claudeModelOption(
     currentValue,
     options: [
       { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
-      { name: "Claude Opus 5", value: "claude-opus-5" },
-      { name: "Claude Fable 5", value: "claude-fable-5" },
+      { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
+      { name: "Claude Fable 5.1", value: "claude-fable-5-1" },
     ],
   } as unknown as SessionConfigOption;
 }
 
-function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
+function mixedModelOption(
+  currentValue = "claude-opus-5-5",
+): SessionConfigOption {
   return {
     type: "select",
     id: "model",
@@ -143,7 +153,7 @@ function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
     category: "model",
     currentValue,
     options: [
-      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "GLM 5.2", value: "@cf/zai-org/glm-5.2" },
     ],
   } as unknown as SessionConfigOption;
@@ -169,8 +179,8 @@ function groupedModelOption(
             _meta: { "posthog.code/modelHarness": "claude" },
           },
           {
-            name: "Claude Opus 5",
-            value: "claude-opus-5",
+            name: "Claude Opus 5.5",
+            value: "claude-opus-5-5",
             _meta: { "posthog.code/modelHarness": "claude" },
           },
         ],
@@ -199,7 +209,7 @@ function effortlessModelOption(): SessionConfigOption {
     currentValue: "moonshotai/kimi-k3",
     options: [
       { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
-      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "Kimi K3", value: "moonshotai/kimi-k3" },
     ],
   } as unknown as SessionConfigOption;
@@ -477,7 +487,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -510,7 +520,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "low" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -527,7 +537,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "medium" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -587,10 +597,10 @@ describe("ReasoningLevelSelector", () => {
     await user.click(await screen.findByRole("button", { name: "Advanced" }));
     await openSub(user, /^Model/);
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5.5" }),
     );
 
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(onModelChange).toHaveBeenCalledTimes(1);
     expect(
       screen.getByRole("menuitem", { name: /^Model/ }),
@@ -631,9 +641,9 @@ describe("ReasoningLevelSelector", () => {
     expect(onModelChange).not.toHaveBeenCalled();
 
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5.5" }),
     );
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(onHarnessModelChange).toHaveBeenCalledTimes(1);
   });
 
@@ -645,7 +655,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
           onChange={onChange}
           onModelChange={onModelChange}
@@ -663,7 +673,7 @@ describe("ReasoningLevelSelector", () => {
       () =>
         onChange.mock.calls.length > 0 && onModelChange.mock.calls.length > 0,
     );
-    expect(onModelChange).toHaveBeenCalledWith("claude-fable-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-fable-5-1");
     expect(onChange).toHaveBeenCalledWith("max");
   });
 
@@ -675,7 +685,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "max" })}
-          modelOption={claudeModelOption("claude-fable-5")}
+          modelOption={claudeModelOption("claude-fable-5-1")}
           adapter="claude"
           onChange={onChange}
           onModelChange={onModelChange}
@@ -690,8 +700,134 @@ describe("ReasoningLevelSelector", () => {
     await user.click(await screen.findByText("Reset to default"));
 
     await pollUntil(() => onChange.mock.calls.length > 0);
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(onChange).toHaveBeenCalledWith("medium");
+  });
+
+  it("resets through onNotchSelect atomically when the caller wants the pair", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const onNotchSelect = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5-1")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+          onNotchSelect={onNotchSelect}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await user.click(await screen.findByText("Reset to default"));
+
+    await pollUntil(() => onNotchSelect.mock.calls.length > 0);
+    // The pair lands in one call, never the split changeModel/onChange that
+    // would let the effort persist against the previously-shown model.
+    expect(onNotchSelect).toHaveBeenCalledWith({
+      model: "claude-opus-5-5",
+      effort: "medium",
+    });
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("hands reset to onResetToDefault instead of moving to the notch", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const onResetToDefault = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5-1")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+          onResetToDefault={onResetToDefault}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await user.click(await screen.findByText("Reset to default"));
+
+    await pollUntil(() => onResetToDefault.mock.calls.length > 0);
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("opens the default settings from the Change default row", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const onOpenDefaultSettings = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+          onOpenDefaultSettings={onOpenDefaultSettings}
+        />
+      </Theme>,
+    );
+
+    // No Advanced click: the row sits under the slider face too.
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByText("Change default"));
+
+    await pollUntil(() => onOpenDefaultSettings.mock.calls.length > 0);
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "shows a disabled reset on the slider face while on the default",
+      fastOption("off"),
+      "true",
+    ],
+    ["keeps reset live while fast mode deviates", fastOption("on"), "false"],
+  ])("%s", async (_label, fast, ariaDisabled) => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5-1")}
+          adapter="claude"
+          fastModeOption={fast}
+          resetToDefaultDisabled
+          onResetToDefault={vi.fn()}
+          onConfigOptionChange={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // No Advanced click: the reset row sits under the slider face too.
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    const item = (await screen.findByText("Reset to default")).closest(
+      "[role=menuitem]",
+    );
+    expect(item?.getAttribute("aria-disabled") ?? "false").toBe(ariaDisabled);
   });
 
   it.each([
@@ -723,11 +859,11 @@ describe("ReasoningLevelSelector", () => {
     await user.click(screen.getByRole("button", { name: "Model: Kimi K3" }));
     await openSub(user, /^Model/);
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5.5" }),
     );
 
     await pollUntil(() => onModelChange.mock.calls.length > 0);
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
   });
 
   it("hides the reasoning submenu and slider for an effort-less model", async () => {
@@ -829,6 +965,7 @@ describe("ReasoningLevelSelector", () => {
       name: /GLM 5\.2/,
     });
 
+    expect(within(gatewayOnly).getByText("≈0.57×")).toBeInTheDocument();
     fireEvent.click(gatewayOnly);
     expect(onModelChange).not.toHaveBeenCalled();
   }, 20000);
@@ -860,11 +997,11 @@ describe("ReasoningLevelSelector", () => {
   }, 20000);
 
   it.each([
-    ["claude", "Anthropic", "Anthropic"],
-    ["codex", "OpenAI", "OpenAI"],
+    ["claude", "Anthropic", /^Claude plan billing is unavailable/],
+    ["codex", "OpenAI", /^ChatGPT plan billing is unavailable/],
   ] as const)(
     "disables the %s billing option for cloud tasks and names the reason",
-    async (adapter, planLabel, reasonPrefix) => {
+    async (adapter, planLabel, reason) => {
       useAdapterSubscription.mockReturnValue(subscriptionState());
       const user = userEvent.setup({ pointerEventsCheck: 0 });
       render(
@@ -885,35 +1022,46 @@ describe("ReasoningLevelSelector", () => {
       });
       expect(planItem).toHaveAttribute("aria-disabled", "true");
 
-      await expect(
-        screen.findByText(new RegExp(`^${reasonPrefix} billing only works`)),
-      ).resolves.toBeInTheDocument();
+      await expect(screen.findByText(reason)).resolves.toBeInTheDocument();
     },
     20000,
   );
 
-  it("keeps the billing option selectable for local tasks", async () => {
-    useAdapterSubscription.mockReturnValue(subscriptionState());
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
-    render(
-      <Theme>
-        <ReasoningLevelSelector
-          thoughtOption={thoughtOption()}
-          adapter="claude"
-          showBillingMenu
-          workspaceMode="local"
-        />
-      </Theme>,
-    );
+  it.each(["local", "cloud"] as const)(
+    "keeps enabled subscription billing selectable for %s tasks",
+    async (workspaceMode) => {
+      useAdapterSubscription.mockReturnValue(
+        subscriptionState({
+          cloudFlagEnabled: true,
+          cloudSubscriptionOn: true,
+        }),
+      );
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <Theme>
+          <ReasoningLevelSelector
+            thoughtOption={thoughtOption()}
+            adapter="claude"
+            showBillingMenu
+            workspaceMode={workspaceMode}
+          />
+        </Theme>,
+      );
 
-    await openAdvanced(user);
-    await openSub(user, /^Billing/);
-    expect(
-      screen.getByRole("menuitemradio", { name: "Anthropic" }),
-    ).not.toHaveAttribute("aria-disabled", "true");
-    // Logged in, so the login note stays hidden.
-    expect(screen.queryByText(/Log in to Claude Code/)).not.toBeInTheDocument();
-  }, 20000);
+      await openAdvanced(user);
+      await openSub(user, /^Billing/);
+      expect(
+        screen.getByRole("menuitemradio", { name: "Anthropic" }),
+      ).not.toHaveAttribute("aria-disabled", "true");
+      expect(
+        screen.getByRole("menuitemradio", { name: "Anthropic" }),
+      ).toHaveAttribute("aria-checked", "true");
+      expect(
+        screen.queryByText(/Log in to Claude Code/),
+      ).not.toBeInTheDocument();
+    },
+    20000,
+  );
 
   it("shows the login note only when the logged-out billing pick needs it", async () => {
     // Persisted billing is PostHog, account is logged out: no login prompt.

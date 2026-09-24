@@ -544,7 +544,12 @@ fn active_event_names(run: &PinnedRun, active: &ActiveConditions) -> EventNameSe
                 run.filters
                     .behavioral_by_event_name
                     .get(*event_name)
-                    .is_some_and(|hashes| hashes.iter().any(|hash| active.get(hash).is_some()))
+                    .is_some_and(|bucket| {
+                        bucket
+                            .conditions
+                            .iter()
+                            .any(|hash| active.get(hash).is_some())
+                    })
             })
             .cloned(),
     )
@@ -682,6 +687,32 @@ mod tests {
         builder.freeze(UTC)
     }
 
+    /// The same catalog, with the condition reading `properties` instead of `event`. A team whose
+    /// conditions name no payload never parses one, so only this catalog can fail on a malformed
+    /// `properties`.
+    fn filters_reading_properties() -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(2),
+                &json!({
+                    "properties": { "type": "AND", "values": [{
+                        "type": "behavioral",
+                        "value": "performed_event",
+                        "key": "purchase",
+                        "conditionHash": HASH,
+                        "time_value": 7,
+                        "time_interval": "day",
+                        // properties.x == "1"
+                        "bytecode": ["_H", 1, 32, "1", 32, "x", 32, "properties", 1, 2, 11]
+                    }]}
+                }),
+            )
+            .unwrap();
+        builder.freeze(UTC)
+    }
+
     fn row(timestamp: &str) -> EventRow {
         EventRow {
             uuid: Uuid::from_u128(1).to_string(),
@@ -698,18 +729,20 @@ mod tests {
     #[test]
     fn scan_fold_skips_bad_timestamps_wrong_days_and_malformed_globals() {
         let domain = domain();
-        let filters = filters();
         let active = ActiveConditions::new([ConditionHash::parse(HASH).unwrap()]);
         let cases = [
             (
+                filters(),
                 row("not-a-timestamp"),
                 ScanEventOutcome::Skipped(ScanSkipReason::TimestampParse),
             ),
             (
+                filters(),
                 row("1970-01-03 12:00:00.000000"),
                 ScanEventOutcome::Skipped(ScanSkipReason::DayMismatch),
             ),
             (
+                filters_reading_properties(),
                 EventRow {
                     properties: "not-json".to_string(),
                     ..row("1970-01-02 12:00:00.000000")
@@ -717,7 +750,7 @@ mod tests {
                 ScanEventOutcome::Skipped(ScanSkipReason::GlobalsParseError),
             ),
         ];
-        for (row, expected) in cases {
+        for (filters, row, expected) in cases {
             let mut accumulator = ChunkAccumulator::new(TeamId(2), &filters, &active).unwrap();
             assert_eq!(
                 fold_event(&domain, &mut accumulator, row_to_event(TeamId(2), row)).unwrap(),

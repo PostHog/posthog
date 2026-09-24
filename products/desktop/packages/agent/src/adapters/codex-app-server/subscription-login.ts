@@ -1,5 +1,6 @@
 import type { ProcessSpawnedCallback } from "../../types";
 import type { Logger } from "../../utils/logger";
+import { shellQuote } from "../../utils/shell-quote";
 import {
   nodeReadableToWebReadable,
   nodeWritableToWebWritable,
@@ -36,16 +37,41 @@ export interface CodexLoginSession {
   cancel: () => Promise<void>;
 }
 
+export interface CodexAuthTerminalCommand {
+  command: string;
+  env: { set: Record<string, string>; unset: string[] };
+}
+
+export function codexCloudAuthTerminalCommand(
+  binaryPath: string,
+  codexHome: string,
+): CodexAuthTerminalCommand {
+  return {
+    command: [binaryPath, "login", "--device-auth"].map(shellQuote).join(" "),
+    env: { set: { CODEX_HOME: codexHome }, unset: [] },
+  };
+}
+
+export interface CodexLoginStatus {
+  loggedIn: boolean;
+  email?: string;
+  planType?: string;
+}
+
 export async function hasCodexChatgptLogin(
   options: CodexAccountOptions,
-): Promise<boolean> {
+): Promise<CodexLoginStatus> {
   const client = openCodexAccountClient(options);
   try {
     await initialize(client.rpc);
     const result = await requestWithTimeout<{
-      account?: { type?: string } | null;
+      account?: { type?: string; email?: string; planType?: string } | null;
     }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_READ, { refreshToken: false });
-    return result.account?.type === "chatgpt";
+    return {
+      loggedIn: result.account?.type === "chatgpt",
+      email: result.account?.email,
+      planType: result.account?.planType,
+    };
   } finally {
     client.close();
   }

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
@@ -8,6 +8,7 @@ import {
     type NotebookNodeGeneratedWidgetLogicProps,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
 import { MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH, WIDGET_MODEL_OPTIONS } from './widgetModels'
 
 export function NotebookWidgetGenerationModal({
@@ -54,7 +55,14 @@ export function NotebookWidgetGenerationModal({
         <LemonModal
             isOpen={generationModalOperation !== null}
             onClose={closeGenerationModal}
-            title={modalTitle}
+            title={
+                <span className="flex flex-wrap items-center gap-2">
+                    <span>{modalTitle}</span>
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>
+                </span>
+            }
             description={modalDescription}
             width={640}
             footer={
@@ -115,6 +123,7 @@ export function NotebookWidgetGenerationModal({
                         className="mt-1"
                     />
                 </div>
+                <NotebookWidgetBetaNotice />
                 {generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
             </div>
         </LemonModal>

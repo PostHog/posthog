@@ -9,7 +9,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { MetricsSeriesChart } from '../components/MetricsSeriesChart'
+import { MetricsPanel } from '../panels/MetricsPanel'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
@@ -47,12 +47,14 @@ export function MetricsQueryNode(props: {
     const { response, responseLoading } = useValues(logic)
     const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
-    const fallbackName = props.query.clauses[0]?.metricName ?? 'metric'
+    // A formula query returns only the formula result (metricName is null on it),
+    // so the formula text itself is the honest name for an unlabelled series.
+    const fallbackName = props.query.formula ?? props.query.clauses[0]?.metricName ?? 'metric'
 
     return (
         <div className="relative flex flex-col w-full h-full min-h-[200px]">
             {hasPoints ? (
-                <MetricsSeriesChart series={series} fallbackName={fallbackName} display={props.query.display} />
+                <MetricsPanel series={series} fallbackName={fallbackName} display={props.query.display} />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
                     No data for this metric in the selected range.

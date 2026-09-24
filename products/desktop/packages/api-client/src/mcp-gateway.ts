@@ -77,6 +77,12 @@ export interface McpGatewayServer {
    * servers, where each member chooses when connecting.
    */
   template_auth_type: McpAuthType | null;
+  /**
+   * How members connect: the template's type for catalog servers, or the
+   * type a custom server was added with. Null only for custom servers
+   * registered before the type was recorded; members then choose.
+   */
+  auth_type: McpAuthType | null;
   tool_count: number;
   /** Members with a connection to this server. Admin-only; empty for members. */
   connections: McpGatewayConnection[];

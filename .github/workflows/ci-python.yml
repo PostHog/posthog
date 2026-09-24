@@ -5,26 +5,67 @@ on:
         branches:
             - master
     pull_request:
+    schedule:
+        # Where master's coverage for these checks comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat them.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '43 * * * *'
 
 permissions:
     contents: read
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run python checks
         # Set job outputs to values from filter step
         outputs:
             python: ${{ steps.filter.outputs.python || 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # Per-tool outputs gating the self-contained pytest steps in code-quality.
+            # Each defaults to true, so master push and the hourly cron — where the filter
+            # is skipped — still run every suite.
+            hogli: ${{ steps.filter.outputs.hogli || 'true' }}
+            owners: ${{ steps.filter.outputs.owners || 'true' }}
+            query_perf: ${{ steps.filter.outputs.query_perf || 'true' }}
+            stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
+            bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
+            api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -45,7 +86,11 @@ jobs:
                   # This workflow opts in for the whole repository. It runs on every pull
                   # request, so one wiring covers every shape the comparison needs to see.
                   PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -69,16 +114,28 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - .github/actions/setup-uv/**
+                        - .depot/actions/setup-uv/**
+                        - '.depot/workflows/*.yml'
                         - .flox/env/manifest.toml
+                        - .flox/env/manifest.lock
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
-                        # A hand-edit to the generated taxonomy JSON must reach the drift check
+                        # A hand-edit to either generated taxonomy output must reach the drift check
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
+                        - 'services/mcp/src/lib/trace-property-allowlist.generated.ts'
+                        # Same for the generated object-tag registries
+                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
+                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
+                        - 'packages/owners-yaml/**'
+                        # Transitional: branches that predate the move still carry the resolver
+                        # at tools/owners.
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
@@ -92,14 +149,77 @@ jobs:
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
+                      # Per-tool groups below gate the pytest steps in code-quality. Each of
+                      # these trees imports only stdlib and its own package — none of them
+                      # imports posthog — so a change under posthog/ cannot affect them and
+                      # they do not need to run on every Python PR. Verify that before adding
+                      # a tree here: a path filter that skips tests is a claim about the
+                      # import graph (see ci-things-already-tried.md, #50137).
+                      # Dependency and workflow changes run all of them.
+                      hogli:
+                        - 'tools/hogli/**'
+                        - 'tools/hogli-commands/**'
+                        - 'hogli.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      owners:
+                        - 'packages/owners-yaml/**'
+                        # Transitional: branches that predate the move still carry the resolver
+                        # at tools/owners.
+                        - 'tools/owners/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      query_perf:
+                        - 'tools/query-performance-ai/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      stamphog:
+                        - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
+                        - '.stamphog/**'
+                        - '**/AGENT_APPROVALS.md'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      bin_scripts:
+                        - 'bin/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      # The lib/api.ts ratchet compares the hand-rolled URL builder with
+                      # the generated clients, so either side moving can create new debt.
+                      api_ratchet:
+                        - 'frontend/src/lib/api.ts'
+                        - 'frontend/src/lib/api-ratchet-baseline.txt'
+                        - 'frontend/src/generated/core/api.ts'
+                        - 'products/*/frontend/generated/api.ts'
+                        - 'tools/hogli-commands/hogli_commands/api_ratchet.py'
+                        # The generated rule block is compared against the generator, so
+                        # editing it by hand has to reach the drift check.
+                        - '.semgrep/rules/devex/prefer-codegen-api-namespaced.yaml'
+                        - 'hogli.yaml'
+                        - .github/workflows/ci-python.yml
 
     code-quality:
         needs: changes
-        if: needs.changes.outputs.python == 'true'
+        # Skipped on master push: the merge queue already ran this for every landed
+        # commit, and the hourly scheduled run keeps master coverage.
+        if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
+        # Read by shell guards on the pytest steps below. Those steps sit in a
+        # `parallel:` block, where step-level `if:` is untested in this repo.
+        env:
+            RUN_HOGLI: ${{ needs.changes.outputs.hogli }}
+            RUN_OWNERS: ${{ needs.changes.outputs.owners }}
+            RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
+            RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
+            RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -124,12 +244,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Check uv and Python version compatibility
               shell: bash
@@ -170,13 +285,21 @@ jobs:
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
+            - name: Compute mypy cache prefix
+              id: mypy-cache-key
+              shell: bash
+              run: |
+                  python_version=$(python -c 'import platform; print(platform.python_version())')
+                  mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
+                  echo "prefix=mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
+
             - name: Restore mypy cache
+              id: mypy-cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
-                  restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-mypy2-
+                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ${{ steps.mypy-cache-key.outputs.prefix }}-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -185,11 +308,11 @@ jobs:
               run: mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
+              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
@@ -205,6 +328,11 @@ jobs:
               run: |
                   python3 bin/build-taxonomy-json.py --check
 
+            - name: Check if the generated object-tag registries are up to date
+              shell: bash
+              run: |
+                  python3 bin/build-object-tags-registry.py --check
+
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
             # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
@@ -212,6 +340,10 @@ jobs:
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               shell: bash
+              # A very large diff overflows the 128 KiB cap on a single environment entry, so the
+              # runner cannot start this step at all. The findings are warn-only, so losing them
+              # on such a PR is not worth failing the job for.
+              continue-on-error: true
               env:
                   # Space-separated, from paths-filter (list-files: escape) — the PR
                   # files API, so no git-diff plumbing to drift from what the PR changed.
@@ -258,19 +390,48 @@ jobs:
 
                   - name: Run hogli framework tests
                     shell: bash
-                    run: pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+                    run: |
+                        [ "$RUN_HOGLI" = "true" ] || { echo "hogli unchanged — skipping"; exit 0; }
+                        pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
 
                   - name: Run hogli extension tests
                     shell: bash
-                    run: pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
+                    run: |
+                        [ "$RUN_HOGLI" = "true" ] || { echo "hogli unchanged — skipping"; exit 0; }
+                        pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
                   - name: Run owners resolver tests
                     shell: bash
-                    run: pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                    run: |
+                        [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
+                        pytest packages/owners-yaml/tests -v --junitxml=junit-owners.xml
+
+                  # A wheel in an empty venv cannot import anything else from the monorepo, so a
+                  # new import of host code fails here instead of for users of the published package.
+                  - name: Check the owners package runs outside the monorepo
+                    shell: bash
+                    run: |
+                        [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
+                        scratch=$(mktemp -d)
+                        uv build packages/owners-yaml --wheel --out-dir "$scratch/dist"
+                        uv venv "$scratch/venv"
+                        uv pip install --python "$scratch/venv/bin/python" "$scratch"/dist/*.whl
+                        repo="$scratch/repo"
+                        mkdir -p "$repo/billing"
+                        printf 'version: 1\nowners: team-platform\ngithub_org: example\n' > "$repo/owners.yaml"
+                        printf 'version: 1\nowners: team-billing\n' > "$repo/billing/owners.yaml"
+                        touch "$repo/billing/invoices.py"
+                        "$scratch/venv/bin/owners" lint --repo-root "$repo"
+                        # Capture first. `grep -q` on a pipe exits at the first match, the CLI then
+                        # writes to a closed pipe and exits 1, and pipefail fails the step.
+                        resolved=$("$scratch/venv/bin/owners" who --repo-root "$repo" billing/invoices.py)
+                        grep -q 'team-billing' <<<"$resolved"
 
                   - name: Run query-performance-ai tests
                     shell: bash
-                    run: pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+                    run: |
+                        [ "$RUN_QUERY_PERF" = "true" ] || { echo "query-performance-ai unchanged — skipping"; exit 0; }
+                        pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
@@ -280,6 +441,7 @@ jobs:
                     # both exist, because that merge can add a file at the old path next to the new
                     # tree.
                     run: |
+                        [ "$RUN_STAMPHOG" = "true" ] || { echo "pr-approval-agent unchanged — skipping"; exit 0; }
                         found=0
                         for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
                           [ -d "$dir" ] || continue
@@ -293,13 +455,24 @@ jobs:
 
                   - name: Run dependency detection script tests
                     shell: bash
-                    run: pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+
+                  - name: Run granian shared socket tests
+                    shell: bash
+                    # The bin_scripts filter includes uv.lock, so every granian upgrade runs this.
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
                   name: junit-results-hogli
+                  # A gated-off suite writes no junit file, which is now the common case.
+                  if-no-files-found: ignore
                   path: |
                       junit-hogli.xml
                       junit-hogli-commands.xml
@@ -312,23 +485,78 @@ jobs:
               if: always()
               with:
                   name: junit-results-dependency-detection
+                  if-no-files-found: ignore
                   path: junit-dependency-detection.xml
+
+            - name: Upload test results for granian shared socket
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-granian-shared-socket
+                  if-no-files-found: ignore
+                  path: junit-granian-shared-socket.xml
+
+    api-ratchet:
+        needs: changes
+        # Its own filter output, so an api.ts-only pull request pays for this job
+        # instead of the repo-wide code-quality one.
+        if: needs.changes.outputs.api_ratchet == 'true' && github.event_name != 'push'
+        name: lib/api.ts codegen ratchet
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  # So `HEAD^1` (the pull request's base commit) resolves below, letting
+                  # the ratchet tell a builder a schema change merely exposed apart from
+                  # one this branch actually added.
+                  fetch-depth: 2
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            # Skip on unrebased branches: the command may not be registered yet.
+            - name: Ratchet product paths in lib/api.ts
+              env:
+                  API_RATCHET_BASE: HEAD^1
+              run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/api_ratchet.py ]; then
+                      echo "hogli lint:api-ratchet not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  ./bin/hogli lint:api-ratchet
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always
     # runs and reports success, allowing PRs to merge.
     python_tests:
-        needs: [changes, code-quality]
+        needs: [changes, code-quality, api-ratchet]
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check Python CI status
               run: |
                   # Block cancelled too: outputs are empty then, so the exit below would report green.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+
+                  # Checked before the no-Python-changes exit below: the ratchet has its
+                  # own filter, so it can run on a pull request that touches no Python.
+                  if [[ "${{ needs.api-ratchet.result }}" != "success" && "${{ needs.api-ratchet.result }}" != "skipped" ]]; then
+                    echo "lib/api.ts codegen ratchet did not succeed (result: ${{ needs.api-ratchet.result }})."
                     exit 1
                   fi
 

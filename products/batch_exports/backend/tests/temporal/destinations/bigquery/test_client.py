@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 from google.cloud import bigquery
 
+from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
+
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     BigQueryField,
@@ -179,3 +181,14 @@ async def test_from_service_account_integration(
     results = list(client.sync_client.query("SELECT 1").result())
 
     assert results[0].values()[0] == 1
+
+
+def test_from_service_account_inputs_rejects_token_uri_that_is_not_google():
+    with pytest.raises(InvalidGoogleTokenUriError):
+        BigQueryClient.from_service_account_inputs(
+            private_key="key",
+            private_key_id="key-id",
+            token_uri="https://relay.example.com/token",
+            client_email="svc@proj.iam.gserviceaccount.com",
+            project_id="proj",
+        )

@@ -18,6 +18,7 @@ from products.batch_exports.backend.service import (
     RedshiftBatchExportInputs,
     RedshiftCopyInputs,
     S3BatchExportInputs,
+    S3CompatibleBatchExportInputs,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
 )
@@ -33,14 +34,12 @@ DESTINATION_INPUTS = {
         use_variant_type="true",  # type: ignore
         use_automatic_schema_evolution="false",  # type: ignore
     ),
-    "S3": S3BatchExportInputs(
+    "S3Compatible": S3CompatibleBatchExportInputs(
         batch_export_id="test",
         team_id=1,
         bucket_name="bucket",
         region="us-east-1",
         prefix="prefix/",
-        aws_access_key_id="key",
-        aws_secret_access_key="secret",
         use_virtual_style_addressing="true",  # type: ignore
         max_file_size_mb="100",  # type: ignore
     ),
@@ -91,7 +90,7 @@ class TestTypeCoercionInBatchExportInputs:
         [
             ("Databricks", "use_variant_type", True),
             ("Databricks", "use_automatic_schema_evolution", False),
-            ("S3", "use_virtual_style_addressing", True),
+            ("S3Compatible", "use_virtual_style_addressing", True),
             ("Postgres", "has_self_signed_cert", True),
             ("BigQuery", "use_json_type", True),
         ],
@@ -104,7 +103,7 @@ class TestTypeCoercionInBatchExportInputs:
         [
             ("Postgres", "port", 5432),
             ("Redshift", "port", 5439),
-            ("S3", "max_file_size_mb", 100),
+            ("S3Compatible", "max_file_size_mb", 100),
             ("AzureBlob", "max_file_size_mb", 50),
         ],
     )
@@ -132,8 +131,6 @@ class TestTypeCoercionInBatchExportInputs:
             bucket_name="bucket",
             region="us-east-1",
             prefix="prefix/",
-            aws_access_key_id="key",
-            aws_secret_access_key="secret",
             max_file_size_mb=None,
         )
         assert inputs.max_file_size_mb is None
@@ -142,7 +139,7 @@ class TestTypeCoercionInBatchExportInputs:
 @pytest.fixture
 async def batch_export(ateam):
     destination = await BatchExportDestination.objects.acreate(
-        type="S3",
+        type="AwsS3",
         config={
             "bucket_name": "test",
             "region": "us-east-1",

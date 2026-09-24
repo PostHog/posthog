@@ -18,9 +18,11 @@ Replay semantics: micro-batch boundaries are NOT deterministic across activity
 attempts (the flush budget spans tables, the slot micro-advances mid-run, and a
 soft deadline cuts runs on wall clock), so a retried attempt may cover the same
 positions with differently-shaped files. Writers therefore call
-`cleanup_superseded_files` before their first write per schema: anything at or
-past the position the retry re-reads from is superseded and removed. A schema
-reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
+`cleanup_superseded_files` before their first write per schema: every file that
+reaches the position the retry re-reads from is superseded and removed, and a file
+that straddles that position first has its settled rows rewritten under a narrower
+range. A schema reset (TRUNCATE / lost slot) invalidates the whole prefix —
+`purge_buffer_prefix`.
 
 Two lanes write here. Shadow (the `dwh-cdc-buffer-shadow` feature flag, per team,
 evaluated once per extraction run and fail-closed) writes a validation copy while
@@ -47,13 +49,13 @@ from django.conf import settings
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import team_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     ensure_bucket,
     strip_s3_protocol,
@@ -71,6 +73,9 @@ _INDEX_WIDTH = 6
 # ASCII digits only: int() also accepts "+", "_", whitespace, and Unicode digits,
 # any of which would break "lexicographic order equals numeric order".
 _FILE_NAME_RE = re.compile(rf"([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_INDEX_WIDTH}}})\.parquet")
+# A trimmed replacement is written under this suffix first. The consumer parses names, so it
+# never reads a staged file, and the original can be removed before the replacement appears.
+_STAGING_SUFFIX = ".staging"
 
 
 def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
@@ -79,30 +84,7 @@ def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     Never raises: a flag-service failure leaves the lane off, which costs a gap in
     validation data — the legacy path is unaffected either way.
     """
-    from posthog.models.team import Team
-
-    try:
-        team = Team.objects.get(pk=team_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                SHADOW_WRITE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                # team_id drives the release conditions (the warehouse convention for
-                # per-team rollouts); the group context is passed for consistency with
-                # the other warehouse flags and for org-wide kill switches.
-                person_properties={"team_id": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("cdc_shadow_flag_check_failed", team_id=team_id, exc_info=True)
-        return False
+    return team_flag_enabled(SHADOW_WRITE_FLAG, team_id, logger)
 
 
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:
@@ -220,13 +202,12 @@ class CDCBufferWriter:
         )
 
     def cleanup_superseded_files(self, *, team_id: int, schema_id: str, restart_seq: int) -> int:
-        """Remove files a retried attempt is about to regenerate.
+        """Remove every file that reaches `restart_seq`, the position a retry re-reads from.
 
-        Called before the first write per schema in a run: every file whose
-        start_seq >= the position this run reads from (`restart_seq`) belongs to
-        a superseded attempt whose batch boundaries may differ. Files strictly
-        below restart_seq are settled — their WAL was released and will never be
-        re-produced. Returns the number of files removed.
+        A file that straddles it holds settled rows the WAL no longer has beside a
+        transaction head the retry re-emits, so its settled rows are rewritten first.
+        A surviving superseded file means a second copy of every position the retry
+        writes, so failures propagate and the attempt retries. Returns files removed.
         """
         prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
         try:
@@ -236,33 +217,102 @@ class CDCBufferWriter:
         except FileNotFoundError:
             return 0
 
+        keys = self._promote_staged_files(keys)
         removed = 0
+        trimmed = 0
         for key in keys:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
-            if parsed is None:
+            if parsed is None or parsed.end_seq < restart_seq:
                 continue
-            if parsed.start_seq >= restart_seq:
-                with suppress(Exception):
-                    self._s3.rm(key)
-                    removed += 1
+            staged = None
+            if parsed.start_seq < restart_seq:
+                staged = self._stage_settled_rows(key, file_index=parsed.file_index, restart_seq=restart_seq)
+                if staged is not None:
+                    trimmed += 1
+            # The consumer may already have deleted an applied file.
+            with suppress(FileNotFoundError):
+                self._s3.rm(key)
+            removed += 1
+            if staged is not None:
+                self._promote(staged)
         if removed:
             self._logger.info(
                 "cdc_buffer_superseded_files_removed",
                 schema_id=schema_id,
                 restart_seq=restart_seq,
                 removed=removed,
+                trimmed=trimmed,
             )
         return removed
+
+    def _stage_settled_rows(self, key: str, *, file_index: int, restart_seq: int) -> str | None:
+        """Write a straddling file's rows below `restart_seq` to a staged file, and return its key.
+
+        The final name keeps the original's start and index under a narrowed range, so it sorts
+        where the original did. Staged first because a listing that saw both the original and
+        the replacement would hand the history table the settled rows twice.
+        """
+        try:
+            with self._s3.open(key, "rb") as f:
+                table = pq.read_table(f)
+        except FileNotFoundError:
+            return None
+        settled = table.filter(pc.less(table.column(CDC_SEQ_COLUMN), pa.scalar(restart_seq, type=pa.int64())))
+        if settled.num_rows == 0:
+            return None
+        start_seq = pc.min(settled.column(CDC_SEQ_COLUMN)).as_py()
+        end_seq = pc.max(settled.column(CDC_SEQ_COLUMN)).as_py()
+        final_key = f"{key.rsplit('/', 1)[0]}/{build_buffer_file_name(start_seq, end_seq, file_index)}"
+        staged_key = final_key + _STAGING_SUFFIX
+        with self._s3.open(staged_key, "wb") as f:
+            pq.write_table(settled, f, compression="zstd")
+        return staged_key
+
+    def _promote(self, staged_key: str) -> None:
+        with self._s3.open(staged_key, "rb") as f:
+            table = pq.read_table(f)
+        with self._s3.open(staged_key.removesuffix(_STAGING_SUFFIX), "wb") as f:
+            pq.write_table(table, f, compression="zstd")
+        with suppress(FileNotFoundError):
+            self._s3.rm(staged_key)
+
+    def _promote_staged_files(self, keys: list[str]) -> list[str]:
+        """Finish a cleanup a crash interrupted: a staged file always holds settled rows.
+
+        If its original is still there, the crash came before the delete, so the original goes
+        first. Returns the listing without the staged names and their originals.
+        """
+        remaining = list(keys)
+        for key in keys:
+            if not key.endswith(_STAGING_SUFFIX):
+                continue
+            final_key = key.removesuffix(_STAGING_SUFFIX)
+            final = parse_buffer_file_name(final_key.rsplit("/", 1)[-1])
+            if final is None:
+                continue
+            for other in keys:
+                span = parse_buffer_file_name(other.rsplit("/", 1)[-1])
+                if span is None or span == final:
+                    continue
+                if span.start_seq == final.start_seq and span.file_index == final.file_index:
+                    with suppress(FileNotFoundError):
+                        self._s3.rm(other)
+                    if other in remaining:
+                        remaining.remove(other)
+            self._promote(key)
+            remaining.remove(key)
+            remaining.append(final_key)
+        return remaining
 
 
 def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
     """Remove a schema's entire buffer prefix.
 
-    Called on schema reset (TRUNCATE / lost-slot re-snapshot) and again right before the
-    snapshot→streaming flip: the table is wiped and re-seeded through the snapshot lane the
-    buffer never sees, so every existing buffer file predates a discontinuity no consumer
-    could order across. Best-effort by default; `strict` propagates failures (except a
-    missing prefix) for callers where a survived stale file would corrupt the table.
+    Called when a table is emptied for a new snapshot (TRUNCATE, lost slot, repair), and at the
+    snapshot→streaming flip when the snapshot's changes went to legacy deferred runs: there every
+    buffer file predates a gap no consumer could order across. Best-effort by default; `strict`
+    propagates failures (except a missing prefix) for callers where a survived stale file would
+    corrupt the table.
     """
     prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
     try:

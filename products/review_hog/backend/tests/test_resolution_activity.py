@@ -5,10 +5,13 @@ import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from posthog.github.merge_queue import MergeQueueState
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -30,8 +33,11 @@ from products.review_hog.backend.temporal.resolution import (
     _append_task_run,
     _deliver_side_effects,
     _fail_resolution,
+    _fold_overlong_reply,
+    _normalize_reply_divider,
     _prepare_run,
     _PreparedRun,
+    _verification_section,
     resolve_threads_activity,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -69,6 +75,7 @@ def _verdict(
     reply_posted: bool = False,
     resolved: bool = False,
     commit_sha: str | None = "abc123",
+    verification: str | None = None,
 ) -> ThreadVerdictArtefact:
     return ThreadVerdictArtefact(
         thread_id=thread_id,
@@ -79,6 +86,7 @@ def _verdict(
         reasoning="checked the code",
         reply="what happened and why",
         commit_sha=commit_sha,
+        verification=verification,
         latest_comment_id=100,
         reply_posted=reply_posted,
         resolved=resolved,
@@ -94,7 +102,51 @@ def _mock_installation() -> Mock:
     github.get_access_token.return_value = "token"
     github.github_installation_id = "inst-1"
     github.integration.id = 42
+    github.get_pull_request_merge_queue_state.return_value = None
+    github.has_open_pull_request_with_base.return_value = False
     return github
+
+
+class TestReplyBodyRendering(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank_line_inserted", "Fixed. Done.\n---\n- a", "Fixed. Done.\n\n---\n- a"),
+            ("already_separated", "Fixed. Done.\n\n---\n\n- a", "Fixed. Done.\n\n---\n\n- a"),
+            ("no_divider", "Fixed. Done.", "Fixed. Done."),
+            ("dashes_inside_a_line_are_left_alone", "Fixed.\n\n---\n\n- x ---y", "Fixed.\n\n---\n\n- x ---y"),
+        ]
+    )
+    def test_divider_gets_the_blank_line_github_needs(self, _name: str, reply: str, expected: str) -> None:
+        assert _normalize_reply_divider(reply) == expected
+
+    @parameterized.expand([("none", None), ("blank", "   \n")])
+    def test_empty_verification_adds_no_block(self, _name: str, verification: str | None) -> None:
+        assert _verification_section(verification) == ""
+
+    @parameterized.expand(
+        [
+            ("three_lines", "Fixed. Done.\n\n---\n\n- a\n- b\n- c"),
+            ("five_lines_at_the_cap", "Escalating. Yours.\n\n---\n\n- a\n- b\n- c\n- d\n- e"),
+        ]
+    )
+    def test_reply_in_shape_is_left_alone(self, _name: str, reply: str) -> None:
+        assert _fold_overlong_reply(reply, thread_id="PRRT_1") == reply
+
+    def test_reply_past_the_shape_folds_the_rest(self) -> None:
+        lines = [f"- line {i} with a few words" for i in range(1, 9)]
+        out = _fold_overlong_reply("Fixed. Done.\n\n---\n\n" + "\n".join(lines), thread_id="PRRT_1")
+        visible, _, folded = out.partition("<details>")
+        assert visible.strip().splitlines()[-1] == "- line 5 with a few words"
+        assert "- line 6 with a few words" in folded and "- line 8 with a few words" in folded
+        assert "<summary><strong>More detail</strong></summary>" in folded
+
+    def test_wall_without_divider_keeps_the_first_paragraph_visible(self) -> None:
+        paragraphs = [" ".join(["word"] * 60) for _ in range(4)]
+        out = _fold_overlong_reply("\n\n".join(paragraphs), thread_id="PRRT_1")
+        visible, _, folded = out.partition("<details>")
+        assert visible.startswith(paragraphs[0] + "\n\n---\n\n")
+        assert visible.count("word") == 120
+        assert folded.count("word") == 120
 
 
 class TestResolutionPersistenceAndDelivery(BaseTest):
@@ -173,7 +225,11 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
     def test_fixed_reply_links_the_commit_and_records_it_once(self) -> None:
         report = self._report()
-        verdict = _verdict(outcome="fixed", commit_sha="abc123")
+        verdict = _verdict(
+            outcome="fixed",
+            commit_sha="abc123",
+            verification="pytest: 6 passed, ruff clean (GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123)",
+        )
         with (
             patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)) as reply,
             patch(f"{_RESOLUTION}.resolve_thread", return_value=True),
@@ -186,7 +242,11 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             )
             # A redelivery of the already-verified verdict must not duplicate the commit artefact.
             _deliver_side_effects(self._input(), str(report.id), delivered, branch="feature", integration_row_id=1)
-        assert "https://github.com/posthog/posthog/commit/abc123" in reply.call_args_list[0].kwargs["body"]
+        body = reply.call_args_list[0].kwargs["body"]
+        assert "https://github.com/posthog/posthog/commit/abc123" in body
+        assert body.index("Fix commit:") < body.index("<summary><strong>How this was verified</strong></summary>")
+        assert "pytest: 6 passed, ruff clean" in body
+        assert "ghs_abcdefghijklmnopqrstuvwxyz0123" not in body and "GH_TOKEN=[redacted]" in body
         commits = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit")
         assert commits.count() == 1
         assert json.loads(commits.get().content)["commit_sha"] == "abc123"
@@ -493,6 +553,45 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert content["skipped"] == 1
         assert eyes.call_args_list == [((), {"token": "token", "subject_id": "PRRC_1", "installation_id": "inst-1"})]
 
+    @parameterized.expand(
+        [
+            (
+                "submitted_to_merge_queue",
+                MergeQueueState.NOT_READY,
+                False,
+                "pr_in_merge_queue",
+                "submitted to the merge queue",
+            ),
+            ("stacked_pull_requests", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
+        ]
+    )
+    def test_held_pr_gets_no_turns_and_says_why(
+        self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
+    ) -> None:
+        self._report()
+        installation = _mock_installation()
+        installation.get_pull_request_merge_queue_state.return_value = queue_state
+        installation.has_open_pull_request_with_base.return_value = stacked
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        eyes = Mock()
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=installation),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
+            patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment,
+        ):
+            result = _prepare_run(self._input())
+
+        assert isinstance(result, ResolutionRunResult)
+        assert result.skipped_reason == reason
+        eyes.assert_not_called()
+        assert section_text in status_comment.call_args.args[2]
+
     def test_reaction_failure_never_fails_prepare(self) -> None:
         # A GitHub flake on the cosmetic queue marker must not cost the run (or the progress anchor,
         # which is written first).
@@ -547,6 +646,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(f"{_RESOLUTION}.add_eyes_reaction"),
+            patch(f"{_RESOLUTION}._run_github", return_value=_mock_installation()),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
@@ -632,3 +732,49 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         final_section = status_comment.call_args.args[2]
         assert "couldn't handle 1" in final_section
         assert "declined" not in final_section
+
+    @parameterized.expand(
+        [
+            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "submitted to the merge queue"),
+            (
+                "ejected_by_the_turn_push",
+                MergeQueueState.EJECTED,
+                False,
+                "pr_in_merge_queue",
+                "submitted to the merge queue",
+            ),
+            ("stacked", None, True, "pr_has_stacked_pull_requests", "now stacked on this branch"),
+        ]
+    )
+    def test_hold_appearing_mid_run_stops_the_session_before_the_next_turn(
+        self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
+    ) -> None:
+        run_github = _mock_installation()
+        run_github.get_pull_request_merge_queue_state.side_effect = [None, queue_state]
+        run_github.has_open_pull_request_with_base.side_effect = [False, stacked]
+        mock_activity = Mock()
+        mock_activity.info.return_value.attempt = 1
+        session = Mock()
+        session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
+        session.task_run.id = "run-1"
+        res = ThreadResolution(thread_id="PRRT_A", outcome="wont_fix", reasoning="checked", reply="declined")
+        continue_turn = AsyncMock()
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread("PRRT_A"), self._thread("PRRT_B")]):
+                stack.enter_context(p)
+            stack.enter_context(patch(f"{_RESOLUTION}._run_github", return_value=run_github))
+            stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", AsyncMock(return_value=(session, res))))
+            stack.enter_context(patch(f"{_RESOLUTION}.continue_sandbox_session", continue_turn))
+            stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
+            stack.enter_context(patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)))
+            stack.enter_context(patch(f"{_RESOLUTION}.resolve_thread", return_value=True))
+            status_comment = stack.enter_context(patch(f"{_RESOLUTION}.update_resolution_status_comment"))
+
+            result = async_to_sync(resolve_threads_activity)(self._input())
+
+        continue_turn.assert_not_called()
+        assert result.triaged == 1
+        assert result.stopped_reason == reason
+        assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
+        assert section_text in status_comment.call_args.args[2]
+        assert self._report_status() == ReviewReport.Status.IDLE

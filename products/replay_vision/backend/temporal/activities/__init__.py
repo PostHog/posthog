@@ -20,7 +20,11 @@ from products.replay_vision.backend.temporal.activities.create_observation impor
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
-from products.replay_vision.backend.temporal.activities.emit_observation_signal import emit_observation_signal_activity
+from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
+    emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
+    emit_observation_signals_activity,
+)
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
     finalize_evaluation_activity,
@@ -28,11 +32,16 @@ from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggesti
     select_evaluation_sessions_activity,
 )
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
 )
 from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
+from products.replay_vision.backend.temporal.activities.observation_media import (
+    finalize_observation_thumbnail_activity,
+    prepare_observation_thumbnail_activity,
+)
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -44,9 +53,6 @@ from products.replay_vision.backend.temporal.activities.reap_childless_inline_sc
 )
 from products.replay_vision.backend.temporal.activities.reap_orphaned_observations import (
     reap_orphaned_observations_activity,
-)
-from products.replay_vision.backend.temporal.activities.reap_stuck_vision_action_runs import (
-    reap_stuck_vision_action_runs_activity,
 )
 from products.replay_vision.backend.temporal.activities.reconciler_activities import (
     delete_scanner_schedule_activity,
@@ -65,39 +71,43 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 __all__ = [
     "advance_backfill_cursor_activity",
     "advance_scanner_watermark_activity",
-    "delete_backfill_schedule_activity",
-    "find_backfill_candidates_activity",
-    "pause_backfill_schedule_activity",
-    "prepare_backfill_tick_activity",
-    "reap_backfill_schedules_activity",
-    "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
     "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",
     "create_observation_activity",
+    "delete_backfill_schedule_activity",
     "delete_scanner_schedule_activity",
     "embed_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
     "emit_observation_signal_activity",
+    "emit_observation_signal_summaries_activity",
+    "emit_observation_signals_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
+    "fetch_session_network_activity",
     "finalize_evaluation_activity",
+    "finalize_observation_thumbnail_activity",
+    "find_backfill_candidates_activity",
     "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
     "list_stale_scanner_estimates_activity",
-    "meter_scanner_read_bytes_activity",
     "mark_observation_failed_activity",
     "mark_observation_ineligible_activity",
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
+    "meter_scanner_read_bytes_activity",
+    "pause_backfill_schedule_activity",
+    "prepare_backfill_tick_activity",
+    "prepare_observation_thumbnail_activity",
+    "reap_backfill_schedules_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
+    "refresh_prompt_suggestion_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",
     "upload_video_to_gemini_activity",

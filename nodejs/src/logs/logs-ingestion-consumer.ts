@@ -4,6 +4,7 @@ import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling'
 import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -12,6 +13,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -34,14 +36,16 @@ import {
     type LogRecordsTransform,
     bufferProcessingMode,
     processLogMessageBuffer,
+    sniffJsonLogAttributes,
 } from './log-record-avro'
-import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
+import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
@@ -73,12 +77,18 @@ export interface LogsIngestionConsumerDeps {
      */
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
     usageBatch: UsageRecordBatch
+    /**
+     * Backoff for a `DependencyUnavailableError` from the team lookup or a Kafka produce. Defaults
+     * to the `retryOnDependencyUnavailableError` policy (5 tries, 1 s doubling to 16 s). Tests
+     * shorten it.
+     */
+    dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
-/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+/** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
-/** Retention tiers that get their own per-tier usage metric; total = sum across all tiers. */
+/** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
 function retentionBytesMetricName(retentionDays: number): string | null {
@@ -339,6 +349,14 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
+    // Record source this consumer tallies metric rules for. `appSource` is the
+    // billing/telemetry identity ('logs' | 'traces'); metric rules are tagged with the
+    // record source ('logs' | 'spans') instead, so map between the two explicitly
+    // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
+    protected metricRuleSource: MetricRuleSource = 'logs'
+    // Record source this consumer evaluates retention rules for. Same vocabulary as
+    // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
+    protected retentionRuleSource: RetentionRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -354,6 +372,8 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly jsonAttributeParsingEnabledTeamsRaw: string
+    private readonly jsonAttributeExtractionEnabledTeamsRaw: string
     private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
@@ -405,6 +425,8 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
+        this.jsonAttributeExtractionEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS
         this.patternMaskingStage = makePatternMaskingStage()
     }
 
@@ -420,6 +442,14 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * The team's default retention period, applied to records no rule matches and sent as the
+     * batch `retention-days` Kafka header. Traces override this to read their own setting.
+     */
+    protected defaultRetentionDays(_teamId: number, logsSettings: LogsSettings): Promise<number> {
+        return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
@@ -513,7 +543,7 @@ export class LogsIngestionConsumer {
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
         if (retentionCache && retentionEvalEnabled) {
-            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
         const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
 
@@ -529,7 +559,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         if (useRetention && retentionRuleSet) {
-            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+            const defaultRetentionDays = await this.defaultRetentionDays(message.teamId, logsSettings)
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         }
 
@@ -804,7 +834,10 @@ export class LogsIngestionConsumer {
         if (!state) {
             let rules: CompiledMetricRule[]
             try {
-                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                // Each consumer tallies only its own record source: the logs consumer runs
+                // `logs` rules, the traces consumer runs `spans` rules.
+                rules = all.filter((r) => r.source === this.metricRuleSource)
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —
@@ -877,19 +910,24 @@ export class LogsIngestionConsumer {
             { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
         >()
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
+        let quarantined = 0
         const results = await Promise.allSettled(
             messages.map((message) =>
                 limit(async () => {
                     try {
                         // Fetch team to get logs_settings
-                        const team = await this.deps.teamManager.getTeam(message.teamId)
+                        const team = await this.retryOnDependencyUnavailable(() =>
+                            this.deps.teamManager.getTeam(message.teamId)
+                        )
                         const logsSettings = team?.logs_settings || {}
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
-                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        const retentionDays = await this.retryOnDependencyUnavailable(() =>
+                            this.defaultRetentionDays(message.teamId, logsSettings)
+                        )
 
-                        // Retention is uniform per team; stash for retention-bucketed usage emit
+                        // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)
                         if (teamStats) {
                             teamStats.retentionDays = retentionDays
@@ -901,10 +939,27 @@ export class LogsIngestionConsumer {
                         }
 
                         const metricRuleState = await this.getMetricRuleBatchState(metricTalliesByTeam, message)
-                        const onRecordsDecoded = metricRuleState
-                            ? (records: LogRecord[]) =>
-                                  tallyRecords(metricRuleState.rules, records, metricRuleState.tallies, Date.now())
-                            : undefined
+                        const jsonAttributeKey =
+                            this.appSource === 'logs' &&
+                            teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId)
+                                ? logsSettings.json_parse_logs_attribute_key
+                                : undefined
+                        const onRecordsDecoded =
+                            metricRuleState || jsonAttributeKey
+                                ? (records: LogRecord[]) => {
+                                      if (metricRuleState) {
+                                          tallyRecords(
+                                              metricRuleState.rules,
+                                              records,
+                                              metricRuleState.tallies,
+                                              Date.now()
+                                          )
+                                      }
+                                      if (jsonAttributeKey) {
+                                          sniffJsonLogAttributes(records, jsonAttributeKey, message.teamId)
+                                      }
+                                  }
+                                : undefined
 
                         const resolved = await instrumentFn(
                             {
@@ -919,7 +974,17 @@ export class LogsIngestionConsumer {
                             async () =>
                                 this.resolveLogMessageBufferWithOptionalSampling(
                                     message,
-                                    logsSettings,
+                                    {
+                                        ...logsSettings,
+                                        json_parse_logs_attribute_key:
+                                            this.appSource === 'logs' &&
+                                            teamIdMatchesCsv(
+                                                this.jsonAttributeExtractionEnabledTeamsRaw,
+                                                message.teamId
+                                            )
+                                                ? logsSettings.json_parse_logs_attribute_key
+                                                : undefined,
+                                    },
                                     onRecordsDecoded,
                                     transformationBatchBudget
                                 )
@@ -1010,42 +1075,63 @@ export class LogsIngestionConsumer {
                         this.queueBytesDroppedByRule(message.teamId, bytesDroppedByRuleId)
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
-                        await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                            {
-                                value: processedValue,
-                                key: null,
-                                headers: {
-                                    ...parseKafkaHeaders(message.message.headers),
-                                    token: message.token,
-                                    team_id: message.teamId.toString(),
-                                    'json-parse': jsonParse.toString(),
-                                    'retention-days': retentionDays.toString(),
-                                    ...(bytesUncompressedHeaderOverride !== undefined
-                                        ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
-                                        : {}),
-                                    ...(bytesCompressedHeaderOverride !== undefined
-                                        ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
-                                        : {}),
-                                    ...(recordCountHeaderOverride !== undefined
-                                        ? { record_count: recordCountHeaderOverride.toString() }
-                                        : {}),
+                        await this.retryOnDependencyUnavailable(() =>
+                            this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                                {
+                                    value: processedValue,
+                                    key: null,
+                                    headers: {
+                                        ...parseKafkaHeaders(message.message.headers),
+                                        token: message.token,
+                                        team_id: message.teamId.toString(),
+                                        'json-parse': jsonParse.toString(),
+                                        'retention-days': retentionDays.toString(),
+                                        ...(bytesUncompressedHeaderOverride !== undefined
+                                            ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                            : {}),
+                                        ...(bytesCompressedHeaderOverride !== undefined
+                                            ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                            : {}),
+                                        ...(recordCountHeaderOverride !== undefined
+                                            ? { record_count: recordCountHeaderOverride.toString() }
+                                            : {}),
+                                    },
                                 },
-                            },
-                        ])
+                            ])
+                        )
                     } catch (error) {
+                        // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
+                        // message itself is fine and processes once the dependency is back, so
+                        // quarantining it would move good data into the DLQ. The retries above
+                        // already absorbed a blip; a longer outage leaves the message on the source
+                        // topic and fails the batch below instead.
+                        if (error instanceof DependencyUnavailableError) {
+                            throw error
+                        }
+                        // Quarantine succeeded: the DLQ copy is the record of this failure, so the
+                        // message resolves and the batch can commit past it. A failed DLQ write
+                        // rejects here instead, so the batch keeps the only copy on the source topic.
                         await this.produceToDlq(message, error)
-                        throw error
+                        quarantined += 1
                     }
                 })
             )
         )
 
-        const failures = results.filter((r) => r.status === 'rejected')
-        if (failures.length > 0) {
+        // Every rejection means this batch must not commit: a dependency outage, or a DLQ write
+        // that failed. `Promise.allSettled` swallows rejections, so rethrow before the tallies and
+        // usage metrics are emitted. The rejected background task stops the offset commit and the
+        // consumer replays the batch from the last good commit, which would count them twice.
+        const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        if (failures.length > 0 || quarantined > 0) {
             logger.error('Failed to process some log messages', {
+                quarantinedCount: quarantined,
                 failureCount: failures.length,
                 totalCount: messages.length,
             })
+        }
+        if (failures.length > 0) {
+            throw failures[0].reason
         }
 
         await this.emitMetricRuleTallies(metricTalliesByTeam)
@@ -1053,6 +1139,15 @@ export class LogsIngestionConsumer {
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
         await this.produceRawToDlq(message.message, error, { token: message.token, teamId: message.teamId })
+    }
+
+    /**
+     * Absorb a dependency blip in place. A batch that fails after some of its messages were
+     * produced is replayed in full, and the logs table has no dedupe, so every retry here is a
+     * duplicate avoided. Only an outage that outlasts the backoff reaches the caller.
+     */
+    private retryOnDependencyUnavailable<T>(fn: () => Promise<T>): Promise<T> {
+        return retryOnDependencyUnavailableError(fn, this.deps.dependencyRetry)
     }
 
     /**
@@ -1073,25 +1168,27 @@ export class LogsIngestionConsumer {
         recordLogMessageDlq(errorName, teamIdLabel)
 
         try {
-            await this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
-                {
-                    value: message.value,
-                    key: null,
-                    headers: {
-                        ...parseKafkaHeaders(message.headers),
-                        ...(context.token !== undefined ? { token: context.token } : {}),
-                        team_id: teamIdLabel,
-                        error_message: errorMessage,
-                        error_name: errorName,
-                        failed_at: new Date().toISOString(),
-                        // Where the message came from, so a quarantined record can be read back
-                        // from the source partition and replayed against the consumer.
-                        source_topic: message.topic,
-                        source_partition: message.partition.toString(),
-                        source_offset: message.offset.toString(),
+            await this.retryOnDependencyUnavailable(() =>
+                this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
+                    {
+                        value: message.value,
+                        key: null,
+                        headers: {
+                            ...parseKafkaHeaders(message.headers),
+                            ...(context.token !== undefined ? { token: context.token } : {}),
+                            team_id: teamIdLabel,
+                            error_message: errorMessage,
+                            error_name: errorName,
+                            failed_at: new Date().toISOString(),
+                            // Where the message came from, so a quarantined record can be read back
+                            // from the source partition and replayed against the consumer.
+                            source_topic: message.topic,
+                            source_partition: message.partition.toString(),
+                            source_offset: message.offset.toString(),
+                        },
                     },
-                },
-            ])
+                ])
+            )
         } catch (dlqError) {
             logger.error('Failed to produce message to DLQ', {
                 error: dlqError,
@@ -1123,6 +1220,14 @@ export class LogsIngestionConsumer {
             const retentionMetric = retentionBytesMetricName(stats.retentionDays)
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
+            }
+            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
+            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
+            // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
+            // leaves fixed tiers.
+            if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
+                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
             }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no

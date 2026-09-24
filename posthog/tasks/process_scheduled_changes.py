@@ -1,7 +1,7 @@
 import os
 import json
 import socket
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
@@ -117,25 +117,26 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 
-UTC_ZONE_INFO = ZoneInfo("UTC")
-
-
-def resolve_schedule_timezone(tz_name: str | None) -> ZoneInfo:
+def resolve_schedule_timezone(tz_name: str | None) -> tzinfo:
     """
-    Resolve a stored timezone name to a ZoneInfo, falling back to UTC for NULL or invalid values.
+    Resolve a stored timezone name to a tzinfo, falling back to UTC for NULL or invalid values.
 
     Pre-resolving once per scheduled change keeps the catch-up loop off the exception path when
     a row carries a malformed timezone string.
+
+    ZoneInfo reads a TZif file from the system tzdata path. A name that no file matches raises
+    ZoneInfoNotFoundError, but a file that exists and is truncated or corrupt raises ValueError
+    instead. Both mean the timezone is unusable, so both fall back to UTC.
     """
     if not tz_name:
-        return UTC_ZONE_INFO
+        return UTC
     try:
         return ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError:
-        return UTC_ZONE_INFO
+    except (ZoneInfoNotFoundError, ValueError):
+        return UTC
 
 
-def compute_next_run_cron(cron_expr: str, current: datetime, tz: ZoneInfo = UTC_ZONE_INFO) -> datetime:
+def compute_next_run_cron(cron_expr: str, current: datetime, tz: tzinfo = UTC) -> datetime:
     """
     Compute the next scheduled run time from a cron expression.
 

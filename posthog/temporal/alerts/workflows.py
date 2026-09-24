@@ -1,5 +1,4 @@
 import json
-import asyncio
 import datetime as dt
 from uuid import UUID
 
@@ -33,6 +32,8 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
+    SkipReason,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -46,13 +47,21 @@ with temporalio.workflow.unsafe.imports_passed_through():
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
 class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> None:
-        return None
+    def parse_inputs(inputs: list[str]) -> ScheduleDueAlertChecksWorkflowInputs:
+        if not inputs:
+            return ScheduleDueAlertChecksWorkflowInputs()
+
+        loaded = json.loads(inputs[0])
+        return ScheduleDueAlertChecksWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self) -> None:
+    async def run(self, inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> None:
+        if inputs is None:
+            inputs = ScheduleDueAlertChecksWorkflowInputs()
+
         alerts = await temporalio.workflow.execute_activity(
             retrieve_due_alerts,
+            inputs,
             start_to_close_timeout=dt.timedelta(minutes=2),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
@@ -61,65 +70,56 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per alert. Deterministic ID prevents
-        # duplicate checks when schedule runs overlap; Temporal guarantees no
-        # two open workflows can share the same ID, so a still-running child
-        # rejects the duplicate start.
-        tasks = []
+        # Fan-out child workflows — one per alert. Deterministic IDs prevent
+        # duplicate checks from retries or concurrent manual triggers. Wait
+        # only for Temporal to accept the start; the children run independently.
+        failed_ids: list[str] = []
         for alert in alerts:
             slo_properties: dict[str, JsonValue] = {
                 "alert_type": "insight",
                 "calculation_interval": alert.calculation_interval,
                 "insight_id": alert.insight_id,
             }
-            task = temporalio.workflow.execute_child_workflow(
-                CheckAlertWorkflow.run,
-                CheckAlertWorkflowInputs(
-                    alert_id=alert.alert_id,
-                    team_id=alert.team_id,
-                    distinct_id=alert.distinct_id,
-                    calculation_interval=alert.calculation_interval,
-                    insight_id=alert.insight_id,
-                    slo=SloConfig(
-                        operation=SloOperation.ALERT_CHECK,
-                        area=SloArea.ANALYTIC_PLATFORM,
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    CheckAlertWorkflow.run,
+                    CheckAlertWorkflowInputs(
+                        alert_id=alert.alert_id,
                         team_id=alert.team_id,
-                        resource_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
-                        start_properties=slo_properties.copy(),
-                        completion_properties=slo_properties.copy(),
+                        calculation_interval=alert.calculation_interval,
+                        insight_id=alert.insight_id,
+                        slo=SloConfig(
+                            operation=SloOperation.ALERT_CHECK,
+                            area=SloArea.ANALYTIC_PLATFORM,
+                            team_id=alert.team_id,
+                            resource_id=alert.alert_id,
+                            distinct_id=alert.distinct_id,
+                            start_properties=slo_properties.copy(),
+                            completion_properties=slo_properties.copy(),
+                        ),
                     ),
-                ),
-                id=f"check-alert-{alert.alert_id}",
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
-            )
-            tasks.append(task)
-
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            failed_ids = []
-            for alert, result in zip(alerts, results):
-                if isinstance(result, BaseException):
-                    if isinstance(result, WorkflowAlreadyStartedError):
-                        # Previous schedule run's child still processing this
-                        # alert — not a failure, just skip it.
-                        temporalio.workflow.logger.info(
-                            "check_alert.already_running",
-                            extra={"alert_id": alert.alert_id},
-                        )
-                    else:
-                        failed_ids.append(alert.alert_id)
-                        temporalio.workflow.logger.warning(
-                            "check_alert.child_workflow_error",
-                            extra={"alert_id": alert.alert_id, "error": str(result)},
-                        )
-
-            if failed_ids:
-                raise ApplicationError(
-                    f"Alert checks failed for IDs: {failed_ids}",
-                    non_retryable=True,
+                    id=f"check-alert-{alert.alert_id}",
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
                 )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.info(
+                    "check_alert.already_running",
+                    extra={"alert_id": alert.alert_id},
+                )
+            except Exception as error:
+                failed_ids.append(alert.alert_id)
+                temporalio.workflow.logger.warning(
+                    "check_alert.start_failed",
+                    extra={"alert_id": alert.alert_id, "error": str(error)},
+                )
+
+        if failed_ids:
+            raise ApplicationError(
+                f"Alert checks failed to start for IDs: {failed_ids}",
+                non_retryable=True,
+            )
 
 
 @temporalio.workflow.defn(name="check-alert")
@@ -151,10 +151,23 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
+            # An AI detector calls a model, and only the AI worker holds the provider
+            # credentials, so that check evaluates on the AI queue.
+            evaluate_task_queue = (
+                settings.MAX_AI_TASK_QUEUE
+                if prepare_result.uses_llm_detector
+                and temporalio.workflow.patched("alerts-evaluate-ai-detector-on-ai-queue")
+                else None
+            )
             try:
                 evaluation = await temporalio.workflow.execute_activity(
                     evaluate_alert,
-                    EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
+                    EvaluateAlertActivityInputs(
+                        alert_id=inputs.alert_id,
+                        uses_llm_detector=prepare_result.uses_llm_detector,
+                        team_id=inputs.team_id,
+                    ),
+                    task_queue=evaluate_task_queue,
                     start_to_close_timeout=timeouts.evaluate_start_to_close,
                     schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     heartbeat_timeout=timeouts.heartbeat_timeout,
@@ -169,7 +182,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 # workflow, so no open execution has already replayed past it.)
                 new_state = AlertState.ERRORED
                 try:
-                    await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
+                    await self._record_failed_evaluation(
+                        inputs, timeouts, evaluation_error, prepare_result.evaluation_fingerprint
+                    )
                 except Exception:
                     # A failure while recording must not replace the original evaluation error: the
                     # bare raise below still re-raises evaluation_error, not this one.
@@ -177,6 +192,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         "alerts.record_failed_evaluation_failed", extra={"alert_id": inputs.alert_id}
                     )
                 raise
+            if evaluation.alert_check_id is None:
+                skip_reason = SkipReason.CHANGED_DURING_EVALUATION
+                return
             new_state = evaluation.new_state
 
             # Phase 3 — notify (optional)
@@ -237,6 +255,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
         inputs: CheckAlertWorkflowInputs,
         timeouts: AlertTimeouts,
         evaluation_error: BaseException,
+        evaluation_fingerprint: str | None = None,
     ) -> None:
         """Write the errored AlertCheck the failed evaluation never got to write, then notify."""
         # Unwrap Temporal's ActivityError plumbing to the underlying reason the owner sees in the
@@ -244,9 +263,18 @@ class CheckAlertWorkflow(PostHogWorkflow):
         cause = unwrap_temporal_cause(evaluation_error)
         message = cause.message if cause is not None else str(evaluation_error)
         message = truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS)
+        # Temporal rebuilds a remote failure as a bare ApplicationError with the original class
+        # name on `type`, which is all the activity needs to pick the owner-facing reason.
+        error_type = cause.type if cause is not None else type(evaluation_error).__name__
         recorded = await temporalio.workflow.execute_activity(
             record_failed_evaluation,
-            RecordFailedEvaluationActivityInputs(alert_id=inputs.alert_id, error_message=message),
+            RecordFailedEvaluationActivityInputs(
+                alert_id=inputs.alert_id,
+                error_message=message,
+                error_type=error_type,
+                evaluation_fingerprint=evaluation_fingerprint,
+                team_id=inputs.team_id,
+            ),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=ALERT_PREPARE_RETRY_POLICY,
         )

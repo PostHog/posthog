@@ -1,5 +1,6 @@
 export type SettingsCategory =
   | "general"
+  | "appearance"
   | "notifications"
   | "plan-usage"
   | "cost-management"
@@ -8,6 +9,7 @@ export type SettingsCategory =
   | "environments"
   | "cloud-environments"
   | "agents"
+  | "task-agent-defaults"
   | "skills"
   | "mcp-servers"
   | "personalization"
@@ -23,6 +25,7 @@ export type SettingsCategory =
 
 const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
+  "appearance",
   "notifications",
   "plan-usage",
   "cost-management",
@@ -31,6 +34,7 @@ const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "environments",
   "cloud-environments",
   "agents",
+  "task-agent-defaults",
   "skills",
   "mcp-servers",
   "personalization",
@@ -54,6 +58,7 @@ export function isSettingsCategory(value: string): value is SettingsCategory {
 // can't ship without a name. `cloud-environments` shares the Environments page.
 export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   general: "General",
+  appearance: "Appearance",
   notifications: "Notifications",
   "plan-usage": "Plan & usage",
   "cost-management": "Cost management",
@@ -62,6 +67,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   environments: "Environments",
   "cloud-environments": "Environments",
   agents: "Agents",
+  "task-agent-defaults": "Model",
   skills: "Skills",
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
@@ -75,6 +81,16 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   advanced: "Advanced",
   discord: "Discord",
 };
+
+// Pages whose changes show in the app itself, so the dialog drops its backdrop
+// to let the reader watch them land.
+const APP_REVEALING_PAGES: ReadonlySet<SettingsCategory> = new Set([
+  "appearance",
+]);
+
+export function settingsPageRevealsApp(category: SettingsCategory): boolean {
+  return APP_REVEALING_PAGES.has(category);
+}
 
 // The app restores the last location on startup, so a renamed category has to
 // keep resolving for anyone whose remembered URL still names the old one.

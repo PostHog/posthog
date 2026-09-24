@@ -16,6 +16,7 @@ export interface RepoApi {
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
     enable_pr_comments: boolean
+    debt_digest_enabled: boolean
     created_at: string
 }
 
@@ -42,8 +43,16 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
-    /** @nullable */
+    /**
+     * Post a pull request comment when a run finds visual changes to review.
+     * @nullable
+     */
     enable_pr_comments?: boolean | null
+    /**
+     * Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.
+     * @nullable
+     */
+    debt_digest_enabled?: boolean | null
 }
 
 export interface UserBasicInfoApi {
@@ -75,6 +84,8 @@ export interface BaselineQuarantineSummaryApi {
 export interface BaselineEntryApi {
     /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
     quarantine?: BaselineQuarantineSummaryApi | null
+    /** Accepted variants still recorded against this baseline's current hash. Unlike the 30-day and 90-day counts, this has no time window: an accepted variant keeps matching without a new record. A baseline change resets it to zero. */
+    active_variants_current_baseline: number
     identifier: string
     run_type: string
     /** @nullable */
@@ -98,6 +109,8 @@ export type BaselineTotalsApiByRunType = { [key: string]: number }
 
 export interface BaselineTotalsApi {
     by_run_type: BaselineTotalsApiByRunType
+    /** Baselines carrying three or more accepted variants of their current hash. */
+    variant_pileups: number
     all_snapshots: number
     recently_tolerated: number
     frequently_tolerated: number
@@ -187,6 +200,11 @@ export interface FlakinessEntryApi {
     needs_decision: boolean
     /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
     quarantine?: BaselineQuarantineSummaryApi | null
+    /**
+     * Slug of the team that owns the file this snapshot's story lives in, from the repository's ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, the story is not in it, or the ownership files could not be read.
+     * @nullable
+     */
+    owner_team?: string | null
     identifier: string
     run_type: string
     /** @nullable */
@@ -285,6 +303,39 @@ export interface UnquarantineQueryApi {
     identifier: string
 }
 
+export interface TolerationPileupEntryApi {
+    /** Snapshot identifier, for example a Storybook story id plus theme. */
+    identifier: string
+    /** Run type the snapshot belongs to, for example `storybook`. */
+    run_type: string
+    /** Tolerations a person or agent recorded for this snapshot in the window, across every baseline. Each one accepted a different exact rendering, so a high count means the snapshot renders differently from run to run. */
+    intentional_count: number
+    /** Automatic tolerations in the window: renderings that came in under both diff thresholds. */
+    automatic_count: number
+    /** Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests. */
+    is_quarantined: boolean
+}
+
+export interface TolerationPileupsApi {
+    /** Matching snapshots, most manual tolerations first. */
+    entries: TolerationPileupEntryApi[]
+    /** Length of the counting window in days that was applied. */
+    window_days: number
+    /** Manual toleration threshold that was applied. */
+    min_tolerations: number
+    /**
+     * Automatic toleration threshold that was applied, or null when none was.
+     * @nullable
+     */
+    min_automatic_tolerations: number | null
+    /** How many snapshots matched before `limit` was applied. */
+    total: number
+    /** True when `limit` cut the list short. */
+    truncated: boolean
+    /** When the list was computed. */
+    generated_at: string
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -361,8 +412,45 @@ export interface ArtifactApi {
     download_url: string | null
 }
 
+/**
+ * * `inserted` - inserted
+ * * `deleted` - deleted
+ */
+export type ShiftBandKindEnumApi = (typeof ShiftBandKindEnumApi)[keyof typeof ShiftBandKindEnumApi]
+
+export const ShiftBandKindEnumApi = {
+    Inserted: 'inserted',
+    Deleted: 'deleted',
+} as const
+
+export interface ShiftBandApi {
+    /** First row of the band, in current-image coordinates. */
+    y: number
+    /** How many rows the band covers. */
+    rows: number
+    /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
+     *
+     * * `inserted` - inserted
+     * * `deleted` - deleted */
+    kind: ShiftBandKindEnumApi
+}
+
+export interface RowShiftApi {
+    /** Where the shift happened, in current-image coordinates. */
+    bands: ShiftBandApi[]
+    /** Rows the current image gained. */
+    inserted_rows: number
+    /** Rows the current image lost. */
+    deleted_rows: number
+    /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift added or removed, and that combined number is what the pixel threshold judges. */
+    residual_percentage: number
+    /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
+    raw_diff_percentage: number
+}
+
 export interface SnapshotHistoryEntryApi {
     current_artifact?: ArtifactApi | null
+    row_shift?: RowShiftApi | null
     run_id: string
     snapshot_id: string
     result: string
@@ -439,9 +527,13 @@ export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
 export interface AddSnapshotsInputApi {
     snapshots: SnapshotManifestItemApi[]
     baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+    /** SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this run's build. Every shard of a run sends the same value. Empty when the run sends no map. */
+    story_index_hash?: string
 }
 
 export interface AddSnapshotsResultApi {
+    /** Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the request sent no map, or the store already holds a map with that hash. */
+    story_index_upload?: UploadTargetApi | null
     added: number
     uploads: UploadTargetApi[]
 }
@@ -461,9 +553,9 @@ export interface ApproveRunRequestInputApi {
 export interface FinalizeRunRequestInputApi {
     /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
-    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
+    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted. */
     commit_to_github?: boolean
-    /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+    /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
     add_images_to_comment_on_pr?: boolean
 }
 
@@ -505,6 +597,7 @@ export interface SnapshotApi {
     diff_artifact?: ArtifactApi | null
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
+    row_shift?: RowShiftApi | null
     id: string
     run_id: string
     identifier: string
@@ -602,6 +695,43 @@ export type VisualReviewReposThumbnailsRetrieveParams = {
     run_type?: string
 }
 
+export type VisualReviewReposTolerationPileupsRetrieveParams = {
+    /**
+     * Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. Set to false to see only piles nobody has acted on yet.
+     */
+    include_quarantined?: boolean
+    /**
+     * Maximum number of snapshots to return. `total` and `truncated` say whether more matched.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Also list a snapshot when it collected at least this many automatic tolerations in the window. An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; many of them still mean the story is unstable. Omit to ignore automatic tolerations when deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion.
+     * @minimum 1
+     * @maximum 10000
+     */
+    min_automatic_tolerations?: number
+    /**
+     * List a snapshot when a person or agent tolerated it at least this many times in the window. The default, 3, is the weekly debt digest's rule. Lower it to see snapshots that are starting to pile up, raise it to see only the worst ones.
+     * @minimum 1
+     * @maximum 100
+     */
+    min_tolerations?: number
+    /**
+     * Only list snapshots of this run type, for example `storybook` or `playwright`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    run_type?: string
+    /**
+     * How many days back to count tolerations. Defaults to 30.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
+}
+
 export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
@@ -665,7 +795,7 @@ export type VisualReviewRunsListParams = {
 
 export type VisualReviewRunsSnapshotHistoryListParams = {
     /**
-     * Snapshot identifier
+     * Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.
      */
     identifier: string
     /**
@@ -695,7 +825,7 @@ export type VisualReviewRunsSnapshotsListParams = {
 
 export type VisualReviewRunsToleratedHashesListParams = {
     /**
-     * Snapshot identifier
+     * Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.
      */
     identifier: string
     /**

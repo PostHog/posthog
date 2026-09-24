@@ -1,6 +1,20 @@
-import { EvaluationRun } from '../evaluations/types'
-import { getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
-import { isSentimentRun } from './EvaluationResultTag'
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { Provider } from 'kea'
+
+import { initKeaTests } from '~/test/init'
+
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
+import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
+import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
+import {
+    compareEvaluationResults,
+    getEvaluationResultDisplay,
+    getEvaluationResultSortValue,
+    isSentimentRun,
+} from './EvaluationResultTag'
 
 function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
     return {
@@ -18,6 +32,37 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('sorts numeric scores together without colliding with status ranks', () => {
+        const rows = [
+            makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
+            makeRun({ id: 'na', result_type: 'numeric', applicable: false }),
+            makeRun({ id: 'zero', result_type: 'numeric', score: 0 }),
+            makeRun({ id: 'skipped', skipped: true }),
+            makeRun({ id: 'positive', result_type: 'numeric', score: 2 }),
+            makeRun({ id: 'error', status: 'failed' }),
+            makeRun({ id: 'boolean', result: true }),
+        ]
+        expect(rows.sort((a, b) => compareEvaluationResults(b, a)).map((run) => run.id)).toEqual([
+            'positive',
+            'zero',
+            'negative',
+            'boolean',
+            'na',
+            'skipped',
+            'error',
+        ])
+    })
+
+    it.each([
+        [1 / 3, '0.333333'],
+        [123456789, '123456789'],
+        [-123456789, '-123456789'],
+        [0.0000000123456789, '1.23457e-8'],
+        [1234567.1234567, '1234567.123457'],
+    ])('formats score %s without dropping integer digits', (score, label) => {
+        expect(getEvaluationResultDisplay(makeRun({ result_type: 'numeric', score })).label).toBe(label)
+    })
+
     describe('getEvalSummaries', () => {
         it('returns empty array for empty input', () => {
             expect(getEvalSummaries([])).toEqual([])
@@ -135,6 +180,25 @@ describe('EvalResultBadges', () => {
         })
     })
 
+    describe('getEvaluationResultDisplay polarity', () => {
+        it('keeps the True label but marks a detector true result as danger', () => {
+            const run = { status: 'completed', result: true, skipped: false } as any
+            expect(getEvaluationResultDisplay(run, { trueIsFailure: true })).toMatchObject({
+                type: 'danger',
+                label: 'True',
+            })
+            expect(getEvaluationResultDisplay(run)).toMatchObject({ type: 'success', label: 'True' })
+        })
+
+        it('sorts a detector false result above its true result', () => {
+            const trueRun = { status: 'completed', result: true, skipped: false } as any
+            const falseRun = { status: 'completed', result: false, skipped: false } as any
+            expect(getEvaluationResultSortValue(falseRun, { trueIsFailure: true })).toBeGreaterThan(
+                getEvaluationResultSortValue(trueRun, { trueIsFailure: true })
+            )
+        })
+    })
+
     describe('isSentimentRun', () => {
         it.each([
             ['evaluation type', makeRun({ evaluation_type: 'sentiment' })],
@@ -146,6 +210,60 @@ describe('EvalResultBadges', () => {
 
         it('returns false for boolean evaluation runs', () => {
             expect(isSentimentRun(makeRun())).toBe(false)
+        })
+    })
+
+    describe('rendered with the trace scene evaluations logic', () => {
+        const detectorEvaluation: EvaluationConfig = {
+            id: 'eval-detector',
+            name: 'Detects struggle',
+            enabled: true,
+            status: 'active',
+            status_reason: null,
+            status_reason_detail: null,
+            evaluation_type: 'hog',
+            evaluation_config: { source: 'return true' },
+            output_type: 'boolean',
+            output_config: { true_is_failure: true },
+            conditions: [{ id: 'cond-1', rollout_percentage: 100, properties: [] }],
+            target: 'trace',
+            target_config: {},
+            model_configuration: null,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('colors a detector true result as danger, matching the config switch', () => {
+            const evaluationsLogic = llmEvaluationsLogic()
+            evaluationsLogic.mount()
+            evaluationsLogic.actions.loadEvaluationsSuccess([detectorEvaluation])
+
+            const runsLogic = generationEvaluationRunsLogic({ traceId: 'trace-1' })
+            runsLogic.mount()
+            runsLogic.actions.loadGenerationEvaluationRunsSuccess([
+                makeRun({ evaluation_id: 'eval-detector', evaluation_name: 'Detects struggle', generation_id: '' }),
+            ])
+
+            render(
+                <Provider>
+                    <EvalResultBadges traceId="trace-1" />
+                </Provider>
+            )
+
+            expect(screen.getByText('Detects struggle: True')).toBeInTheDocument()
+            expect(document.querySelector('.LemonTag--danger')).toBeInTheDocument()
+            expect(document.querySelector('.LemonTag--success')).not.toBeInTheDocument()
+
+            evaluationsLogic.unmount()
+            runsLogic.unmount()
         })
     })
 })

@@ -1,21 +1,43 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { AsyncFunctionContext, registerAsyncFunction } from '../async-function-registry'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { callInternalApi } from './internal-api-call'
-import { getTeamWithSecretToken } from './secret-api-token'
 
 const ACCOUNT_ACTIONS = 'account workflow actions'
+const CLEAR_PROPERTY_MARKER = '__posthog_clear_property'
+
+function isClearPropertyMarker(value: unknown): boolean {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.keys(value).length === 1 &&
+        (value as Record<string, unknown>)[CLEAR_PROPERTY_MARKER] === true
+    )
+}
+
+function normalizeAccountProperties(properties: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(properties).map(([definitionId, value]) => {
+            if (value === null) {
+                throw new Error(
+                    `[HogFunction] - postHogSetAccountProperties received null for property '${definitionId}'. ` +
+                        'Use Clear property in the workflow editor, or make the template return a value.'
+                )
+            }
+
+            return [definitionId, isClearPropertyMarker(value) ? null : value]
+        })
+    )
+}
 
 /**
  * Calls the JWT-only internal account routes (products/customer_analytics/backend/
  * presentation/views/internal.py). The token pins the invocation's own team plus this one
- * account's external_id; Django refuses it anywhere else. Used whenever
- * CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET is provisioned — the legacy secret_api_token path
- * below it is the fallback until then (#82564).
+ * account's external_id; Django refuses it anywhere else (#82564).
  */
 async function callInternalAccountApi(
     context: AsyncFunctionContext,
@@ -28,6 +50,14 @@ async function callInternalAccountApi(
         extraHeaders?: Record<string, string>
     }
 ): Promise<void> {
+    // Reaches the operator verbatim in the workflow logs. Keep it free of square brackets,
+    // which the log viewer parses as entity chips and would swallow.
+    if (!context.customerAnalyticsAccountsJwt.enabled) {
+        throw new Error(
+            `This PostHog deployment has no CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET configured, so ` +
+                `${ACCOUNT_ACTIONS} can't authenticate. Set the same value for the web service and the CDP worker.`
+        )
+    }
     const { method, subpath = '', body, extraHeaders } = options
     // The external_id is Hog-controlled free text. It travels in the query string (GET) or
     // the JSON body, never a URL path segment, so no format constraint applies — the claim
@@ -63,21 +93,7 @@ registerAsyncFunction('postHogGetAccount', {
             throw new Error("[HogFunction] - postHogGetAccount call missing 'external_id' property")
         }
 
-        if (context.customerAnalyticsAccountsJwt.enabled) {
-            // No team fetch and no secret_api_token requirement: teams that never minted the
-            // legacy key can use account actions once the JWT secret is provisioned.
-            await callInternalAccountApi(context, result, externalId, { method: 'GET' })
-            return
-        }
-
-        const team = await getTeamWithSecretToken(context, 'postHogGetAccount', ACCOUNT_ACTIONS)
-
-        result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-            type: 'fetch',
-            url: `${context.siteUrl}/api/customer_analytics/external/account?external_id=${encodeURIComponent(externalId)}`,
-            method: 'GET',
-            headers: { Authorization: `Bearer ${team.secret_api_token}` },
-        })
+        await callInternalAccountApi(context, result, externalId, { method: 'GET' })
     },
 
     mock: (args, logs) => {
@@ -130,32 +146,12 @@ registerAsyncFunction('postHogUpdateAccount', {
             throw new Error("[HogFunction] - postHogUpdateAccount call missing 'external_id' property")
         }
 
-        if (context.customerAnalyticsAccountsJwt.enabled) {
-            // external_id spreads last so no updates value can differ from the token's claim —
-            // Django rejects a body whose external_id does not match the claim.
-            await callInternalAccountApi(context, result, externalId, {
-                method: 'PATCH',
-                body: JSON.stringify({ ...updates, external_id: externalId }),
-                extraHeaders: hogFlowHeaders(context),
-            })
-            return
-        }
-
-        const team = await getTeamWithSecretToken(context, 'postHogUpdateAccount', ACCOUNT_ACTIONS)
-
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${team.secret_api_token}`,
-        }
-
-        Object.assign(headers, hogFlowHeaders(context))
-
-        result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-            type: 'fetch',
-            url: `${context.siteUrl}/api/customer_analytics/external/account`,
+        // external_id spreads last so no updates value can differ from the token's claim —
+        // Django rejects a body whose external_id does not match the claim.
+        await callInternalAccountApi(context, result, externalId, {
             method: 'PATCH',
-            body: JSON.stringify({ external_id: externalId, ...updates }),
-            headers,
+            body: JSON.stringify({ ...updates, external_id: externalId }),
+            extraHeaders: hogFlowHeaders(context),
         })
     },
 
@@ -188,31 +184,13 @@ registerAsyncFunction('postHogSetAccountProperties', {
             throw new Error("[HogFunction] - postHogSetAccountProperties call missing 'external_id' property")
         }
 
-        if (context.customerAnalyticsAccountsJwt.enabled) {
-            await callInternalAccountApi(context, result, externalId, {
-                method: 'PATCH',
-                subpath: '/custom_property_values',
-                body: JSON.stringify({ external_id: externalId, properties }),
-                extraHeaders: hogFlowHeaders(context),
-            })
-            return
-        }
+        const normalizedProperties = normalizeAccountProperties(properties)
 
-        const team = await getTeamWithSecretToken(context, 'postHogSetAccountProperties', ACCOUNT_ACTIONS)
-
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${team.secret_api_token}`,
-        }
-
-        Object.assign(headers, hogFlowHeaders(context))
-
-        result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-            type: 'fetch',
-            url: `${context.siteUrl}/api/customer_analytics/external/account/custom_property_values`,
+        await callInternalAccountApi(context, result, externalId, {
             method: 'PATCH',
-            body: JSON.stringify({ external_id: externalId, properties }),
-            headers,
+            subpath: '/custom_property_values',
+            body: JSON.stringify({ external_id: externalId, properties: normalizedProperties }),
+            extraHeaders: hogFlowHeaders(context),
         })
     },
 
@@ -244,30 +222,10 @@ registerAsyncFunction('postHogCreateAccount', {
             throw new Error("[HogFunction] - postHogCreateAccount call missing 'external_id' property")
         }
 
-        if (context.customerAnalyticsAccountsJwt.enabled) {
-            await callInternalAccountApi(context, result, externalId, {
-                method: 'POST',
-                body: JSON.stringify({ external_id: externalId }),
-                extraHeaders: hogFlowHeaders(context),
-            })
-            return
-        }
-
-        const team = await getTeamWithSecretToken(context, 'postHogCreateAccount', ACCOUNT_ACTIONS)
-
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${team.secret_api_token}`,
-        }
-
-        Object.assign(headers, hogFlowHeaders(context))
-
-        result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-            type: 'fetch',
-            url: `${context.siteUrl}/api/customer_analytics/external/account`,
+        await callInternalAccountApi(context, result, externalId, {
             method: 'POST',
             body: JSON.stringify({ external_id: externalId }),
-            headers,
+            extraHeaders: hogFlowHeaders(context),
         })
     },
 

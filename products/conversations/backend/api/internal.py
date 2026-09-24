@@ -11,6 +11,7 @@ does not expose, so the route is unreachable from the public internet.
 import uuid
 from typing import Any, cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -22,7 +23,14 @@ from posthog.jwt import PosthogJwtAudience
 from posthog.models import Team
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
-from products.conversations.backend.api.ticket_actions import handle_ticket_get, handle_ticket_patch
+from products.conversations.backend.api.ticket_actions import (
+    TicketActionMessageResponseSerializer,
+    TicketActionMessageSerializer,
+    handle_ticket_get,
+    handle_ticket_message,
+    handle_ticket_patch,
+    wants_first_customer_message_text,
+)
 from products.conversations.backend.metrics import TICKET_ACTION_AUTH_COUNTER
 
 CONVERSATIONS_TICKETS_PURPOSE = ScopedServiceJwtPurpose(
@@ -39,6 +47,7 @@ class InternalTicketView(APIView):
     """
     GET /api/projects/<team_id>/internal/conversations/tickets/<ticket_id> — Fetch ticket data
     PATCH /api/projects/<team_id>/internal/conversations/tickets/<ticket_id> — Update ticket fields
+    POST /api/projects/<team_id>/internal/conversations/tickets/<ticket_id> — Post a reply or private note
 
     JWT-only from birth: there is no legacy-token fallback here, so this route never
     accepts secret_api_token. The auth class binds the request to the token's team and
@@ -54,7 +63,9 @@ class InternalTicketView(APIView):
             return error
         assert team is not None
         TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="get").inc()
-        return handle_ticket_get(team, ticket_id)
+        return handle_ticket_get(
+            team, ticket_id, include_first_customer_message_text=wants_first_customer_message_text(request)
+        )
 
     def patch(self, request: Request, team_id: str, ticket_id: uuid.UUID) -> Response:
         team, error = _check_ticket_access(request, ticket_id)
@@ -63,6 +74,21 @@ class InternalTicketView(APIView):
         assert team is not None
         TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="patch").inc()
         return handle_ticket_patch(request, team, ticket_id)
+
+    @extend_schema(
+        request=TicketActionMessageSerializer,
+        responses={
+            status.HTTP_200_OK: TicketActionMessageResponseSerializer,
+            status.HTTP_201_CREATED: TicketActionMessageResponseSerializer,
+        },
+    )
+    def post(self, request: Request, team_id: str, ticket_id: uuid.UUID) -> Response:
+        team, error = _check_ticket_access(request, ticket_id)
+        if error:
+            return error
+        assert team is not None
+        TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="post").inc()
+        return handle_ticket_message(request, team, ticket_id)
 
 
 def _check_ticket_access(request: Request, ticket_id: uuid.UUID) -> tuple[Team, None] | tuple[None, Response]:

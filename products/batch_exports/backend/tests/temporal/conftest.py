@@ -18,6 +18,9 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
+from posthog.models.integration import Integration
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -106,6 +109,17 @@ def team(organization):
     team.delete()
 
 
+def _create_async_fixture_team(organization: Organization) -> Team:
+    # A test that builds a HogQL query creates the team's revenue analytics row in the test's transaction.
+    # The async fixtures create and delete the team through sync_to_async, on a different connection.
+    # That delete cannot cascade to the uncommitted row, so teardown fails its foreign key check.
+    # Creating the row here puts it on the same connection as the delete.
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = Team.objects.create(organization=organization, name=name)
+    get_or_create_team_extension(team, TeamRevenueAnalyticsConfig)
+    return team
+
+
 @pytest_asyncio.fixture
 async def aorganization(db):
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
@@ -118,8 +132,7 @@ async def aorganization(db):
 
 @pytest_asyncio.fixture
 async def ateam(aorganization):
-    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+    team = await sync_to_async(_create_async_fixture_team)(aorganization)
 
     yield team
     await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
@@ -128,12 +141,26 @@ async def ateam(aorganization):
 
 @pytest_asyncio.fixture
 async def another_ateam(aorganization):
-    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+    team = await sync_to_async(_create_async_fixture_team)(aorganization)
 
     yield team
     await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
     await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def s3_compatible_integration(ateam):
+    """An s3-compatible Integration pointing at the local object storage used by these tests."""
+    return await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id=f"object-storage-{uuid.uuid4()}",
+        config={"name": "object-storage-test", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
+        sensitive_config={
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+    )
 
 
 @pytest.fixture

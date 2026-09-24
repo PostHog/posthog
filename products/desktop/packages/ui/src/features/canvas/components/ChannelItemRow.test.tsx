@@ -1,7 +1,10 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { Autocomplete, AutocompleteList } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { useArchiveShortcut } from "@posthog/ui/features/archive/useArchiveShortcut";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   beginSidebarPeek,
@@ -85,7 +88,7 @@ const actions = {
   open: () => {},
   togglePin: () => {},
   setPinned: () => {},
-  archive: () => {},
+  archive: vi.fn(),
   remove: () => {},
   fileCanvas: () => {},
 };
@@ -133,38 +136,110 @@ function renderRow(model: ChannelItemModel) {
   );
 }
 
+/**
+ * The Work column walks its rows with the keyboard, so its rows are options of
+ * the column's own Autocomplete rather than plain buttons.
+ */
+function renderOptionRow(model: ChannelItemModel) {
+  return renderInList(
+    <Autocomplete<string> inline open items={[model.key]} filter={null}>
+      <AutocompleteList>
+        <ChannelItemRow
+          actions={actions}
+          isActive={false}
+          item={model}
+          optionValue={model.key}
+        />
+      </AutocompleteList>
+    </Autocomplete>,
+  );
+}
+
 beforeEach(() => {
   mocks.status = null;
   mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
   mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useArchivingTasksStore.setState({
+    archivingTaskIds: new Set(),
+    hiddenArchivingTaskIds: new Set(),
+  });
   useTaskSelectionStore.setState({
     selectedTaskIds: [],
     lastClickedId: null,
   });
+  actions.archive.mockClear();
 });
 
 describe("ChannelItemRow", () => {
-  // The dot vocabulary in one table: what the row's leading mark says for each
-  // state a task can be in. Only the states a reader can act on get a voice —
-  // run mechanics (queued, failed) resolve to a dot that describes the work
-  // rather than the status: starting, live but stalled, or something to read.
+  it("dims an archiving task and blocks its row actions", () => {
+    const pendingActions = {
+      ...actions,
+      open: vi.fn(),
+      togglePin: vi.fn(),
+      archive: vi.fn(),
+    };
+    useArchivingTasksStore.getState().startArchiving("task-1");
+    renderInList(
+      <ChannelItemRow
+        actions={pendingActions}
+        isActive={false}
+        isEditing
+        item={item()}
+      />,
+    );
+
+    const row = screen.getByRole("button");
+    expect(row.className).toContain("opacity-50");
+    expect(row.draggable).toBe(false);
+    expect(row).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+    expect(screen.queryByRole("textbox")).toBeNull();
+
+    fireEvent.click(row);
+    fireEvent.contextMenu(row);
+    expect(pendingActions.open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
     [
+      "a new run starting with a stale permission prompt",
+      { needsPermission: true, isAgentSessionStarting: true },
+      "Loading",
+    ],
+    [
       "an agent session being created",
       { isAgentSessionStarting: true },
-      "Starting",
+      "Loading",
     ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
-      // A background run is one-shot and unattended, so its in_progress really
-      // is a claim that the agent is still on it. Live, but nothing streaming —
-      // the still dot, not the spinner.
-      "a background run claiming progress with nothing in flight",
+      "a streaming agent with stale queued status",
+      {
+        isGenerating: true,
+        taskRunStatus: "queued" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Working",
+    ],
+    [
+      // Persisted run status can outlive the work. Without a live stream it
+      // must not look like unread attention that opening the session can clear.
+      "a background run left in progress with nothing in flight",
       { taskRunStatus: "in_progress" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "All caught up",
+    ],
+    [
+      "a running cloud session restored after an app restart",
+      {
+        taskRunStatus: "in_progress" as const,
+        workspaceMode: "cloud" as const,
+        isGenerating: true,
+      },
+      "Working",
     ],
     [
       // The backend leaves an interactive run in_progress after it succeeds, so
@@ -179,18 +254,35 @@ describe("ChannelItemRow", () => {
       "All caught up",
     ],
     [
+      "a cloud run waiting to be queued",
+      {
+        taskRunStatus: "not_started" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Loading",
+    ],
+    [
       // Launching: a sandbox is being claimed and the backend leaves this state
       // on its own, so the motion is honest.
       "a queued cloud run",
       { taskRunStatus: "queued" as const, workspaceMode: "cloud" as const },
-      "Starting",
+      "Loading",
     ],
     [
       // A background run's status is never advanced once it parks, so queued
       // here means "was launched at some point", not "is starting".
       "a local background run parked at queued",
       { taskRunStatus: "queued" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "All caught up",
+    ],
+    [
+      "unread output on a background run with stale status",
+      {
+        taskRunStatus: "in_progress" as const,
+        runMode: "background" as const,
+        isUnread: true,
+      },
+      "Unread — something to read",
     ],
     [
       // A PR outranks a run that only claims to be working, but not one that is
@@ -203,12 +295,26 @@ describe("ChannelItemRow", () => {
         workspaceMode: "cloud" as const,
         prState: "open" as const,
       },
-      "Starting",
+      "Loading",
+    ],
+    [
+      "a new run starting after a failed run",
+      {
+        taskRunStatus: "failed" as const,
+        isAgentSessionStarting: true,
+        isUnread: true,
+      },
+      "Loading",
+    ],
+    [
+      "a working run with stale failed metadata",
+      { taskRunStatus: "failed" as const, isGenerating: true },
+      "Working",
     ],
     [
       "a broken run with unseen output",
       { taskRunStatus: "failed" as const, isUnread: true },
-      "Unread — something to read",
+      "Failed",
     ],
     ["a suspended task", { isSuspended: true }, "Suspended — parked"],
     [
@@ -326,6 +432,36 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
+  it.each([
+    ["task", "u-1", null],
+    ["task", "u-2", "Ada Lovelace was here recently"],
+    ["canvas", "u-1", null],
+    ["canvas", "u-2", "Ada Lovelace was here recently"],
+  ] as const)("shows recent %s presence for %s", (kind, uuid, label) => {
+    renderRow(
+      item({
+        kind,
+        ts: Date.now() - 5 * 60_000,
+        authorUuid: uuid,
+        authorUser: {
+          id: 1,
+          uuid,
+          email: "ada@example.com",
+          first_name: "Ada",
+          last_name: "Lovelace",
+        },
+      }),
+    );
+
+    if (label === null) {
+      expect(screen.queryByText("AL")).toBeNull();
+    } else {
+      expect(screen.getByRole("img", { name: label }).textContent).toContain(
+        "AL",
+      );
+    }
+  });
+
   // A pinned row offering only `move` resolves against the Command Center's
   // `copy` as no drop, so the tile stops accepting it with nothing to show why.
   it.each([{ pinned: false }, { pinned: true }])(
@@ -414,8 +550,13 @@ describe("ChannelItemRow", () => {
     await openCard();
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("button", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("button", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
   });
 
   it("opens the same menu on right-click", () => {
@@ -424,8 +565,69 @@ describe("ChannelItemRow", () => {
     fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("menuitem", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
+  });
+
+  it("archives the active menu task before the visible task", () => {
+    const archiveVisibleTask = vi.fn();
+    function VisibleTaskShortcut() {
+      useArchiveShortcut({
+        onArchive: archiveVisibleTask,
+        enabled: true,
+        priority: "visible-task",
+      });
+      return null;
+    }
+    renderInList(
+      <>
+        <VisibleTaskShortcut />
+        <ChannelItemRow actions={actions} isActive={false} item={item()} />
+      </>,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(actions.archive).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "task-1" }),
+    );
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+      repeat: true,
+    });
+
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
+    fireEvent.keyUp(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(archiveVisibleTask).toHaveBeenCalledOnce();
   });
 
   it("opens a task in a new tab from the context menu", () => {
@@ -475,9 +677,15 @@ describe("ChannelItemRow", () => {
 
       expect(useSidebarPeekStore.getState().peek).toBe(true);
 
-      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, {
+        key: "a",
+        code: "KeyA",
+        ctrlKey: true,
+        shiftKey: true,
+      });
       act(() => vi.runAllTimers());
 
+      expect(actions.archive).toHaveBeenCalledOnce();
       expect(useSidebarPeekStore.getState().peek).toBe(false);
     } finally {
       cleanup();
@@ -717,5 +925,21 @@ describe("ChannelItemRow", () => {
     );
 
     expect(screen.queryByText(/PostHog\/code/)).not.toBeInTheDocument();
+  });
+
+  // The Work column's rows moved onto the shared row. An option that loses the
+  // session attribute is invisible to the marquee, and one that is not an
+  // option at all drops off the column's arrow-key path.
+  it("renders as an autocomplete option the marquee can still find", () => {
+    renderOptionRow(item({ id: "task-7", kind: "task" }));
+
+    const option = screen.getByRole("option");
+    expect(option).toHaveAttribute("data-session-id", "task-7");
+  });
+
+  it("keeps a canvas option out of the marquee's reach", () => {
+    renderOptionRow(item({ id: "canvas-1", kind: "canvas", key: "canvas:1" }));
+
+    expect(screen.getByRole("option")).not.toHaveAttribute("data-session-id");
   });
 });

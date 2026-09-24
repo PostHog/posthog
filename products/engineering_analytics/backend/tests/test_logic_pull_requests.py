@@ -10,7 +10,12 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
+from products.engineering_analytics.backend.facade.contracts import (
+    CIStatusRollup,
+    MetricQuality,
+    PRLifecycleEventKind,
+    PRState,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -171,10 +176,11 @@ class TestPullRequestEndpointMapping(BaseTest):
             None,
             None,
             ["bug", "p1"],
-            3,
+            4,
             2,
             1,
             0,
+            1,
             ["E2E CI"],
             5,
             2,
@@ -198,7 +204,13 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert item.ready_to_merge_seconds is None
-        assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending, item.ci.inconclusive) == (
+            4,
+            2,
+            1,
+            0,
+            1,
+        )
         assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
         assert item.estimated_cost_usd is None
@@ -225,6 +237,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             None,
             None,
             ["bug"],
+            0,
             0,
             0,
             0,
@@ -505,11 +518,43 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _run_row(9300, "CI", "shaA", "completed", "success", _ago(2), _ago(2), pr_number=70),
                 _run_row(9301, "CI", "shaB", "completed", "failure", _ago(1), _ago(1), pr_number=70),
                 _run_row(9302, "CI", "shaC", "completed", "success", _ago(1), _ago(1), pr_number=71),
+                # The queue's gate attempt is credited to PR 70 through its branch and flagged, so the
+                # detail page can keep it as CI without counting its rebase SHA as a push.
+                _run_row(
+                    9303,
+                    "CI",
+                    "shaQ",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-70/7c1c3f4e-2d0a-4b7e-9e1f-0a5b6c7d8e9f",
+                    actor="trunk-io[bot]",
+                ),
             ],
         )
         runs = api.list_pr_runs(team=self.team, pr_number=70, repo="PostHog/posthog")
-        assert {r.id for r in runs} == {9300, 9301}  # only PR 70's runs
-        assert {r.head_sha for r in runs} == {"shaA", "shaB"}  # across two commits
+        assert {r.id: r.is_merge_queue for r in runs} == {9300: False, 9301: False, 9303: True}
+        assert {r.head_sha for r in runs} == {"shaA", "shaB", "shaQ"}  # across every commit
+
+    def test_pull_request_list_rollup_partitions_runs_without_a_verdict(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9400, "CI", "sha80", "completed", "cancelled", _ago(1), _ago(1), pr_number=80),
+                _run_row(9401, "Lint", "sha80", "completed", "skipped", _ago(1), _ago(1), pr_number=80),
+                _run_row(9402, "Deploy", "sha80", "completed", None, _ago(1), _ago(1), pr_number=80),
+            ],
+        )
+        [item] = api.list_pull_requests(team=self.team).items
+        assert item.ci == CIStatusRollup(runs=3, passing=0, failing=0, pending=0, inconclusive=3)
 
     def test_pr_cost_aggregates_billable_jobs_across_runs(self) -> None:
         # PR cost sums the jobs of all the PR's runs (across commits), counting only billable Linux

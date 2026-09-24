@@ -12,14 +12,16 @@ import { onboardingLogic } from '../../onboardingLogic'
 interface NextButtonProps {
     installationComplete: boolean
     size?: 'small' | 'medium'
+    /** Overrides the legacy onboardingLogic advance for flows (e.g. self-driving) that manage their own step state. */
+    onAdvance?: () => void
 }
 
-export const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps): JSX.Element => {
+export const NextButton = ({ installationComplete, size = 'medium', onAdvance }: NextButtonProps): JSX.Element => {
     const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
 
-    const advance = !hasNextStep ? completeOnboarding : goToNextStep
+    const advance = onAdvance ?? (!hasNextStep ? completeOnboarding : goToNextStep)
     const skipInstallation = (): void => {
         reportOnboardingStepSkipped(OnboardingStepKey.INSTALL, currentStepProductKey ?? undefined)
         advance()
