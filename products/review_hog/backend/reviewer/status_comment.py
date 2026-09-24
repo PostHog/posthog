@@ -116,6 +116,10 @@ _NO_ISSUES_MEDIA = (
         "https://media.tenor.com/6QRLKh0iM1wAAAAC/spoons-salad-fingers.gif",
         "Salad Fingers holds a rusty spoon",
     ),
+    (
+        "https://media.tenor.com/C4ta65SucIkAAAAC/dvd.gif",
+        "The DVD logo bounces into a corner of an empty screen",
+    ),
 )
 
 
