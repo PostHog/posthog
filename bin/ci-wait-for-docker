@@ -29,6 +29,7 @@ REGISTRY_MIRROR="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 usage() {
     cat <<'EOF'
 Usage:
+  bin/ci-wait-for-docker configure-mirror
   bin/ci-wait-for-docker launch [--down|--down-all-profiles] [--background] [services...]
   bin/ci-wait-for-docker wait [--only] [services...]
 
@@ -206,8 +207,15 @@ configure_registry_mirror() {
     sudo install -d /etc/docker
     printf '%s\n' "$config" | sudo tee "$config_file" >/dev/null
     sudo service docker restart
-    docker info --format '{{json .RegistryConfig.Mirrors}}' | grep -Fq "$REGISTRY_MIRROR"
-    echo "Docker Hub pulls use ${REGISTRY_MIRROR} first."
+    for _ in {1..30}; do
+        if docker info --format '{{json .RegistryConfig.Mirrors}}' 2>/dev/null | grep -Fq "$REGISTRY_MIRROR"; then
+            echo "Docker Hub pulls use ${REGISTRY_MIRROR} first."
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Docker did not load registry mirror ${REGISTRY_MIRROR}." >&2
+    return 1
 }
 
 run_launch() {
@@ -246,8 +254,6 @@ run_launch() {
     done
 
     launch_services=("$@")
-    configure_registry_mirror
-
     launch_runner() {
         local inner_attempt=1
         local inner_sleep_time
@@ -371,7 +377,7 @@ run_wait() {
 
 command="${1:-wait}"
 case "$command" in
-    launch|wait)
+    configure-mirror|launch|wait)
         shift
         ;;
     --help|-h)
@@ -384,6 +390,9 @@ case "$command" in
 esac
 
 case "$command" in
+    configure-mirror)
+        configure_registry_mirror
+        ;;
     launch)
         run_launch "$@"
         ;;
