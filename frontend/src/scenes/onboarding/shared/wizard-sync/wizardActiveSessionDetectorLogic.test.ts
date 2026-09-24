@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 
@@ -130,6 +131,42 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toDispatchActions(['setLastError'])
             .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
             .toMatchValues({ permanentlyDisabled: false })
+    })
+
+    it.each([
+        { name: 'a network failure', error: new NetworkError('network'), captured: false },
+        { name: 'a 500', error: new ApiError('boom', 500), captured: true },
+    ])('captures an exception for $name only if the server answered', async ({ error, captured }) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        mockLatestRetrieve.mockRejectedValue(error)
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['setLastError'])
+
+        expect(captureSpy).toHaveBeenCalledTimes(captured ? 1 : 0)
+        captureSpy.mockRestore()
+    })
+
+    it('stops polling after repeated network failures and polls again when the browser comes online', async () => {
+        mockLatestRetrieve.mockRejectedValue(new NetworkError('network'))
+        for (let i = 0; i < 5; i++) {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['setLastError'])
+        }
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(5)
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(5)
+
+        mockLatestRetrieve.mockResolvedValue(null)
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('online'))
+        }).toDispatchActions(['markInactive'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(6)
     })
 
     // With two programs watched, a failure on the live one plus an empty answer from the other is

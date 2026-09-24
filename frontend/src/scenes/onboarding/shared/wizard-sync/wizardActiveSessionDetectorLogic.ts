@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
@@ -54,6 +54,13 @@ const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 // with nothing in the UI to explain why. Failing open costs a wrong takeover during an outage;
 // failing closed costs every new team its onboarding.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
+
+// A tab whose requests never reach the server (a broken connection that the browser still reports
+// as online, or a content blocker) otherwise polls at full cadence for as long as it stays open.
+// After this many polls in a row fail that way, we poll only once per backoff window. A visibility
+// resume or an `online` event ends the window early.
+const MAX_CONSECUTIVE_NETWORK_FAILURES = 5
+const NETWORK_FAILURE_BACKOFF_MS = 10 * 60 * 1000
 
 /**
  * Keep the detector mounted and watching a program until the returned cleanup runs. The one way to
@@ -326,6 +333,12 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (values.permanentlyDisabled) {
                 return
             }
+            // The request cannot succeed while the browser is offline, and a network backoff holds
+            // the poll after repeated connectivity failures. The `online` listener polls again as
+            // soon as the connection comes back.
+            if (navigator.onLine === false || Date.now() < (cache.networkBackoffUntil ?? 0)) {
+                return
+            }
             const projectId = values.currentProjectId
             if (projectId === null) {
                 return
@@ -368,6 +381,13 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 return
             }
 
+            const allFailedInNetwork =
+                errors.length === results.length && errors.every((err) => err instanceof NetworkError)
+            cache.consecutiveNetworkFailures = allFailedInNetwork ? (cache.consecutiveNetworkFailures ?? 0) + 1 : 0
+            if (cache.consecutiveNetworkFailures >= MAX_CONSECUTIVE_NETWORK_FAILURES) {
+                cache.networkBackoffUntil = Date.now() + NETWORK_FAILURE_BACKOFF_MS
+            }
+
             // 401/403 are structural access denials: the user can't or shouldn't talk to this
             // endpoint. Stop polling permanently rather than burning load on a URL we know is wrong
             // — but only when every program agrees, so one program's denial can't silence a healthy
@@ -389,6 +409,12 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             }
 
             for (const err of errors) {
+                // A request that never reached the server is a client connectivity problem, and
+                // `handleFetch` already records it as `client_request_failure`. Capturing it here
+                // too files one exception per poll for each tab with a broken connection.
+                if (err instanceof NetworkError) {
+                    continue
+                }
                 // Transient REST failure (including a deploy-window 404) — surface it via
                 // lastError + Sentry. The next poll retries.
                 posthog.captureException(err, {
@@ -512,11 +538,19 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 sinceLastResume < VISIBILITY_RESUME_THROTTLE_MS
                     ? VISIBILITY_RESUME_THROTTLE_MS - sinceLastResume
                     : Math.random() * INITIAL_POLL_JITTER_MS
+            // A tab the user comes back to gets a fresh attempt, even inside a network backoff.
+            cache.networkBackoffUntil = undefined
             const initialId = window.setTimeout(() => actions.check(), initialDelay)
             const intervalId = window.setInterval(() => actions.check(), REPOLL_INTERVAL_MS)
+            const onOnline = (): void => {
+                cache.networkBackoffUntil = undefined
+                actions.check()
+            }
+            window.addEventListener('online', onOnline)
             return () => {
                 window.clearTimeout(initialId)
                 window.clearInterval(intervalId)
+                window.removeEventListener('online', onOnline)
             }
         }, 'rest-poll')
     }),
