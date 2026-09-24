@@ -28,6 +28,8 @@ export interface TableViewLogicProps {
     contextKey: string
     query: TableViewSupportedQueryType
     setQuery: (query: TableViewSupportedQueryType) => void
+    /** Columns the table shows when no view is applied. */
+    defaultColumns: string[]
 }
 
 interface EventSyntheticMarker {
@@ -231,6 +233,9 @@ export interface tableViewLogicActions {
             value: true
         }
     }
+    resetToDefaultColumns: () => {
+        value: true
+    }
     resetNewViewForm: (values?: { name: string; visibility: 'private' | 'shared' }) => {
         values?: {
             name: string
@@ -383,6 +388,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
         setCurrentView: (view: ColumnConfigurationApi | null) => ({ view }),
         setShowDeleteConfirm: (viewId: string | null) => ({ viewId }),
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
+        resetToDefaultColumns: true,
     }),
 
     lazyLoaders(({ props, values }) => ({
@@ -436,6 +442,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
             {
                 setCurrentView: (_, { view }) => view,
                 applyView: (_, { view }) => view,
+                resetToDefaultColumns: () => null,
                 // Keep only a view this user picked, and only while the list still has it. Falling
                 // back to the first view would select the shared view a teammate created most
                 // recently, because the API lists shared views newest first.
@@ -511,6 +518,10 @@ export const tableViewLogic = kea<tableViewLogicType>([
     listeners(({ props, actions, values, cache }) => ({
         applyView: ({ view }) => {
             props.setQuery(getQueryFromView(props.query, view))
+        },
+
+        resetToDefaultColumns: () => {
+            props.setQuery({ ...props.query, select: props.defaultColumns } as TableViewSupportedQueryType)
         },
 
         saveCurrentAsViewSuccess: () => {

@@ -8,7 +8,7 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
-import { renderColumn } from './renderColumn'
+import { getPersonProfileFallbackColumn, renderColumn } from './renderColumn'
 import { defaultDataTableColumns } from './utils'
 
 const select = defaultDataTableColumns(NodeKind.EventsQuery)
@@ -114,5 +114,27 @@ describe('renderColumn', () => {
 
         expect(screen.getByText('someone@example.com')).toBeInTheDocument()
         expect(screen.queryByText('Unknown')).toBeNull()
+    })
+
+    // A shared view that drops the person column used to leave every row on the persons list
+    // with no link to a profile, because the person cells are the only ones that render one.
+    test.each([
+        [['person_display_name -- Person', 'id', 'created_at'], null],
+        [['person', 'created_at'], null],
+        [['created_at', 'id'], { column: 'created_at', personUuidIndex: 1 }],
+        [['id', 'created_at', 'person.$delete'], { column: 'created_at', personUuidIndex: 0 }],
+        [['id', 'person.$delete'], null],
+        [['created_at', 'properties.email'], null],
+    ])('picks the fallback profile link column for %p', (select, expected) => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select },
+        }) as DataTableNode
+
+        expect(getPersonProfileFallbackColumn(query, select)).toEqual(expected)
+    })
+
+    it('leaves a non-actors table without a fallback profile link', () => {
+        expect(getPersonProfileFallbackColumn(eventsTable, select)).toBeNull()
     })
 })

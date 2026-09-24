@@ -54,6 +54,7 @@ describe('tableViewLogic', () => {
             contextKey: PEOPLE_LIST_CONTEXT_KEY,
             query: { ...PEOPLE_LIST_DEFAULT_QUERY.source, select } as ActorsQuery,
             setQuery,
+            defaultColumns: defaultSelect,
         })
         logic.mount()
         return { logic, setQuery }
@@ -108,5 +109,22 @@ describe('tableViewLogic', () => {
 
         expect(logic.values.currentView).toBeNull()
         expect(setQuery).not.toHaveBeenCalled()
+    })
+
+    // A shared view that drops the person column has no entry in the menu to undo it, so the
+    // table stays on the view's columns until the selector offers the default columns back.
+    it('puts the default columns back and drops the picked view', async () => {
+        persistSelection(SHARED_VIEW)
+        const { logic, setQuery } = mountLogic(SHARED_VIEW.columns)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadViews()
+        }).toFinishAllListeners()
+        expect(logic.values.currentView?.id).toEqual(SHARED_VIEW.id)
+
+        logic.actions.resetToDefaultColumns()
+
+        expect(logic.values.currentView).toBeNull()
+        expect(setQuery).toHaveBeenCalledWith(expect.objectContaining({ select: defaultSelect }))
     })
 })

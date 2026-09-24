@@ -71,6 +71,27 @@ const productColumnRenderers: Record<string, QueryContextColumn> = {
     ...sessionColumnRenderers,
 }
 
+const PERSON_LINK_COLUMNS = ['person', 'person_display_name']
+
+// The person columns are the only cells that link to a profile, so a saved view that leaves them
+// out makes every row on a persons list a dead end. The first other column carries the link
+// instead. The id column is skipped because its cell copies to the clipboard on click.
+export function getPersonProfileFallbackColumn(
+    query: DataTableNode,
+    columns: string[]
+): { column: string; personUuidIndex: number } | null {
+    if (!isActorsQuery(query.source)) {
+        return null
+    }
+    const names = columns.map((column) => removeExpressionComment(column))
+    if (names.some((name) => PERSON_LINK_COLUMNS.includes(name))) {
+        return null
+    }
+    const personUuidIndex = names.indexOf('id')
+    const columnIndex = names.findIndex((name) => name !== 'id' && name !== 'person.$delete')
+    return personUuidIndex === -1 || columnIndex === -1 ? null : { column: columns[columnIndex], personUuidIndex }
+}
+
 export function getContextColumn(
     key: string,
     columns?: QueryContext<DataTableNode>['columns']
