@@ -53,6 +53,7 @@ from products.signals.backend.enums import ReportLinkKind, ReportPriority
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
+    implementation_pr_report_filter,
     fetch_implementation_pr_urls_for_reports,
     implementation_pr_needed_by_another_report,
 )
@@ -1448,6 +1449,23 @@ class TestSignalReportListAPI(APIBaseTest):
         assert {r["id"] for r in body["results"]} == {expected_id}
         # `count` is the true total (matches what a limit=1 count query returns).
         assert body["count"] == 1
+
+    def test_filter_has_implementation_pr_reads_its_partial_indexes(self):
+        # Three partial indexes carry the filter's own predicates. Respell one predicate and
+        # Postgres can no longer match it against the index, so the inbox silently goes back to
+        # testing the pattern on every row of the team. Sequential scans are off, so an index that
+        # stops matching shows up as a plan that does not name it rather than as a slower one.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL enable_seqscan = off")
+        plan = "\n".join(
+            str(line)
+            for line in SignalReport.objects.filter(team_id=self.team.id)
+            .filter(implementation_pr_report_filter(team_id=self.team.id))
+            .explain()
+            .splitlines()
+        )
+        for index_name in ("signals_assign_pr_url_idx", "signals_artefact_pr_run_idx", "task_run_pr_carrying_idx"):
+            assert index_name in plan, f"{index_name} unused:\n{plan}"
 
     def test_filter_has_implementation_pr_ignores_empty_pr_url(self):
         report_empty_pr = self._create_report(title="Report with empty PR url")

@@ -20,6 +20,7 @@ from enum import StrEnum
 from django.db import transaction
 
 from products.signals.backend.artefact_schemas import (
+    NON_PR_BEARING_TASK_RUN_TYPES,
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -39,6 +40,7 @@ from products.signals.backend.report_claims import get_active_claim
 # working.
 __all__ = [
     "MAX_DISCUSSION_TASKS_PER_REPORT",
+    "NON_PR_BEARING_TASK_RUN_TYPES",
     "SIGNALS_PRODUCT",
     "TASK_RUN_TYPE_DISCUSSION",
     "TASK_RUN_TYPE_IMPLEMENTATION",
@@ -67,12 +69,6 @@ MAX_DISCUSSION_TASKS_PER_REPORT = 3
 _PIPELINE_TASK_RUN_TYPES = frozenset(
     {TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_SCOUT}
 )
-
-# Pipeline runs that never open a PR for the report. Research and repo-selection runs sit on the
-# base branch and read other people's PRs while checking for in-flight work, so a PR URL on one of
-# their runs is something the agent looked at, not something it shipped. Kept as a denylist so a
-# new run type that does ship code (a report is expected to grow several PRs) counts by default.
-NON_PR_BEARING_TASK_RUN_TYPES = frozenset({TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_SCOUT})
 
 # Run statuses that mean the run is over. A run that ended is no longer spending inference, so it
 # holds the report's implementation slot only through the PR it shipped, if it shipped one.

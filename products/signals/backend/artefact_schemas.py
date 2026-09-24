@@ -502,6 +502,20 @@ _SIGNALS_TASK_RUN_TYPES = frozenset(
     }
 )
 
+# Pipeline runs that never open a PR for the report. Research and repo-selection runs sit on the
+# base branch and read other people's PRs while checking for in-flight work, so a PR URL on one of
+# their runs is something the agent looked at, not something it shipped. Kept as a denylist so a
+# new run type that does ship code (a report is expected to grow several PRs) counts by default.
+NON_PR_BEARING_TASK_RUN_TYPES = frozenset({TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_SCOUT})
+
+# The two tests that pick a report's PR-bearing signals `task_run` artefacts out of `content`.
+# A partial index on `SignalReportArtefact` carries both as its predicate, so the inbox's
+# pull-request filter reads an index instead of matching JSON text row by row. Growing
+# `NON_PR_BEARING_TASK_RUN_TYPES` rewrites the second pattern and so needs a matching migration —
+# `makemigrations --check` reports the drift.
+TASK_RUN_SIGNALS_PRODUCT_PATTERN = rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"'
+NON_PR_BEARING_TASK_RUN_TYPE_PATTERN = rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"'
+
 
 def task_run_identifier_for_legacy_relationship(relationship: str | None) -> tuple[str, str]:
     """Map a legacy `SignalReportTask.relationship` to the `(product, type)` its `task_run` artefact

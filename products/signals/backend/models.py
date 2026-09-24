@@ -27,6 +27,8 @@ from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
+    NON_PR_BEARING_TASK_RUN_TYPE_PATTERN,
+    TASK_RUN_SIGNALS_PRODUCT_PATTERN,
     ArtefactContent,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -42,6 +44,7 @@ from products.signals.backend.artefact_schemas import (
     task_run_identifier_for_legacy_relationship,
 )
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.pull_request_urls import PULL_REQUEST_URL_PATTERN
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -982,6 +985,14 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["repository", "pr_number", "team"], name="signals_assign_pr_identity"),
             models.Index(fields=["team", "actor_kind", "actor_user", "actor_agent"], name="signals_assign_actor_idx"),
             models.Index(fields=["team", "actor_kind", "actor_task_id"], name="signals_assign_task_idx"),
+            # The inbox's pull-request filter asks which of a team's reports hold a parseable PR
+            # URL. Carrying the URL test as the index predicate answers it from the index, so the
+            # filter never matches the pattern against every assignment of the team.
+            models.Index(
+                fields=["team", "report"],
+                condition=models.Q(pr_url__regex=PULL_REQUEST_URL_PATTERN),
+                name="signals_assign_pr_url_idx",
+            ),
         ]
 
     @property
@@ -1351,6 +1362,17 @@ class SignalReportArtefact(UUIDModel):
                 fields=["id"],
                 condition=models.Q(type="implementation_decision"),
                 name="signals_dispatch_sweep_idx",
+            ),
+            # Same shape for the other half of the inbox's pull-request filter: which reports have
+            # a signals `task_run` artefact whose run type can ship a PR. Both content tests sit in
+            # the predicate, so the filter reads `task` and `report` out of the index and never
+            # detoasts a team's task-run JSON.
+            models.Index(
+                fields=["team", "task", "report"],
+                condition=models.Q(type="task_run")
+                & models.Q(content__regex=TASK_RUN_SIGNALS_PRODUCT_PATTERN)
+                & ~models.Q(content__regex=NON_PR_BEARING_TASK_RUN_TYPE_PATTERN),
+                name="signals_artefact_pr_run_idx",
             ),
         ]
 

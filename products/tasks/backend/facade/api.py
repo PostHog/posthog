@@ -19,7 +19,6 @@ from django.core.exceptions import (
 )
 from django.db import IntegrityError, transaction
 from django.db.models import (
-    BooleanField,
     Case,
     CharField,
     Count,
@@ -119,6 +118,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    PR_CARRYING_OUTPUT_Q as _PR_CARRYING_OUTPUT_Q,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
@@ -1182,23 +1182,6 @@ def get_pull_requests_for_tasks(
             state = _pull_request_state(output) if url == output.get("pr_url") else "unknown"
             result.setdefault(str(task_id), []).append(contracts.TaskPullRequest(url=url, state=state))
     return result
-
-
-def _jsonb_path_exists(path: str) -> Func:
-    """``jsonb_path_exists(output, <literal path>)``. The path is always a literal here, so no
-    caller input reaches the expression."""
-    return Func("output", Value(path), function="jsonb_path_exists", output_field=BooleanField())
-
-
-# A run carries a PR when its output yields a usable URL — the rule ``read_pr_urls`` applies in
-# Python: a non-empty *string* under ``pr_url``, or any non-empty string in ``pr_urls``. Both
-# halves check the JSON type, so SQL selects a run exactly when Python can read a URL out of it.
-# Without that, `{"pr_url": 123}` satisfies a bare non-empty test and wins the newest-run pick,
-# then Python finds no URL and an older run holding the real PR is never reached. Indexing
-# ``pr_urls[0]`` would be wrong for the same reason: it misses ``["", "…/pull/1"]``.
-_PR_CARRYING_OUTPUT_Q = Q(_jsonb_path_exists('$.pr_url ? (@.type() == "string" && @ != "")')) | Q(
-    _jsonb_path_exists('$.pr_urls[*] ? (@.type() == "string" && @ != "")')
-)
 
 
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:

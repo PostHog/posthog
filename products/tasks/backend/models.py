@@ -21,6 +21,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
+from django.db.models import BooleanField, Func, Q, Value
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -2255,6 +2256,27 @@ class LoopFire(TeamScopedRootMixin):
         return f"Fire {self.fire_key} on loop {self.loop_id}"
 
 
+def _jsonb_output_path_exists(path: str) -> Func:
+    """``jsonb_path_exists(output, <literal path>)``. The path is always a literal here, so no
+    caller input reaches the expression."""
+    return Func("output", Value(path), function="jsonb_path_exists", output_field=BooleanField())
+
+
+# A run carries a PR when its output yields a usable URL — the rule ``read_pr_urls`` applies in
+# Python: a non-empty *string* under ``pr_url``, or any non-empty string in ``pr_urls``. Both
+# halves check the JSON type, so SQL selects a run exactly when Python can read a URL out of it.
+# Without that, `{"pr_url": 123}` satisfies a bare non-empty test and wins the newest-run pick,
+# then Python finds no URL and an older run holding the real PR is never reached. Indexing
+# ``pr_urls[0]`` would be wrong for the same reason: it misses ``["", "…/pull/1"]``.
+#
+# `task_run_pr_carrying_idx` carries this same expression as its predicate, so a reader that
+# spells the test this way scans only the runs that shipped a PR. Editing it needs a matching
+# migration — `makemigrations --check` reports the drift.
+PR_CARRYING_OUTPUT_Q = Q(_jsonb_output_path_exists('$.pr_url ? (@.type() == "string" && @ != "")')) | Q(
+    _jsonb_output_path_exists('$.pr_urls[*] ? (@.type() == "string" && @ != "")')
+)
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"
@@ -2417,6 +2439,14 @@ class TaskRun(models.Model):
                 condition=models.Q(output__pr_url__startswith=GITHUB_PR_URL_PREFIX),
             ),
             models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
+            # Which of a team's tasks shipped a pull request. The Self-driving inbox asks this on
+            # every list call, and the answer is a small fraction of the runs, so the predicate
+            # keeps the scan off every other run the team ever started.
+            models.Index(
+                fields=["team", "task"],
+                name="task_run_pr_carrying_idx",
+                condition=PR_CARRYING_OUTPUT_Q,
+            ),
             models.Index(
                 fields=["team", "stage", "task"],
                 name="task_run_team_stage_task_idx",

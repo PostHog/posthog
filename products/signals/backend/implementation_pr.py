@@ -16,6 +16,10 @@ from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
+from products.signals.backend.artefact_schemas import (
+    NON_PR_BEARING_TASK_RUN_TYPE_PATTERN,
+    TASK_RUN_SIGNALS_PRODUCT_PATTERN,
+)
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import (
     SignalActorKind,
@@ -25,6 +29,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
+from products.signals.backend.pull_request_urls import PULL_REQUEST_URL_ARRAY_PATTERN, PULL_REQUEST_URL_PATTERN
 from products.signals.backend.task_run_artefacts import (
     NON_PR_BEARING_TASK_RUN_TYPES,
     SIGNALS_PRODUCT,
@@ -44,35 +49,37 @@ _FINISHED_REPORT_STATUSES = frozenset(
     {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
 )
 
-_PULL_REQUEST_URL_BODY = (
-    r"[A-Za-z][A-Za-z0-9+.-]*://(www\.)?github\.com/+[^/?#]+/+[^/?#]+/+pull/+[+-]?[ \t\r\n\f\v]*[0-9]+"
-)
-_PULL_REQUEST_URL_PATTERN = rf"^{_PULL_REQUEST_URL_BODY}([/?#].*)?$"
-_PULL_REQUEST_URL_ARRAY_PATTERN = rf'"{_PULL_REQUEST_URL_BODY}([/?#][^"]*)?"'
 _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION)
 
 
 def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
-    assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    """Which of a team's reports carry an implementation pull request.
+
+    Every branch is a subquery over one table, and each one spells its test the way the partial
+    index built for it spells it, so Postgres reads the answer out of an index rather than
+    matching a pattern against every row the team owns. The inbox runs this filter on five of its
+    views, so a branch that scans is a scan on the hot path.
+    """
+    assignments = SignalReportAssignment.all_teams.filter(team_id=team_id, pr_url__regex=PULL_REQUEST_URL_PATTERN)
     pull_request_links = SignalReportArtefact.objects.filter(
         team_id=team_id,
         type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
         pull_request__team_id=team_id,
-        pull_request__url__regex=_PULL_REQUEST_URL_PATTERN,
+        pull_request__url__regex=PULL_REQUEST_URL_PATTERN,
     )
     task_ids = tasks_facade.task_ids_with_pr_url_subquery(
         team_id,
         pr_bearing_task_run_filter(),
-        Q(output__pr_url__regex=_PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=_PULL_REQUEST_URL_ARRAY_PATTERN),
+        Q(output__pr_url__regex=PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=PULL_REQUEST_URL_ARRAY_PATTERN),
     )
     task_run_artefacts = (
         SignalReportArtefact.objects.filter(
             team_id=team_id,
             type=SignalReportArtefact.ArtefactType.TASK_RUN,
             task_id__in=task_ids,
-            content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+            content__regex=TASK_RUN_SIGNALS_PRODUCT_PATTERN,
         )
-        .exclude(content__regex=rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"')
+        .exclude(content__regex=NON_PR_BEARING_TASK_RUN_TYPE_PATTERN)
         .values("report_id")
     )
     legacy_tasks = SignalReportTask.objects.filter(
@@ -91,15 +98,13 @@ def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) 
             SignalReportAssignment.PrState.DRAFT,
             SignalReportAssignment.PrState.OPEN,
         ]
-        assignment_pr &= Q(assignment__pr_merged=False) & (
-            Q(assignment__pr_state__isnull=True)
-            | Q(assignment__pr_state="")
-            | Q(assignment__pr_state__in=active_states)
+        assignments = assignments.filter(
+            Q(pr_state__isnull=True) | Q(pr_state="") | Q(pr_state__in=active_states), pr_merged=False
         )
         pull_request_links = pull_request_links.filter(pull_request__state__in=active_states)
 
     return (
-        assignment_pr
+        Q(id__in=assignments.values("report_id"))
         | Q(id__in=pull_request_links.values("report_id"))
         | Q(id__in=task_run_artefacts)
         | Q(id__in=legacy_tasks)
