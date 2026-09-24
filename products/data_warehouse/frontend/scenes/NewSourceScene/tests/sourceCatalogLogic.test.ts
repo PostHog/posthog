@@ -1,11 +1,14 @@
+import { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { ExternalDataSource } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../availableSourcesLogic'
 import { sourceCatalogLogic } from '../sourceCatalogLogic'
 
@@ -42,6 +45,13 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     } as unknown as SourceConfigResponseApi,
 }
 
+const CONNECTED_SOURCES = {
+    results: [{ id: 'abc', source_type: 'Stripe' }],
+    count: 1,
+    next: null,
+    previous: null,
+} as unknown as PaginatedResponse<ExternalDataSource>
+
 describe('sourceCatalogLogic', () => {
     let unmountAvailableSources: () => void
     let unmountLogic: () => void
@@ -50,6 +60,7 @@ describe('sourceCatalogLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
+                '/api/environments/:team_id/external_data_sources/': CONNECTED_SOURCES,
             },
         })
         initKeaTests()
@@ -209,6 +220,17 @@ describe('sourceCatalogLogic', () => {
             )
         }
     )
+
+    it('flags the source types the project already has', () => {
+        const logic = sourceCatalogLogic()
+        sourcesDataLogic.actions.loadSourcesSuccess(CONNECTED_SOURCES)
+
+        // Stripe is already connected, so its tile has to say so before the user works through
+        // the whole flow only to be told a table prefix is needed.
+        const byName = Object.fromEntries(logic.values.catalogItems.map((item) => [item.name, item]))
+        expect(byName.Stripe.existingSource).toBe(true)
+        expect(byName.Mango.existingSource).toBeUndefined()
+    })
 
     it('leaves the incoming webhook source out of a catalog restricted to warehouse sources', () => {
         const logic = sourceCatalogLogic({ allowedSources: ['Stripe'] })
