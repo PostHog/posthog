@@ -398,6 +398,23 @@ describe('query', () => {
             expect(querySpy).toHaveBeenCalledTimes(2)
         })
 
+        it('names the same run on each attempt when the caller passed no query id', async () => {
+            jest.useFakeTimers()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(refused())
+                .mockResolvedValueOnce({ results: ['ok'] } as any)
+
+            const promise = performQuery(query, undefined, 'blocking')
+            await jest.advanceTimersByTimeAsync(600)
+            await promise
+
+            // Without this the server mints an id per submit, so the retry starts a second run.
+            const firstId = querySpy.mock.calls[0][1]?.clientQueryId
+            expect(firstId).toBeTruthy()
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe(firstId)
+        })
+
         it('reports the failure once the gateway refuses every attempt', async () => {
             jest.useFakeTimers()
             const querySpy = jest.spyOn(api, 'query').mockRejectedValue(refused())

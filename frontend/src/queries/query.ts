@@ -2,6 +2,7 @@ import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -201,12 +202,16 @@ async function executeQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
+        // Minted here rather than left to the server, so every attempt below names the same run.
+        // Without an id the server mints its own per request, and a retry after it already accepted
+        // the first submit would start a second computation of the same query.
+        const clientQueryId = queryId || uuid()
 
         const response = await retryWithBackoff(
             () =>
                 api.query(queryNode, {
                     requestOptions: methodOptions,
-                    clientQueryId: queryId,
+                    clientQueryId,
                     refresh: refreshParam,
                     filtersOverride,
                     variablesOverride,
