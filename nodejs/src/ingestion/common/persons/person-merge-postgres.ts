@@ -317,28 +317,37 @@ export class PostgresPersonMerge {
             person,
             distinctId,
             pending: pending
-                ? { toSet: { ...pending.toSet }, toUnset: [...pending.toUnset], createdAt: pending.createdAt }
+                ? {
+                      toSet: { ...pending.toSet },
+                      toUnset: [...pending.toUnset],
+                      createdAt: pending.createdAt,
+                      landedCreatedAt: pending.landedCreatedAt,
+                  }
                 : undefined,
         }
     }
 
     /**
-     * A rolled-back move cleared the sources' cache entries; their unflushed changes go back for
-     * the next flush. Forced, because the person's view already shows these values as present.
+     * A rolled-back move cleared the sources' cache entries; whatever they held goes back for the
+     * next flush. The entry is rebuilt on the birth that last landed and forced, because the
+     * person's view already shows the pending values, then the view's birth is lowered onto it.
      */
     private async restoreSourcePending(sources: MergeParticipant[]): Promise<void> {
         for (const { person, distinctId, pending } of sources) {
-            if (pending && (Object.keys(pending.toSet).length > 0 || pending.toUnset.length > 0)) {
-                await this.store.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    pending.toSet,
-                    pending.toUnset,
-                    {},
-                    distinctId,
-                    this.batchId,
-                    true
-                )
+            if (!pending) {
+                continue
             }
+            const landed = { ...person, created_at: pending.landedCreatedAt }
+            await this.store.updatePersonWithPropertiesDiffForUpdate(
+                landed,
+                pending.toSet,
+                pending.toUnset,
+                {},
+                distinctId,
+                this.batchId,
+                true
+            )
+            await this.store.updatePersonForMerge(person, { created_at: pending.createdAt }, distinctId, this.batchId)
         }
     }
 

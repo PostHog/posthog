@@ -2399,7 +2399,10 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
         })
 
-        it(`a source merged away under a merge still gets its pending set onto the survivor`, async () => {
+        it.each([
+            ['pending set and birth', { pending: 'yes' }],
+            ['birth alone', {}],
+        ])(`a source merged away under a merge still gets its %s onto the survivor`, async (_case, set) => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,
             })
@@ -2422,14 +2425,12 @@ describe('PersonState.processEvent()', () => {
             )
             const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
             const source = await batchStore.fetchForUpdate(teamId, oldUserDistinctId, 0)
-            await batchStore.updatePersonWithPropertiesDiffForUpdate(
-                source!,
-                { pending: 'yes' },
-                [],
-                {},
-                oldUserDistinctId,
-                0
-            )
+            if (Object.keys(set).length > 0) {
+                await batchStore.updatePersonWithPropertiesDiffForUpdate(source!, set, [], {}, oldUserDistinctId, 0)
+            }
+            // An earlier merge in this batch gave the source an older birth that has not flushed.
+            const birth = DateTime.fromISO('2019-01-01T00:00:00.000Z').toUTC()
+            await batchStore.updatePersonForMerge(source!, { created_at: birth }, oldUserDistinctId, 0)
 
             // Another pod merges the source elsewhere while this merge moves it; the move finds nothing.
             const moveDistinctIds = batchStore.moveDistinctIds.bind(batchStore)
@@ -2465,7 +2466,8 @@ describe('PersonState.processEvent()', () => {
 
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
-            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { b: 2, c: 3, pending: 'yes' } })
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { b: 2, c: 3, ...set } })
+            expect(persons[0].created_at.toISO()).toEqual(birth.toISO())
         })
 
         it(`a merge chain in one batch carries the oldest birth through the middle person`, async () => {

@@ -1550,7 +1550,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
         const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
         return cached
-            ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset, createdAt: cached.created_at }
+            ? {
+                  toSet: cached.properties_to_set,
+                  toUnset: cached.properties_to_unset,
+                  createdAt: cached.created_at,
+                  landedCreatedAt: cached.original_created_at,
+              }
             : null
     }
 
@@ -2339,7 +2344,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             properties: currentPerson.properties,
             properties_last_updated_at: personUpdate.properties_last_updated_at,
             properties_last_operation: personUpdate.properties_last_operation,
-            created_at: currentPerson.created_at,
+            created_at: DateTime.min(currentPerson.created_at, personUpdate.created_at),
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,
             is_user_id: personUpdate.is_user_id,
