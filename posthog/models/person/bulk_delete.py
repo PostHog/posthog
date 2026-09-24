@@ -59,6 +59,11 @@ class PersonDeletionStep(StrEnum):
     LOG_ACTIVITY = "log_activity"
 
 
+# Steps that run after the person's profile is deleted. A retry cannot resolve the person again,
+# so a failure here is reported but never retried.
+STEPS_AFTER_DELETION = frozenset({PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, PersonDeletionStep.LOG_ACTIVITY})
+
+
 PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
     "posthog_person_deletion_step_failures_total",
     "Person deletion steps that raised, labelled by the step so a failing dependency is visible on its own.",
@@ -101,8 +106,17 @@ class PersonProfileDeletionResult:
     @property
     def errors(self) -> list[uuid_lib.UUID]:
         """Distinct UUIDs of persons that failed at any step, in first-failure order."""
+        return self._person_uuids(self.failures)
+
+    @property
+    def retryable_errors(self) -> list[uuid_lib.UUID]:
+        """Distinct UUIDs of persons that failed before their profile was deleted, so a retry can still find them."""
+        return self._person_uuids(f for f in self.failures if f.step not in STEPS_AFTER_DELETION)
+
+    @staticmethod
+    def _person_uuids(failures: Iterable[PersonDeletionFailure]) -> list[uuid_lib.UUID]:
         seen: dict[uuid_lib.UUID, None] = {}
-        for failure in self.failures:
+        for failure in failures:
             if failure.person_uuid is not None:
                 seen.setdefault(failure.person_uuid, None)
         return list(seen)
