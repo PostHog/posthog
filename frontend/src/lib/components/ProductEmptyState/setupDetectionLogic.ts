@@ -1,4 +1,14 @@
-import { BreakPointFunction, LogicWrapper, MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
+import {
+    BreakPointFunction,
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { isScopeNotFoundError } from 'lib/api-error'
@@ -52,12 +62,9 @@ export interface SetupDetectionLogicOptions {
      */
     cacheHasData?: boolean
     /**
-     * With `cacheHasData`, still run detection once in the background after a cached
-     * has-data answer opens the gate. For products whose data users can delete (entity
-     * counts: dashboards, cohorts, notebooks) or that age out of the probe's window
-     * (retention, lookbacks). The gate never waits for this check. A `needs-setup` or
-     * `waiting-for-data` answer replaces the cached status and clears the cache, so
-     * the empty state shows again. A failure, `null` or `unknown` keeps has-data.
+     * With `cacheHasData`, re-run detection once in the background after a cached has-data
+     * answer, for data users can delete or that ages out of the probe's window. A no-data
+     * answer clears the cache and brings the empty state back; anything else keeps has-data.
      */
     revalidateCachedHasData?: boolean
 }
@@ -72,6 +79,7 @@ export interface SetupDetectionValues {
 
 export interface SetupDetectionActions {
     detectStatus: () => void
+    revalidateCachedStatus: () => { value: true }
     detectStatusSuccess: (
         detectedStatus: ProductSetupStatus | null,
         payload?: void
@@ -92,42 +100,44 @@ function hasDataCacheKey(teamId: number, productKey: ProductKey): string {
     return `${HAS_DATA_CACHE_PREFIX}${teamId}/${productKey}`
 }
 
-/** Drops every product's cached has-data answer, so isolated renders (stories) detect afresh. */
-export function clearAllCachedHasData(): void {
+// localStorage throws in private modes or when disabled; a miss only costs a re-detect.
+function tryStorage<T>(fallback: T, run: (storage: Storage) => T): T {
     try {
-        Object.keys(window.localStorage)
-            .filter((key) => key.startsWith(HAS_DATA_CACHE_PREFIX))
-            .forEach((key) => window.localStorage.removeItem(key))
-    } catch {
-        // Storage is unavailable, so nothing was cached either.
-    }
-}
-
-// localStorage can throw (private modes, disabled storage); every read/write miss is
-// safe, since the caller either re-detects or just skips caching the answer.
-function withHasDataCacheKey<T>(
-    teamId: number | null,
-    productKey: ProductKey,
-    fallback: T,
-    run: (key: string) => T
-): T {
-    try {
-        return teamId === null ? fallback : run(hasDataCacheKey(teamId, productKey))
+        return run(window.localStorage)
     } catch {
         return fallback
     }
 }
 
+/** Drops every product's cached has-data answer, so isolated renders (stories) detect afresh. */
+export function clearAllCachedHasData(): void {
+    tryStorage(undefined, (storage) =>
+        Object.keys(storage)
+            .filter((key) => key.startsWith(HAS_DATA_CACHE_PREFIX))
+            .forEach((key) => storage.removeItem(key))
+    )
+}
+
 function readCachedHasData(teamId: number | null, productKey: ProductKey): boolean {
-    return withHasDataCacheKey(teamId, productKey, false, (key) => window.localStorage.getItem(key) === '1')
+    return (
+        teamId !== null && tryStorage(false, (storage) => storage.getItem(hasDataCacheKey(teamId, productKey)) === '1')
+    )
 }
 
 function writeCachedHasData(teamId: number | null, productKey: ProductKey): void {
-    withHasDataCacheKey(teamId, productKey, undefined, (key) => window.localStorage.setItem(key, '1'))
+    if (teamId !== null) {
+        tryStorage(undefined, (storage) => storage.setItem(hasDataCacheKey(teamId, productKey), '1'))
+    }
 }
 
 function clearCachedHasData(teamId: number | null, productKey: ProductKey): void {
-    withHasDataCacheKey(teamId, productKey, undefined, (key) => window.localStorage.removeItem(key))
+    if (teamId !== null) {
+        tryStorage(undefined, (storage) => storage.removeItem(hasDataCacheKey(teamId, productKey)))
+    }
+}
+
+function isNoDataStatus(status: ProductSetupStatus | null): status is 'needs-setup' | 'waiting-for-data' {
+    return status === 'needs-setup' || status === 'waiting-for-data'
 }
 
 /**
@@ -171,6 +181,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 ['currentTeamId'],
             ],
         })),
+        actions({ revalidateCachedStatus: true }),
         loaders({
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
@@ -186,29 +197,24 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 (recheckActionTypes?.() ?? []).map((actionType) => [
                     actionType,
                     () => {
-                        // Rechecks exist to flip the gate open after the first entity is created
-                        // in place; once it is open, another probe changes nothing.
                         if (values.currentProjectId && values.setupStatus !== 'has-data') {
                             actions.detectStatus()
                         }
                     },
                 ])
             ),
-            detectStatusSuccess: ({ detectedStatus }) => {
-                const revalidating = cache.cacheGate === 'armed'
-                if (revalidating) {
-                    cache.cacheGate = 'closed'
-                    // The cached has-data already opened the gate and ran onDetected. Only a
-                    // definite "no data" answer changes anything, and it must bypass the
-                    // guard that stops needs-setup replacing has-data.
-                    if (detectedStatus === 'needs-setup' || detectedStatus === 'waiting-for-data') {
-                        clearCachedHasData(values.currentTeamId, productKey)
-                        actions.applyDetectedStatus(detectedStatus, values.currentTeamId)
-                        onDetected?.(detectedStatus)
-                        startPoll(cache, actions, values, pollIntervalMs)
-                    }
-                    return
+            revalidateCachedStatus: async (_, breakpoint) => {
+                const status = await detectOrNull(detect)
+                breakpoint()
+                if (isNoDataStatus(status)) {
+                    clearCachedHasData(values.currentTeamId, productKey)
+                    // Bypasses the guard in setDetectedStatus that stops needs-setup replacing has-data.
+                    actions.applyDetectedStatus(status, values.currentTeamId)
+                    onDetected?.(status)
+                    startPoll(cache, actions, values, pollIntervalMs)
                 }
+            },
+            detectStatusSuccess: ({ detectedStatus }) => {
                 if (!detectedStatus) {
                     if (values.setupStatus === 'loading') {
                         actions.setDetectedStatus('unknown')
@@ -226,9 +232,6 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             detectStatusFailure: ({ errorObject }) => {
-                if (cache.cacheGate === 'armed') {
-                    cache.cacheGate = 'closed'
-                }
                 // Never strand the gate on its spinner: if nothing (preload included)
                 // has answered yet, fail open to the real scene. The poll keeps
                 // retrying, and a failure never downgrades an existing answer.
@@ -243,11 +246,10 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 }
             },
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
-                // Covers non-polling products mounted before bootstrap settled. A cache hit
-                // gates this off, except for one still-armed revalidation catch-up. The action
-                // can fire with the project still null, so detectIfProjectKnown re-checks it.
-                if (cache.cacheGate !== 'closed' && values.detectedStatus === null && !values.detectedStatusLoading) {
-                    detectIfProjectKnown(actions, values)
+                const run = cache.runWhenProjectKnown
+                if (run && values.currentProjectId) {
+                    cache.runWhenProjectKnown = null
+                    run()
                 }
             },
         })),
@@ -257,27 +259,34 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // The cache skips detection, not the side effects - returning users take
                 // this path on every later visit.
                 onDetected?.('has-data')
-                cache.cacheGate = revalidateCachedHasData ? 'armed' : 'closed'
                 if (revalidateCachedHasData) {
-                    // Before bootstrap settles, the loadCurrentProjectSuccess listener runs it.
-                    detectIfProjectKnown(actions, values)
+                    runOnceProjectIsKnown(cache, values, actions.revalidateCachedStatus)
                 }
                 return
             }
-            detectIfProjectKnown(actions, values)
+            runOnceProjectIsKnown(cache, values, actions.detectStatus)
             startPoll(cache, actions, values, pollIntervalMs)
         }),
     ])
 }
 
-// The API layer resolves the project from bootstrap state, so a check fired before
-// that settles throws instead of answering - skip those ticks.
-function detectIfProjectKnown(
-    actions: Pick<SetupDetectionLogicType['actions'], 'detectStatus'>,
-    values: Pick<SetupDetectionValues, 'currentProjectId'>
+async function detectOrNull(detect: () => Promise<ProductSetupStatus | null>): Promise<ProductSetupStatus | null> {
+    try {
+        return await detect()
+    } catch {
+        return null
+    }
+}
+
+function runOnceProjectIsKnown(
+    cache: Record<string, any>,
+    values: Pick<SetupDetectionValues, 'currentProjectId'>,
+    run: () => void
 ): void {
     if (values.currentProjectId) {
-        actions.detectStatus()
+        run()
+    } else {
+        cache.runWhenProjectKnown = run
     }
 }
 
@@ -289,7 +298,11 @@ function startPoll(
 ): void {
     if (pollIntervalMs) {
         cache.disposables.add(() => {
-            const id = window.setInterval(() => detectIfProjectKnown(actions, values), pollIntervalMs)
+            const id = window.setInterval(() => {
+                if (values.currentProjectId) {
+                    actions.detectStatus()
+                }
+            }, pollIntervalMs)
             return () => clearInterval(id)
         }, 'poll')
     }

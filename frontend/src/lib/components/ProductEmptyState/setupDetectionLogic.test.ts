@@ -58,6 +58,22 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('unknown')
     })
 
+    it('detects once the project loads when mounted before it is known', async () => {
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+        const detect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValue('needs-setup')
+        const logic = buildLogic(detect)
+        logic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(detect).not.toHaveBeenCalled()
+
+        projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+        projectLogic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(detect).toHaveBeenCalledTimes(1)
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
+    })
+
     it.each([
         ['rejects', 'needs-setup'],
         ['returns null', 'needs-setup'],
