@@ -1148,7 +1148,11 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
     run = ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pull_request, head_sha="sha-x", status=ReviewRunStatus.REVIEWING
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-x",
+        status=ReviewRunStatus.REVIEWING,
+        output={"review_trigger": "manual"},
     )
 
     # ph_scoped_capture is a context manager yielding the capture callable, so the patch
@@ -1167,6 +1171,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     props = capture_fn.call_args.kwargs["properties"]
     assert props["stamphog_repo"] == REPO
     assert props["stamphog_error"] == expected_stored
+    assert props["stamphog_review_trigger"] == "manual"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
