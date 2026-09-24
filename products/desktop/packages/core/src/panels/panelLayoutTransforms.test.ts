@@ -97,6 +97,25 @@ describe("panelLayoutTransforms", () => {
 
       expect(findTabInTree(closed.panelTree, tabId)).toBeNull();
     });
+
+    it("keeps a file open while a copy of its tab survives", () => {
+      const layout = createInitialTaskLayout();
+      const tabId = createFileTabId("src/App.tsx");
+      const opened = applyUpdates(layout, openTab(layout, tabId, false));
+      const { next: split, newPane } = splitMainPanelRight(opened);
+
+      const originalClosed = applyUpdates(
+        split,
+        closeTab(split, "main-panel", tabId),
+      );
+      expect(originalClosed.openFiles).toEqual(["src/App.tsx"]);
+
+      const copyClosed = applyUpdates(
+        originalClosed,
+        closeTab(originalClosed, newPane.id, newPane.content.tabs[0].id),
+      );
+      expect(copyClosed.openFiles).toEqual([]);
+    });
   });
 
   describe("splitPanelWithCopy", () => {

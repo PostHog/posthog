@@ -8,7 +8,7 @@ import {
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import type React from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { useTabInjection } from "../hooks/usePanelLayoutHooks";
@@ -64,6 +64,13 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
     ? node.content.activeTabId
     : (tabs[0]?.id ?? node.content.activeTabId);
+  // Keyboard actions read the stored active tab, so point it at the rendered
+  // one when the stored tab is a hidden terminal.
+  useEffect(() => {
+    if (activeTabId && activeTabId !== node.content.activeTabId) {
+      onActiveTabChange(node.id, activeTabId);
+    }
+  }, [activeTabId, node.content.activeTabId, node.id, onActiveTabChange]);
   // A pane whose only tabs are hidden shows nothing; the close button lets
   // the user collapse it.
   const hasOnlyHiddenTabs = tabs.length === 0 && node.content.tabs.length > 0;

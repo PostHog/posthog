@@ -2,7 +2,6 @@ import { DEFAULT_PANEL_IDS, DEFAULT_TAB_IDS } from "./panelConstants";
 import {
   addNewTabToPanel,
   applyCleanupWithFallback,
-  createFileTabId,
   generatePanelId,
   getLeafPanel,
   getSplitConfig,
@@ -12,6 +11,7 @@ import {
 import {
   addTabToPanel,
   cleanupNode,
+  collectLeafPanels,
   findNeighborLeaf,
   findTabInPanel,
   findTabInTree,
@@ -407,12 +407,24 @@ export function closeTab(
     cleanupNode(updatedTree),
     layout.panelTree,
   );
-  const metadata = updateMetadataForTab(layout, tabId, "remove");
 
   return {
     panelTree: cleanedTree,
-    ...metadata,
+    openFiles: pruneOpenFiles(layout.openFiles, cleanedTree),
   };
+}
+
+// A copied file tab has its own id, so the open-files list follows the tabs
+// that survive rather than the id of the tab that closed.
+function pruneOpenFiles(openFiles: string[], tree: PanelNode): string[] {
+  const openPaths = new Set(
+    collectLeafPanels(tree).flatMap((leaf) =>
+      leaf.content.tabs.flatMap((tab) =>
+        tab.data.type === "file" ? [tab.data.relativePath] : [],
+      ),
+    ),
+  );
+  return openFiles.filter((file) => openPaths.has(file));
 }
 
 export function closeOtherTabs(
@@ -711,17 +723,9 @@ export function closePanel(
   const pinnedTabs = panel.content.tabs.filter(
     (tab) => tab.closeable === false,
   );
-  const closingIds = new Set(
-    panel.content.tabs
-      .filter((tab) => tab.closeable !== false)
-      .map((tab) => tab.id),
-  );
   const neighbor = findNeighborLeaf(layout.panelTree, panelId);
-  if (!neighbor && closingIds.size === 0) return {};
+  if (!neighbor && pinnedTabs.length === panel.content.tabs.length) return {};
 
-  const openFiles = layout.openFiles.filter(
-    (file) => !closingIds.has(createFileTabId(file)),
-  );
   // The last pane has nowhere to send its pinned tabs, so it keeps them.
   const keptTabs = neighbor ? [] : pinnedTabs;
   const emptiedTree = updateTreeNode(layout.panelTree, panelId, (node) =>
@@ -739,7 +743,12 @@ export function closePanel(
           },
         },
   );
-  if (!neighbor) return { panelTree: emptiedTree, openFiles };
+  if (!neighbor) {
+    return {
+      panelTree: emptiedTree,
+      openFiles: pruneOpenFiles(layout.openFiles, emptiedTree),
+    };
+  }
 
   const treeWithPinnedTabs = updateTreeNode(emptiedTree, neighbor.id, (node) =>
     node.type !== "leaf"
@@ -757,7 +766,11 @@ export function closePanel(
     layout.panelTree,
   );
 
-  return { panelTree, focusedPanelId: neighbor.id, openFiles };
+  return {
+    panelTree,
+    focusedPanelId: neighbor.id,
+    openFiles: pruneOpenFiles(layout.openFiles, panelTree),
+  };
 }
 
 export function updateSizes(
