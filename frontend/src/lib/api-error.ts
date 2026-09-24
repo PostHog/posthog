@@ -237,19 +237,13 @@ export function readableErrorMessage(error: unknown): string | undefined {
     )
 }
 
-/** The request a failure came from, as the browser issued it. */
-export interface FailedRequestEndpoint {
-    method: string
-    pathname: string
-}
-
 export class ApiError extends Error {
     /**
-     * The request that failed. Every `ApiError` is built in `lib/api.ts`, so a reported one carries
-     * that file's stack and no trace of the endpoint it came from. The path is what names the
-     * failing surface, because the query endpoint puts the query kind in it.
+     * The request that failed, set by the request path. Every `ApiError` is built in `lib/api.ts`,
+     * so a reported one carries that file's stack and nothing that names the endpoint. The path
+     * names the failing surface, because the query endpoint puts the query kind in it.
      */
-    endpoint: FailedRequestEndpoint | null = null
+    endpoint: { method: string; pathname: string } | null = null
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
     /** Django REST Framework `code` - used in downstream error handling. */
