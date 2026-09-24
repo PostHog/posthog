@@ -176,7 +176,9 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
         {
             "counts": {"teams_with_cdp_billable_invocations_in_period": [[1, 12]]},
             "usage_sources": {"cdp_billable_invocations_in_period": "both"},
-            "realtime_counters": None if state == "failed_scan" else {"cdp_billable_invocations_in_period": {}},
+            "counter_comparisons": None
+            if state == "failed_scan"
+            else {"cdp_billable_invocations_in_period": {"legacy_by_team": {1: 12}, "realtime_by_org": {}}},
         }
     ).encode()
     with patch(
@@ -195,6 +197,7 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
         if state != "legacy":
             assert counter_report.counts == {"teams_with_cdp_billable_invocations_in_period": [(1, 12)]}
     org = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
+    org.teams["1"] = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
     apply_usage_counter_metadata({"org-a": org}, counter_report, caller="usage_reports_v2", date=ctx.date_str)
     assert org.cdp_billable_invocations_in_period == 12
     if state == "legacy":
@@ -203,8 +206,8 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
     else:
         assert org.usage_sources is not None
         assert org.usage_sources["cdp_billable_invocations_in_period"] == "both"
-    assert org.realtime_counters == (
-        {"cdp_billable_invocations_in_period": 0} if state in {"zero", "partial"} else None
+    assert org.counter_comparisons == (
+        {"cdp_billable_invocations_in_period": {"legacy": 12, "realtime": 0}} if state in {"zero", "partial"} else None
     )
 
 
@@ -338,7 +341,7 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
         "shadow-only": _empty_org_report(
             "shadow-only",
             usage_sources={"cdp_billable_invocations_in_period": "both"},
-            realtime_counters={"cdp_billable_invocations_in_period": 50},
+            counter_comparisons={"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 50}},
         ),
         # Counters not in `has_non_zero_usage` (dashboard counts, query
         # bytes read, etc.) must not keep an org in.

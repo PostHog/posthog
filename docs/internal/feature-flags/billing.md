@@ -228,8 +228,11 @@ The usage report task queries ClickHouse for aggregated billing data.
 **Source file:** `posthog/tasks/usage_report.py`
 
 Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
-Each counter's feature flag selects `legacy` (billing events), `both` (billing events plus a comparison from `billing_usage_records`), or `realtime` (usage records).
-The mode selects the same queries for every caller and time window; `both` keeps the legacy count authoritative.
+Each counter's feature flag selects `legacy`, `both`, or `realtime`.
+`legacy` queries billing events. `both` and `realtime` query billing events and `billing_usage_records`; `both` keeps the legacy count authoritative, while `realtime` uses the usage record count.
+Reports retain both totals in `counter_comparisons` in either mode. A failed comparison query omits that counter's pair; failures in queries needed for normal report fields still fail the report.
+Removing legacy queries will be a later code change.
+The mode selects the same queries for every caller and time window.
 Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
 
 ### Billable calculation

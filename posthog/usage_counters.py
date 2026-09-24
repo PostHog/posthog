@@ -3,7 +3,7 @@ from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from threading import RLock
-from typing import Literal
+from typing import Literal, TypedDict
 
 from django.conf import settings
 
@@ -135,11 +135,22 @@ class UsageCounterPlan:
 
 
 @frozen
+class UsageCounterComparisonRows:
+    legacy_by_team: dict[int, int]
+    realtime_by_org: dict[str, int]
+
+
+class UsageCounterComparison(TypedDict):
+    legacy: int
+    realtime: int
+
+
+@frozen
 class UsageCounterReport:
     counts: dict[str, list[tuple[int, int]]]
     usage_sources: dict[str, UsageCounterMode] | None = None
-    # None means the scan failed or did not run; an empty map is a successful zero.
-    realtime_counters: dict[str, dict[str, int]] | None = None
+    # A missing counter means its comparison failed or did not run; empty totals mean a successful zero.
+    counter_comparisons: dict[str, UsageCounterComparisonRows] | None = None
 
 
 def record_shadow_failure(caller: UsageCounterCaller, stage: str) -> None:
@@ -272,8 +283,7 @@ class UsageCounterService:
                         for library, rows in libraries.items()
                     }
                 )
-                if mode != UsageCounterMode.REALTIME:
-                    counts[counter.value] = [(team_id, count) for team_id, count in totals]
+                counts[counter.value] = [(team_id, count) for team_id, count in totals]
             elif counter == UsageCounter.LOGS_RETENTION_30D_BYTES:
                 counts.update(
                     {
@@ -281,8 +291,16 @@ class UsageCounterService:
                         for tier, rows in self._logs_retention_query(plan.period.start, plan.period.end).items()
                     }
                 )
-            elif mode != UsageCounterMode.REALTIME:
-                counts[counter.value] = self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)
+            else:
+                try:
+                    counts[counter.value] = self.get_legacy(
+                        counter, plan.period.start, plan.period.end, caller=plan.caller
+                    )
+                except Exception:
+                    if mode != UsageCounterMode.REALTIME:
+                        raise
+                    logger.exception("usage_counter_legacy_comparison_failed", caller=plan.caller, counter=counter)
+                    record_shadow_failure(plan.caller, "legacy_comparison")
         return counts
 
     def fetch_report(self, period: DayRange, *, plan: UsageCounterPlan | None = None) -> UsageCounterReport:
@@ -316,11 +334,13 @@ class UsageCounterService:
             teams[row.team_id] = teams.get(row.team_id, 0) + row.quantity
             orgs = by_org[row.usage_key]
             orgs[row.organization_id] = orgs.get(row.organization_id, 0) + row.quantity
-        comparisons: dict[str, dict[str, int]] = {}
+        comparisons: dict[str, UsageCounterComparisonRows] = {}
         for counter in record_counters:
             key = RECORD_USAGE_KEYS[counter]
+            if counter.value in counts:
+                comparisons[counter.value.removeprefix("teams_with_")] = UsageCounterComparisonRows(
+                    legacy_by_team=dict(counts[counter.value]), realtime_by_org=by_org[key]
+                )
             if plan.modes[counter] == UsageCounterMode.REALTIME:
                 counts[counter.value] = list(by_team[key].items())
-            else:
-                comparisons[counter.value.removeprefix("teams_with_")] = by_org[key]
-        return UsageCounterReport(counts=counts, usage_sources=sources, realtime_counters=comparisons or None)
+        return UsageCounterReport(counts=counts, usage_sources=sources, counter_comparisons=comparisons or None)
