@@ -1558,17 +1558,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setFeatureFlags: () => {
-                if (!values.filters.recommended_only) {
-                    if (values.filters.event_match_scope === 'recording') {
+                if (values.filters.recommended_only) {
+                    if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
                         actions.loadSessionRecordings()
+                    } else {
+                        // The flag decides this one, so it is not a viewer edit.
+                        actions.setFilters({ recommended_only: false }, false)
                     }
                     return
                 }
-                if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
+                if (values.filters.event_match_scope === 'recording') {
                     actions.loadSessionRecordings()
-                } else {
-                    // The flag decides this one, so it is not a viewer edit.
-                    actions.setFilters({ recommended_only: false }, false)
                 }
             },
             loadAllRecordings: () => {
