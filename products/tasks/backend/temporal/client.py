@@ -472,7 +472,7 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     independently gate on the skill's ``allowed_tools`` opt-in.
     """
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
-        RunSource,
+        mcp_scopes_for_run_source,
         parse_run_state,
     )
 
@@ -489,7 +489,7 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
         return "read_only"
 
     run_source = parse_run_state(task_run.state).run_source
-    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
+    return mcp_scopes_for_run_source(run_source)
 
 
 def redispatch_orphaned_task_run(run_id: str) -> str:

@@ -1,0 +1,9 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            // backend/tests/test_constants.py reads the MCP manifest from disk.
+            "inputs": ["$TURBO_EXTENDS$", "mcp/tools.yaml"]
+        }
+    }
+}

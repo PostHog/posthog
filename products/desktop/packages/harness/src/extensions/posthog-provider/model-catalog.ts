@@ -3,12 +3,8 @@ import {
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
 import type { ModelInfo } from "@earendil-works/pi-coding-agent";
-import {
-  type CloudRegion,
-  formatGatewayModelName,
-  isHiddenPiModelId,
-} from "@posthog/shared";
-import { labelForModel } from "@posthog/shared/model-catalog";
+import { type CloudRegion, formatGatewayModelName } from "@posthog/shared";
+import { isOfferedModel, labelForModel } from "@posthog/shared/model-catalog";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,
@@ -46,7 +42,7 @@ export function resolvePosthogPiModelCatalog(
   region: CloudRegion,
 ): PiModelCatalogEntry[] {
   return resolveModelConfigsFromGatewayModels(gatewayModels, region)
-    .filter((model) => !isHiddenPiModelId(model.id))
+    .filter((model) => isOfferedModel(model.id))
     .map((model) => ({
       provider: "posthog",
       id: model.id,

@@ -110,7 +110,7 @@ def is_shared_channel(channel: dict) -> bool:
     return any(channel.get(flag) for flag in SHARED_CHANNEL_FLAGS)
 
 
-def fetch_channel_map(integration: Integration) -> dict[str, SlackChannel]:
+def fetch_channel_map(integration: Integration, *, source: str) -> dict[str, SlackChannel]:
     """Public channel name -> channel, for one Slack integration.
 
     Private channels are skipped: listing them needs a real authed Slack user, and this runs from a
@@ -120,7 +120,7 @@ def fetch_channel_map(integration: Integration) -> dict[str, SlackChannel]:
     """
     return {
         channel["name"]: SlackChannel(channel_id=channel["id"], shared=is_shared_channel(channel))
-        for channel in SlackIntegration(integration).list_public_channels()
+        for channel in SlackIntegration(integration, source=source).list_public_channels()
     }
 
 
