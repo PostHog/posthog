@@ -90,7 +90,7 @@ _VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 UNEVALUABLE_FILTERS_MESSAGE = "These filters can't be evaluated. Check the property values in this release condition."
 
 
-def _caller_facing_ch_message(error: InternalCHQueryError) -> str:
+def _caller_facing_ch_message(error: ExposedCHQueryError) -> str:
     """
     Pick the message a ClickHouse failure may show the caller.
 
@@ -102,7 +102,7 @@ def _caller_facing_ch_message(error: InternalCHQueryError) -> str:
     and falls back here.
     """
     if isinstance(look_up_clickhouse_error_code_meta(error).user_safe, str):
-        return str(error) or UNEVALUABLE_FILTERS_MESSAGE
+        return str(error)
     return UNEVALUABLE_FILTERS_MESSAGE
 
 
@@ -116,7 +116,7 @@ def _group_property_globals(group_type_index: GroupTypeIndex) -> dict[str, int]:
     the left side of a comparison stays the raw JSON string, and a Boolean group property
     compiles to equals(String, UInt8), which ClickHouse refuses.
     """
-    return {"group_id": int(group_type_index)}
+    return {"group_id": group_type_index}
 
 
 @contextmanager
