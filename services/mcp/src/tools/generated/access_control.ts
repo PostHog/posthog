@@ -92,9 +92,12 @@ const AccessControlDefaultRuleSetSchema = () => {
             resource: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['resource'].describe(
                 'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resource_access_levels` on access-control-defaults-get.'
             ),
-            resource_id: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['resource_id'].describe(
-                "Optional. The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Omit for the project or a whole tool."
-            ),
+            resource_id: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['resource_id']
+                .default(null)
+                .optional()
+                .describe(
+                    "The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null for the project or a whole tool."
+                ),
             access_level: OrganizationsProjectsAccessControlDefaultRulesUpdateBody.shape['access_level'].describe(
                 "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
             ),
@@ -126,7 +129,7 @@ const accessControlDefaultRuleSetPrepare = (): ToolBase<
             purpose: 'access-control-default-rule-set',
             actionLabel: 'change the default access rule',
             messageTemplate:
-                "About to change the default {resource} access rule in project {id}. This changes what every member without a rule of their own gets. Reply 'confirm' to proceed.\n",
+                "About to set the default {resource} access rule in project {id} to {access_level}, for object {resource_id} (null means the whole scope; a null level clears the rule). This changes what every member without a rule of their own gets. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { orgId: String(__scopeOrgId) },
@@ -324,9 +327,12 @@ const AccessControlMemberRuleSetSchema = () => {
             resource: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['resource'].describe(
                 'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-members-list.'
             ),
-            resource_id: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['resource_id'].describe(
-                "Optional. The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Omit for the project or a whole tool."
-            ),
+            resource_id: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['resource_id']
+                .default(null)
+                .optional()
+                .describe(
+                    "The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null for the project or a whole tool."
+                ),
             access_level: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['access_level'].describe(
                 "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
             ),
@@ -358,7 +364,7 @@ const accessControlMemberRuleSetPrepare = (): ToolBase<
             purpose: 'access-control-member-rule-set',
             actionLabel: "change a member's access rule",
             messageTemplate:
-                "About to change the {resource} access rule for member {member_id} in project {id}. Reply 'confirm' to proceed.\n",
+                "About to set the {resource} access rule for member {member_id} in project {id} to {access_level}, for object {resource_id} (null means the whole scope; a null level clears the rule). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { orgId: String(__scopeOrgId) },
@@ -571,9 +577,12 @@ const AccessControlRoleRuleSetSchema = () => {
             resource: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource'].describe(
                 'The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-roles-list.'
             ),
-            resource_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource_id'].describe(
-                "Optional. The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Omit for the project or a whole tool."
-            ),
+            resource_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource_id']
+                .default(null)
+                .optional()
+                .describe(
+                    "The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null for the project or a whole tool."
+                ),
             access_level: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['access_level'].describe(
                 "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
             ),
@@ -605,7 +614,7 @@ const accessControlRoleRuleSetPrepare = (): ToolBase<
             purpose: 'access-control-role-rule-set',
             actionLabel: "change a role's access rule",
             messageTemplate:
-                "About to change the {resource} access rule for role {role_id} in project {id}. This affects every member of the role. Reply 'confirm' to proceed.\n",
+                "About to set the {resource} access rule for role {role_id} in project {id} to {access_level}, for object {resource_id} (null means the whole scope; a null level clears the rule). This affects every member of the role. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { orgId: String(__scopeOrgId) },

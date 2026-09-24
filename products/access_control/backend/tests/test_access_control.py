@@ -21,6 +21,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.api import PropertyAccessControlRuleNotFoundError
 from products.access_control.backend.facade.object_names import display_model, resources_with_object_access_controls
 from products.access_control.backend.facade.user_access_control import AccessSource
 from products.access_control.backend.models.access_control import AccessControl
@@ -136,7 +137,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self._put_project_access_control({"organization_member": "not-a-valid-uuid", "access_level": "member"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert res.json()["attr"] == "member_id"
+        assert res.json()["attr"] == "organization_member"
         # Should not mention "UUID" in the error message
         assert "UUID" not in res.json()["detail"]
         # Should provide helpful guidance
@@ -2783,8 +2784,6 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
 
 
 class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
-    """The default, member and role rule endpoints behind the MCP write tools."""
-
     def setUp(self):
         super().setUp()
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -2929,7 +2928,8 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
 
     def _property_definition(self) -> PropertyDefinition:
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
         ]
         self.organization.save()
@@ -2954,6 +2954,18 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         assert self._put(subject, {**body, "access_level": None}).json() == {"outcome": "cleared", "rule": None}
         assert not PropertyAccessControl.objects.filter(team=self.team).exists()
         assert self._put(subject, {**body, "access_level": None}).json()["outcome"] == "noop"
+
+    def test_property_rule_clear_that_loses_a_race_is_a_noop(self):
+        prop = self._property_definition()
+        body = {"resource": "property_definition", "resource_id": str(prop.id), "access_level": None}
+        # The rule vanishes between the request and the delete, as a concurrent clear would make it
+        with patch(
+            "products.access_control.backend.facade.api.delete_property_access_control",
+            side_effect=PropertyAccessControlRuleNotFoundError,
+        ):
+            res = self._put("default", body)
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json() == {"outcome": "noop", "rule": None}
 
     def test_property_rule_validation(self):
         prop = self._property_definition()
