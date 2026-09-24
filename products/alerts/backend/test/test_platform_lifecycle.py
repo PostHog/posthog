@@ -85,16 +85,16 @@ class TestPlatformAlertLifecycle(APIBaseTest):
                 )
             )
 
-        def snooze_seen_by_check() -> datetime | None:
+        def snooze_seen_by_check() -> tuple[str, datetime | None]:
             (check,) = [
                 c
                 for c in due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff)
                 if c.legacy_configuration_id == legacy_id
             ]
-            return check.snooze_until
+            return check.state, check.snooze_until
 
         copy(snoozed_until)
-        assert snooze_seen_by_check() == snoozed_until
+        assert snooze_seen_by_check() == ("snoozed", snoozed_until)
 
         copy(None)
-        assert snooze_seen_by_check() is None
+        assert snooze_seen_by_check() == ("not_firing", None)

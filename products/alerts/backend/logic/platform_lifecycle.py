@@ -189,5 +189,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             },
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-        PlatformAlert.objects.for_team(upsert.team_id).filter(id=alert.id).update(snooze_until=upsert.snooze_until)
+        # Logs-style evaluation honors `snooze_until` only while the state is SNOOZED.
+        if upsert.snooze_until is not None:
+            alert.state = PlatformAlert.State.SNOOZED
+        elif alert.state == PlatformAlert.State.SNOOZED:
+            alert.state = PlatformAlert.State.NOT_FIRING
+        alert.snooze_until = upsert.snooze_until
+        alert.save(update_fields=["state", "snooze_until"])
     return created
