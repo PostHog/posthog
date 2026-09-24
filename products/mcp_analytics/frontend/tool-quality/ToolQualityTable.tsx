@@ -75,7 +75,12 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'p95_duration_ms', label: 'p95', align: 'right', tooltip: '95th-percentile $mcp_duration_ms' },
     { key: 'p99_duration_ms', label: 'p99', align: 'right', tooltip: '99th-percentile $mcp_duration_ms' },
     { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
-    { key: 'sessions', label: 'Sessions', align: 'right', tooltip: 'Unique sessions where this tool was called' },
+    {
+        key: 'sessions',
+        label: 'Sessions',
+        align: 'right',
+        tooltip: 'Unique sessions where this tool was called, and their share of all sessions in the period',
+    },
     { key: 'last_seen', label: 'Last seen' },
 ]
 
@@ -157,7 +162,7 @@ function SortableHead({
 }
 
 function ToolRows(): JSX.Element {
-    const { toolRows, toolRowsPageLoading, selectedTool, dateFilter, pinnedInterval } =
+    const { toolRows, toolRowsTotalSessions, toolRowsPageLoading, selectedTool, dateFilter, pinnedInterval } =
         useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
@@ -203,7 +208,14 @@ function ToolRows(): JSX.Element {
                     <TableCell align="right">{formatMs(row.p95_duration_ms)}</TableCell>
                     <TableCell align="right">{formatMs(row.p99_duration_ms)}</TableCell>
                     <TableCell align="right">{formatNumber(row.users)}</TableCell>
-                    <TableCell align="right">{formatNumber(row.sessions)}</TableCell>
+                    <TableCell align="right">
+                        <span className="tabular-nums">{formatNumber(row.sessions)}</span>
+                        {toolRowsTotalSessions > 0 ? (
+                            <span className="text-secondary tabular-nums">
+                                {` · ${formatPercentage((row.sessions / toolRowsTotalSessions) * 100, { compact: true })}`}
+                            </span>
+                        ) : null}
+                    </TableCell>
                     <TableCell className="whitespace-nowrap">
                         <TZLabel time={row.last_seen} />
                     </TableCell>

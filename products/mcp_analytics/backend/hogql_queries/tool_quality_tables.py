@@ -275,6 +275,25 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             ]
         return query
 
+    def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Ignores category and search so that narrowing the table does not turn a tool's share into 100%.
+        return parse_select(
+            """
+            SELECT countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '')
+            FROM events
+            WHERE {where}
+            """,
+            placeholders={
+                "where": _named_tool_where(
+                    _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
+                    None,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                ),
+            },
+        )
+
     def _calculate(self) -> MCPToolQualityRowsQueryResponse:
         with tags_context(
             product=Product.MCP_ANALYTICS,
@@ -305,6 +324,15 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 )
                 first_row = first_row_response.results or []
                 total_count = int(first_row[0][13] or 0) if first_row else 0
+            total_sessions_response = execute_hogql_query(
+                query=self._total_sessions_query(),
+                team=self.team,
+                user=self.user,
+                query_type="mcp_tool_quality_total_sessions_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
@@ -326,6 +354,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         return MCPToolQualityRowsQueryResponse(
             results=results,
             totalCount=total_count,
+            totalSessions=int((total_sessions_response.results or [[0]])[0][0] or 0),
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,

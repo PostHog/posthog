@@ -227,6 +227,19 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert row.total_calls == 1
         assert row.previous_calls == 1
 
+    def test_total_sessions_ignores_search_and_counts_each_session_once(self) -> None:
+        _emit(self.team, tool_name="query_run", session_id="s1")
+        _emit(self.team, tool_name="insight_get", session_id="s1")
+        _emit(self.team, tool_name="insight_get", session_id="s2")
+        flush_persons_and_events()
+
+        response = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), search="query_run"), team=self.team
+        ).calculate()
+
+        assert [(row.tool, row.sessions) for row in response.results] == [("query_run", 1)]
+        assert response.totalSessions == 2
+
     def test_tool_with_only_previous_calls_is_absent_and_excluded_from_total_count(self) -> None:
         now = datetime.now(tz=UTC)
         _emit(self.team, tool_name="old_only_tool", timestamp=now - timedelta(days=10))
