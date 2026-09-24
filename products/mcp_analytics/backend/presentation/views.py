@@ -25,6 +25,7 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 from .serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
     MCP_SESSION_LIST_MAX_LIMIT,
+    MCPActivityOverviewQuerySerializer,
     MCPActivityOverviewSerializer,
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
@@ -105,17 +106,20 @@ class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         report_user_action(
             cast(User, request.user),
             self.user_action_name,
-            {
-                "submission_id": str(submission.id),
-                "kind": submission.kind,
-                "attempted_tool": submission.attempted_tool,
-                "mcp_client_name": submission.mcp_client_name,
-                "mcp_session_id_present": bool(submission.mcp_session_id),
-                "mcp_trace_id_present": bool(submission.mcp_trace_id),
-            },
+            self._submission_event_properties(submission),
             team=self.team,
             request=request,
         )
+
+    def _submission_event_properties(self, submission: contracts.Submission) -> dict[str, Any]:
+        return {
+            "submission_id": str(submission.id),
+            "kind": submission.kind,
+            "attempted_tool": submission.attempted_tool,
+            "mcp_client_name": submission.mcp_client_name,
+            "mcp_session_id_present": bool(submission.mcp_session_id),
+            "mcp_trace_id_present": bool(submission.mcp_trace_id),
+        }
 
     def _list_response(self, request: Request, kind: enums.SubmissionKind) -> Response:
         paginator = self.pagination_class()
@@ -192,6 +196,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             order_by=params["order_by"],
             date_from=params.get("date_from") or None,
             date_to=params.get("date_to") or None,
+            properties=params["properties"],
+            filter_test_accounts=params["filter_test_accounts"],
+            user=cast(User, request.user),
         )
         serializer = self.get_serializer(page.results, many=True)
         # Instantiate the concrete class (not self.pagination_class()) so the typed
@@ -213,6 +220,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=params["limit"],
             offset=params["offset"],
             date_from=params.get("date_from"),
+            properties=params["properties"],
+            filter_test_accounts=params["filter_test_accounts"],
+            user=cast(User, request.user),
         )
         serializer = MCPToolCallSerializer(page.results, many=True)
         return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
@@ -281,18 +291,25 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         return Response(MCPIntentDigestSerializer(digest).data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=MCPActivityOverviewQuerySerializer,
+        responses={200: OpenApiResponse(response=MCPActivityOverviewSerializer)},
         operation_id="mcp_analytics_sessions_activity_overview",
         description=(
             "Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, "
             "computed in one request. Powers the dashboard's activity view; always computed fresh so polling "
             "callers watch data arrive."
         ),
-        responses={200: MCPActivityOverviewSerializer},
     )
     @action(detail=False, methods=["get"], url_path="activity_overview", pagination_class=None)
-    def activity_overview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        overview = api.get_activity_overview(self.team)
+    def activity_overview(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        params = request.validated_query_data
+        overview = api.get_activity_overview(
+            self.team,
+            properties=params["properties"],
+            filter_test_accounts=params["filter_test_accounts"],
+            user=cast(User, request.user),
+        )
         return Response(MCPActivityOverviewSerializer(overview).data)
 
 
@@ -356,7 +373,9 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
-    user_action_name = "mcp analytics missing capability reported"
+    def _report_submission_created(self, request: Request, submission: contracts.Submission) -> None:
+        distinct_id = str(getattr(request.user, "distinct_id", "") or f"mcp-missing-capability-{self.team.id}")
+        api.capture_missing_capability_event(self.team, distinct_id, submission)
 
     @validated_request(
         request_serializer=MCPMissingCapabilityCreateSerializer,

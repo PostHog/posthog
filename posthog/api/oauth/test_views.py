@@ -9,9 +9,9 @@ from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import OperationalError
@@ -30,7 +30,14 @@ from rest_framework import status
 from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
+from posthog.constants import AvailableFeature
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS,
+    PendingOAuthConnection,
+)
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -40,9 +47,18 @@ from posthog.models.oauth import (
     revoke_application_sessions,
     revoke_oauth_session,
 )
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
+from posthog.utils import absolute_uri
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
+# A cut-off `scope` parameter only reads as truncated once enough real scopes come through
+# before the fragment, so a fixture standing in for one has to be that long.
+TRUNCATED_SCOPE_REQUEST = " ".join([*sorted(ALL_SCOPES)[:MIN_SCOPES_BEFORE_TRUNCATION], "can"])
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -187,6 +203,56 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn(f"/login?next=/oauth/authorize/", response["Location"])
 
+        cookie = response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]
+        self.assertEqual(cookie["max-age"], PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS)
+        self.assertEqual(cookie["samesite"], "Lax")
+        self.assertFalse(cookie["httponly"])
+        self.assertEqual(
+            PendingOAuthConnection.from_cookie_value(cookie.value),
+            PendingOAuthConnection(
+                client_name="Test Confidential App",
+                client_id="test_confidential_client_id",
+                redirect_host="example.com",
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("unregistered_client_id", "no_such_client", None),
+            (
+                "unregistered_cimd_client_id",
+                "https://client.example.com/.well-known/oauth-client",
+                "client.example.com",
+            ),
+        ]
+    )
+    def test_authorize_login_redirect_cookie_for_unknown_client(self, _name, client_id, expected_client_name):
+        self.client.logout()
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", client_id)
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        cookie = response.cookies.get(PENDING_OAUTH_CONNECTION_COOKIE)
+        if expected_client_name is None:
+            self.assertIsNone(cookie)
+            return
+        assert cookie is not None
+        connection = PendingOAuthConnection.from_cookie_value(cookie.value)
+        assert connection is not None
+        self.assertEqual(connection.client_name, expected_client_name)
+        # The redirect_uri in the query is unverified without an application row.
+        self.assertIsNone(connection.redirect_host)
+
+    @parameterized.expand([("granted", True), ("denied", False)])
+    def test_authorize_decision_clears_pending_connection_cookie(self, _name, allow):
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = "stale"
+
+        response = self.client.post("/oauth/authorize/", {**self.base_authorization_post_body, "allow": allow})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
+
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -211,6 +277,56 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("truncated", TRUNCATED_SCOPE_REQUEST, ["canvas:read", "insight:read", "notebook:read"], True),
+            ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
+            ("short_request_with_a_fragment_tail", "insight:read can", ["insight:read"], False),
+            (
+                "every_resource_token_unknown",
+                "...(full scope list)...",
+                ["canvas:read", "insight:read", "notebook:read"],
+                True,
+            ),
+            ("identity_scope_only", "openid", ["openid"], False),
+        ]
+    )
+    @patch("posthog.api.oauth.views.render_template")
+    def test_authorize_resolves_scopes_for_the_consent_screen(
+        self, _name, requested_scope, expected_resource_scopes, expected_was_defaulted, mock_render
+    ):
+        mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
+        self.confidential_application.scopes = ["insight:read", "canvas:read", "notebook:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(requested_scope)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        template_context = mock_render.call_args.kwargs["context"]
+        self.assertEqual(
+            template_context["oauth_scope_resolution"],
+            {
+                "scopes": sorted(set(expected_resource_scopes) | ALWAYS_ALLOWED_SCOPES)
+                if expected_was_defaulted
+                else expected_resource_scopes,
+                "was_defaulted": expected_was_defaulted,
+            },
+        )
+
+    def test_authorize_bootstraps_the_resolved_scopes_into_the_app_context(self):
+        self.confidential_application.scopes = ["insight:read", "canvas:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(TRUNCATED_SCOPE_REQUEST)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The serialized bootstrap, not the view's own template context: `_build_template_context`
+        # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
+        # frontend.
+        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
+        self.assertTrue(resolution["was_defaulted"])
+
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
         mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
@@ -221,6 +337,33 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         template_context = mock_render.call_args.kwargs["context"]
         self.assertNotIn("oauth_mcp_consent", template_context)
+
+    def test_authorize_reports_whether_access_controls_apply(self):
+        def applies() -> bool:
+            response = self.client.get(self.base_authorization_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls_apply"]
+
+        access_control_feature = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+        self.assertFalse(applies())
+
+        self.organization.available_product_features = access_control_feature
+        self.organization.save()
+        # The feature alone changes nothing a person can reach; a rule does.
+        self.assertFalse(applies())
+
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="viewer")
+        self.assertTrue(applies())
+
+        # The grant can reach any organization the user belongs to, not only the current one.
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.assertFalse(applies())
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Other Organization")
+        other_org.available_product_features = access_control_feature
+        other_org.save()
+        AccessControl.objects.create(team=other_team, resource="insight", access_level="none")
+        self.assertTrue(applies())
 
     def test_first_party_app_auto_approves_with_org_scoped_grant(self):
         first_party_app = OAuthApplication.objects.create(
@@ -237,12 +380,14 @@ class TestOAuthAPI(APIBaseTest):
         )
 
         url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = "stale"
 
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response["Location"]
         self.assertIn("code=", location)
+        self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
 
         code = parse_qs(urlparse(location).query)["code"][0]
         grant = OAuthGrant.objects.get(code=code)
@@ -272,15 +417,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_request")
         self.assertEqual(response.json()["error_description"], f"Duplicate {param} parameter.")
 
-    def test_authorize_invalid_client_id(self):
+    @parameterized.expand(
+        [
+            ("self_hosted", None, None),
+            ("us_cloud", "US", "https://eu.posthog.com"),
+            ("eu_cloud", "EU", "https://us.posthog.com"),
+        ]
+    )
+    def test_authorize_invalid_client_id(self, _name, cloud_deployment, other_region_host):
         url = self.base_authorization_url
 
-        url_without_client_id = self.replace_param_in_url(url, "client_id", "invalid_id")
+        url_with_unknown_client_id = self.replace_param_in_url(url, "client_id", "invalid_id")
 
-        response = self.client.get(url_without_client_id)
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            response = self.client.get(url_with_unknown_client_id)
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_request")
-        self.assertEqual(response.json()["error_description"], "Invalid client_id parameter value.")
+        description = response.json()["error_description"]
+        if other_region_host is None:
+            self.assertNotIn("region", description)
+        else:
+            # An app created in the other region is the case oauthlib's flat "Invalid client_id
+            # parameter value." hides, so the description has to name both regions.
+            self.assertIn(f"in the {cloud_deployment} region", description)
+            self.assertIn(other_region_host, description)
 
     def test_authorize_missing_redirect_uri(self):
         # According to the spec, if the client has a single redirect URI, the authorization server does not require an
@@ -353,7 +514,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_authorize_post_authorization_granted(self):
         response = self.client.post(
             "/oauth/authorize/",
@@ -378,6 +539,58 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_without_a_selection", OAuthApplicationAccessLevel.ORGANIZATION.value),
+            ("team_without_a_selection", OAuthApplicationAccessLevel.TEAM.value),
+        ]
+    )
+    def test_authorize_post_denial_ignores_the_scoping_controls(self, _name, access_level):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "allow": False,
+                "access_level": access_level,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_denial_accepts_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "allow": False, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_grant_still_rejects_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scope", response.json())
+
+    def test_authorize_post_grant_still_requires_a_scoped_organization(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+                "scoped_organizations": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scoped_organizations", response.json())
 
     def test_authorize_post_denied_authorization(self):
         response = self.client.post(
@@ -451,7 +664,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_cannot_get_token_with_expired_code(self):
         expired_grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -701,7 +914,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_cimd_client_completes_token_exchange(self):
         # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
@@ -724,7 +937,7 @@ class TestOAuthAPI(APIBaseTest):
         # assertion path has to be what keeps its CIMD registration fresh.
         refresh.assert_called_once_with(app.client_id)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_exchange_survives_refresh_enqueue_failure(self):
         # Metadata freshness is best-effort: a broker outage must not fail a valid exchange.
@@ -745,7 +958,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_private_key_jwt_exchange_maps_redis_failure_to_retryable(self):
         # The assertion path reads Redis for the JWKS and jti caches, so an outage must
@@ -831,7 +1044,7 @@ class TestOAuthAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_public_cimd_client_with_stored_jwks_completes_assertion_exchange(self):
         # A public CIMD client (never partner-registered) can start signing at any time — a
@@ -849,7 +1062,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIn("access_token", response.json())
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_public_cimd_client_with_forged_assertion_is_rejected(self):
         # The menu-semantics widening must not weaken verification: a public client's forged
@@ -886,7 +1099,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIn("access_token", response.json())
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_invalid_assertion_is_not_downgraded_to_the_credentialless_fallback(self):
         # A presented assertion must be verified, never ignored: an assertion signed by a
@@ -946,7 +1159,7 @@ class TestOAuthAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_endpoint_invalid_client_credentials(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -1225,7 +1438,7 @@ class TestOAuthAPI(APIBaseTest):
         # Verify the response matches the decoded token
         self.assertEqual(userinfo_data["sub"], str(self.user.uuid))
         self.assertEqual(userinfo_data["email"], self.user.email)
-        self.assertEqual(userinfo_data["email_verified"], self.user.is_email_verified or False)
+        self.assertEqual(userinfo_data["email_verified"], self.user.is_email_verified is True)
         self.assertEqual(userinfo_data["given_name"], self.user.first_name)
         self.assertEqual(userinfo_data["family_name"], self.user.last_name)
 
@@ -1347,7 +1560,7 @@ class TestOAuthAPI(APIBaseTest):
 
     # Revoking tokens
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_revoke_refresh_token_for_application(self):
         token_value = f"test_refresh_token_to_revoke"
 
@@ -1395,7 +1608,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIsNone(refresh_token.revoked)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_revoke_refresh_token_for_public_application_without_client_secret(self):
         token_value = f"test_refresh_token_to_revoke_without_client_secret"
 
@@ -1731,7 +1944,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_racing_app_revoke_is_rejected(self):
         # A refresh validates its token in autocommit, before save_bearer_token takes the row
         # lock, so revoke_application_sessions can commit in between and the refresh would mint
@@ -1740,7 +1953,7 @@ class TestOAuthAPI(APIBaseTest):
         # valid through validate_refresh_token.
         refresh_token = self._create_refreshable_token_pair("openid")
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             revoke_application_sessions(self.confidential_application)
 
             response = self.post(
@@ -1760,7 +1973,7 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
         )
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_racing_user_session_revoke_is_rejected(self):
         # Same race as the app-wide case, on the per-connection revoke behind the connected-apps
         # UI and RFC 7009. revoke_oauth_session deletes the pair's refresh tokens, so a refresh
@@ -1770,7 +1983,7 @@ class TestOAuthAPI(APIBaseTest):
         # already-revoked row, so DOT went on to mint a fresh access and refresh token.
         refresh_token = self._create_refreshable_token_pair("openid")
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             revoke_oauth_session(refresh_token=refresh_token)
 
             response = self.post(
@@ -1787,7 +2000,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_grant")
         self._assert_no_live_tokens()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_whose_token_is_deleted_while_waiting_for_the_lock_is_rejected(self):
         # The reverse interleaving: the request passes validate_refresh_token in autocommit, then a
         # revoke commits while it waits for the connection lock. Deleting the row from inside the
@@ -1812,13 +2025,13 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_succeeds_for_token_issued_after_revoke(self):
         # A token minted after the revoke stamp (i.e. the client re-authorized) refreshes normally.
         self.confidential_application.sessions_revoked_at = timezone.now()
         self.confidential_application.save()
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             refresh_token = self._create_refreshable_token_pair("openid")
             data = self._refresh(refresh_token.token)
 
@@ -1838,14 +2051,14 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
         )
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_code_exchange_racing_app_revoke_is_rejected(self):
         # The race leaves this committed state at mint time: sessions_revoked_at stamped, grant
         # predating it. Stamping without the full revoke (which also deletes the grant — covered
         # by the validate-then-revoke test below) exercises the timestamp branch.
         code = self._authorize_and_get_code()
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             self.confidential_application.sessions_revoked_at = timezone.now()
             self.confidential_application.save()
 
@@ -1856,7 +2069,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response["Content-Type"], "application/json")
         self._assert_no_live_tokens()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_code_exchange_validated_before_app_revoke_is_rejected(self):
         # oauthlib validates the grant in autocommit, before save_bearer_token's transaction, so
         # revoke_application_sessions can commit (deleting the grant and stamping) after
@@ -1871,7 +2084,7 @@ class TestOAuthAPI(APIBaseTest):
             return real_save_bearer_token(validator, token, oauth_request, *args, **kwargs)
 
         with (
-            freeze_time("2026-01-01 00:00:05"),
+            time_machine.travel("2026-01-01 00:00:05", tick=False),
             patch.object(OAuthValidator, "save_bearer_token", revoke_then_save),
         ):
             response = self._exchange_code(code)
@@ -1880,13 +2093,13 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_grant")
         self._assert_no_live_tokens()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_code_exchange_succeeds_for_grant_issued_after_revoke(self):
         # A grant created after the revoke stamp (i.e. the user re-authorized) exchanges normally.
         self.confidential_application.sessions_revoked_at = timezone.now()
         self.confidential_application.save()
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             code = self._authorize_and_get_code()
             response = self._exchange_code(code)
 
@@ -1946,7 +2159,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(set(result), {"openid", "experiment:read"})
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_narrowed_scopes_persist_across_multiple_refreshes(self):
         # After a narrowed refresh, the rotated token already carries the narrowed
         # set, so a second refresh must hold steady rather than re-broaden.
@@ -1963,7 +2176,7 @@ class TestOAuthAPI(APIBaseTest):
         second_scopes = set(OAuthAccessToken.objects.get(token=second["access_token"]).scope.split())
         self.assertEqual(second_scopes, {"openid", "experiment:read"})
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_rejected_outside_ceiling_does_not_revoke_token(self):
         # The zero-overlap rejection bounces the single request without revoking the
         # token: re-widening the ceiling lets the very same refresh token work again.
@@ -2031,7 +2244,7 @@ class TestOAuthAPI(APIBaseTest):
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
         self.assertEqual(db_token.scoped_teams, [self.team.id])
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
         """scoped_teams and scoped_organizations are both nullable ArrayFields. Historically
         they could be set independently — a token scoped to a team often had
@@ -2146,7 +2359,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_rotation_invalidates_old_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2173,7 +2386,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(retry_old_token_within_grace.json()["refresh_token"], new_refresh_token)
 
         # After grace period, old token should be invalid
-        with freeze_time("2025-01-01 00:03:00"):  # 3 minutes later, beyond grace period
+        with time_machine.travel("2025-01-01 00:03:00", tick=False):  # 3 minutes later, beyond grace period
             retry_old_token_after_grace = self.post("/oauth/token/", refresh_data)
             self.assertEqual(retry_old_token_after_grace.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(retry_old_token_after_grace.json()["error"], "invalid_grant")
@@ -2208,11 +2421,11 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotEqual(grant.user, self.user)
 
     def test_authorization_code_expires_correctly(self):
-        with freeze_time("2025-01-01 00:00:00") as frozen_time:
+        with time_machine.travel("2025-01-01 00:00:00", tick=False) as frozen_time:
             response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
             code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
 
             token_data = {**self.base_token_body, "code": code}
             response = self.post("/oauth/token/", token_data)
@@ -2254,7 +2467,7 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_userinfo_endpoint_with_expired_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2863,7 +3076,7 @@ class TestOAuthAPI(APIBaseTest):
             response_text = response.content.decode()
             self.assertNotIn(access_token, response_text)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_within_grace_period(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2884,14 +3097,14 @@ class TestOAuthAPI(APIBaseTest):
         new_access_token = first_refresh_response.json()["access_token"]
 
         # Reuse old refresh token within grace period (2 minutes by default)
-        with freeze_time("2025-01-01 00:01:00"):
+        with time_machine.travel("2025-01-01 00:01:00", tick=False):
             reuse_response = self.post("/oauth/token/", refresh_data)
             self.assertEqual(reuse_response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(reuse_response.json()["refresh_token"], new_refresh_token)
             self.assertEqual(reuse_response.json()["access_token"], new_access_token)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_after_grace_period_revokes_token_family(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -2912,7 +3125,7 @@ class TestOAuthAPI(APIBaseTest):
         new_refresh_token = first_refresh_response.json()["refresh_token"]
 
         # Try to reuse old refresh token after grace period (2 minutes by default)
-        with freeze_time("2025-01-01 00:03:00"):
+        with time_machine.travel("2025-01-01 00:03:00", tick=False):
             reuse_response = self.post("/oauth/token/", refresh_data)
             self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(reuse_response.json()["error"], "invalid_grant")
@@ -2929,7 +3142,7 @@ class TestOAuthAPI(APIBaseTest):
             # Some implementations may immediately revoke all tokens in the family,
             # while others may only mark them as suspicious for future use
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_detection_query_count_is_constant_in_family_size(self):
         # A rotating client grows its token family by one row per refresh, so a long-lived
         # session can sit on a family of hundreds. Detecting reuse of a stale token must
@@ -2963,7 +3176,7 @@ class TestOAuthAPI(APIBaseTest):
 
             # Present the stale token after the grace period: reuse detection fires and
             # the whole family is revoked. The query count must not scale with family size.
-            with freeze_time("2025-01-01 00:10:00"):
+            with time_machine.travel("2025-01-01 00:10:00", tick=False):
                 with self.assertNumQueries(FuzzyInt(12, 16)):
                     reuse_response = self.post("/oauth/token/", {**refresh_data, "refresh_token": stale_refresh_token})
                 self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -2972,7 +3185,7 @@ class TestOAuthAPI(APIBaseTest):
                 self.assertEqual(OAuthRefreshToken.objects.filter(token_family=family, revoked__isnull=True).count(), 0)
                 self.assertFalse(OAuthAccessToken.objects.filter(token=live_access_token).exists())
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_multiple_refresh_token_rotations_preserve_token_family(self):
         # Get initial tokens
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3006,7 +3219,7 @@ class TestOAuthAPI(APIBaseTest):
             new_token_db = OAuthRefreshToken.objects.get(token=new_refresh_token)
             self.assertEqual(new_token_db.token_family, token_family)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_concurrent_refresh_token_requests_within_grace_period(self):
         # Get initial tokens
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3028,7 +3241,7 @@ class TestOAuthAPI(APIBaseTest):
         first_new_tokens = first_refresh_response.json()
 
         # Simulate concurrent request with the same old refresh token within grace period
-        with freeze_time("2025-01-01 00:00:30"):  # 30 seconds later
+        with time_machine.travel("2025-01-01 00:00:30", tick=False):  # 30 seconds later
             concurrent_response = self.post("/oauth/token/", refresh_data)
             self.assertEqual(concurrent_response.status_code, status.HTTP_200_OK)
 
@@ -3036,7 +3249,7 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(concurrent_response.json()["refresh_token"], first_new_tokens["refresh_token"])
             self.assertEqual(concurrent_response.json()["access_token"], first_new_tokens["access_token"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_refresh_token_reuse_with_different_client_fails(self):
         # Get initial tokens for first application
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -3177,6 +3390,136 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("code=", location)
         code = parse_qs(urlparse(location).query)["code"][0]
         return OAuthGrant.objects.get(code=code)
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_refuses_a_blocklisted_identity_a_gateway_scope(self, mock_blocked):
+        # The legacy gateway authenticates the token straight from the database, so
+        # a ban has to stop it being issued, not only its use.
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+
+        response = self.client.get(f"{url}&scope=insight:read llm_gateway:read")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_still_grants_a_blocklisted_identity_scopes_without_the_gateway(self, mock_blocked):
+        app = self._create_first_party_app_with_ceiling("insight:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read")
+
+        self.assertEqual(set(grant.scope.split()), {"insight:read"})
+        mock_blocked.assert_not_called()
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_post_refuses_a_blocklisted_identity_a_gateway_scope(self, mock_blocked):
+        # The only caller passing scopes as a raw string, so it is what proves the
+        # normalisation: a bare set() would intersect nothing.
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "client_id": app.client_id,
+                "scope": "insight:read llm_gateway:read",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_post_refuses_a_blocklisted_identity_a_wildcard_scope(self, mock_blocked):
+        # An app with no ceiling keeps `*` verbatim, the shape a self-registered
+        # client has, and the legacy gateway authenticates it.
+        app = self._create_first_party_app_with_ceiling()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "client_id": app.client_id, "scope": "*"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    def test_authorize_asks_about_every_organization_the_grant_reaches(self, mock_blocked):
+        # An unscoped first-party grant reaches every organization its user belongs
+        # to, so a ban naming one of them has to be asked about.
+        app = self._create_first_party_app_with_ceiling("llm_gateway:read")
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+
+        self.client.get(f"{url}&scope=llm_gateway:read")
+
+        kwargs = mock_blocked.call_args.kwargs
+        self.assertIn(str(self.organization.id), kwargs["organization_ids"])
+        self.assertEqual(kwargs["user_uuid"], str(self.user.uuid))
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    def test_authorize_post_carries_the_grants_own_organization_scoping(self, mock_blocked):
+        # Without this the grant's organizations never reach the flag, so a ban
+        # keyed on one silently matches nothing at issuance.
+        app = self._create_first_party_app_with_ceiling("llm_gateway:read")
+
+        self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "client_id": app.client_id,
+                "scope": "llm_gateway:read",
+                "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+                "scoped_organizations": [str(self.organization.id)],
+            },
+        )
+
+        self.assertEqual(mock_blocked.call_args.kwargs["organization_ids"], [str(self.organization.id)])
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
+    def test_authorize_post_still_grants_scopes_without_a_gateway_scope(self, mock_blocked):
+        app = self._create_first_party_app_with_ceiling("insight:read")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "client_id": app.client_id, "scope": "insight:read"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        mock_blocked.assert_not_called()
+
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    def test_authorize_grants_the_gateway_scope_to_an_unlisted_identity(self, mock_blocked):
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        self.assertIn("llm_gateway:read", grant.scope.split())
+        self.assertEqual(mock_blocked.call_args.kwargs["surface"], "oauth_authorize")
+        self.assertEqual(mock_blocked.call_args.kwargs["email"], self.user.email)
+
+    @patch("posthog.api.oauth.views.security_shadow_check")
+    def test_authorize_records_a_shadow_access_check_for_the_gateway_scope(self, shadow: MagicMock) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        self.assertEqual(surface, SecuritySurface.AI_GATEWAY)
+        self.assertEqual(subject.user_uuid, str(self.user.uuid))
+        self.assertEqual(shadow.call_args.kwargs, {"call_site": "oauth_authorize"})
+
+    @patch("posthog.api.oauth.views.security_shadow_check", side_effect=RuntimeError("boom"))
+    def test_authorize_grants_the_gateway_scope_when_the_shadow_check_raises(self, shadow: MagicMock) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        self.assertIn("llm_gateway:read", grant.scope.split())
+        shadow.assert_called_once()
 
     def test_authorize_wildcard_narrowed_to_seeded_ceiling(self):
         # A `*` request against a seeded ceiling is narrowed to the resolved ceiling
@@ -3367,7 +3710,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(body["error"], "invalid_scope")
         self.assertIn("experiment:read", body["error_description"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_auto_approval_skipped_when_request_omits_required_scope(self):
         # An existing token covering the (optional-only) request must not auto-approve
         # below the required floor; the consent screen handles granting the full set.
@@ -3410,7 +3753,7 @@ class TestOAuthAPI(APIBaseTest):
         rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
         self.assertEqual(rejected, [])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_endpoint_with_json_payload(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -3755,6 +4098,38 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(data["token_type"], "refresh_token")
             self.assertNotIn("scope", data)
 
+    @parameterized.expand(["access_token", "refresh_token"])
+    def test_introspection_with_bearer_token_rejects_a_different_applications_token(self, token_type):
+        # The `introspection` scope says the caller may introspect, not whose tokens it may
+        # read. Any self-registered client can obtain the scope, so without an ownership
+        # check the bearer path reads back every other application's tokens.
+        caller_token, _ = self._create_access_and_refresh_tokens(scopes="openid introspection")
+
+        other_app = OAuthApplication.objects.create(
+            name="Other Bearer App",
+            client_id="other_bearer_client_id",
+            client_secret="other_bearer_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        other_access_token, other_refresh_token = self._create_token_pair_for_app(other_app)
+        token = other_access_token if token_type == "access_token" else other_refresh_token
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={"Authorization": f"Bearer {caller_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
     def test_introspection_with_invalid_token(self):
         authorization_header = self.get_basic_auth_header(
             "test_confidential_client_id", "test_confidential_client_secret"
@@ -3844,7 +4219,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_introspection_with_expired_token(self):
         access_token, _ = self._create_access_and_refresh_tokens()
 
@@ -3915,9 +4290,11 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
-    def test_self_introspection_succeeds_without_introspection_scope(self):
-        """A token can introspect itself without requiring the introspection scope."""
+    @parameterized.expand([True, False])
+    def test_self_introspection_succeeds_without_introspection_scope(self, impersonated: bool) -> None:
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        access_token.impersonated_by = self.user if impersonated else None
+        access_token.save(update_fields=["impersonated_by"])
 
         response = self.post(
             "/oauth/introspect/",
@@ -3929,6 +4306,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
+        self.assertEqual(data["is_impersonated"], impersonated)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -3958,7 +4336,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_self_introspection_with_expired_token_returns_inactive(self):
         """An expired token can self-introspect and gets active: false per RFC 7662."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
@@ -3974,6 +4352,41 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertFalse(data["active"])
+
+    @parameterized.expand(
+        [
+            ("access_token_deactivated_user", "access_token", "deactivated", False),
+            ("refresh_token_deactivated_user", "refresh_token", "deactivated", False),
+            # Client-credentials grants have no resource owner, so a userless access
+            # token must stay introspectable. OAuthRefreshToken.user is not nullable.
+            ("access_token_without_user", "access_token", "userless", True),
+        ]
+    )
+    def test_introspection_reflects_token_user_status(
+        self, _name: str, token_type: str, user_state: str, expected_active: bool
+    ):
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        if user_state == "deactivated":
+            self.user.is_active = False
+            self.user.save()
+        else:
+            access_token.user = None
+            access_token.save()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={
+                "Authorization": self.get_basic_auth_header(
+                    "test_confidential_client_id", "test_confidential_client_secret"
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["active"], expected_active)
 
     def test_self_introspection_with_revoked_token_fails(self):
         """A revoked (deleted) token cannot self-introspect."""
@@ -4018,7 +4431,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_gets_extended_token_expiry(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()
@@ -4094,7 +4507,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(data["expires_in"], 60 * 60)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_refresh_token_is_not_rotated(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()
@@ -4149,8 +4562,10 @@ class TestOAuthAPI(APIBaseTest):
         # Verify the refresh token was never revoked
         db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNone(db_refresh_token.revoked)
+        assert db_refresh_token.access_token is not None
+        self.assertEqual(db_refresh_token.access_token.token, original_access_token)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_does_not_invalidate_previously_issued_access_tokens(self):
         # Each refresh on a non-rotating client must issue a NEW OAuthAccessToken row, not
         # overwrite the existing one. Overwriting causes a body/DB token mismatch under
@@ -4246,7 +4661,7 @@ class TestOAuthAPI(APIBaseTest):
             ("with_wrong_access_token_hint", "access_token"),
         ]
     )
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_token_revoke_sweeps_all_refresh_issued_access_tokens(self, _name, hint):
         # Revoking a non-rotating refresh token via /oauth/revoke/ must invalidate every
         # access_token issued from it, not just the original authorization_code-issued
@@ -4317,11 +4732,9 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
-    @freeze_time("2025-01-01 00:00:00")
-    def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
-        # RFC 7009 §2.1: the server verifies the token was issued to the requesting
-        # client. A different dynamic client presenting app A's refresh token must not
-        # trigger the (user, application) session sweep for app A.
+    @parameterized.expand([("refresh_token",), ("access_token",)])
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
+    def test_dcr_token_revoke_from_other_client_leaves_session_untouched(self, presented_token_type):
         self.public_application.is_dcr_client = True
         self.public_application.save()
 
@@ -4365,6 +4778,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
         refresh_token = token_response.json()["refresh_token"]
+        unlinked_access_token = token_response.json()["access_token"]
 
         refresh_response = self.post(
             "/oauth/token/",
@@ -4374,25 +4788,26 @@ class TestOAuthAPI(APIBaseTest):
                 "client_id": self.public_application.client_id,
             },
         )
-        refresh_issued_access_token = refresh_response.json()["access_token"]
-        self.assertTrue(OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists())
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        linked_access_token = refresh_response.json()["access_token"]
+        presented_token = refresh_token if presented_token_type == "refresh_token" else linked_access_token
 
         revoke_response = self.post(
             "/oauth/revoke/",
             {
-                "token": refresh_token,
+                "token": presented_token,
                 "client_id": other_dynamic_application.client_id,
             },
         )
         self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
-        self.assertTrue(
-            OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists(),
-            "a dynamic client presenting another app's refresh token must not sweep "
-            "that app's (user, application) access-token family",
+        self.assertIsNone(OAuthRefreshToken.objects.get(token=refresh_token).revoked)
+        self.assertEqual(
+            set(OAuthAccessToken.objects.filter(application=self.public_application).values_list("token", flat=True)),
+            {unlinked_access_token, linked_access_token},
         )
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_dcr_non_rotating_refresh_racing_app_revoke_is_rejected(self):
         # The non-rotating (DCR) refresh path passes the presented token via
         # scope_source_refresh_token with source_refresh_token=None, so the mint-time revoke
@@ -4429,7 +4844,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         ).json()["refresh_token"]
 
-        with freeze_time("2026-01-01 00:00:05"):
+        with time_machine.travel("2026-01-01 00:00:05", tick=False):
             revoke_application_sessions(self.public_application)
             refresh_response = self.post(
                 "/oauth/token/",
@@ -4446,7 +4861,7 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_non_dcr_client_refresh_token_is_rotated(self):
         self.public_application.is_dcr_client = False
         self.public_application.save()
@@ -4527,7 +4942,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(response["Location"].startswith(f"{scheme}://posthog/callback"))
         self.assertIn("error=unsupported_response_type", response["Location"])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_token_response_includes_region_for_us_cloud(self):
         grant = OAuthGrant.objects.create(
@@ -4549,7 +4964,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["posthog_region"], "us")
         self.assertEqual(data["posthog_base_url"], "https://us.posthog.com")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(CLOUD_DEPLOYMENT="EU", SITE_URL="https://eu.posthog.com")
     def test_token_response_includes_region_for_eu_cloud(self):
         grant = OAuthGrant.objects.create(
@@ -4571,7 +4986,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["posthog_region"], "eu")
         self.assertEqual(data["posthog_base_url"], "https://eu.posthog.com")
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @override_settings(CLOUD_DEPLOYMENT=None)
     def test_token_response_excludes_region_for_self_hosted(self):
         grant = OAuthGrant.objects.create(
@@ -4607,7 +5022,7 @@ class TestOAuthAPI(APIBaseTest):
             is_first_party=is_first_party,
         )
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_derives_scoped_teams_for_first_party_app(self):
         app = self._create_first_party_app(slug="first-party-derive")
         grant = OAuthGrant.objects.create(
@@ -4640,7 +5055,7 @@ class TestOAuthAPI(APIBaseTest):
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
         self.assertEqual(access_token.scoped_teams, [])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_does_not_derive_scoped_teams_for_third_party_app(self):
         app = self._create_first_party_app(slug="third-party-no-derive", is_first_party=False)
         grant = OAuthGrant.objects.create(
@@ -4670,7 +5085,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertEqual(data["scoped_teams"], [])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_token_response_preserves_stored_scoped_teams_for_first_party_app(self):
         app = self._create_first_party_app(slug="first-party-preserve")
         grant = OAuthGrant.objects.create(
@@ -4700,7 +5115,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertEqual(data["scoped_teams"], [self.team.pk])
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_first_party_app_gets_extended_token_expiry(self):
         app = self._create_first_party_app(slug="first-party-ttl")
         grant = OAuthGrant.objects.create(
@@ -4733,7 +5148,7 @@ class TestOAuthAPI(APIBaseTest):
         expected_expiry = timezone.now() + timedelta(days=7)
         self.assertLess(abs((access_token.expires - expected_expiry).total_seconds()), 60)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_first_party_app_refreshed_token_keeps_extended_expiry_and_rotates(self):
         app = self._create_first_party_app(slug="first-party-refresh-ttl")
         client_secret = "first_party_first-party-refresh-ttl_client_secret"
@@ -5296,6 +5711,53 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertNotIn("events_endpoint", metadata["agent_auth"])
 
 
+class TestOpenIDProviderMetadata(SimpleTestCase):
+    """Tests for the OpenID Provider Metadata document (OIDC Discovery 1.0)."""
+
+    def test_advertises_the_claims_the_userinfo_endpoint_returns(self):
+        # Adding a request argument back to `get_additional_claims` silently narrows this to `sub`.
+        metadata = openid_provider_metadata("https://us.posthog.com")
+
+        self.assertEqual(metadata["claims_supported"], ["email", "email_verified", "family_name", "given_name", "sub"])
+
+    def test_does_not_advertise_scopes_an_oauth_client_cannot_obtain(self):
+        scopes = openid_provider_metadata("https://us.posthog.com")["scopes_supported"]
+        assert isinstance(scopes, list)
+
+        self.assertNotIn("*", scopes)
+        self.assertNotIn("llm_gateway:read", scopes)
+        self.assertIn("openid", scopes)
+        self.assertIn("email", scopes)
+
+    def test_advertises_only_the_flows_the_server_accepts(self):
+        # Advertising an alternative sends a client into a flow the DB constraints reject.
+        metadata = openid_provider_metadata("https://us.posthog.com")
+
+        self.assertEqual(metadata["response_types_supported"], ["code"])
+        self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
+        self.assertEqual(metadata["id_token_signing_alg_values_supported"], ["RS256"])
+
+    def test_agrees_with_the_authorization_server_document(self):
+        oidc = openid_provider_metadata("https://us.posthog.com")
+        authorization_server = authorization_server_metadata("https://us.posthog.com")
+
+        shared = set(oidc) & set(authorization_server)
+        self.assertIn("scopes_supported", shared)
+        for field in shared:
+            self.assertEqual(oidc[field], authorization_server[field], f"{field} differs between the two documents")
+
+
+class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
+    def test_discovery_document_is_served_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/.well-known/openid-configuration")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["issuer"], openid_provider_metadata(absolute_uri().rstrip("/"))["issuer"])
+        self.assertEqual(response["Access-Control-Allow-Origin"], "*")
+
+
 class TestOAuthClientManifest(APIBaseTest):
     """Tests for the auth.md agent-registration manifest."""
 
@@ -5320,6 +5782,9 @@ class TestOAuthClientManifest(APIBaseTest):
         for scope in get_oauth_scopes_supported():
             with self.subTest(scope=scope):
                 self.assertIn(f"`{scope}`", body)
+                # A scope with no description falls back to its own name, so an
+                # advertised scope nobody wrote a line for reads as "`x`: x".
+                self.assertNotIn(f"`{scope}`: {scope}", body)
 
     def test_manifest_accessible_without_authentication(self):
         self.client.logout()

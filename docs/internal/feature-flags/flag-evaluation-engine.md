@@ -4,6 +4,89 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 
 ## Architecture overview
 
+Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
+An absent discriminator or numeric 1 (including 1.0) selects v1.
+Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
+The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
+The classification converts the discriminator to correctly rounded binary64, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
+
+Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
+Non-v1 objects retain their original JSON in `FlagFilters.non_v1`, alongside the v2 parse result when applicable.
+PostgreSQL decodes filters as raw JSON through the same reader used by service-cache records.
+V2 validation checks the retained tokens for duplicate object keys, nonzero numeric underflow, and excess percentage precision before admitting the typed configuration.
+These checks share one token pass with the compact document-size limit; original tokens survive cache round trips.
+Validation cannot recover precision or duplicate keys already lost by an upstream producer, so writers must enforce these constraints before ordinary JSON decoding.
+The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, seeds, and compiled regexes.
+Manually constructed opaque filters still use the passthrough-map serialization fallback.
+
+The parser accepts person-assigned boolean configurations with ordered targeted-release and percentage-rollout rules.
+It validates required fields, closed semantic objects, unique UUID rule IDs, boolean values, canonical person-property operators, rollout policies, assignment literals, and seeds.
+Missing defaults and miss policies are errors; explicit null defaults and empty rule/targeting arrays are valid.
+Experiment and holdout semantics, group assignment, non-boolean outputs, and cohort/group/flag predicates remain unsupported.
+One unsupported predicate or rule rejects the whole flag's configuration.
+Parser diagnostics and debug output omit raw configuration values.
+
+The reader enforces 100 rules, 100 predicates per rule, 1–400 character percentage-rule seeds, and finite percentages in [0, 100] with at most two decimal places.
+Its compact UTF-8 document ceiling reads `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` once per process, with the same 512 KiB default as the writer; the reader counts stored token bytes, excluding whitespace outside strings.
+Writers must also enforce their deployment-specific document limit and explicit metadata limit; the parser adds no separate metadata-size policy.
+Set `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` to the same value on the reader and writer deployments before admitting stored v2 data.
+Presentation metadata stays in the original JSON and does not enter typed targeting.
+
+The service-cache envelope remains separate from the canonical definitions-entry envelope, where team identity can be omitted.
+Parser tests adapt canonical definition filters to service records without adding a definitions-v2 route or allowing the legacy definitions endpoint to publish v2.
+Parser fixtures from harness release 1.6.0 are pinned under contract version 2.1.0, separately from the unchanged v1 corpus pin.
+The Rust suite checks parser field sets, limits, and literals against the released schema and registry.
+Definitions-feed artifacts belong to the future definitions route and are not part of this parser pin.
+
+The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+Detailed responses mark them failed.
+The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
+Healthy siblings still evaluate, and request eligibility remains unchanged.
+Malformed v1 documents retain the existing ingress error behavior.
+Each recognized v2 ingress increments `flags_v2_config_parse_total` with a fixed `outcome` label: `success`, `malformed`, `unsupported`, or `limit_exceeded`.
+These outcomes cover cache and PostgreSQL reads and contain no configuration values.
+
+The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
+The Rust and Python cache builders omit a non-v1 flag and its dependents instead of failing the team's rebuild, as the [service cache section](./hypercache-system.md#service-cache-rust) describes.
+`/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
+This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
+Those paths need independent exclusion and deployment-floor protection before such rows can exist.
+To roll back parsing, remove its reader consumer first while retaining opaque non-v1 reads and evaluator/producer rejection.
+Never restore a reader that interprets v2 data as v1.
+
+The dormant `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
+The reader compiles each regex predicate once at parse time and stores it on the cached config, counted as a fixed `ESTIMATED_COMPILED_REGEX_BYTES` (2048) per compiled regex, as v1 does; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
+The evaluator does not participate in the service cache or HTTP dispatch.
+Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
+The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
+The service adapter must retain eligibility and load/merge property context before invoking it.
+
+Rules and their ANDed predicates run in stored order.
+The first conclusive predicate miss skips that rule; a reached error fails the evaluation, and negation applies only after a conclusive result.
+The property adapter reuses existing operator semantics and an explicit clock for relative dates.
+Invalid compiled regexes are errors in this evaluator, so negation cannot turn invalid syntax into success; v1 keeps its existing invalid-pattern behavior.
+Targeted matches and percentage inclusions return the rule's boolean, including false, with its UUID, kind, and original index.
+With `on_rollout_miss: return_default`, a rollout miss returns the configured boolean/null default and reports the missed rule.
+With `on_rollout_miss: continue`, evaluation moves to the next rule and the missed rule is not reported in the result.
+Exhaustion returns the default with no matched rule.
+Null means no configured value for the caller.
+Errors and flags left out of the `/flags` response remain separate from a successful false or null.
+
+Percentage rules use the stored seed and the shared SHA1/60-bit binary64 primitive with an empty salt.
+The comparison is inclusive, including hash zero at 0%.
+An empty subject always misses; a nonempty subject at 100% bypasses hashing.
+Repeated seeds reuse their hash within one evaluation.
+The evaluator has no database access, writes, events, identity allocation, or gate decisions.
+Public response projection and mixed-format service-cache/fallback integration require separate consumers.
+Evaluator fixtures from harness release 1.8.0 are pinned under contract version 2.2.0.
+`SOURCE.json` lists the vendored subset; its README, manifest, and checksum index keep the upstream bytes, and the integrity test checks each vendored file against that index.
+Rollback can remove this dormant consumer while retaining the format-aware readers and rejection required by stored data.
+
+The production `v1_bucketing` functions accept prescribed hashes for contract tests.
+Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.
+Variant selection adds each `weight / 100.0` from left to right and uses `hash < cumulative`.
+V1 returns no variant beyond the final boundary, including at hash 1.
+
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     evaluate_all_feature_flags                  │
@@ -210,7 +293,8 @@ if hash <= rollout_percentage / 100.0 → user is IN the rollout
 if hash >  rollout_percentage / 100.0 → user is OUT (OutOfRolloutBound)
 ```
 
-A 100% rollout skips the hash calculation entirely.
+A 100% rollout skips the rollout hash entirely. Variant selection still hashes, with its own
+salt, unless the condition pins a variant by name.
 
 ### Identifier resolution priority
 
@@ -219,8 +303,16 @@ The identifier used for hashing depends on the flag configuration:
 | Flag type   | Bucketing     | Identifier (in priority order)                                     |
 | ----------- | ------------- | ------------------------------------------------------------------ |
 | Group flag  | N/A           | Group key from `groups` map                                        |
-| Person flag | `device_id`   | `$device_id` from request, fallback to `distinct_id`               |
+| Person flag | `device_id`   | `$device_id` from request (see below when it is absent)            |
 | Person flag | `distinct_id` | DB hash_key_override > request `$anon_distinct_id` > `distinct_id` |
+
+A person condition on a `device_id`-bucketed flag needs the `$device_id` only when the hash
+decides its outcome. If the request carries no `$device_id`, a partial rollout, or an unpinned
+variant set that splits the hash range, is withheld and reports `OutOfRolloutBound`. It is not
+bucketed on `distinct_id`. A condition at 100% rollout is evaluated as usual when the condition
+pins a variant by name, or when every hash gets the same variant: the flag has no variants, the
+first variant with a non-zero share has 100%, or every share is 0%. The identifier then changes
+nothing about the result.
 
 ## Condition matching
 
@@ -237,18 +329,19 @@ Each flag has one or more condition groups (OR'd). Within each group, property f
 
 Defined in `rust/feature-flags/src/properties/property_matching.rs`. The service supports 23 operators:
 
-| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                           |
-| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                             |
-| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                       |
-| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation. |
-| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                    |
-| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                  |
-| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                           |
-| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                           |
-| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                            |
-| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                          |
+| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                                   |
+| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                                     |
+| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                               |
+| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation.         |
+| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                            |
+| Range        | `between`, `not_between`                                                        | Inclusive on both ends, parsed as `f64`. A value that is missing, JSON null, or not a number is out of range (`between` false, `not_between` true), mirroring HogQL where it reads as NULL. NaN is a non-match for both. Malformed bounds are a `ValidationError` even when the property is missing. |
+| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                          |
+| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                                   |
+| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                                   |
+| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                                    |
+| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                                  |
 
 ## Multivariate flags (variant selection)
 
@@ -448,10 +541,11 @@ The `FlagEvaluationState` struct caches all data needed for a single request, av
 ```rust
 pub struct FlagEvaluationState {
     person_id: Option<PersonId>,
-    person_properties: Option<HashMap<String, Value>>,
+    person_uuid: Option<Uuid>,
+    person_property_state: PersonPropertyState,
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
-    cohorts: Option<Vec<Cohort>>,
-    static_cohort_matches: Option<HashMap<CohortId, bool>>,
+    cohorts: Option<Arc<[Cohort]>>,
+    cohort_matches: Option<HashMap<CohortId, bool>>,
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
 }
 ```
@@ -460,14 +554,28 @@ Property overrides from the request body are merged on top of DB-fetched propert
 GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
 See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
 
+### Unfetched properties fail closed
+
+A property map that was never fetched is not the same as a property map that came back empty. An empty map means the property is unset, which makes a negative operator such as `is_not` match. A map that was never fetched says nothing, so treating it as empty grants the flag to exactly the people or groups the condition excludes.
+
+Both property sources record whether their fetch ran, and a filter whose source never ran evaluates to no match whichever way the filter points:
+
+- `person_property_state` distinguishes `Pending` (prep has not run) from `Skipped` (request overrides cover every key the batch needs) and `Fetched`.
+- The key set of `group_properties` carries the same distinction per group type. A missing index means the fetch never ran; a present index is authoritative, so an empty map there means the group has no stored properties.
+- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a failed lookup says nothing about any group, and a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that one.
+
+One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies only after the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before.
+
+Self-hosted upgrades across this change can see different `/flags` and `/decide` responses without any change to the request or the flag. A negative group filter that previously matched because of a fetch miss now stops matching. A condition that combines person and group filters now loads the group types referenced only by those filters, so the group's stored properties decide the filter where an empty map used to.
+
 ## Data fetching strategy
 
 The evaluation engine follows a lazy-but-batched approach:
 
 1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL), including pre-computed `evaluation_metadata` when available
-2. **Group type mappings**: Fetched once per request if any flag uses groups
+2. **Group type mappings**: Fetched once per request if any flag references a group type, through flag-level or condition-level aggregation or through an individual group property filter. The outcome is reused for the rest of the request, so a failed lookup is not retried
 3. **Person properties**: Fetched once per request from PostgreSQL, merged with request overrides
-4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides
+4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides. A group filter keeps its flag in this preparation only when the fetch can serve it — the mapping resolves the filter's index, the request carries a usable key for that group type, and no request override already supplies the filtered property — so a flag whose only database need is an unservable group filter skips the person and group queries entirely
 5. **Cohort definitions**: Fetched from moka cache (backed by PostgreSQL)
 6. **Static cohort memberships**: Fetched once per request via batched query
 7. **Hash key overrides**: Fetched once per request if any flag uses experience continuity

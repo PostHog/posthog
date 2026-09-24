@@ -1,4 +1,4 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { getTrendsSeriesDisplayLabel, type TrendsSeriesLabelDeps } from './getTrendsSeriesDisplayLabel'
 
@@ -8,12 +8,16 @@ const NO_BREAKDOWN_DEPS: TrendsSeriesLabelDeps = {
     formatPropertyValueForDisplay: undefined,
 }
 
+const BREAKDOWN_DEPS: TrendsSeriesLabelDeps = {
+    breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
+    cohorts: undefined,
+    formatPropertyValueForDisplay: undefined,
+}
+
 const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
     ({ id: 0, label: '$pageview', data: [], ...overrides }) as IndexedTrendResult
 
 describe('getTrendsSeriesDisplayLabel', () => {
-    // Guards the legend regression: the in-chart legend must show the series' custom name, not the
-    // raw event/action name. A revert to `humanizeSeriesLabel(r.label)` would fail the custom-name case.
     it.each([
         ['custom name wins over the event name', { action: { name: '$pageview', custom_name: 'Signups' } }, 'Signups'],
         ['humanizes the event name when no custom name', { action: { name: '$pageview' } }, 'Pageview'],
@@ -29,18 +33,32 @@ describe('getTrendsSeriesDisplayLabel', () => {
         ).toBe(expected)
     })
 
-    it('resolves to the breakdown value, not the custom name, for breakdown series', () => {
-        // The action (and its custom_name) is shared across every breakdown band, so the breakdown
-        // value must win — otherwise all bands collapse onto one label.
+    it.each([
+        ['the series name and breakdown value for multiple series', {}, {}, 'Signups · Chrome'],
+        [
+            'the series letter when display names collide',
+            {},
+            { seriesIdentification: 'letter-and-name' },
+            'A Signups · Chrome',
+        ],
+        ['the breakdown value alone for a single-series query', {}, { isSingleSeriesDefinition: true }, 'Chrome'],
+        [
+            'the formula name and breakdown value for a formula row',
+            { action: null, label: 'A + B' },
+            {},
+            'A + B · Chrome',
+        ],
+    ])('resolves to %s', (_name, resultOverrides, depOverrides, expected) => {
         const result = makeResult({
             action: { custom_name: 'Signups' } as IndexedTrendResult['action'],
             breakdown_value: 'Chrome',
+            ...(resultOverrides as Partial<IndexedTrendResult>),
         })
-        const deps: TrendsSeriesLabelDeps = {
-            breakdownFilter: { breakdown_type: 'event', breakdown: '$browser' },
-            cohorts: undefined,
-            formatPropertyValueForDisplay: undefined,
-        }
-        expect(getTrendsSeriesDisplayLabel(result, deps)).toBe('Chrome')
+        expect(
+            getTrendsSeriesDisplayLabel(result, {
+                ...BREAKDOWN_DEPS,
+                ...(depOverrides as Partial<TrendsSeriesLabelDeps>),
+            })
+        ).toBe(expected)
     })
 })

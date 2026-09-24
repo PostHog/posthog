@@ -28,6 +28,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     _RUN_SCOPE,
     _SOURCE_ID,
     _WORKFLOW_DATE_FROM,
+    _WORKFLOW_NAME,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
     _bool_param,
@@ -54,7 +55,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID, _REPO],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _WORKFLOW_NAME, _SOURCE_ID, _REPO],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
@@ -64,9 +65,14 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
             "rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed "
-            "by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) "
-            "and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, "
-            "or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' "
+            "by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive "
+            "failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over "
+            "successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Runs "
+            "under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast "
+            "workflow uses every successful run. "
+            "Optionally scope to a single git branch via `branch`, to one workflow via `workflow_name`, "
+            "or to one run group via `run_scope` "
+            "(default_branch, pull_request, merge_queue). Use this for 'is CI getting slower' "
             "and 'which workflow is the long pole'; compare two windows to get a trend."
         ),
     )
@@ -79,6 +85,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
                 run_scope=request.query_params.get("run_scope") or None,
+                workflow_name=request.query_params.get("workflow_name") or None,
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
@@ -107,7 +114,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "A single workflow run: status, conclusion, duration, branch, attempt, and the attributed pull "
-            "request. Run-level only — per-job and per-step detail are not tracked yet."
+            "request. Run-level only: per-job and per-step detail are not tracked yet."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -146,17 +153,18 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             _DATE_FROM,
             _DATE_TO,
             _BRANCH,
+            _RUN_SCOPE,
             _SOURCE_ID,
         ],
         responses={
             200: WorkflowRunDetailSerializer(many=True),
-            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date or source_id."),
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date, run_scope, or source_id."),
         },
         description=(
             "Runs of a single workflow within a repo over a window (date_from default -30d), newest first. "
-            "Optionally scope to a single git branch via `branch`. Each row is run-level — per-job and "
-            "per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the "
-            "workflow list and a single run."
+            "Optionally scope to a single git branch via `branch` or to one run group via `run_scope`. "
+            "Each row is run-level: per-job and per-step detail are not tracked yet. Use this as the "
+            "GitHub 'workflow' page between the workflow list and a single run."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -174,6 +182,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -201,18 +210,20 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             _DATE_FROM,
             _DATE_TO,
             _BRANCH,
+            _RUN_SCOPE,
             _SOURCE_ID,
         ],
         responses={
             200: WorkflowRunActivitySerializer,
-            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date or source_id."),
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date, run_scope, or source_id."),
         },
         description=(
             "Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for "
             "the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. "
-            "Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped "
-            "than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when "
-            "the cap is hit, so the chart covers only the most recent runs."
+            "Optionally scope to a single git branch via `branch` or one run group via `run_scope`, matching "
+            "workflow_runs. Leaner and higher-capped than workflow_runs so the chart spans the full window even "
+            "on busy workflows; `truncated` is true when the cap is hit, so the chart covers only the most "
+            "recent runs."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -229,6 +240,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -256,16 +268,17 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             _DATE_FROM,
             _DATE_TO,
             _BRANCH,
+            _RUN_SCOPE,
             _SOURCE_ID,
         ],
         responses={
             200: WorkflowRunnerCostSerializer(many=True),
-            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date or source_id."),
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date, run_scope, or source_id."),
         },
         description=(
             "A workflow's estimated CI cost broken down by runner tier over a window (date_from default "
-            "-30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an "
-            "empty list when the job-level source isn't synced."
+            "-30d), highest spend first. Optionally scope to a single git branch via `branch` or one run "
+            "group via `run_scope`. Returns an empty list when the job-level source isn't synced."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -282,6 +295,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -346,7 +360,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Set false to skip the chart series (cost_series, time_to_green_series, "
-                "success_rate_series, open_to_merge_series return empty) and their query cost — for "
+                "success_rate_series, open_to_merge_series return empty) and their query cost: for "
                 "headline-only consumers like the weekly digest. Defaults to true.",
             ),
             _SOURCE_ID,
@@ -357,11 +371,11 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
         },
         description=(
-            "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
+            "Repo-level headline aggregates over a window (default -30d): run count, conclusive-run success rate, re-run "
             "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
-            "coarse — draft and ready time fused), median time-to-green, billable minutes + estimated cost "
+            "coarse: draft and ready time fused), median time-to-green, billable minutes + estimated cost "
             "(with the merge-queue slice of billable minutes broken out), and merge-queue landing stats "
-            "(queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share) — "
+            "(queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share): "
             "each with its equal-length previous-window twin so a "
             "caller can render honest deltas. Also carries the "
             "detected default branch and its completed-run history series (skippable via include_series=false). "
@@ -468,7 +482,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Default-branch failures over a window (default -24h), grouped error-tracking style by "
             "(workflow, de-sharded failing job) with a run count and first/last seen, newest group first. "
-            "`branch` overrides the detected default branch. PR-branch failures are deliberately excluded — "
+            "`branch` overrides the detected default branch. PR-branch failures are deliberately excluded: "
             "at monorepo volume a flat feed is a firehose; those surface per PR. Groups degrade to workflow "
             "level (failed_job '') when the job-level source isn't synced."
         ),
@@ -507,7 +521,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
         },
         description=(
-            "The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of "
+            "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of "
             "ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). "
             "logs_available is false when the run didn't fail or its logs aged out of the short Logs retention."
         ),
@@ -539,18 +553,20 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             _DATE_FROM,
             _DATE_TO,
             _BRANCH,
+            _RUN_SCOPE,
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: WorkflowJobAggregateSerializer(many=True),
-            400: OpenApiResponse(description="Missing workflow_name, or invalid date or source_id."),
+            400: OpenApiResponse(description="Missing workflow_name, or invalid date, run_scope, or source_id."),
         },
         description=(
             "Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job "
             "name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure "
-            "rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Jobs always "
-            "need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. "
+            "rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Optionally "
+            "scope to a single git branch via `branch` or one run group via `run_scope`. Jobs always "
+            "need their run as context: this is the aggregate view; use workflow_jobs for one run's jobs. "
             "Empty when the job-level source isn't synced."
         ),
     )
@@ -566,6 +582,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,

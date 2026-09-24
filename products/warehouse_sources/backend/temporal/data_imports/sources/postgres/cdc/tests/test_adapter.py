@@ -7,6 +7,7 @@ import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
     PostgresCDCAdapter,
     _slot_setup_error_message,
@@ -93,6 +94,7 @@ class TestSetupResourcesPreflight:
             "cdc_management_mode": "posthog",
             "cdc_slot_name": "posthog_019ef4e83bfd",
             "cdc_publication_name": "posthog_pub_019ef4e83bfd",
+            "cdc_ingest_mode": "buffered",
         }
         mock_create_slot.assert_not_called()
         mock_create_publication.assert_not_called()
@@ -213,7 +215,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
 
-        assert fields == {"cdc_consistent_point": "0/AA"}
+        assert fields == {"cdc_consistent_point": "0/AA", "cdc_ingest_mode": "buffered"}
         mock_drop.assert_called_once()
         assert mock_drop.call_args.args[1] == "posthog_slot"
         mock_create.assert_called_once()
@@ -248,7 +250,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
 
-        assert fields == {"cdc_consistent_point": "0/BB"}
+        assert fields == {"cdc_consistent_point": "0/BB", "cdc_ingest_mode": "buffered"}
         mock_create_slot_and_pub.assert_called_once()
         assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
         assert mock_create_slot_and_pub.call_args.kwargs["tables"] == expected_pairs
@@ -303,7 +305,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
-        assert fields == {"cdc_consistent_point": "0/CC"}
+        assert fields == {"cdc_consistent_point": "0/CC", "cdc_ingest_mode": "buffered"}
         assert mock_create_slot.call_count == 2
         assert mock_drop.call_count == 2
 
@@ -378,6 +380,7 @@ class TestIsConnectionError:
             ("connect_timeout", psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
             ("operational", psycopg.OperationalError("connection refused"), True),
             ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
+            ("host_policy", HostNotAllowedError("resolves to a private address"), True),
             ("programming_bug", ValueError("unexpected status shape"), False),
         ]
     )

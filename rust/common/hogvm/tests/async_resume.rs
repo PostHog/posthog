@@ -16,6 +16,7 @@ const PLUS: i64 = 6;
 const INTEGER: i64 = 33;
 const GET_LOCAL: i64 = 36;
 const RETURN: i64 = 38;
+const ARRAY: i64 = 43;
 const CALLABLE: i64 = 52;
 const CLOSURE: i64 = 53;
 const CALL_LOCAL: i64 = 54;
@@ -143,6 +144,49 @@ fn nested_call_suspend_round_trips() {
         json!(2),
     );
     assert_eq!(result, json!(42));
+}
+
+#[test]
+fn stl_frame_suspend_round_trips() {
+    // return arrayMap(x -> asyncFetch(x) + 1, [1, 2])
+    // arrayMap is a Hog-written STL function, so each suspension happens with an stl/arrayMap
+    // frame on the call stack. The snapshot must carry that non-root chunk and the resume must
+    // restore it, so the lambda's RETURN lands back in module code (not the root token stream).
+    // injecting 10 => [11, 11].
+    let result = run_injecting(
+        vec![
+            json!("_H"),
+            json!(1),
+            json!(CALLABLE),
+            json!("lambda"),
+            json!(1),
+            json!(0),
+            json!(9),
+            json!(GET_LOCAL),
+            json!(0), // x
+            json!(CALL_GLOBAL),
+            json!("asyncFetch"),
+            json!(1), // suspend inside the lambda, under the arrayMap frame
+            json!(INTEGER),
+            json!(1),
+            json!(PLUS),
+            json!(RETURN), // returns into stl/arrayMap's bytecode
+            json!(CLOSURE),
+            json!(0),
+            json!(INTEGER),
+            json!(1),
+            json!(INTEGER),
+            json!(2),
+            json!(ARRAY),
+            json!(2), // [1, 2]
+            json!(CALL_GLOBAL),
+            json!("arrayMap"),
+            json!(2),
+            json!(RETURN),
+        ],
+        json!(10),
+    );
+    assert_eq!(result, json!([11, 11]));
 }
 
 #[test]

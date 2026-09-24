@@ -11,7 +11,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type AppContext, type FeatureFlagType } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 
@@ -20,6 +20,7 @@ import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
+import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 jest.mock('scenes/feature-flags/JSONEditorInput', () => ({
@@ -33,6 +34,26 @@ jest.mock('scenes/feature-flags/JSONEditorInput', () => ({
         />
     ),
 }))
+
+// The consent gate reads a single selector; stubbing the logic lets each case pick the org's
+// consent state without standing up organizationLogic's loaders.
+jest.mock('scenes/settings/organization/aiConsentLogic', () => {
+    const { kea, selectors } = jest.requireActual('kea')
+    return {
+        aiConsentLogic: kea([
+            selectors({
+                dataProcessingAccepted: [() => [], () => (global as any).__consentAccepted ?? false],
+                dataProcessingDismissed: [() => [], () => false],
+                dataProcessingApprovalDisabledReason: [() => [], () => null],
+            }),
+        ]),
+    }
+})
+
+// The metric panels pull in the metric modals and their logics, which the consent-gate tests
+// don't exercise; stubbing them keeps the AnalyticsStep render scoped to the checkbox.
+jest.mock('../ExperimentForm/MetricsPanel', () => ({ MetricsPanel: () => null }))
+jest.mock('../ExperimentForm/ExposureCriteriaPanel', () => ({ ExposureCriteriaPanel: () => null }))
 
 beforeAll(() => {
     const modalRoot = document.createElement('div')
@@ -851,6 +872,95 @@ describe('experimentWizardLogic', () => {
             await expectLogic(logic).toMatchValues({
                 linkedFeatureFlag: null,
             })
+        })
+    })
+
+    describe('AnalyticsStep Replay Vision scanner consent gate', () => {
+        let logic: ReturnType<typeof experimentWizardLogic.build>
+        let createLogic: ReturnType<typeof createExperimentLogic.build>
+        let appContextBeforeGrant: AppContext | undefined
+
+        beforeEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+            useMocks(apiMocks)
+            initKeaTests()
+            // The checkbox's disabledReason fails closed when the app context carries no access
+            // levels, which would swallow every click; grant what the backend grants an editor.
+            appContextBeforeGrant = window.POSTHOG_APP_CONTEXT
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.ReplayScanner]: AccessControlLevel.Editor,
+                    [AccessControlResourceType.SessionRecording]: AccessControlLevel.Viewer,
+                },
+            } as AppContext
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+
+            logic = experimentWizardLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            cleanup()
+            logic?.unmount()
+            createLogic?.unmount()
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+            delete (global as any).__consentAccepted
+            // initKeaTests spreads the existing context, so the grant would otherwise leak into
+            // every later test in this file.
+            window.POSTHOG_APP_CONTEXT = appContextBeforeGrant
+        })
+
+        const renderAnalyticsStep = (): void => {
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AnalyticsStep />
+                </BindLogic>
+            )
+        }
+
+        it.each([
+            {
+                desc: 'a tick without org AI consent opens the consent popover instead of arming the scanner',
+                accepted: false,
+                expectedArmed: false,
+            },
+            {
+                desc: 'a tick with org AI consent arms the scanner without the popover',
+                accepted: true,
+                expectedArmed: true,
+            },
+        ])('$desc', async ({ accepted, expectedArmed }) => {
+            ;(global as any).__consentAccepted = accepted
+
+            renderAnalyticsStep()
+            await userEvent.click(screen.getByText('Watch participant behavior with Replay Vision'))
+
+            // Without the gate the unconsented tick lands in the logic, and the save path then
+            // creates a scanner the backend refuses with the consent 400.
+            expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
+            const popoverPrompt = screen.queryByText(/needs your approval/)
+            if (accepted) {
+                expect(popoverPrompt).not.toBeInTheDocument()
+            } else {
+                expect(popoverPrompt).toBeInTheDocument()
+            }
+        })
+
+        it('shows the per-session price next to the checkbox', () => {
+            ;(global as any).__consentAccepted = true
+
+            renderAnalyticsStep()
+
+            expect(screen.getByText(/Each scanned session costs/)).toBeInTheDocument()
         })
     })
 })

@@ -5,11 +5,14 @@ import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { ScoutOwnerFilter } from './ScoutOwnerFilter'
 import { ScoutTagsFilter } from './ScoutTagsFilter'
 
 export function ScoutsRosterFiltersLegacy({ compact }: { compact: boolean }): JSX.Element {
-    const { scoutSearch, scoutEnabledFilter, scoutTagOptions, activeScoutTags } = useValues(scoutFleetLogic)
-    const { setScoutSearch, setScoutEnabledFilter, setScoutTagFilter } = useActions(scoutFleetLogic)
+    const { scoutSearch, scoutEnabledFilter, scoutTagOptions, activeScoutTags, scoutOwnerOptions, activeScoutOwner } =
+        useValues(scoutFleetLogic)
+    const { setScoutSearch, setScoutEnabledFilter, setScoutTagFilter, setScoutOwnerFilter } =
+        useActions(scoutFleetLogic)
 
     return (
         // Compact takes the whole line rather than being pushed right: at phone widths the filters
@@ -35,21 +38,27 @@ export function ScoutsRosterFiltersLegacy({ compact }: { compact: boolean }): JS
                 allowClear
             />
             {scoutTagOptions.length > 0 && (
-                <>
-                    <ScoutTagsFilter
-                        size="xsmall"
-                        options={scoutTagOptions}
-                        selected={activeScoutTags}
-                        onToggle={(tag) =>
-                            setScoutTagFilter(
-                                activeScoutTags.includes(tag)
-                                    ? activeScoutTags.filter((candidate) => candidate !== tag)
-                                    : [...activeScoutTags, tag]
-                            )
-                        }
-                        onClear={() => setScoutTagFilter([])}
-                    />
-                </>
+                <ScoutTagsFilter
+                    size="xsmall"
+                    options={scoutTagOptions}
+                    selected={activeScoutTags}
+                    onToggle={(tag) =>
+                        setScoutTagFilter(
+                            activeScoutTags.includes(tag)
+                                ? activeScoutTags.filter((candidate) => candidate !== tag)
+                                : [...activeScoutTags, tag]
+                        )
+                    }
+                    onClear={() => setScoutTagFilter([])}
+                />
+            )}
+            {scoutOwnerOptions.length > 0 && (
+                <ScoutOwnerFilter
+                    size="xsmall"
+                    options={scoutOwnerOptions}
+                    selected={activeScoutOwner}
+                    onChange={setScoutOwnerFilter}
+                />
             )}
         </div>
     )

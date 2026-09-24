@@ -5,12 +5,13 @@ import { useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
+import * as trenchcoatPng from '@posthog/brand/hoggies/png/trenchcoat'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCard,
     LemonInput,
@@ -22,6 +23,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -49,26 +51,26 @@ import { ScannerGoalOverview } from './components/ScannerGoalOverview'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { parseExperimentScannerParams } from './experimentTargeting'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
+    SCANNER_STEPPER_STEPS,
     STEP_LABELS,
     ScannerEditorStep,
     UNVALIDATED_SCANNER_STEPS,
-    scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
-import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-const HedgehogReporter = pngHoggie(reporterPng)
 const HedgehogMoney = pngHoggie(moneyPng)
+const HedgehogReporter = pngHoggie(reporterPng)
+const HedgehogTrenchcoat = pngHoggie(trenchcoatPng)
 const HedgehogXRay = pngHoggie(xRayPng)
 
 export const scene: SceneExport = {
@@ -88,7 +90,7 @@ const STEP_HEADERS: Record<
         subtitle: 'All optional. Tags help you find it later in the scanner list.',
     },
     configure: {
-        hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogTrenchcoat className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Configure your scanner',
         subtitle: 'What it looks for and how it analyzes recordings.',
     },
@@ -110,8 +112,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
     const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
-    const [manualMode, setManualMode] = useState(false)
-    const showGoalEntry = step === 'template' && goalFlow && !manualMode
+    // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
+    const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
     // stop, so the linear stepper is hidden and the footer returns there instead of marching on.
     const fromOverview = searchParams.from === 'overview'
@@ -119,15 +121,15 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const {
-        scanner,
-        scannerLoading,
-        isScannerSubmitting,
-        scannerValidationErrors,
-        showScannerErrors,
-        durationValidationError,
-    } = useValues(scannerLogic)
+    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
+
+    // An experiment cross-sell entry point has already said what to watch and deep-linked the
+    // targeting. Asking for that goal again as free text loses the prefill from view and makes the
+    // user restate it, so those entries get the template picker with the prefill already applied.
+    // Only the deep link decides this. A context that arrives later (the experiment fetch, or a
+    // restored draft that carries targeting) would swap the layout under someone already typing.
+    const showGoalEntry = step === 'template' && goalFlow && !experimentDeepLink
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -138,10 +140,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     }
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
-
-    const stepErrors = showScannerErrors
-        ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
-        : undefined
 
     // Validate the current step and move on: submit routes to the next step on success. A step with
     // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
@@ -181,9 +179,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         actions={<ReplayVisionFeedbackButton />}
                     />
                     {showGoalEntry || step === 'overview' || fromOverview ? null : (
-                        <ScannerEditorStepper
+                        <GuidedWizardStepper
+                            steps={SCANNER_STEPPER_STEPS}
                             currentStep={step}
-                            steps={SCANNER_EDITOR_STEPS}
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
@@ -191,6 +189,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     ? undefined
                                     : { template: 'A saved scanner keeps the template it was created from' }
                             }
+                            className="flex-wrap justify-center gap-y-1"
+                            aria-label="Scanner editor progress"
                         />
                     )}
                     {step === 'template' ? (
@@ -206,7 +206,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         for you to review.
                                     </p>
                                 </div>
-                                <ScannerGoalFlow onManual={() => setManualMode(true)} />
+                                <ScannerGoalFlow />
                             </>
                         ) : (
                             <>
@@ -220,8 +220,12 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         scanner from scratch.
                                     </p>
                                 </div>
+                                <ExperimentScopeNote experimentName={experimentContext?.experiment.name} />
                                 <ScannerTemplatePicker />
-                                <ScannerGoalDraft />
+                                {/* The goal flow supersedes this box, so someone who has already
+                                    turned it down to build by hand should not be offered it again.
+                                    An experiment entry never saw the goal flow, so it keeps the box. */}
+                                {(!goalFlow || experimentDeepLink) && <ScannerGoalDraft />}
                             </>
                         )
                     ) : step === 'overview' ? (
@@ -267,6 +271,20 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                 </div>
             </div>
         </SceneContent>
+    )
+}
+
+/** Tells an experiment entry that the targeting came with it, so the template step doesn't read as
+ * a blank start that dropped the experiment. The variant picker itself lives on the Recordings step. */
+function ExperimentScopeNote({ experimentName }: { experimentName?: string }): JSX.Element | null {
+    if (!experimentName) {
+        return null
+    }
+    return (
+        <LemonBanner type="info">
+            This scanner watches sessions of people exposed to {experimentName}. That holds whichever way you set it up
+            below, and you can narrow it to one variant on the Recordings step.
+        </LemonBanner>
     )
 }
 
@@ -479,11 +497,12 @@ function EditorFooter({
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     // The backend rejects scanner creation without org AI consent, so the popover interposes at
     // Save instead of letting the request 400.
     const needsConsent = isNew && !dataProcessingAccepted
+    const canApproveConsent = !dataProcessingApprovalDisabledReason
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
     const prevStep = previous === 'template' && !isNew ? null : previous
@@ -594,7 +613,9 @@ function EditorFooter({
                                     data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
                                 >
                                     {needsConsent
-                                        ? 'Allow AI analysis and create scanner'
+                                        ? canApproveConsent
+                                            ? 'Allow AI analysis and create scanner'
+                                            : 'Ask an admin to enable AI analysis'
                                         : isNew
                                           ? 'Create scanner'
                                           : 'Save changes'}

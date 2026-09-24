@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import * as notebooksModel from '~/models/notebooksModel'
 import {
     AgentMode,
@@ -30,12 +31,20 @@ import {
     SlashCommandName,
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { Conversation, ConversationDetail, ConversationStatus, ConversationType, OrganizationType } from '~/types'
+import {
+    Conversation,
+    ConversationDetail,
+    ConversationStatus,
+    ConversationType,
+    OrganizationType,
+    InsightShortId,
+} from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import * as tasksApi from 'products/tasks/frontend/generated/api'
+import { TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
+import { EnhancedToolCall, MESSAGE_TOO_LONG, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -721,7 +730,7 @@ describe('maxThreadLogic', () => {
             const conversation: ConversationDetail = {
                 ...MOCK_IN_PROGRESS_CONVERSATION,
                 agent_runtime: 'sandbox',
-                task: { id: 'pi-task', latest_run: 'pi-run', runtime: RuntimeEnumApi.Pi },
+                task: { id: 'pi-task', latest_run: 'pi-run', runtime: TaskRuntimeEnumApi.Pi },
             }
 
             logic.actions.setConversation(conversation)
@@ -1381,25 +1390,50 @@ describe('maxThreadLogic', () => {
                     threadGrouped: expect.arrayContaining([
                         expect.objectContaining({
                             type: AssistantMessageType.Failure,
-                            content: 'Oops! Your message is too long. Ensure it has no more than 40000 characters.',
+                            content: MESSAGE_TOO_LONG,
                         }),
                     ]),
                 })
         })
+
+        it('still counts an over-length message as a failed turn', async () => {
+            // The length error is silenced in error tracking but must stay a failure in telemetry:
+            // silencing it by clearing `releaseException` instead would hide the turn entirely.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { attr: 'content', detail: 'Content too long' })
+            )
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'failure', error_status_code: 400, prompt_length: 5 })
+            )
+        })
     })
 
     describe('error tracking capture gating', () => {
-        // 402 (out of AI credits) and 429 (rate limited) are expected business conditions shown
-        // to the user, so they must not be reported to error tracking; genuine failures (500) must.
+        // 402 (out of AI credits), 429 (rate limited), and a message over the length limit are
+        // expected business conditions shown to the user, so they must not be reported to error
+        // tracking; genuine failures (500) must.
         it.each([
-            [402, false],
-            [429, false],
-            [500, true],
-        ])('status %s reports exception: %s', async (status, shouldCapture) => {
+            ['does not report being out of AI credits', 402, {}, false],
+            ['does not report being rate limited', 429, {}, false],
+            ['does not report a message over the length limit', 400, { attr: 'content' }, false],
+            ['reports a server failure', 500, {}, true],
+        ])('%s', async (_label, status, data, shouldCapture) => {
             const captureExceptionSpy = jest
                 .spyOn(posthog, 'captureException')
                 .mockImplementation(() => undefined as any)
-            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', status, undefined, {}))
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', status, undefined, data))
 
             logic.unmount()
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
@@ -1713,7 +1747,7 @@ describe('maxThreadLogic', () => {
 
         function sandboxConversation(
             currentRunId: string | null,
-            runtime: RuntimeEnumApi = RuntimeEnumApi.Acp
+            runtime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
         ): ConversationDetail {
             return {
                 id: MOCK_CONVERSATION_ID,
@@ -1733,7 +1767,9 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
-            const runSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            const runSpy = jest
+                .spyOn(tasksApi, 'tasksRunsRetrieve')
+                .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1748,14 +1784,19 @@ describe('maxThreadLogic', () => {
 
             // bootstrapRun replayed logs/ and refetched the run, then opened SSE — and the LangGraph
             // stream was never touched (coexistence).
-            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
-            expect(runSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
+            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
+                signal: expect.any(AbortSignal),
+                projectId: 997,
+            })
+            expect(runSpy).toHaveBeenCalledWith('997', SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
+                signal: expect.any(AbortSignal),
+            })
             expect(streamSpy).not.toHaveBeenCalled()
         })
 
         it('does not bootstrap a Pi task run', async () => {
             logic.unmount()
-            const conversation = sandboxConversation(SANDBOX_RUN_ID, RuntimeEnumApi.Pi)
+            const conversation = sandboxConversation(SANDBOX_RUN_ID, TaskRuntimeEnumApi.Pi)
             jest.spyOn(api.conversations, 'get').mockResolvedValue(conversation)
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
             const streamSpy = mockStream()
@@ -2183,6 +2224,33 @@ describe('maxThreadLogic', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
+        })
+
+        it('dispatches a saved insight refresh from a create insight result', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+            const dashboardModel = insightsModel()
+            dashboardModel.mount()
+            const cache = {}
+            const emit = async (message: object): Promise<void> =>
+                onEventImplementation(AssistantEventType.Message, JSON.stringify(message), {
+                    actions: logic.actions,
+                    values: logic.values,
+                    props: logic.props,
+                    agentMode: null,
+                    cache,
+                })
+            const saved = {
+                id: 'save-result',
+                type: AssistantMessageType.ToolCall,
+                content: 'Updated insight',
+                tool_call_id: 'save-tool',
+                ui_payload: { create_insight: { saved_insight: { short_id: 'saved-chart' } } },
+            }
+            await expectLogic(dashboardModel, () => emit(saved)).toDispatchActions([
+                dashboardModel.actionCreators.insightSaved('saved-chart' as InsightShortId),
+            ])
+            await expectLogic(dashboardModel, () => emit(saved)).toNotHaveDispatchedActions(['insightSaved'])
+            dashboardModel.unmount()
         })
 
         it('handles streaming message with temp- ID by adding it first time', async () => {
@@ -3631,7 +3699,7 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.setPendingBindTaskId('pi-task')
             const taskSpy = jest
                 .spyOn(api.tasks, 'get')
-                .mockResolvedValue({ id: 'pi-task', runtime: RuntimeEnumApi.Pi } as any)
+                .mockResolvedValue({ id: 'pi-task', runtime: TaskRuntimeEnumApi.Pi } as any)
             const openSpy = jest.spyOn(api.conversations, 'open')
 
             logic.actions.askMax('hello')
@@ -3648,7 +3716,7 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.setPendingBindTaskId('acp-task')
             const taskSpy = jest
                 .spyOn(api.tasks, 'get')
-                .mockResolvedValue({ id: 'acp-task', runtime: RuntimeEnumApi.Acp } as any)
+                .mockResolvedValue({ id: 'acp-task', runtime: TaskRuntimeEnumApi.Acp } as any)
             jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
@@ -3766,12 +3834,13 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
 
-        it('degrades a keyed non-allowlisted context item to a text attachment instead of dropping it', async () => {
+        it('degrades a keyed non-allowlisted item to text but keeps instructions trusted', async () => {
             const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
             // initKeaTests() in beforeEach resets the kea context, so no explicit unmount is needed
             attachedContextLogic.mount()
             attachedContextLogic.actions.registerContext('test-provider', [
                 { type: 'trace', key: '0189-abc', label: 'LLM trace' },
+                { type: 'instructions', value: 'Prefer the live query.' },
             ])
 
             await expectLogic(logic, () => {
@@ -3781,10 +3850,15 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
 
+            // Flattening the instructions item to `text` would render it into the untrusted block,
+            // alongside values read off the page the user has open.
             expect(openSpy).toHaveBeenCalledWith(
                 MOCK_CONVERSATION_ID,
                 expect.objectContaining({
-                    attached_context: expect.arrayContaining([{ type: 'text', value: 'trace 0189-abc ("LLM trace")' }]),
+                    attached_context: expect.arrayContaining([
+                        { type: 'text', value: 'trace 0189-abc ("LLM trace")' },
+                        { type: 'instructions', value: 'Prefer the live query.' },
+                    ]),
                 })
             )
         })

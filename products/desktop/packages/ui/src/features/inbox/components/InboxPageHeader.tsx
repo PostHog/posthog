@@ -21,6 +21,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { Link, useRouterState } from "@tanstack/react-router";
 
 interface InboxPageHeaderProps {
@@ -28,7 +29,7 @@ interface InboxPageHeaderProps {
 }
 
 /**
- * Responder configuration lives at /agents, not in the inbox. The header
+ * Responder configuration lives in Settings, not in the inbox. The header
  * carries this always-visible way there so the config surface stays one click
  * away from the work it powers.
  */
@@ -37,7 +38,13 @@ function ConfigureAgentsButton() {
     <Button
       variant="primary"
       size="sm"
-      render={<Link to="/agents" />}
+      render={
+        <Link
+          to="/settings/$category"
+          params={{ category: "agents" }}
+          search={{ from: settingsSourceHref() }}
+        />
+      }
       className="shrink-0"
     >
       <RobotIcon size={14} />

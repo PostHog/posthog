@@ -10,10 +10,16 @@ use rand::Rng;
 use sqlx::postgres::PgPool;
 
 use personhog_identity::config::IdentityTables;
+use personhog_identity::pools::IdentityPools;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
+/// Leader fan-out width the suites run with; production reads it from config.
+pub const FAN_OUT_CONCURRENCY: usize = 8;
+/// Partition count the delete driver groups its fence batches by.
+pub const NUM_PARTITIONS: u32 = 4;
+
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
 }
@@ -25,6 +31,7 @@ pub fn tmp_tables() -> IdentityTables {
 
 pub struct TestContext {
     pub pool: PgPool,
+    pub pools: IdentityPools,
     pub storage: Arc<PostgresIdentityStorage>,
     pub team_id: i64,
     pub tables: IdentityTables,
@@ -42,10 +49,12 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone(), tables.clone()));
+        let pools = IdentityPools::shared(pool.clone());
+        let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), tables.clone()));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,
+            pools,
             storage,
             team_id,
             tables,
@@ -97,13 +106,15 @@ impl TestContext {
     /// explicit lease_expires_at values instead of waiting this out.
     pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
         personhog_identity::lifecycle::engine::Engine::new(
-            self.pool.clone(),
+            self.pools.clone(),
             personhog_identity::lifecycle::engine::EngineConfig {
                 lease: std::time::Duration::from_secs(300),
                 execute_timeout: std::time::Duration::from_secs(10),
                 poll_interval: std::time::Duration::from_millis(25),
                 attempt_alert_threshold: 5,
+                gc_batch_limit: 10_000,
             },
+            self.tables.clone(),
         )
     }
 
@@ -187,10 +198,13 @@ impl TestContext {
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.lifecycle_op
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
             self.tables.person_distinct_id
@@ -234,10 +248,24 @@ impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
+    async fn fence_persons(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FencePersonsRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FencePersonsResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
     async fn release_fence(
         &self,
         _request: personhog_proto::personhog::types::v1::ReleaseFenceRequest,
     ) -> Result<personhog_proto::personhog::types::v1::ReleaseFenceResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn release_fences(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFencesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFencesResponse, tonic::Status> {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
@@ -312,6 +340,9 @@ pub struct RacingStorage {
     /// create_person_stubs: commit the stub as a concurrent winner and
     /// answer LostRace.
     pub lose_create_race: std::sync::Mutex<bool>,
+    /// Every key passed to resolve_distinct_ids, for tests that pin what
+    /// does and does not reach the resolution query.
+    pub resolved_keys: std::sync::Mutex<Vec<(i64, String)>>,
 }
 
 impl RacingStorage {
@@ -321,6 +352,7 @@ impl RacingStorage {
             hijack_attach_to: std::sync::Mutex::new(None),
             vanish_attach: std::sync::Mutex::new(false),
             lose_create_race: std::sync::Mutex::new(false),
+            resolved_keys: std::sync::Mutex::new(Vec::new()),
         }
     }
 }
@@ -333,6 +365,10 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
     ) -> personhog_identity::storage::StorageResult<
         std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
     > {
+        self.resolved_keys
+            .lock()
+            .unwrap()
+            .extend(keys.iter().cloned());
         self.inner.resolve_distinct_ids(keys).await
     }
 

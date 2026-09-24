@@ -12,9 +12,16 @@ import { SpacePreviewContent, type SpacePreviewPayload } from "./SpacePreview";
  */
 function CardFrame({
   people,
+  liveUuids,
   total,
+  lastActivityAt,
   ...payload
-}: SpacePreviewPayload & { people: UserBasic[]; total: number | null }) {
+}: SpacePreviewPayload & {
+  people: UserBasic[];
+  liveUuids?: string[];
+  total: number | null;
+  lastActivityAt: string | null;
+}) {
   return (
     <div className="p-4">
       <Card
@@ -24,7 +31,9 @@ function CardFrame({
         <SpacePreviewContent
           payload={payload}
           people={people}
+          liveUuids={liveUuids ? new Set(liveUuids) : undefined}
           total={total}
+          lastActivityAt={lastActivityAt}
           onAction={() => {}}
         />
       </Card>
@@ -80,6 +89,7 @@ const meta = {
     blockedSessions: 0,
     actions,
     total: 14,
+    lastActivityAt: "2026-07-01T08:30:00Z",
     people: [
       user(1, "Ada", "Lovelace"),
       user(2, "Grace", "Hopper"),
@@ -94,6 +104,11 @@ type Story = StoryObj<typeof meta>;
 
 /** Nothing owed: the gutter stays empty and the card is who and what. */
 export const Quiet: Story = {};
+
+/** Two people working right now — their faces wear a pulsing live dot. */
+export const LiveNow: Story = {
+  args: { liveUuids: ["user-2", "user-3"] },
+};
 
 /** Both dots the row can show, spelled out. */
 export const WantsYou: Story = {
@@ -117,5 +132,20 @@ export const ManyRepos: Story = {
       ],
       createdBy: null,
     },
+  },
+};
+
+export const Private: Story = {
+  args: {
+    channel: {
+      id: "channel-3",
+      name: "launch-planning",
+      channelType: "private",
+      starred: true,
+      repositories: [],
+      createdBy: user(1, "Ada", "Lovelace"),
+    },
+    total: 3,
+    people: [user(1, "Ada", "Lovelace"), user(2, "Grace", "Hopper")],
   },
 };

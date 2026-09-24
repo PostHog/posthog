@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { lowercaseFirstLetter } from 'lib/utils/strings'
@@ -7,17 +9,24 @@ import { EventType } from '~/types'
 
 import { EvaluationResultTag } from '../components/EvaluationResultTag'
 import { MetadataTag } from '../components/MetadataTag'
-import { normalizeEvaluationResultProperties } from '../utils'
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
+import { isExplicitEvaluationPass, normalizeEvaluationResultProperties } from '../utils'
 
 export function EvaluationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
+    const { detectorEvaluationIds, evaluations } = useValues(llmEvaluationsLogic)
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
+    const evaluationId = eventProperties.$ai_evaluation_id
     const resultRun = {
         status: 'completed' as const,
+        skipped: isExplicitEvaluationPass(eventProperties.$ai_evaluation_skipped),
         ...normalizeEvaluationResultProperties({
+            rawScore: eventProperties.$ai_evaluation_numeric_result,
+            rawScoreMin: eventProperties.$ai_evaluation_numeric_result_min,
+            rawScoreMax: eventProperties.$ai_evaluation_numeric_result_max,
             rawResult: eventProperties.$ai_evaluation_result,
             rawApplicable: eventProperties.$ai_evaluation_applicable,
             rawEvaluationType: eventProperties.$ai_evaluation_runtime,
@@ -30,7 +39,13 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-                <EvaluationResultTag run={resultRun} />
+                <EvaluationResultTag
+                    run={resultRun}
+                    passingRule={
+                        evaluations?.find((evaluation) => evaluation.id === evaluationId)?.output_config.passing_rule
+                    }
+                    trueIsFailure={detectorEvaluationIds.includes(evaluationId)}
+                />
                 {evaluationName && (
                     <MetadataTag label="Evaluation" textToCopy={evaluationName}>
                         {evaluationName}

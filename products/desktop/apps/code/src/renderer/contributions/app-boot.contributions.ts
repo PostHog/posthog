@@ -1,6 +1,13 @@
 import type { Contribution } from "@posthog/di/contribution";
-import { CODEX_OWN_SUBSCRIPTION_FLAG } from "@posthog/shared";
-import { registerCodexSubscriptionAtBoot } from "@posthog/ui/features/settings/useCodexSubscription";
+import {
+  type Adapter,
+  CLAUDE_OWN_SUBSCRIPTION_FLAG,
+  CODEX_OWN_SUBSCRIPTION_FLAG,
+} from "@posthog/shared";
+import {
+  registerSubscriptionAtBoot,
+  type SubscriptionStatus,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import {
   initializePostHog,
   posthogFeatureFlags,
@@ -12,6 +19,23 @@ import { logger } from "@utils/logger";
 import { injectable } from "inversify";
 
 const log = logger.scope("app-boot");
+
+const SUBSCRIPTION_BOOT: {
+  adapter: Adapter;
+  flag: string;
+  fetchStatus: () => Promise<SubscriptionStatus>;
+}[] = [
+  {
+    adapter: "codex",
+    flag: CODEX_OWN_SUBSCRIPTION_FLAG,
+    fetchStatus: () => trpcClient.agent.codexSubscriptionStatus.query(),
+  },
+  {
+    adapter: "claude",
+    flag: CLAUDE_OWN_SUBSCRIPTION_FLAG,
+    fetchStatus: () => trpcClient.agent.claudeSubscriptionStatus.query(),
+  },
+];
 
 @injectable()
 export class AnalyticsBootContribution implements Contribution {
@@ -36,18 +60,19 @@ export class AnalyticsBootContribution implements Contribution {
       } catch (error) {
         log.warn("Failed to register host info super properties", { error });
       }
-      try {
-        const codexFlagEnabled =
-          posthogFeatureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
-          import.meta.env.DEV;
-        await registerCodexSubscriptionAtBoot(
-          () => trpcClient.agent.codexSubscriptionStatus.query(),
-          codexFlagEnabled,
-        );
-      } catch (error) {
-        log.warn("Failed to register codex subscription super properties", {
-          error,
-        });
+      for (const { adapter, flag, fetchStatus } of SUBSCRIPTION_BOOT) {
+        try {
+          await registerSubscriptionAtBoot(
+            adapter,
+            fetchStatus,
+            posthogFeatureFlags.isEnabled(flag) || import.meta.env.DEV,
+          );
+        } catch (error) {
+          log.warn(
+            `Failed to register ${adapter} subscription super properties`,
+            { error },
+          );
+        }
       }
     })();
   }

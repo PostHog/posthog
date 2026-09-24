@@ -13,7 +13,7 @@ from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
 
 class EvaluationReportQuerySet(models.QuerySet):
-    def reportable(self) -> "EvaluationReportQuerySet":
+    def for_supported_evaluations(self) -> "EvaluationReportQuerySet":
         reportable_filter = models.Q()
         for target, output_types in REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
             reportable_filter |= models.Q(
@@ -21,6 +21,15 @@ class EvaluationReportQuerySet(models.QuerySet):
                 evaluation__output_type__in=output_types,
             )
         return self.filter(reportable_filter)
+
+    def reportable(self) -> "EvaluationReportQuerySet":
+        return self.for_supported_evaluations().exclude(
+            models.Q(evaluation__output_type="numeric")
+            & (
+                ~models.Q(evaluation__output_config__has_key="passing_rule")
+                | models.Q(evaluation__output_config__passing_rule=None)
+            )
+        )
 
     def deliverable(self) -> "EvaluationReportQuerySet":
         return self.reportable().filter(
@@ -63,7 +72,7 @@ class EvaluationReport(UUIDTModel):
             models.UniqueConstraint(fields=["evaluation"], name="unique_evaluation_report_per_evaluation"),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     evaluation = models.ForeignKey(
         "ai_observability.Evaluation",
         on_delete=models.CASCADE,
@@ -107,7 +116,7 @@ class EvaluationReport(UUIDTModel):
     # Lets users steer focus/scope/section choices without touching the base prompt.
     report_prompt_guidance = models.TextField(blank=True, default="")
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
@@ -145,6 +154,13 @@ class EvaluationReport(UUIDTModel):
             count=1,
         )
         self.next_delivery_date = occurrences[0] if occurrences else None
+
+    def restart_reporting(self) -> None:
+        self.last_delivered_at = None
+        if self.is_count_triggered:
+            self.starts_at = timezone.now()
+        self.set_next_delivery_date()
+        self.save(update_fields=["last_delivered_at", "starts_at", "next_delivery_date"])
 
     def save(self, *args, **kwargs):
         recalc = not self.id or not self.next_delivery_date
@@ -190,7 +206,7 @@ class EvaluationReportRun(UUIDTModel):
 
     class Meta:
         db_table = "llm_analytics_evaluationreportrun"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["report", "-created_at"]),
         ]

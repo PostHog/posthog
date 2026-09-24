@@ -132,6 +132,52 @@ export interface HandleServerRequestOptions {
   }) => boolean;
 }
 
+export function networkApprovalOptions(
+  availableDecisions: unknown[],
+): Array<{ option: PermissionOption; decision: unknown }> {
+  return availableDecisions.flatMap((decision, index) => {
+    if (
+      !decision ||
+      typeof decision !== "object" ||
+      !("applyNetworkPolicyAmendment" in decision)
+    ) {
+      return [];
+    }
+    const amendment = decision.applyNetworkPolicyAmendment;
+    if (
+      !amendment ||
+      typeof amendment !== "object" ||
+      !("network_policy_amendment" in amendment)
+    ) {
+      return [];
+    }
+    const policy = amendment.network_policy_amendment;
+    if (
+      !policy ||
+      typeof policy !== "object" ||
+      !("host" in policy) ||
+      typeof policy.host !== "string" ||
+      !policy.host ||
+      !("action" in policy) ||
+      (policy.action !== "allow" && policy.action !== "deny")
+    ) {
+      return [];
+    }
+    const allow = policy.action === "allow";
+    return [
+      {
+        option: {
+          optionId: `network_${index}`,
+          kind: allow ? "allow_always" : "reject_always",
+          name: `${allow ? "Allow" : "Block"} ${policy.host} for future requests`,
+          _meta: { preservePermissionMode: true },
+        },
+        decision,
+      },
+    ];
+  });
+}
+
 /**
  * Routes a server-initiated request to the matching richer-response handler.
  * Returns `{ handled: false }` for anything this module doesn't own.
@@ -294,16 +340,29 @@ async function handlePermissionsApproval(
 
   let response: RequestPermissionResponse;
   try {
+    const description = JSON.stringify(params.permissions, null, 2);
     response = await client.requestPermission({
       sessionId: opts.sessionId,
       options: [
-        { kind: "allow_once", name: "Allow", optionId: "allow" },
+        {
+          kind: "allow_once",
+          name: "Allow for this turn",
+          optionId: "allow",
+          _meta: { description },
+        },
+        {
+          kind: "allow_always",
+          name: "Allow these permissions for this session",
+          optionId: "allow_session",
+          _meta: { description, preservePermissionMode: true },
+        },
         { kind: "reject_once", name: "Reject", optionId: "reject" },
       ],
       toolCall: {
         toolCallId: params.itemId,
         title: params.reason ?? "Grant additional permissions",
         kind: "other",
+        rawInput: params.permissions,
       },
     });
   } catch (err) {
@@ -316,12 +375,12 @@ async function handlePermissionsApproval(
 
   if (
     response.outcome.outcome === "selected" &&
-    response.outcome.optionId === "allow"
+    (response.outcome.optionId === "allow" ||
+      response.outcome.optionId === "allow_session")
   ) {
-    // Grant only what was requested, scoped to this turn (option is "allow_once").
     return {
       permissions: grantedFromRequested(params.permissions),
-      scope: "turn",
+      scope: response.outcome.optionId === "allow_session" ? "session" : "turn",
     };
   }
   return denied;

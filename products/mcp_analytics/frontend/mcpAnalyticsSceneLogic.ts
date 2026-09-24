@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { type MCPDashboardStage, mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 
 export type MCPAnalyticsTab =
@@ -13,6 +14,7 @@ export type MCPAnalyticsTab =
     | 'sessions'
     | 'tool-quality'
     | 'intent-clustering'
+    | 'missing-capabilities'
     | 'notifications'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
@@ -22,6 +24,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
     'intent-clustering':
         'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
+    'missing-capabilities': 'What agents asked your server for and could not get, in their own words, newest first.',
     notifications:
         'Recurring summaries of what agents are doing, plus instant alerts for the things you need to know about right away.',
 }
@@ -32,6 +35,7 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsSessions: 'sessions',
     mcpAnalyticsToolQuality: 'tool-quality',
     mcpAnalyticsIntentClustering: 'intent-clustering',
+    mcpAnalyticsMissingCapabilities: 'missing-capabilities',
     mcpAnalyticsNotifications: 'notifications',
 }
 
@@ -70,6 +74,7 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
     connect(() => ({
         values: [sceneLogic, ['sceneKey'], mcpAnalyticsOnboardingLogic, ['dashboardStage']],
+        logic: [mcpAnalyticsFiltersLogic],
     })),
     selectors({
         activeTab: [

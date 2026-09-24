@@ -149,6 +149,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
+        HELPSCOUT = "helpscout"
         HUBSPOT = "hubspot"
         INSTAGRAM = "instagram"
         INTERCOM = "intercom"
@@ -280,7 +281,16 @@ class Integration(models.Model):
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
         if self.kind == "apns":
-            return self.config.get("bundle_id", self.integration_id)
+            name = self.config.get("bundle_id", self.integration_id)
+            return f"{name} (sandbox)" if self.config.get("environment") == "sandbox" else name
+        if self.kind == Integration.IntegrationKind.POSTGRESQL:
+            # The derived id reads as "1-db.example.com-5432-postgres", so prefer a name the
+            # user chose. Falls back to host and user, which still beats the raw id.
+            if name := self.config.get("name"):
+                return name
+            host = self.config.get("host")
+            user = self.config.get("user")
+            return f"{user}@{host}" if user and host else f"ID: {self.integration_id}"
 
         return f"ID: {self.integration_id}"
 

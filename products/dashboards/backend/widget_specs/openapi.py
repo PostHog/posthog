@@ -6,6 +6,8 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
+from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
+from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
@@ -26,7 +28,7 @@ def _config_model_openapi_prefix(config_model: type[BaseModel]) -> str:
     return name
 
 
-class _WidgetTileLayoutBoxOpenApiSerializer(serializers.Serializer):
+class _TileLayoutBoxOpenApiSerializer(serializers.Serializer):
     x = serializers.IntegerField(
         required=False,
         help_text="Column position in the dashboard grid (0-indexed).",
@@ -42,14 +44,49 @@ class _WidgetTileLayoutBoxOpenApiSerializer(serializers.Serializer):
     h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
 
 
-class _WidgetTileLayoutsOpenApiSerializer(serializers.Serializer):
-    sm = _WidgetTileLayoutBoxOpenApiSerializer(
+class _TileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _TileLayoutBoxOpenApiSerializer(
         required=False,
         help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
     )
-    xs = _WidgetTileLayoutBoxOpenApiSerializer(
+    xs = _TileLayoutBoxOpenApiSerializer(
         required=False,
-        help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+        help_text=(
+            "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout "
+            "from the sm order and heights, so a stored xs box does not change what renders."
+        ),
+    )
+
+
+class _DashboardPatchTileLayoutBoxOpenApiSerializer(serializers.Serializer):
+    x = serializers.IntegerField(
+        min_value=0,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT - 1,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(min_value=0, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        min_value=1,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
+
+
+class _DashboardPatchTileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _DashboardPatchTileLayoutBoxOpenApiSerializer(
+        help_text=(
+            "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the "
+            "tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever "
+            "you send layouts."
+        ),
+    )
+    xs = _DashboardPatchTileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout "
+            "from the sm order and heights, so a stored xs box does not change what renders."
+        ),
     )
 
 
@@ -66,7 +103,7 @@ class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional markdown description shown when show_description is enabled.",
     )
-    layouts = _WidgetTileLayoutsOpenApiSerializer(
+    layouts = _TileLayoutsOpenApiSerializer(
         required=False,
         help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
     )
@@ -245,6 +282,15 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
 
 class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False, help_text="Dashboard tile ID to update.")
+    layouts = _DashboardPatchTileLayoutsOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Grid position and size per breakpoint. Works for every tile type, including insight tiles. "
+            "A write replaces the tile's whole layout, so send a complete sm box rather than the one value "
+            "you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes "
+            "that do not overlap, and include every tile you move in the same request."
+        ),
+    )
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
@@ -272,6 +318,55 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorConfigSerializer(serializers.Serializer):
+    breakdownValue = serializers.CharField(
+        allow_blank=True,
+        help_text="The breakdown value this color applies to, as it appears in the chart legend.",
+    )
+    # A token names a slot in the dashboard's color theme, not a color. getColorFromToken parses the
+    # N out and indexes the theme with it, so any other string yields theme['preset-NaN'], which is
+    # undefined. The pattern rather than a fixed range, because a theme may carry more slots than the
+    # default palette and the token wraps past its end.
+    #
+    # The slot starts at 1 and its digits must be ASCII. getColorFromToken wraps the index as
+    # ((N - 1) % slots) + 1, so `preset-0` reads theme['preset-0'], and JavaScript parseInt reads
+    # another script's digits as NaN.
+    colorToken = serializers.RegexField(
+        r"^preset-[1-9][0-9]*$",
+        allow_null=True,
+        help_text=(
+            "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex "
+            "value is rejected. Null leaves the value on its default color."
+        ),
+    )
+    breakdownType = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+    )
+    # Null means the same as omitted for both keys below: the frontend reads
+    # `breakdownProperty != null` for property scoping, and treats an entry with no source as a
+    # manual pin. So an explicit null must not fail a write.
+    breakdownProperty = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Breakdown property the color is scoped to, so the color applies only to tiles that break "
+            "down by that property. Omit to apply it under every property."
+        ),
+    )
+    # `source` is also the name of a Field attribute on the Serializer base class, which mypy reads as
+    # a shadowed assignment. SerializerMetaclass pops every declared field out of the class namespace,
+    # so the base attribute survives and the entry key stays `source`, which is what the frontend
+    # persists.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["auto", "manual"],
+        required=False,
+        allow_null=True,
+        help_text="`manual` for a color a person picked, `auto` for one the dashboard assigned.",
+    )
+
+
 class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only PATCH body for dashboards (agents/MCP).
 
@@ -286,9 +381,14 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         required=False,
         help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
     )
-    breakdown_colors = serializers.JSONField(
+    breakdown_colors = serializers.ListField(
+        child=BreakdownColorConfigSerializer(),
         required=False,
-        help_text="Custom color mapping for breakdown values.",
+        allow_null=True,
+        help_text=(
+            "Colors pinned to specific breakdown values across the dashboard's tiles. "
+            "A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+        ),
     )
     data_color_theme_id = serializers.IntegerField(
         required=False,
@@ -296,7 +396,11 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.ChoiceField(choices=[21, 37], required=False)
+    restriction_level = serializers.ChoiceField(
+        choices=RestrictionLevel.choices,
+        required=False,
+        help_text="Who can edit this dashboard.",
+    )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -319,7 +423,10 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,
         required=False,
-        help_text="Dashboard tiles to update. Widget tiles accept nested widget.config patches.",
+        help_text=(
+            "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set "
+            "its grid position and size. Widget tiles also accept nested widget.config patches."
+        ),
     )
     use_template = serializers.CharField(
         required=False,

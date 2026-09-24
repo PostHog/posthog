@@ -37,6 +37,7 @@ const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupT
     [TaxonomicFilterGroupType.ErrorTrackingIssues]: 'Error tracking issues',
     [TaxonomicFilterGroupType.RevenueAnalyticsProperties]: 'Revenue analytics',
     [TaxonomicFilterGroupType.AccountFields]: 'Account fields',
+    [TaxonomicFilterGroupType.AccountRelationships]: 'Account relationships',
     [TaxonomicFilterGroupType.AccountCustomProperties]: 'Account custom properties',
 }
 

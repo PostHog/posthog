@@ -24,6 +24,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
+import { reportImplementationStatesQueryRoot } from "@posthog/ui/features/inbox/hooks/useReportImplementationStates";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,9 @@ function useUpdateTask() {
         queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
         queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
         queryClient.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+        queryClient.invalidateQueries({
+          queryKey: reportImplementationStatesQueryRoot,
+        });
         queryClient.invalidateQueries({ queryKey: spaceTreeTasksQueryRoot });
         queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot });
         queryClient.invalidateQueries({ queryKey: taskFeedResultsQueryRoot });
@@ -79,6 +83,9 @@ export function useHandoffTask() {
         queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
         queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
         queryClient.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+        queryClient.invalidateQueries({
+          queryKey: reportImplementationStatesQueryRoot,
+        });
         queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot });
         // A recipient's private channel may be created by the handoff, and the
         // task's channel can change (private space moves to the recipient's).
@@ -131,7 +138,7 @@ export function useRenameTask() {
           queryKey: taskFeedResultsQueryRoot,
         });
       const previousSummaryQueries = queryClient.getQueriesData<
-        Schemas.TaskSummary[]
+        Schemas.TaskSummaryDTO[]
       >({
         queryKey: taskKeys.allSummaries(),
       });
@@ -151,7 +158,7 @@ export function useRenameTask() {
         { queryKey: channelFeedQueryRoot },
         (old) => applyRenameToList(old, taskId, newTitle),
       );
-      queryClient.setQueriesData<Schemas.TaskSummary[]>(
+      queryClient.setQueriesData<Schemas.TaskSummaryDTO[]>(
         { queryKey: taskKeys.allSummaries() },
         (old) => applyRenameToSummaries(old, taskId, newTitle),
       );
@@ -223,7 +230,7 @@ export function useRenameTask() {
           );
         }
         for (const [queryKey, data] of previousSummaryQueries) {
-          queryClient.setQueryData<Schemas.TaskSummary[] | undefined>(
+          queryClient.setQueryData<Schemas.TaskSummaryDTO[] | undefined>(
             queryKey,
             (current) =>
               rollbackSummaryData(current, data ?? [], taskId, newTitle),

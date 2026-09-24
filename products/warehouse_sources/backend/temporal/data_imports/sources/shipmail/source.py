@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -41,7 +39,7 @@ class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHIPMAIL,
+            name=ExternalDataSourceType.SHIPMAIL,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Shipmail",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -49,6 +47,7 @@ class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]
 
 Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, and `suppressions:read`.""",
             iconPath="/static/services/shipmail.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/shipmail",
             fields=cast(
                 list[FieldType],
                 [

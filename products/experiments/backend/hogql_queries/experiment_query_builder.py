@@ -7,12 +7,10 @@ from django.utils import timezone
 from posthog.schema import (
     ActionsNode,
     Breakdown,
-    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentMetricOutlierHandling,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     MultipleVariantHandling,
@@ -29,10 +27,7 @@ from products.experiments.backend.hogql_queries.breakdown_injector import Breakd
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
-from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import (
-    FunnelQueryBuilder,
-    FunnelTemporalSetup,
-)
+from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import FunnelQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_mean_query_builder import MeanQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_metric_values import (
     build_conversion_window_predicate,
@@ -55,8 +50,6 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
-from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
 def resolve_exposure_config_for_builder(
@@ -294,14 +287,6 @@ class ExperimentQueryBuilder:
         """
         return self._get_conversion_window_seconds()
 
-    def _get_retention_maturity_seconds(self) -> int:
-        """
-        Returns the maturity window in seconds for retention metrics.
-        Equals retention_window_end converted to seconds; conversion_window does
-        not contribute because retention maturity is anchored on start_event.
-        """
-        return self._retention_query_builder().get_retention_maturity_seconds()
-
     def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
         """
         Returns a HAVING clause expression to filter out users whose conversion window
@@ -336,17 +321,6 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
-        """
-        Returns a HAVING clause for the retention query's start_events CTE that
-        filters out users whose retention window has not yet fully elapsed since
-        their start_event.
-
-        Anchored on the user's start_event timestamp (min or max of start event
-        timestamps, depending on start_handling).
-        """
-        return self._retention_query_builder().build_retention_maturity_having_clause()
-
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
@@ -354,92 +328,11 @@ class ExperimentQueryBuilder:
         """
         return self._funnel_query_builder().build_funnel_query()
 
-    def _should_use_optimized_funnel_query(self) -> bool:
-        """
-        Returns True when the optimized single-scan funnel query should be used.
-        The legacy path is kept for precomputed exposures, where the exposures CTE
-        reads from a cheap preaggregated table (no double-scan penalty).
-
-        Also routes to legacy path for DW funnels, which use UNION ALL pattern
-        only implemented in the legacy path.
-        """
-        return self._funnel_query_builder().should_use_optimized_funnel_query()
-
-    def _build_funnel_query_legacy(self) -> ast.SelectQuery:
-        """
-        3-CTE funnel query: exposures, metric_events, entity_metrics.
-        Called "legacy" because it predates the single-scan optimized path,
-        but this is the primary path for precomputed queries — both exposures
-        and metric_events CTEs can read from precomputed tables here.
-
-        Supports two patterns:
-        1. Events-only: Single query with boolean step columns
-        2. With DW steps: UNION ALL pattern with separate subqueries per source
-        """
-        return self._funnel_query_builder().build_funnel_query_legacy()
-
-    def _build_funnel_query_optimized(self) -> ast.SelectQuery:
-        """
-        Optimized funnel query: eliminates the second events table scan and the
-        intermediate JOIN. Uses 2 CTEs for ordered funnels, 3 for unordered:
-
-        Ordered:   base_events -> entity_metrics -> final SELECT
-        Unordered: base_events -> first_exposures -> entity_metrics -> final SELECT
-
-        base_events: single scan of events, computes step_0/step_1/variant_value inline
-        first_exposures: (unordered only) min exposure time per entity for temporal filtering
-        entity_metrics: GROUP BY entity_id, conditional aggregation for variant, funnel UDF
-        """
-        return self._funnel_query_builder().build_funnel_query_optimized()
-
-    def _get_session_property_ctes(self) -> str:
-        """
-        Returns CTEs for session property metrics with proper deduplication.
-
-        Session properties require special handling to avoid the multiplication bug:
-        - Without deduplication: each event in a session contributes the full session value
-        - With deduplication: each session contributes exactly once
-
-        Pattern:
-        1. metric_events_by_session: GROUP BY $session_id, get any(session.$property)
-        2. metric_events: Join with exposures, filter by temporal ordering
-        3. entity_metrics: Aggregate across sessions per entity
-        """
-        return self._mean_query_builder().get_session_property_ctes()
-
-    def _get_mean_query_common_ctes(self) -> str:
-        """
-        Returns the common CTEs used by both regular and winsorized mean queries.
-        Supports both regular events and data warehouse sources.
-        """
-        return self._mean_query_builder().get_mean_query_common_ctes()
-
-    def _get_mean_query_common_placeholders(self) -> dict:
-        """
-        Returns the common placeholders used by both regular and winsorized mean queries.
-        Supports both regular events and data warehouse sources.
-        """
-        return self._mean_query_builder().get_mean_query_common_placeholders()
-
-    def _get_session_property_placeholders(self) -> dict:
-        """
-        Returns placeholders specific to session property metrics.
-        Session properties use a different CTE structure with deduplication per session.
-        """
-        return self._mean_query_builder().get_session_property_placeholders()
-
     def _build_mean_query(self) -> ast.SelectQuery:
         """
         Builds query for mean metrics (count, sum, avg, etc.)
         """
         return self._mean_query_builder().build_mean_query()
-
-    def _build_mean_query_with_winsorization(self) -> ast.SelectQuery:
-        """
-        Builds query for mean metrics with winsorization (outlier handling).
-        This clamps entity-level values to percentile-based bounds.
-        """
-        return self._mean_query_builder().build_mean_query_with_winsorization()
 
     def _build_ratio_query(self) -> ast.SelectQuery:
         """
@@ -449,56 +342,6 @@ class ExperimentQueryBuilder:
         either the numerator or the denominator.
         """
         return self._ratio_query_builder().build_ratio_query()
-
-    def _ratio_needs_winsorization(self) -> bool:
-        """Whether either component of a ratio metric has outlier handling configured."""
-        return self._ratio_query_builder().ratio_needs_winsorization()
-
-    def _build_winsorization_bound_exprs(
-        self,
-        outlier_handling: ExperimentMetricOutlierHandling | None,
-        value_field: str,
-    ) -> tuple[ast.Expr, ast.Expr]:
-        """
-        Build (lower_bound, upper_bound) expressions over entity_metrics.<value_field>.
-
-        When a bound is not configured the threshold falls back to min()/max() so the
-        least(greatest(...)) clamp becomes a no-op for that side. This lets the numerator
-        and denominator be capped independently — a binomial denominator simply leaves its
-        outlier handling unset and is never clamped.
-
-        value_field is an internal column name (numerator_value / denominator_value), never
-        user input, so interpolating it into the expression string is safe.
-        """
-        return self._ratio_query_builder().build_winsorization_bound_exprs(outlier_handling, value_field)
-
-    def _build_ratio_query_with_winsorization(self) -> ast.SelectQuery:
-        """
-        Builds query for ratio metrics with winsorization (outlier handling).
-
-        The numerator and denominator are capped independently, each as if it were its own
-        mean metric: percentile thresholds are computed separately for each component (pooled
-        across all variations) and the per-entity numerator and denominator values are clamped
-        against their own bounds. The capped components flow into the same aggregate columns
-        (including the cross-product) so the delta-method variance stays consistent with the
-        capped point estimate.
-        """
-        return self._ratio_query_builder().build_ratio_query_with_winsorization()
-
-    def _get_ratio_query_common(self) -> tuple[str, dict[str, ast.Expr]]:
-        """
-        Builds the shared CTE chain and placeholders for ratio metric queries.
-
-        Optimized structure using pre-aggregation to reduce join operations:
-        - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
-        - numerator_events / denominator_events: events for each component with value
-        - numerator_agg / denominator_agg: per-entity aggregates joined to exposures
-        - entity_metrics: single row per entity carrying numerator_value and denominator_value
-
-        This approach reduces memory pressure by joining exposures to events only once
-        per component instead of fanning out the raw event rows.
-        """
-        return self._ratio_query_builder().get_ratio_query_common()
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """
@@ -533,22 +376,6 @@ class ExperimentQueryBuilder:
     ) -> ast.Expr:
         return self._cuped_query_builder().build_windowed_metric_value_expr(window_predicate, events_alias)
 
-    def _build_funnel_covariate_value_expr(
-        self,
-        *,
-        events_alias: str,
-        last_step_index: int,
-        exposure_alias: str,
-    ) -> ast.Expr:
-        return self._cuped_query_builder().build_funnel_covariate_value_expr(
-            events_alias=events_alias,
-            last_step_index=last_step_index,
-            exposure_alias=exposure_alias,
-        )
-
-    def _build_funnel_cuped_aggregation_aliases(self, last_step_index: int) -> list[ast.Expr]:
-        return self._cuped_query_builder().build_funnel_cuped_aggregation_aliases(last_step_index)
-
     def _inject_funnel_covariate_into_entity_metrics(
         self,
         query: ast.SelectQuery,
@@ -566,26 +393,6 @@ class ExperimentQueryBuilder:
 
     def _extend_date_from_for_funnel_cuped(self, date_from: ast.Expr) -> ast.Expr:
         return self._cuped_query_builder().extend_date_from_for_funnel_cuped(date_from)
-
-    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> FunnelTemporalSetup:
-        """
-        Returns the FunnelTemporalSetup (first exposures CTE, temporal join,
-        having clause) for the optimized funnel query.
-
-        Three call sites collapse into one place:
-
-        - Unordered funnels need temporal filtering because the UDF doesn't
-          enforce that step_0 (exposure) precedes step_1..N. We exclude events
-          before first exposure with an INNER JOIN + WHERE.
-        - CUPED needs the per-entity exposure timestamp to scope the pre-window
-          covariate, so we materialize first_exposures even when ordered. No
-          WHERE filter is added: the aggregate_funnel_array UDF anchors on
-          step_0 (date-bounded by the exposure predicate), so pre-window events
-          with step_X=1 (X>0) are never used in the post-window result.
-        - Otherwise, no first_exposures CTE; HAVING countIf(step_0 = 1) > 0
-          is the cheapest way to keep only exposed entities.
-        """
-        return self._funnel_query_builder().build_funnel_optimized_temporal_setup(is_unordered_funnel)
 
     def _build_metric_predicate(
         self,
@@ -667,18 +474,9 @@ class ExperimentQueryBuilder:
             value_expr=value_expr,
         )
 
-    def _build_test_accounts_filter(self) -> ast.Expr:
-        return self._exposure_query_builder().build_test_accounts_filter()
-
     def _build_variant_property(self) -> ast.Field:
         """Derive which event property that should be used for variants"""
         return self._exposure_query_builder().build_variant_property()
-
-    def _build_variant_expr_for_funnel(self) -> ast.Expr:
-        """
-        Builds the variant selection expression based on multiple variant handling.
-        """
-        return self._funnel_query_builder().build_variant_expr_for_funnel()
 
     def _build_exposure_predicate(self) -> ast.Expr:
         """
@@ -695,22 +493,6 @@ class ExperimentQueryBuilder:
 
     def _get_exposure_query(self) -> ast.SelectQuery:
         return self._exposure_query_builder().select_query()
-
-    def _build_exposure_select_query(self) -> ast.SelectQuery:
-        return self._exposure_query_builder()._build_exposure_select_query()
-
-    def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
-        """
-        Builds the exposure CTE by reading from the lazy-computed table instead of scanning events.
-
-        Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
-        Returns the same column shape as _build_exposure_select_query().
-
-        Important: Jobs can cover broader time ranges than the experiment (for reusability),
-        so we must filter by experiment start/end dates to avoid including exposures outside
-        the experiment window.
-        """
-        return self._exposure_query_builder().precomputed_select_query(job_ids)
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -760,139 +542,6 @@ class ExperimentQueryBuilder:
             return self._retention_query_builder().get_metric_events_window_extension_seconds()
         return self._get_conversion_window_seconds()
 
-    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
-        """Funnel-specific write query; prefer get_metric_events_query_for_precomputation()."""
-        return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
-
-    def _build_variant_expr_for_mean(self) -> ast.Expr:
-        """
-        Builds the variant selection expression for mean metrics based on multiple variant handling.
-        """
-        return self._exposure_query_builder().build_variant_expr_for_mean()
-
-    def _build_funnel_steps_filter(self) -> ast.Expr:
-        """
-        Returns the expression to filter funnel steps (matches ANY step) within
-        the time period of the experiment + the conversion window if set.
-
-        When CUPED is enabled, the lower bound is rolled back by `lookback_days`
-        so the same scan also feeds the CUPED pre-exposure window.
-        """
-        return self._funnel_query_builder().build_funnel_steps_filter()
-
-    def _build_funnel_aggregation_expr(self) -> ast.Expr:
-        """
-        Returns the funnel evaluation expression using aggregate_funnel_array.
-        """
-        return self._funnel_query_builder().build_funnel_aggregation_expr()
-
-    def _has_datawarehouse_steps(self) -> bool:
-        """
-        Check if funnel metric has any datawarehouse steps.
-
-        Returns:
-            True if any step in the series is ExperimentDataWarehouseNode
-        """
-        return self._funnel_query_builder().has_datawarehouse_steps()
-
-    def _build_funnel_metric_events_union_query(self) -> ast.SelectSetQuery:
-        """
-        Build metric_events UNION ALL query for funnels with DW steps.
-
-        Uses MetricSourceInfo and FunnelStepBuilder abstractions.
-
-        Returns:
-            SelectSetQuery with UNION ALL combining events and DW sources
-        """
-        return self._funnel_query_builder().build_funnel_metric_events_union_query()
-
-    def _build_funnel_events_subquery_for_union(
-        self, step_builder: FunnelStepBuilder, events_join_key: str
-    ) -> ast.SelectQuery:
-        """
-        Build events subquery for UNION pattern.
-
-        This subquery includes:
-        - Exposure events (step_0=1 when exposure, 0 otherwise)
-        - Event and action steps (step_N=1 when matches, 0 otherwise)
-        - DW steps (always step_N=0 in this subquery)
-
-        Args:
-            step_builder: FunnelStepBuilder instance for step columns
-            events_join_key: The event property key used to join with DW tables
-                (e.g. "properties.$user_id"). Used as entity_id so it matches the
-                DW subquery's data_warehouse_join_key.
-
-        Returns:
-            SELECT query for events table
-        """
-        return self._funnel_query_builder().build_funnel_events_subquery_for_union(step_builder, events_join_key)
-
-    def _build_funnel_dw_step_subquery(
-        self,
-        step: ExperimentDataWarehouseNode,
-        step_index: int,
-        step_builder: FunnelStepBuilder,
-    ) -> ast.SelectQuery:
-        """
-        Build subquery for a single DW step.
-
-        Uses MetricSourceInfo and FunnelStepBuilder abstractions for normalized output.
-
-        Args:
-            step: The DW node configuration
-            step_index: The step number (1-indexed, after exposure step_0)
-            step_builder: FunnelStepBuilder instance for step columns
-
-        Returns:
-            SELECT query for DW table
-        """
-        return self._funnel_query_builder().build_funnel_dw_step_subquery(step, step_index, step_builder)
-
-    def _build_dw_step_predicate(
-        self,
-        step: ExperimentDataWarehouseNode,
-        source_info: MetricSourceInfo,
-    ) -> ast.Expr:
-        """
-        Build WHERE predicate for DW step filtering.
-
-        Filters by:
-        - Timestamp range (experiment dates + conversion window)
-        - DW node properties (custom filters)
-
-        Args:
-            step: The DW node configuration
-            source_info: MetricSourceInfo for this DW source
-
-        Returns:
-            Filter expression
-        """
-        return self._funnel_query_builder().build_dw_step_predicate(step, source_info)
-
-    # --- Optimized funnel query helpers ---
-
-    def _build_variant_expr_for_funnel_optimized(self) -> ast.Expr:
-        """
-        Variant expression for the optimized funnel path.
-        References variant_value (raw property) instead of variant (column in legacy metric_events).
-        """
-        return self._funnel_query_builder().build_variant_expr_for_funnel_optimized()
-
-    def _build_funnel_aggregation_expr_optimized(self) -> ast.Expr:
-        """
-        Funnel aggregation for the optimized path. References base_events instead of metric_events.
-        """
-        return self._funnel_query_builder().build_funnel_aggregation_expr_optimized()
-
-    def _build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
-        """
-        Maturity HAVING clause for the optimized path.
-        Uses maxIf to only consider exposure events (step_0 = 1) for maturity,
-        since entity_metrics groups over all events, not just exposures.
-        """
-        return self._funnel_query_builder().build_maturity_having_clause_optimized()
-
     def _build_retention_query(self) -> ast.SelectQuery:
         """
         Builds query for retention metrics.
@@ -931,64 +580,3 @@ class ExperimentQueryBuilder:
         "Of all exposed users, how many did X and then Y?"
         """
         return self._retention_query_builder().build_retention_query()
-
-    def _build_start_event_timestamp_expr(self) -> ast.Expr:
-        """
-        Returns expression to get start event timestamp based on start_handling.
-        FIRST_SEEN: Use the first occurrence of start event
-        LAST_SEEN: Use the last occurrence of start event
-        """
-        return self._retention_query_builder().build_start_event_timestamp_expr()
-
-    def _get_retention_window_truncation_expr(self, timestamp_expr: ast.Expr) -> ast.Expr:
-        """
-        Returns truncated timestamp expression for retention window comparisons.
-
-        For DAY: returns toStartOfDay(timestamp)
-        For HOUR: returns toStartOfHour(timestamp)
-        For other units: returns timestamp unchanged
-
-        This ensures [7,7] day window means "any time on day 7" rather than
-        "exactly 7*24 hours after start event to the second".
-        """
-        return self._retention_query_builder().get_retention_window_truncation_expr(timestamp_expr)
-
-    def _build_retention_window_interval(self, window_value: int) -> ast.Expr:
-        """
-        Converts retention window value to ClickHouse interval expression.
-        """
-        return self._retention_query_builder().build_retention_window_interval(window_value)
-
-    def _build_start_event_predicate(self) -> ast.Expr:
-        """
-        Builds the predicate for filtering start events.
-        """
-        return self._retention_query_builder().build_start_event_predicate()
-
-    def _build_completion_event_predicate(self) -> ast.Expr:
-        """
-        Builds the predicate for filtering completion events.
-        """
-        return self._retention_query_builder().build_completion_event_predicate()
-
-    def _build_start_after_exposure_predicate(self) -> ast.Expr:
-        """
-        Builds the predicate for filtering start events to only those after exposure.
-        Applied inside the start_events CTE (pre-aggregation) so that min/max only
-        considers events after the user's first exposure.
-        """
-        return self._retention_query_builder().build_start_after_exposure_predicate()
-
-    def _build_completion_retention_window_predicate(self) -> ast.Expr:
-        """
-        Builds the predicate for the join condition ensuring completion events
-        are within a reasonable timeframe relative to start events.
-
-        This is a performance optimization - we'll do the exact retention window
-        calculation in the entity_metrics CTE.
-
-        For DAY/HOUR units that use timestamp truncation, we add a buffer to account
-        for the truncation window. This ensures that same-period retention (e.g., [0,0])
-        captures all events within that period, not just events at the exact same second.
-        """
-        return self._retention_query_builder().build_completion_retention_window_predicate()

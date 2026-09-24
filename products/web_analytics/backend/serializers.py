@@ -1,4 +1,5 @@
 from django.core.validators import URLValidator
+from django.db import models
 
 from rest_framework import serializers
 
@@ -16,10 +17,15 @@ class LlmsTxtFetchResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Final public URL after redirects.")
 
 
+class WoWChangeDirection(models.TextChoices):
+    UP = "Up", "Up"
+    DOWN = "Down", "Down"
+
+
 class WoWChangeSerializer(serializers.Serializer):
     percent = serializers.IntegerField(help_text="Absolute percentage change, rounded to nearest integer.")
     direction = serializers.ChoiceField(
-        choices=["Up", "Down"], help_text="Direction of the change relative to the prior period."
+        choices=WoWChangeDirection.choices, help_text="Direction of the change relative to the prior period."
     )
     color = serializers.CharField(help_text="Hex color indicating whether the change is a positive or negative signal.")
     text = serializers.CharField(help_text="Short label, e.g. 'Up 12%'.")

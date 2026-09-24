@@ -32,6 +32,12 @@ types:
 Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
 evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
+Both `hog` and `llm_judge` also support `output_type: "numeric"`.
+Numeric runs store their raw score in `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max`.
+They never set `$ai_evaluation_result`.
+Use `output_config.passing_rule` to interpret scores: `gte` means at least the threshold and `lte` means at most.
+Changing the rule reinterprets historical scores. Saved reports retain the rule and metrics used when generated.
+Without a passing rule, inspect score means and distributions; pass rates and reports are unavailable.
 
 This skill covers the full lifecycle: list/inspect/manage evaluation configs, run
 them on specific generations, query individual results, and configure evaluation
@@ -60,21 +66,24 @@ All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tool
 
 Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
-| Property                     | Meaning                                                         |
-| ---------------------------- | --------------------------------------------------------------- |
-| `$ai_evaluation_id`          | UUID of the evaluation config                                   |
-| `$ai_evaluation_name`        | Human-readable name                                             |
-| `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                 |
-| `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                   |
-| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                           |
-| `$ai_evaluation_result`      | For boolean evaluations: `true` = pass, `false` = fail          |
-| `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)        |
-| `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A        |
-| `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative` |
-| `$ai_sentiment_score`        | Confidence score for the winning sentiment label                |
+| Property                        | Meaning                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `$ai_evaluation_id`             | UUID of the evaluation config                                                    |
+| `$ai_evaluation_name`           | Human-readable name                                                              |
+| `$ai_target_event_id`           | UUID of the `$ai_generation` event being scored                                  |
+| `$ai_trace_id`                  | Parent trace ID (for jumping to the trace UI)                                    |
+| `$ai_evaluation_result_type`    | Result kind: `boolean`, `numeric`, or `sentiment`                                |
+| `$ai_evaluation_numeric_result` | Raw numeric score. Use the passing rule to map it to pass or fail                |
+| `$ai_evaluation_result`         | Raw boolean result. Use the evaluation's output config to map it to pass or fail |
+| `$ai_evaluation_reasoning`      | Free-text explanation (set by the LLM judge or Hog code)                         |
+| `$ai_evaluation_applicable`     | `false` when the evaluator decided the generation is N/A                         |
+| `$ai_sentiment_label`           | For sentiment evaluations: `positive`, `neutral`, or `negative`                  |
+| `$ai_sentiment_score`           | Confidence score for the winning sentiment label                                 |
 
 When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
+For boolean evaluations, `output_config.true_is_failure: false` maps `true` to pass and `false` to fail.
+Set it to `true` for detector-style evaluations where `true` means the evaluator found a problem.
 
 ## Workflow: investigate why an evaluation is failing
 
@@ -198,8 +207,8 @@ posthog:llma-evaluation-test-hog
 }
 ```
 
-The handler returns the boolean result for each of the most recent N `$ai_generation`
-events. Iterate on the source until it behaves as expected, then promote it via
+The handler returns raw boolean or numeric results for the sampled units.
+For numeric previews, send `output_type: "numeric"` and the saved `output_config`, including `allows_na: true` if null is allowed. Iterate on the source until it behaves as expected, then promote it via
 `llma-evaluation-create`:
 
 ```json
@@ -270,6 +279,7 @@ LLM judges require organisation AI data processing approval. Hog evaluators do n
 | Add an LLM-judge evaluator | `llma-evaluation-create` with `evaluation_type: "llm_judge"`, `evaluation_config.prompt`, and a `model_configuration` |
 | Tweak the source or prompt | `llma-evaluation-update` (edits `evaluation_config.source` for Hog, `evaluation_config.prompt` for LLM judge)         |
 | Toggle N/A handling        | `llma-evaluation-update` with `output_config.allows_na`                                                               |
+| Set failure polarity       | `llma-evaluation-update` with `output_config.true_is_failure`                                                         |
 | Disable temporarily        | `llma-evaluation-update` with `enabled: false`                                                                        |
 | Remove                     | `llma-evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                                    |
 

@@ -22,7 +22,8 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 
 _LIMIT = 1000
 # Sparkline cap: enough to read a PR's CI history at a glance without bloating a 1000-row page.
@@ -53,6 +54,7 @@ _SELECT = f"""
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
         coalesce(ci.pending, 0) AS pending,
+        coalesce(ci.inconclusive, 0) AS inconclusive,
         ci.failing_workflows AS failing_workflows,
         coalesce(rp.pushes, 0) AS pushes,
         coalesce(rp.rerun_cycles, 0) AS rerun_cycles
@@ -86,7 +88,7 @@ _PUSH_HISTORY_SELECT = """
         repo_owner, repo_name, pr_number, head_sha,
         min(first_start) AS started_at,
         if(countIf(last_end IS NOT NULL) = 0, NULL, dateDiff('second', min(first_start), max(last_end))) AS wall_seconds,
-        countIf(s = 'completed' AND c IN ('failure', 'timed_out')) > 0 AS failed,
+        countIf(s = 'completed' AND c IN (__DECISIVE_FAILURES__)) > 0 AS failed,
         countIf(s IS NULL OR s != 'completed') > 0 AS pending
     FROM (
         SELECT
@@ -111,11 +113,13 @@ def query_pr_push_history(
 ) -> dict[tuple[str, str, int], list[PushCISample]]:
     """Per-PR push rounds keyed by (repo_owner, repo_name, pr_number), oldest first, capped in
     ClickHouse to the most recent ``_PUSH_HISTORY_LIMIT`` per PR. Scoped to the visible PR numbers so
-    the scan tracks the page (same shape as ``query_pr_list_costs``)."""
+    the scan tracks the page (same shape as ``query_pr_costs``)."""
     if not pr_numbers:
         return {}
-    sql = _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace(
-        "__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT)
+    sql = (
+        _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT))
+        .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
     response = curated.run(
         sql,
@@ -162,7 +166,7 @@ def query_pull_request_list(
     # Scope the cost and push-history rollups to exactly the PRs we're about to show (row[0] is
     # pr.number), so the scans track the page instead of the team's whole CI history.
     pr_numbers = sorted({int(row[0]) for row in visible})
-    cost_by_pr = query_pr_list_costs(curated=curated, pr_numbers=pr_numbers)
+    cost_by_pr = query_pr_costs(curated=curated, pr_numbers=pr_numbers)
     pushes_by_pr = query_pr_push_history(curated=curated, pr_numbers=pr_numbers)
     items = [_map_row(row, cost_by_pr, pushes_by_pr) for row in visible]
     return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)
@@ -192,6 +196,7 @@ def _map_row(
         passing,
         failing,
         pending,
+        inconclusive,
         failing_workflows,
         pushes,
         rerun_cycles,
@@ -221,6 +226,7 @@ def _map_row(
             passing=passing,
             failing=failing,
             pending=pending,
+            inconclusive=inconclusive,
             failing_workflows=list(failing_workflows or []),
         ),
         pushes=pushes,

@@ -1,4 +1,4 @@
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
@@ -21,36 +21,6 @@ export function isAnalyticsAnomalyInvestigationExtra(
     return typeof extra.alert_id === 'string' && typeof extra.insight_id === 'string'
 }
 
-/** Maps the investigation verdict to a badge, with a fallback for malformed legacy payloads. */
-function VerdictBadge({ verdict }: { verdict: AnalyticsAnomalyInvestigationSignalExtraApi['verdict'] }): JSX.Element {
-    if (verdict === 'true_positive') {
-        return (
-            <LemonTag type="danger" size="small">
-                True positive
-            </LemonTag>
-        )
-    }
-    if (verdict === 'false_positive') {
-        return (
-            <LemonTag type="muted" size="small">
-                False positive
-            </LemonTag>
-        )
-    }
-    if (verdict === 'inconclusive') {
-        return (
-            <LemonTag type="warning" size="small">
-                Inconclusive
-            </LemonTag>
-        )
-    }
-    return (
-        <LemonTag type="danger" size="small">
-            Firing
-        </LemonTag>
-    )
-}
-
 /** Inbox signal card for product-analytics anomaly investigations (an anomaly alert firing on an insight). */
 export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardProps): JSX.Element {
     if (!isAnalyticsAnomalyInvestigationExtra(signal.extra)) {
@@ -60,7 +30,7 @@ export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardPr
     const insightLabel = extra.insight_name || extra.insight_short_id || extra.insight_id
 
     return (
-        <SignalCardShell signal={signal} label={extra.alert_name} rightSlot={<VerdictBadge verdict={extra.verdict} />}>
+        <SignalCardShell signal={signal} label={extra.alert_name}>
             <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1">
                     <p className="text-sm m-0">

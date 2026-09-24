@@ -215,9 +215,31 @@ def test_post_query_disables_http_compression(clickhouse_client):
     assert call_kwargs["params"]["enable_http_compression"] == "0"
 
 
+def test_post_query_sends_freshly_read_token(tmp_path):
+    token = tmp_path / "token"
+    token.write_text("tok-0")
+    client = ClickHouseClient(user="default", password="static-fallback", password_file=str(token))
+
+    with _mock_internal_session_post(MagicMock(status_code=200)) as mock_factory:
+        with client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+        assert mock_factory.return_value.post.call_args.kwargs["headers"]["X-ClickHouse-Key"] == "tok-0"
+
+        token.write_text("tok-1")  # a rotation must reach the next request on the long-lived session
+        with client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+        assert mock_factory.return_value.post.call_args.kwargs["headers"]["X-ClickHouse-Key"] == "tok-1"
+
+
 @pytest.mark.parametrize(
     "query,query_parameters,expected",
     [
+        (
+            # the empty-object sentinel HogQL prints for a native-JSON property read must not become '{0}'
+            "SELECT if(notEquals(x, '{}'), x, %(fallback)s) FROM t WHERE team_id = {{team_id:Int64}}",
+            {"fallback": "{}"},
+            "SELECT if(notEquals(x, '{}'), x, '{}') FROM t WHERE team_id = {team_id:Int64}",
+        ),
         (
             "select * from events where event = {event}",
             {"event": "hello"},

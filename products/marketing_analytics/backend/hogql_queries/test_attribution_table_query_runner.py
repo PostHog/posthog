@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -21,6 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
@@ -28,6 +31,8 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.cohorts.backend.models.cohort import Cohort
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -129,6 +134,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         date_to: str = "2023-01-31",
         lookback_days: int | None = None,
         allow_multiple_conversions: bool | None = None,
+        filter_test_accounts: bool | None = False,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -139,14 +145,84 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             excludeUnattributed=exclude_unattributed,
             lookbackWindowDays=lookback_days,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
+            filterTestAccounts=filter_test_accounts,
             properties=[],
         )
         return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
+
+    @parameterized.expand([(False, "frequent"), (True, "valuable")])
+    def test_revenue_ranking_precedes_row_limit(self, include_revenue: bool, expected: str) -> None:
+        for person, source, amount in [("a", "frequent", 1), ("b", "frequent", 1), ("c", "valuable", 1000)]:
+            create_person(team=self.team, distinct_ids=[person])
+            self._session(person, ONE_DAY_BEFORE, utm_source=source)
+            self._conversion(person, CONVERSION_AT, revenue=amount)
+        flush_persons_and_events()
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            breakdownBy=MarketingAnalyticsAttributionBreakdown.SOURCE,
+            conversionGoalId=GOAL_ID,
+            properties=[],
+            includeRevenue=include_revenue,
+            limit=1,
+        )
+        response = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
+        assert response.results[0].breakdownValue == expected
 
     @staticmethod
     def _by_breakdown(response) -> dict[str, dict[AttributionMode, float]]:
         """{breakdown value: {model: conversions}} — the shape every weight assertion needs."""
         return {row.breakdownValue: {cell.model: cell.conversions for cell in row.models} for row in response.results}
+
+    @parameterized.expand(
+        [
+            ("query says off", False, False, 2.0),
+            ("query says on", True, False, 1.0),
+            # A query that says nothing takes the project's answer, which is also the one the warmer
+            # materializes. Disagreeing here would read a job nothing warms.
+            ("query silent, project on", None, True, 1.0),
+        ]
+    )
+    def test_filter_test_accounts_drops_internal_traffic(
+        self, _name, filter_test_accounts, project_setting, expected_conversions
+    ):
+        # The conversion count catches either arm being missed: filtering only the conversion scan leaves
+        # the internal person's touchpoints diluting the weights, only the touchpoint scan leaves their
+        # conversion unattributed.
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        self.team.marketing_analytics_config.filter_test_accounts = project_setting
+        self.team.marketing_analytics_config.save()
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
+        create_person(team=self.team, distinct_ids=["staff"], properties={"email": "qa@internal.example.com"})
+        for distinct_id in ("customer", "staff"):
+            self._session(distinct_id, "2023-01-10T12:00:00Z", utm_source="google")
+            self._conversion(distinct_id, "2023-01-11T12:00:00Z")
+
+        rows = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=filter_test_accounts)
+        )
+
+        self.assertEqual(rows["google"][AttributionMode.LAST_TOUCH], expected_conversions)
+
+    def test_a_cohort_test_account_filter_does_not_make_the_query_ambiguous(self):
+        # A cohort filter resolves to a bare `person_id`, and the touchpoint scan joins the converters
+        # subquery, which has one too. Unqualified, that combination fails to resolve at all.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            groups=[{"properties": [{"key": "email", "value": "@internal.example.com", "type": "person"}]}],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
+        self._session("customer", "2023-01-10T12:00:00Z", utm_source="google")
+        self._conversion("customer", "2023-01-11T12:00:00Z")
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=True)
+
+        self.assertIsNotNone(response.results)
 
     def test_visitors_include_lookback_arrivals_that_can_earn_credit(self):
         # Credit looks back attribution_window_days before the date range, so reach must too: a visitor
@@ -698,17 +774,28 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         person_arrays = ctes["person_arrays"].expr
         assert isinstance(person_arrays, ast.SelectQuery)
 
-        # The restriction is a join against the converters subquery. Asserting on the join rather than
-        # on a bare `IN` keeps the test about the property (only converters are scanned) instead of the
-        # operator that happens to express it.
-        join = person_arrays.select_from
-        assert join is not None
-        restrictions = []
-        while join is not None:
-            if isinstance(join.table, ast.SelectQuery):
-                restrictions.append(join)
-            join = join.next_join
-        self.assertTrue(restrictions, "person_arrays must restrict the events scan to converting persons")
+        # Asserts the restriction exists, not the shape it takes: a semi-join in the WHERE and a join
+        # against the converters subquery both pay for the scan, and which one is used is free to change.
+        class FindConverterSubquery(TraversingVisitor):
+            def __init__(self) -> None:
+                self.found = False
+
+            def visit_select_query(self, node: ast.SelectQuery) -> None:
+                if node is not person_arrays and _selects_person_id(node):
+                    self.found = True
+                super().visit_select_query(node)
+
+        def _selects_person_id(node: ast.SelectQuery) -> bool:
+            for column in node.select:
+                expr = column.expr if isinstance(column, ast.Alias) else column
+                if isinstance(expr, ast.Field) and expr.chain[-1] == "person_id":
+                    return True
+            return False
+
+        finder = FindConverterSubquery()
+        finder.visit(person_arrays.select_from)
+        finder.visit(person_arrays.where)
+        self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
 
     def test_action_goals_credit_the_events_the_action_matches(self):
         # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain
@@ -945,10 +1032,13 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
             side_effect=restrictions_for,
         ):
-            prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
 
-        # The property only reaches ClickHouse as a parameter when the query actually extracts it.
-        self.assertEqual("plan" in str(context.values), not restricted)
+        sql = printed[0] if isinstance(printed, tuple) else printed
+        if context.uses_new_events_schema():
+            self.assertEqual("properties.plan" in sql or "properties.^plan" in sql, not restricted)
+        else:
+            self.assertEqual("plan" in str(context.values), not restricted)
 
     @parameterized.expand([("zero", 0), ("negative", -1), ("over_the_ceiling", MAX_ATTRIBUTION_WINDOW_DAYS + 1)])
     def test_lookback_override_outside_the_allowed_range_is_rejected(self, _name: str, days: int):
@@ -963,7 +1053,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
 
-    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown) -> str:
+    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool = False) -> str:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             breakdownBy=breakdown,
@@ -971,10 +1061,17 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.sessions_precomputation_enabled = precomputed
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
-        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        ready = LazyComputationResult(ready=True, job_ids=[UUID(int=1)])
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.ensure_marketing_sessions_precomputed",
+            return_value=ready,
+        ):
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        assert runner._sessions_precompute_used == precomputed
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
     # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
@@ -989,4 +1086,18 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        assert self._printed_sql(breakdown) == self.snapshot
+        printed = self._printed_sql(breakdown)
+        assert printed == self.sql_snapshot(printed)
+
+    # Entry properties must merge only for exceptional sessions; classifying the full range defeats the cache.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_precomputed_sessions_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
+        printed = self._printed_sql(breakdown, precomputed=True)
+        assert printed == self.sql_snapshot(printed)

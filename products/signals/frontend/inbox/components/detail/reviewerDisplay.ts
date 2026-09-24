@@ -76,6 +76,24 @@ export function getReviewerOptionDisplayName(option: AvailableReviewerOption, is
     return isMe ? `${base} (Me)` : base
 }
 
+/**
+ * Display name for a reviewer chip. A reviewer with no linked GitHub account has no login to show,
+ * so fall back through the PostHog user we resolved them to.
+ */
+export function getReviewerDisplayName(reviewer: EnrichedReviewer): string {
+    const fullName = [reviewer.user?.first_name, reviewer.user?.last_name]
+        .map(normalizeString)
+        .filter(Boolean)
+        .join(' ')
+    return (
+        normalizeString(reviewer.github_name) ||
+        fullName ||
+        normalizeString(reviewer.user?.email) ||
+        normalizeString(reviewer.github_login) ||
+        'Unknown reviewer'
+    )
+}
+
 /** Does an existing reviewer match an available option? Match by user uuid. */
 export function reviewerMatchesOption(reviewer: EnrichedReviewer, option: AvailableReviewerOption): boolean {
     return !!reviewer.user?.uuid && reviewer.user.uuid === option.user_uuid

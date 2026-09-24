@@ -2,22 +2,20 @@ import { Layout, LayoutItem } from 'react-grid-layout'
 
 import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
-import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, TileLayout } from '~/types'
 
-function textTileWithLayout(
-    layouts: Record<DashboardLayoutSize, TileLayout>,
-    tileId: number = 1
-): DashboardTile<QueryBasedInsightModel> {
+function textTileWithLayout(layouts: Record<DashboardLayoutSize, TileLayout>, tileId: number = 1): DashboardTile {
     return {
         id: tileId,
         text: 'test',
         layouts: layouts,
-    } as unknown as DashboardTile<QueryBasedInsightModel>
+    } as unknown as DashboardTile
 }
 
 describe('calculating tile layouts', () => {
     it('minimum width and height are added if missing', () => {
-        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+        const tiles: DashboardTile[] = [
             textTileWithLayout({
                 sm: { i: '1', x: 0, y: 0, w: 1, h: 1 },
             } as Record<DashboardLayoutSize, TileLayout>),
@@ -27,6 +25,57 @@ describe('calculating tile layouts', () => {
             // xs uses the same row height as sm when sm is present
             xs: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
         })
+    })
+
+    it('sets a 1 by 2 minimum for image tiles', () => {
+        const tiles: DashboardTile[] = [
+            {
+                id: 1,
+                text: { body: '![image](https://example.com/image.png)' },
+                layouts: {},
+            } as unknown as DashboardTile,
+        ]
+
+        const layouts = calculateLayouts(tiles)
+
+        expect(layouts.sm?.[0]).toMatchObject({ w: 2, h: 2, minW: 1, minH: 2 })
+        expect(layouts.xs?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
+    })
+
+    it('raises a stored image tile height to its minimum', () => {
+        const tiles: DashboardTile[] = [
+            {
+                id: 1,
+                text: { body: '![image](https://example.com/image.png)' },
+                layouts: { sm: { i: '1', x: 0, y: 0, w: 1, h: 1 } },
+            } as unknown as DashboardTile,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
+    })
+
+    it('defaults button tiles to two columns', () => {
+        const tiles: DashboardTile[] = [{ id: 1, button_tile: { id: '1' }, layouts: {} } as unknown as DashboardTile]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 2, h: 1 })
+    })
+
+    it('defaults SQL metric tiles without a stored layout to 3 by 3', () => {
+        const tiles: DashboardTile[] = [
+            {
+                id: 1,
+                insight: {
+                    query: {
+                        kind: NodeKind.DataVisualizationNode,
+                        source: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        display: ChartDisplayType.Metric,
+                    },
+                },
+                layouts: {},
+            } as unknown as DashboardTile,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 3, h: 3 })
     })
 
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {
@@ -41,7 +90,7 @@ describe('calculating tile layouts', () => {
             { i: '3', x: 6, y: 6, w: 6, h: 6, minW: 3, minH: 2 },
             { i: '4', x: 6, y: 0, w: 6, h: 6, minW: 3, minH: 2 },
         ]
-        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+        const tiles: DashboardTile[] = [
             textTileWithLayout({ sm: smLayouts[0] } as Record<DashboardLayoutSize, TileLayout>, 1),
             textTileWithLayout({ sm: smLayouts[2] } as Record<DashboardLayoutSize, TileLayout>, 2),
             textTileWithLayout({ sm: smLayouts[3] } as Record<DashboardLayoutSize, TileLayout>, 3),
@@ -81,13 +130,13 @@ describe('calculating tile layouts', () => {
             expectedXsH: 2,
         },
     ])('xs uses text default row height when $name', ({ layouts, expectedXsH }) => {
-        const tiles: DashboardTile<QueryBasedInsightModel>[] = [textTileWithLayout(layouts, 1)]
+        const tiles: DashboardTile[] = [textTileWithLayout(layouts, 1)]
         const result = calculateLayouts(tiles)
         expect(result.xs?.[0]?.h).toBe(expectedXsH)
     })
 
     it('xs follows final sm row-major order when some tiles have no stored sm layout', () => {
-        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+        const tiles: DashboardTile[] = [
             textTileWithLayout(
                 { sm: { i: '1', x: 0, y: 0, w: 6, h: 5 } } as Record<DashboardLayoutSize, TileLayout>,
                 1
@@ -135,12 +184,12 @@ describe('calculating tile layouts', () => {
             expectedMinW: 3,
         },
     ])('$name', ({ widgetType, expectedMinH, expectedMinW }) => {
-        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+        const tiles: DashboardTile[] = [
             {
                 id: 1,
                 widget: { widget_type: widgetType, config: {} },
                 layouts: { sm: { i: '1', x: 0, y: 0, w: 6, h: 5 } },
-            } as unknown as DashboardTile<QueryBasedInsightModel>,
+            } as unknown as DashboardTile,
         ]
 
         const result = calculateLayouts(tiles)
@@ -152,7 +201,7 @@ describe('calculating tile layouts', () => {
     })
 
     it('xs follows sm dirty-placement order when no tiles have stored sm layouts', () => {
-        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+        const tiles: DashboardTile[] = [
             textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 1),
             textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 2),
             textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 3),

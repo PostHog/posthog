@@ -17,8 +17,10 @@ const dateOptionsMap = {
 } as const
 
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
+export type RelativeDateDirection = 'past' | 'future'
 
 export type RollingDateFilterLogicPropsType = {
+    direction?: RelativeDateDirection
     inUse?: boolean
     onChange?: (fromDate: string) => void
     dateFrom?: Dayjs | string | null
@@ -82,7 +84,7 @@ export interface rollingDateRangeFilterLogicActions {
 export interface rollingDateRangeFilterLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        value: (counter: number | null, dateOption: DateOption) => string
+        value: (counter: number | null, dateOption: DateOption, arg: any) => string
         formattedDate: (value: string) => string | null
         startOfDateRange: (value: string) => string | null
     }
@@ -143,30 +145,31 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
     })),
     selectors(() => ({
         value: [
-            (s) => [s.counter, s.dateOption],
-            (counter: number | null, dateOption: DateOption) => {
+            (s) => [s.counter, s.dateOption, (_, props) => props.direction ?? 'past'],
+            (counter: number | null, dateOption: DateOption, direction: RelativeDateDirection) => {
                 if (!counter) {
                     return ''
                 }
+                const sign = direction === 'future' ? '+' : '-'
                 switch (dateOption) {
                     case 'years':
-                        return `-${counter}y`
+                        return `${sign}${counter}y`
                     case 'quarters':
-                        return `-${counter}q`
+                        return `${sign}${counter}q`
                     case 'months':
-                        return `-${counter}m`
+                        return `${sign}${counter}m`
                     case 'weeks':
-                        return `-${counter}w`
+                        return `${sign}${counter}w`
                     case 'days':
-                        return `-${counter}d`
+                        return `${sign}${counter}d`
                     case 'hours':
-                        return `-${counter}h`
+                        return `${sign}${counter}h`
                     case 'minutes':
-                        return `-${counter}M`
+                        return `${sign}${counter}M`
                     case 'seconds':
-                        return `-${counter}s`
+                        return `${sign}${counter}s`
                     default:
-                        return `-${counter}d`
+                        return `${sign}${counter}d`
                 }
             },
         ],

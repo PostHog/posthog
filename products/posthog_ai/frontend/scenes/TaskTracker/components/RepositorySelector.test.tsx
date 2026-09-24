@@ -27,7 +27,7 @@ describe('RepositorySelector', () => {
         })
         useMocks({
             get: {
-                '/api/environments/:team/integrations/': {
+                '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
                 },
                 // Gate the repo list so the loading → loaded transition is deterministic.

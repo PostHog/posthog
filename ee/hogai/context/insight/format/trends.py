@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from posthog.schema import AssistantTrendsQuery, Compare, DateRange, TrendsQuery
 
-from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 

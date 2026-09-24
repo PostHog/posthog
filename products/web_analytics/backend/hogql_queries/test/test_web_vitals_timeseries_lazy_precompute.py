@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -19,19 +19,19 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     PropertyOperator,
-    RetentionFilter,
-    RetentionQuery,
     TrendsFilter,
     TrendsQuery,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
     WebVitalsQuery,
 )
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
     is_vitals_precompute_enabled_for_team,
@@ -203,7 +203,7 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         finally:
             reset_query_tags()
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_precomputed_matches_live_trends(self) -> None:
         self._seed()
         query = _vitals_query()
@@ -227,7 +227,7 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert pre_series["data"] == live_series["data"], live_series["action"]["custom_name"]
             assert pre_series["action"]["custom_name"] == live_series["action"]["custom_name"]
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_dispatch_routes_only_when_flag_enabled(self) -> None:
         query = _vitals_query().model_dump(mode="json")
 
@@ -260,9 +260,9 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # A schema-valid non-Trends source must fall through to the legacy source
         # unwrap, not raise in the runner constructor (which would surface as an
         # internal error rather than running the query).
-        query = WebVitalsQuery(source=RetentionQuery(retentionFilter=RetentionFilter()), properties=[]).model_dump(
-            mode="json"
-        )
+        query = WebVitalsQuery(
+            source=WebStatsTableQuery(breakdownBy=WebStatsBreakdown.PAGE, properties=[]), properties=[]
+        ).model_dump(mode="json")
         with patch(
             "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.posthoganalytics.feature_enabled",
             return_value=True,

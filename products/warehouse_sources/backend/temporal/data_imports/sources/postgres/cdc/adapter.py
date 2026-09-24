@@ -12,6 +12,7 @@ import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
@@ -163,9 +164,10 @@ class PostgresCDCAdapter:
     def is_connection_error(self, exc: BaseException) -> bool:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
-        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established.
-        # Neither points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError)
+        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
+        # the host policy raises HostNotAllowedError before any socket opens.
+        # None points at a bug in our code.
+        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)
@@ -211,7 +213,9 @@ class PostgresCDCAdapter:
         # customer-owned publication) don't match the predicate and re-raise immediately.
         consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
 
-        return {"cdc_consistent_point": consistent_point}
+        # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
+        # to the legacy lane: the new slot starts on the buffer, as a new source does.
+        return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
 
     def setup_resources(
         self,
@@ -237,6 +241,9 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
+            # Written with the slot, before capture first runs, so no change reaches the buffer that a
+            # legacy batch already delivered.
+            "cdc_ingest_mode": "buffered",
         }
 
         if management_mode == "posthog":

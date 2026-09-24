@@ -20,23 +20,26 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
-import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
+import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
@@ -44,9 +47,11 @@ import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
+import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
+import { EVALUATION_RUNS_QUERY_LIMIT, formatNumericEvaluationScore, numericOutputConfigError } from './constants'
 import {
     evaluationOffersSessionTarget,
+    evaluationSupportsReportHistory,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
     evaluationTypeHasEditableCriteria,
@@ -62,14 +67,20 @@ import {
     DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
     DEFAULT_TRACE_WINDOW_SECONDS,
     LLMEvaluationLogicProps,
+    hasUnsetConditionRollout,
     llmEvaluationLogic,
 } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
+const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
+
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        originalEvaluation,
+        isReportableEvaluation,
+        trendInsightUrl,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
@@ -77,6 +88,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
+        runsBackfillId,
+        runsBackfill,
+        runsDateRange,
         evaluationProviderKeyIssue,
         activeTab,
         canEnable,
@@ -85,15 +99,20 @@ export function AIObservabilityEvaluation(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
+    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
         setEvaluationEnabled,
         setAllowsNA,
+        setTrueIsFailure,
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
+        setOutputType,
+        patchOutputConfig,
         setEvaluationTarget,
         setSettleStrategy,
         patchTargetConfig,
@@ -129,65 +148,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
     // here rendered a "wait 30 minutes" field holding a default the config never had.
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
-    const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunOutcomes = evaluationSupportsRunOutcomes(evaluation)
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
-
-    const trendInsightUrl =
-        supportsRunOutcomes && !isNewEvaluation && evaluation.id
-            ? urls.insightNew({
-                  query: {
-                      kind: NodeKind.InsightVizNode,
-                      source: {
-                          kind: NodeKind.TrendsQuery,
-                          series: [
-                              {
-                                  kind: NodeKind.EventsNode,
-                                  event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} — Pass rate`,
-                                  math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
-                                  properties: [
-                                      {
-                                          key: '$ai_evaluation_id',
-                                          value: evaluation.id,
-                                          operator: 'exact',
-                                          type: 'event',
-                                      },
-                                  ],
-                              },
-                              ...(evaluation.output_config.allows_na
-                                  ? [
-                                        {
-                                            kind: NodeKind.EventsNode as const,
-                                            event: '$ai_evaluation',
-                                            custom_name: `${evaluation.name} — N/A rate`,
-                                            math: HogQLMathType.HogQL as const,
-                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
-                                            properties: [
-                                                {
-                                                    key: '$ai_evaluation_id',
-                                                    value: evaluation.id,
-                                                    operator: 'exact' as const,
-                                                    type: 'event' as const,
-                                                },
-                                            ],
-                                        },
-                                    ]
-                                  : []),
-                          ],
-                          trendsFilter: {
-                              display: ChartDisplayType.ActionsLineGraph,
-                          },
-                          dateRange: {
-                              date_from: '-7d',
-                          },
-                          interval: 'day',
-                      },
-                  } as InsightVizNode,
-              })
-            : null
 
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
@@ -197,11 +160,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
-    const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
+    const percentageUnset = hasUnsetConditionRollout(evaluation.conditions)
     const percentageOutOfRange = evaluation.conditions.some(
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
+    // The save writes the evaluation configuration and then returns to the evaluations list. Runs
+    // edits nothing, and Backfills holds a setup this save does not carry, plus its own Start
+    // button, so leaving the page from either tab only does what the user did not ask for.
+    const showSaveAction = activeTab !== 'runs' && activeTab !== 'backfills'
     const saveButtonDisabledReason = !hasName
         ? 'Add a name for this evaluation'
         : !configValid
@@ -210,7 +177,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
-            : undefined
+            : evaluation.output_type === 'numeric'
+              ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
+              : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -239,7 +208,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         }
 
         const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
-        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+        if (evaluationSupportsReports(evaluation) && reportLogic.isMounted() && reportLogic.values.configError) {
             lemonToast.error(reportLogic.values.configError)
             return
         }
@@ -325,7 +294,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    {activeTab !== 'runs' && (
+                    {showSaveAction && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -390,7 +359,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         'data-attr': 'llma-evaluation-runs-tab',
                         content: (
                             <div className="max-w-6xl">
-                                <div className="flex justify-between items-center mb-4">
+                                <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
@@ -401,6 +370,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
                                         </p>
+
                                         {isReportableEvaluation && (
                                             <EvaluationReportsCallout
                                                 evaluationId={evaluation.id}
@@ -410,20 +380,32 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
-                                            <div className="flex gap-4 text-sm">
+                                            <div className="flex flex-wrap gap-4 text-sm">
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
+                                                {evaluation.output_type === 'numeric' && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.scoreMean == null
+                                                                ? '–'
+                                                                : formatNumericEvaluationScore(runsSummary.scoreMean)}
+                                                        </div>
+                                                        <div className="text-muted">Mean score</div>
+                                                    </div>
+                                                )}
                                                 {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
-                                                            {runsSummary.successRate}%
+                                                            {runsSummary.successRate == null
+                                                                ? '–'
+                                                                : `${runsSummary.successRate}%`}
                                                         </div>
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
                                                 )}
-                                                {supportsRunOutcomes && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%
@@ -438,24 +420,87 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="text-muted">Errors</div>
                                                 </div>
                                             </div>
-                                            <div className="text-muted text-xs">Across all runs, all time</div>
+                                            <div className="text-muted text-xs">
+                                                {runsBackfillId
+                                                    ? 'From this backfill'
+                                                    : runsDateRange.date_from === 'all'
+                                                      ? 'Across all runs, all time'
+                                                      : 'In the selected date range'}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
+                                {runsBackfillId && (
+                                    <LemonBanner
+                                        type="info"
+                                        className="mb-4"
+                                        action={{
+                                            children: 'Show all runs',
+                                            onClick: () =>
+                                                router.actions.push(
+                                                    router.values.location.pathname,
+                                                    { ...router.values.searchParams, backfill_id: undefined },
+                                                    router.values.hashParams
+                                                ),
+                                        }}
+                                    >
+                                        <span className="font-semibold">Showing runs from one backfill.</span>
+                                        {runsBackfill && (
+                                            <>
+                                                {' '}
+                                                It covered {pluralize(
+                                                    runsBackfill.total_count,
+                                                    runsBackfill.target
+                                                )}{' '}
+                                                between{' '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_start}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                {' and '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_end}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                .
+                                            </>
+                                        )}
+                                    </LemonBanner>
+                                )}
                                 <EvaluationRunsTable />
                             </div>
                         ),
                     },
                     !isNewEvaluation &&
-                        isReportableEvaluation && {
+                        evaluationSupportsReportHistory(originalEvaluation) && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    generationDisabledReason={
+                                        isReportableEvaluation
+                                            ? undefined
+                                            : 'Add a passing rule to generate new reports.'
+                                    }
                                     userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
+                                />
+                            ),
+                        },
+                    !isNewEvaluation &&
+                        backfillsEnabled && {
+                            key: 'backfills',
+                            label: 'Backfills',
+                            'data-attr': 'llma-evaluation-backfills-tab',
+                            content: (
+                                <EvaluationBackfillsTab
+                                    evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
+                                    onConfigurationClick={() => setActiveTab('configuration')}
                                 />
                             ),
                         },
@@ -485,7 +530,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <LemonSelect
                                                         value={evaluation.evaluation_type}
                                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                                        options={evaluationMethodOptions}
+                                                        options={evaluationMethodOptions.map((option) => ({
+                                                            ...option,
+                                                            disabledReason:
+                                                                !isNewEvaluation &&
+                                                                evaluation.output_type === 'numeric' &&
+                                                                option.value === 'sentiment'
+                                                                    ? 'Create a new evaluation to change its output type.'
+                                                                    : undefined,
+                                                        }))}
                                                         fullWidth
                                                     />
                                                 </LemonField.Pure>
@@ -660,6 +713,39 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
 
+                                            {!isSentiment && (
+                                                <LemonField.Pure label="Output type">
+                                                    <LemonSelect
+                                                        value={evaluation.output_type}
+                                                        options={[
+                                                            { value: 'boolean', label: 'Boolean' },
+                                                            {
+                                                                value: 'numeric',
+                                                                label: 'Numeric score',
+                                                                disabledReason:
+                                                                    isNewEvaluation && !numericEvaluationsEnabled
+                                                                        ? 'Numeric evaluations are not enabled for this project.'
+                                                                        : undefined,
+                                                            },
+                                                        ]}
+                                                        onChange={(value) =>
+                                                            setOutputType(value as 'boolean' | 'numeric')
+                                                        }
+                                                        disabledReason={
+                                                            !isNewEvaluation
+                                                                ? 'Create a new evaluation to change its output type.'
+                                                                : undefined
+                                                        }
+                                                        data-attr="llma-evaluation-output-type"
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
+                                            {evaluation.output_type === 'numeric' && (
+                                                <NumericEvaluationConfig
+                                                    config={evaluation.output_config}
+                                                    onChange={patchOutputConfig}
+                                                />
+                                            )}
                                             <LemonField.Pure label="Description (optional)">
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}
@@ -727,6 +813,32 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </div>
                                                 </LemonField.Pure>
                                             )}
+
+                                            {isBooleanOutput && (
+                                                <LemonField.Pure
+                                                    label={
+                                                        <div className="flex items-center gap-1">
+                                                            <span>A true result flags a problem</span>
+                                                            <Tooltip title="Turn this on when the evaluation looks for something you don't want, like a struggling user or a hallucination. A true result then counts as a fail in reports and pass rates. The evaluation results themselves don't change.">
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    }
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSwitch
+                                                            checked={evaluation.output_config.true_is_failure ?? false}
+                                                            onChange={setTrueIsFailure}
+                                                            data-attr="llma-evaluation-true-is-failure-switch"
+                                                        />
+                                                        <span className="text-muted text-sm">
+                                                            {evaluation.output_config.true_is_failure
+                                                                ? 'A true result counts as a fail'
+                                                                : 'A true result counts as a pass'}
+                                                        </span>
+                                                    </div>
+                                                </LemonField.Pure>
+                                            )}
                                         </div>
                                     </div>
 
@@ -749,9 +861,40 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
                                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
                                         <p className="text-muted text-sm mb-4">
-                                            Configure when this evaluation should run on your LLM generations.
+                                            The evaluation runs on generations that match any one of these condition
+                                            sets. Within a set, all filters must match, and sampling decides how many of
+                                            the matching generations get evaluated.
+                                            {evaluation.target === 'trace' && (
+                                                <>
+                                                    {' '}
+                                                    Conditions match individual generations. The whole trace is
+                                                    evaluated once any of its generations matches, and sampling applies
+                                                    per trace.
+                                                </>
+                                            )}
                                         </p>
                                         <EvaluationTriggers />
+                                        <div className="bg-bg-light border rounded p-3 text-sm mt-6">
+                                            <h4 className="font-semibold mb-2">Examples:</h4>
+                                            <ul className="space-y-1 text-muted list-disc list-inside">
+                                                <li>
+                                                    <strong>10% of all generations:</strong> Set 10% sampling with no
+                                                    filter conditions
+                                                </li>
+                                                <li>
+                                                    <strong>5% of GPT-4 generations:</strong> Set 5% sampling with
+                                                    $ai_model = "gpt-4o"
+                                                </li>
+                                                <li>
+                                                    <strong>Exclude internal users:</strong> Set 100% sampling with
+                                                    person property is_internal ≠ true
+                                                </li>
+                                                <li>
+                                                    <strong>High-cost generations:</strong> Set 100% sampling with
+                                                    $ai_total_cost_usd &gt; 0.01
+                                                </li>
+                                            </ul>
+                                        </div>
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
@@ -808,6 +951,7 @@ function EvaluationModelPicker(): JSX.Element {
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
                         />
+                        <ByokModelPickerNotice />
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}

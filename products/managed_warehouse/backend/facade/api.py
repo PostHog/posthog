@@ -42,9 +42,12 @@ __all__ = [
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
+    "ducklake_data_modeling_schema",
+    "get_data_modeling_table_name",
     "get_catalog_connection_config",
     "get_control_plane_bucket",
     "get_duckgres_query_server_config",
+    "get_managed_warehouse_trino_password",
     "get_org_id_for_team",
     "get_team_deletion_block_reason",
     "get_stored_bucket_config",
@@ -52,6 +55,7 @@ __all__ = [
     "get_team_backfill_state",
     "get_warehouse_provision_status",
     "has_provisioned_warehouse",
+    "is_data_modeling_shadow_ready",
     "is_dev_mode",
     "organization_is_pending_deletion",
     "persist_duckgres_server_for_org",
@@ -125,6 +129,25 @@ def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
     return DuckgresServer.objects.filter(organization_id=organization_id).exists()
 
 
+def is_data_modeling_shadow_ready(
+    *,
+    organization_id: str | UUID,
+    team_id: int,
+    saved_query_id: str | UUID,
+    source_query: object,
+) -> bool:
+    from products.managed_warehouse.backend.view_translation_status import (  # noqa: PLC0415 -- keeps ORM models off the facade import path
+        is_data_modeling_shadow_ready as check_shadow_readiness,
+    )
+
+    return check_shadow_readiness(
+        organization_id=organization_id,
+        team_id=team_id,
+        saved_query_id=saved_query_id,
+        source_query=source_query,
+    )
+
+
 def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServerConfig:
     config = common.get_duckgres_config_for_org(organization_id)
     return DuckgresQueryServerConfig(
@@ -135,6 +158,10 @@ def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServe
         username=config["DUCKGRES_USERNAME"],
         password=config["DUCKGRES_PASSWORD"],
     )
+
+
+def get_managed_warehouse_trino_password(organization_id: str) -> str:
+    return common.get_trino_password_for_org(organization_id)
 
 
 def get_catalog_connection_config(organization_id: str) -> DuckLakeCatalogConnectionConfig | None:
@@ -220,6 +247,18 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
 
 def duckgres_data_modeling_schema(team_id: int) -> str:
     return common.duckgres_data_modeling_schema(team_id)
+
+
+def ducklake_data_modeling_schema(team_id: int) -> str:
+    return common.ducklake_data_modeling_schema(team_id)
+
+
+def get_data_modeling_table_name(team_id: int, saved_query_id: UUID) -> str:
+    from products.managed_warehouse.backend.table_binding import (
+        get_data_modeling_table_names,  # noqa: PLC0415 -- defer compiler dependencies until model resolution
+    )
+
+    return get_data_modeling_table_names(team_id, [saved_query_id])[saved_query_id]
 
 
 def validate_schema_name(name: str | None) -> str | None:

@@ -3,25 +3,22 @@ import {
   BrainIcon,
   BugIcon,
   ChatsIcon,
-  CircleNotchIcon,
   FirstAidIcon,
   PlugIcon,
-  VideoIcon,
 } from "@phosphor-icons/react";
 import type {
   ExternalDataSource,
   SignalSourceConfig,
 } from "@posthog/api-client/posthog-client";
 import { formatRepoPreview } from "@posthog/core/settings/githubRepoSummary";
-import { Button, Spinner, Switch } from "@posthog/quill";
+import { Button, Switch } from "@posthog/quill";
 import {
   EXTERNAL_INBOX_SOURCES,
   type ToggleableSourceProduct,
 } from "@posthog/shared";
 import { GitHubSourceRepositoriesDialog } from "@posthog/ui/features/inbox/components/GitHubSourceRepositoriesDialog";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
-import { Badge } from "@posthog/ui/primitives/Badge";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { memo, useCallback, useState } from "react";
 
 export type SignalSourceValues = Record<ToggleableSourceProduct, boolean>;
@@ -306,26 +303,6 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
   );
 });
 
-function SourceRunningIndicator({
-  status,
-  message,
-}: {
-  status: SignalSourceConfig["status"];
-  message: string;
-}) {
-  if (status !== "running") {
-    return null;
-  }
-  return (
-    <div className="mt-2 flex items-center gap-2">
-      <Spin className="text-(--accent-11)">
-        <CircleNotchIcon size={14} />
-      </Spin>
-      <span className="text-(--accent-11) text-[13px]">{message}</span>
-    </div>
-  );
-}
-
 interface SignalSourceTogglesProps {
   value: SignalSourceValues;
   onToggle: (source: ToggleableSourceProduct, enabled: boolean) => void;
@@ -341,10 +318,6 @@ export function SignalSourceToggles({
   sourceStates,
   onSetup,
 }: SignalSourceTogglesProps) {
-  const toggleSessionReplay = useCallback(
-    (checked: boolean) => onToggle("session_replay", checked),
-    [onToggle],
-  );
   const toggleErrorTracking = useCallback(
     (checked: boolean) => onToggle("error_tracking", checked),
     [onToggle],
@@ -401,25 +374,6 @@ export function SignalSourceToggles({
             disabled={disabled}
             docsUrl="https://posthog.com/docs/support"
             docsLabel="Support"
-          />
-          <SignalSourceToggleCard
-            icon={<VideoIcon size={20} />}
-            label="Session Replay"
-            labelSuffix={<Badge color="orange">Alpha</Badge>}
-            description="Analyze recordings for UX issues"
-            checked={value.session_replay}
-            onCheckedChange={toggleSessionReplay}
-            disabled={disabled}
-            docsUrl="https://posthog.com/docs/session-replay"
-            docsLabel="Session Replay"
-            statusSection={
-              value.session_replay ? (
-                <SourceRunningIndicator
-                  status={sourceStates?.session_replay?.syncStatus ?? null}
-                  message="Session analysis run in progress now..."
-                />
-              ) : undefined
-            }
           />
           <SignalSourceToggleCard
             icon={<BrainIcon size={20} />}

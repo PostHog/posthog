@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 
 import { REPLAY_COUNT_HEADER } from './image-batcher'
 import { CAPTURE_TIMESTAMP_HEADER, CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'
@@ -60,6 +61,11 @@ export async function replayBatch(
             key: Buffer.from(ref),
             value: message.value,
             headers: {
+                ...Object.fromEntries(
+                    [INGESTION_VERSION_HEADER]
+                        .filter((header) => headers[header] !== undefined)
+                        .map((header) => [header, headers[header]])
+                ),
                 ...(headers[CONTENT_TYPE_HEADER] ? { [CONTENT_TYPE_HEADER]: headers[CONTENT_TYPE_HEADER] } : {}),
                 ...(headers[CONTENT_ENCODING_HEADER]
                     ? { [CONTENT_ENCODING_HEADER]: headers[CONTENT_ENCODING_HEADER] }

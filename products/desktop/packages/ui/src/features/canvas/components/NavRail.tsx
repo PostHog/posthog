@@ -10,20 +10,35 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
+import {
+  DESKTOP_HOME_FLAG,
+  LOOPS_FLAG,
+  SAVED_SEARCHES_RAIL_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
+import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import {
   pickRailDestination,
   type RailCounts,
   type RailDestination,
+  showWorkColumn,
   visibleRailDestinations,
+  visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
+import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
+import { railPaneFoldsIntoWork } from "@posthog/ui/features/canvas/railPane";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  closeWorkActivity,
+  useWorkActivityStore,
+} from "@posthog/ui/features/canvas/stores/workActivityStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -190,12 +205,27 @@ function NavRailImpl() {
     (state) => state.mentionsEnabled,
   );
 
-  const destinations = visibleRailDestinations({
+  const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
+  const hasSavedSearches = useProjectTaskFeeds().length > 0;
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
+  const toggleWorkActivity = useWorkActivityStore((state) => state.toggle);
+  const railFlags = {
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
     context: contextEnabled,
-  });
+    savedSearches: savedSearchesRailEnabled && hasSavedSearches,
+  };
+  const destinations = workLayout
+    ? visibleWorkRailDestinations(railFlags)
+    : visibleRailDestinations(railFlags);
+  const topDestinations = destinations.filter(
+    ({ placement }) => placement !== "bottom",
+  );
+  const bottomDestinations = destinations.filter(
+    ({ placement }) => placement === "bottom",
+  );
   const inboxVisible = destinations.some(({ pane }) => pane === "inbox");
   const inboxDecisionCount = useInboxDecisionCount({
     enabled: inboxVisible,
@@ -214,6 +244,8 @@ function NavRailImpl() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
+  // So the create button files into the space you are in, like the shortcut.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const pick =
     (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
@@ -228,8 +260,81 @@ function NavRailImpl() {
         openBrowserTab(destination.href);
         return;
       }
+      if (workLayout) {
+        if (destination.pane === "activity") {
+          if (!workActivityOpen) showWorkColumn();
+          toggleWorkActivity();
+          return;
+        }
+        closeWorkActivity();
+        if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
+          showWorkColumn();
+          return;
+        }
+      }
       pickRailDestination(destination, railPane);
     };
+
+  const renderDestination = (destination: RailDestination): ReactNode => {
+    const { pane, label, Icon, count, countTone } = destination;
+    const isActive = workLayout
+      ? pane === "activity"
+        ? workActivityOpen
+        : pane === "spaces"
+          ? !workActivityOpen && railPaneFoldsIntoWork(railPane)
+          : !workActivityOpen && railPane === pane
+      : railPane === pane;
+    const destinationCount = count?.(counts) ?? 0;
+    const usesNotificationDot = pane === "activity" || pane === "inbox";
+    let badge: ReactNode;
+    if (usesNotificationDot) {
+      badge =
+        destinationCount > 0 ? (
+          <span
+            data-slot="dot"
+            className={NOTIFICATION_DOT_CLASS}
+            aria-hidden
+          />
+        ) : null;
+    } else {
+      badge = (
+        <CountBadge
+          count={destinationCount}
+          tone={countTone}
+          className={ICON_BADGE_CLASS}
+        />
+      );
+    }
+    const onClick = pick(destination);
+
+    if (pane === "activity") {
+      return (
+        <ActivityNavItem
+          key={pane}
+          isActive={isActive}
+          badge={badge}
+          onClick={onClick}
+        />
+      );
+    }
+    return (
+      <NavIcon
+        key={pane}
+        icon={
+          <Icon
+            className={pane === "spaces" && !workLayout ? "size-5" : undefined}
+            size={pane === "spaces" && !workLayout ? 20 : 16}
+            weight={isActive ? "fill" : "regular"}
+          />
+        }
+        label={label}
+        shortcut={destination.shortcut}
+        isActive={isActive}
+        onClick={onClick}
+        badge={badge}
+      />
+    );
+  };
 
   return (
     // One provider for the whole rail: the tooltip skip window is provider
@@ -240,67 +345,28 @@ function NavRailImpl() {
         className="relative z-[60] flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
-        {destinations.map((destination) => {
-          const { pane, label, Icon, count, countTone } = destination;
-          const isActive = railPane === pane;
-          const destinationCount = count?.(counts) ?? 0;
-          const usesNotificationDot = pane === "activity" || pane === "inbox";
-          let badge: ReactNode;
-          if (usesNotificationDot) {
-            badge =
-              destinationCount > 0 ? (
-                <span
-                  data-slot="dot"
-                  className={NOTIFICATION_DOT_CLASS}
-                  aria-hidden
-                />
-              ) : null;
-          } else {
-            badge = (
-              <CountBadge
-                count={destinationCount}
-                tone={countTone}
-                className={ICON_BADGE_CLASS}
-              />
-            );
-          }
-          const onClick = pick(destination);
-
-          if (pane === "activity") {
-            return (
-              <ActivityNavItem
-                key={pane}
-                isActive={isActive}
-                badge={badge}
-                onClick={onClick}
-              />
-            );
-          }
-          return (
-            <NavIcon
-              key={pane}
-              icon={
-                <Icon
-                  className={pane === "spaces" ? "size-5" : undefined}
-                  size={pane === "spaces" ? 20 : 16}
-                  weight={isActive ? "fill" : "regular"}
-                />
-              }
-              label={label}
-              shortcut={destination.shortcut}
-              isActive={isActive}
-              onClick={onClick}
-              badge={badge}
-            />
-          );
-        })}
+        {topDestinations.map(renderDestination)}
         <div className="mt-auto flex flex-col items-center gap-1.5">
+          {bottomDestinations.map(renderDestination)}
+          {/* Every destination keeps the rail, sidebar or not, so the create
+              button is reachable from all of them here. */}
+          <ChannelsFab
+            channelId={currentChannelId ?? undefined}
+            placement="rail"
+          />
           <NavIcon
             icon={<MagnifyingGlass size={16} />}
             label="Search"
             shortcut={formatHotkey(SHORTCUTS.COMMAND_MENU)}
             isActive={false}
-            onClick={toggleCommandMenu}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+                item: "search",
+                in_more: false,
+                layout: "channels",
+              });
+              toggleCommandMenu();
+            }}
           />
           <NavIcon
             icon={<GearSix size={16} />}

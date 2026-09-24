@@ -1,3 +1,5 @@
+import { resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
+
 import type { ElementStatsApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { buildElementStatsParams, computeClickmapBoxes } from './recordingClickmapLogic'
@@ -18,7 +20,7 @@ describe('recordingClickmapLogic', () => {
             {
                 name: 'filters stats to the exact page URL',
                 href: 'https://example.com/pricing',
-                isPattern: false,
+                mode: 'exact' as const,
                 expectedProperty: {
                     key: '$current_url',
                     value: 'https://example.com/pricing',
@@ -29,16 +31,40 @@ describe('recordingClickmapLogic', () => {
             {
                 name: 'converts * wildcards to an anchored regex',
                 href: 'https://example.com/blog/*',
-                isPattern: true,
+                mode: 'exact' as const,
                 expectedProperty: {
                     key: '$current_url',
-                    value: '^https\\:\\/\\/example\\.com\\/blog\\/.*$',
+                    value: '^https\\:\\/\\/example\\.com\\/blog\\/.+$',
                     operator: 'regex',
                     type: 'event',
                 },
             },
-        ])('$name', ({ href, isPattern, expectedProperty }) => {
-            const params = buildElementStatsParams(href, isPattern, { date_from: '-7d' }, ['data-attr'])
+            {
+                name: 'keeps a query string literal instead of reading it as a regex',
+                href: 'https://example.com/pricing?plan=a+b',
+                mode: 'exact' as const,
+                expectedProperty: {
+                    key: '$current_url',
+                    value: 'https://example.com/pricing?plan=a+b',
+                    operator: 'exact',
+                    type: 'event',
+                },
+            },
+            {
+                name: 'matches the page with any query string in page mode',
+                href: 'https://example.com/pricing?plan=a',
+                mode: 'page' as const,
+                expectedProperty: {
+                    key: '$current_url',
+                    value: '^https\\:\\/\\/example\\.com\\/pricing\\/?(\\?.*)?(#.*)?$',
+                    operator: 'regex',
+                    type: 'event',
+                },
+            },
+        ])('$name', ({ href, mode, expectedProperty }) => {
+            const params = buildElementStatsParams(resolveHeatmapUrlFilter(href, mode)!, { date_from: '-7d' }, [
+                'data-attr',
+            ])
             expect(JSON.parse((params as { properties?: string }).properties ?? '[]')).toEqual([expectedProperty])
         })
     })
@@ -71,8 +97,8 @@ describe('recordingClickmapLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('aggregates counts per event type from chains resolving to the same element', () => {
-            const boxes = computeClickmapBoxes(
+        it('aggregates counts per event type from chains resolving to the same element', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [
                     statsRow({ count: 10 }),
                     statsRow({ count: 3, hash: 'rage', type: '$rageclick' }),
@@ -80,7 +106,7 @@ describe('recordingClickmapLogic', () => {
                 ],
                 snapshotDocument,
                 null,
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes).toHaveLength(1)
             expect(boxes[0]).toMatchObject({
@@ -93,8 +119,8 @@ describe('recordingClickmapLogic', () => {
             })
         })
 
-        it('produces one box per matched element, sorted by count descending', () => {
-            const boxes = computeClickmapBoxes(
+        it('produces one box per matched element, sorted by count descending', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [
                     statsRow({ count: 2 }),
                     statsRow({
@@ -113,13 +139,13 @@ describe('recordingClickmapLogic', () => {
                 ],
                 snapshotDocument,
                 null,
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes.map((box) => box.count)).toEqual([9, 2])
         })
 
-        it('drops chains that match nothing in the snapshot', () => {
-            const boxes = computeClickmapBoxes(
+        it('drops chains that match nothing in the snapshot', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [
                     statsRow({
                         count: 5,
@@ -128,17 +154,17 @@ describe('recordingClickmapLogic', () => {
                 ],
                 snapshotDocument,
                 null,
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes).toHaveLength(0)
         })
 
-        it('offsets boxes by the snapshot scroll position', () => {
-            const boxes = computeClickmapBoxes(
+        it('offsets boxes by the snapshot scroll position', async () => {
+            const { boxes } = await computeClickmapBoxes(
                 [statsRow({ count: 1 })],
                 snapshotDocument,
                 { scrollX: 5, scrollY: 200 },
-                ['data-attr']
+                { dataAttributes: ['data-attr'] }
             )
             expect(boxes[0]).toMatchObject({ top: 210, left: 25 })
         })

@@ -9,7 +9,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 class EvaluationDirectory(ModelActivityMixin, TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     activity_logging_on_delete = True
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
     created_by = models.ForeignKey(
         "posthog.User",

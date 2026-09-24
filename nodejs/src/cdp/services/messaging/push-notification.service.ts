@@ -69,6 +69,9 @@ const pushNotificationRescheduledCounter = new Counter({
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
+// Apple asks providers to keep a connection open for hours to days, and treats rapid reconnects as abuse. undici
+// sends an HTTP/2 ping every 60 s by default, which keeps the egress proxy tunnel open across the idle window.
+const APNS_IDLE_TIMEOUT_MS = 60 * 60 * 1000
 
 // One entry per signing key, so the ceiling is the number of APNs integrations routed through this pod.
 // Pruned on write rather than on a timer.
@@ -148,7 +151,7 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
 }
 
 export type PushNotificationFetchUtils = {
-    trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
+    trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
         fetchResponse: FetchResponse | null
         fetchDuration: number
@@ -328,6 +331,9 @@ export class PushNotificationService {
         pushMetric('push_skipped', skippedCount)
         pushMetric('push_failed', errorCount)
 
+        // Billing reads this rather than the metrics above, which a test send suppresses.
+        result.deliveredToRecipient = successCount > 0
+
         // Captured at the terminal outcome for the same reason the business metrics are: a rescheduled
         // attempt returns earlier, so a retried notification produces one asset rather than one per try.
         // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
@@ -412,6 +418,7 @@ export class PushNotificationService {
             url,
             fetchParams,
             templateId,
+            teamId: result.invocation.teamId,
         })
 
         result.invocation.state.timings.push({
@@ -509,6 +516,7 @@ export class PushNotificationService {
             body: JSON.stringify(apnsPayload),
             // APNs requires HTTP/2
             allowH2: true,
+            http2IdleTimeoutMs: APNS_IDLE_TIMEOUT_MS,
         }
 
         if (params.timeoutMs !== undefined) {
@@ -521,6 +529,7 @@ export class PushNotificationService {
             url,
             fetchParams,
             templateId,
+            teamId: result.invocation.teamId,
         })
 
         result.invocation.state.timings.push({

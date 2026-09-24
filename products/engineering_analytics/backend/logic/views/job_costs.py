@@ -109,6 +109,12 @@ FIELDS: dict[str, FieldOrTable] = {
     # "non-billable tier", completed_at says "unsettled", this says "never executed" — so a consumer
     # can still tell the three apart, and can drop copies from duration metrics too.
     "is_rerun_copy": BooleanDatabaseField(name="is_rerun_copy"),
+    # The unparsed ISO-8601 twin of created_at, for pruning rather than for reading. A predicate on
+    # the parsed created_at cannot prune the parquet scan, so a consumer that windows this view pairs
+    # its precise created_at bound with a coarse `created_at_raw >= '<YYYY-MM-DD>'` floor, the way
+    # ci_job_history's consumers already do. Appended, because the column order is the saved-query
+    # schema contract.
+    "created_at_raw": StringDatabaseField(name="created_at_raw", nullable=True),
 }
 
 
@@ -158,9 +164,11 @@ def build_query(
     ``created_floor`` threads the jobs builder's raw-string scan floor (its ``{job_created_floor}``
     placeholder, which the caller must register) down to the jobs scan. Every windowed cost query
     should pass it: the window predicate reads the RUN's attributes, so it can never prune the jobs
-    side, and without a floor the ``is_rerun_copy`` window sorts the team's whole job history on every
-    call. The public saved view can't take one — it is stored SQL with no window of its own — so it is
-    built without it and its consumers filter it themselves.
+    side, and without a floor the ``is_rerun_copy`` duplicate scan aggregates the team's whole job
+    history on every call. The public saved view can't take one — it is stored SQL with no window of
+    its own — so it is built without it and its consumers filter it themselves, pairing their precise
+    ``created_at`` bound with a coarse ``created_at_raw`` floor, which is the predicate the scan can
+    prune on and the reason the view exposes that column.
     """
     jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor)
     runs = workflow_runs.build_query(runs_table)
@@ -198,7 +206,8 @@ def build_query(
             {render_billable_seconds("provider", "os", "is_rerun_copy", "billed_seconds")} AS billable_seconds,
             {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "billed_seconds")} AS estimated_cost_usd,
             is_merge_queue,
-            is_rerun_copy{run_columns}
+            is_rerun_copy,
+            created_at_raw{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -220,6 +229,7 @@ def build_query(
                 billed_seconds,
                 is_merge_queue,
                 is_rerun_copy,
+                created_at_raw,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
                 {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
@@ -244,6 +254,7 @@ def build_query(
                     billed_seconds,
                     is_merge_queue,
                     is_rerun_copy,
+                    created_at_raw,
                     {render_depot_label("labels_arr")} AS depot_label,
                     {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
                 FROM (
@@ -271,6 +282,7 @@ def build_query(
                         {billed_seconds} AS billed_seconds,
                         r.is_merge_queue AS is_merge_queue,
                         j.is_rerun_copy AS is_rerun_copy,
+                        j.created_at_raw AS created_at_raw,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
                     LEFT JOIN ({runs}) AS r ON j.run_id = r.id

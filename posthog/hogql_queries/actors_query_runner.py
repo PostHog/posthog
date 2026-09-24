@@ -18,7 +18,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, LimitContext
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import has_aggregation
@@ -27,8 +26,8 @@ from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy, SessionStrategy
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import User
@@ -79,7 +78,12 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional["AnalyticsProps"] = None,
     ):
-        self.user = user
+        # This runner takes the run() user verbatim, including None. A bare assignment would
+        # hide the change from the base run(), leaving the shared database and access-control
+        # snapshot scoped to the previous user.
+        if user is not self.user:
+            self.user = user
+            self._on_user_changed()
         return super().run(
             execution_mode,
             user,
@@ -203,6 +207,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
+            context=self.build_hogql_context(),
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -502,7 +507,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 try:
                     prepare_and_print_ast(
                         select_query,
-                        context=HogQLContext(
+                        context=self.build_hogql_context(
                             team=self.team,
                             enable_select_queries=True,
                             timings=self.timings,

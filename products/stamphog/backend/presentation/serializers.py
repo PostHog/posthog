@@ -48,8 +48,8 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
     """Allowlisted, non-sensitive slice of ``ReviewRun.output``.
 
     The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
-    and default-branch policy file contents — repository content a project member without repo access
-    must never read. Only these derived, content-free fields are exposed.
+    and default-branch policy file contents, none of which the API returns. The reviewer's reasoning,
+    the text stamphog posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
     """
 
     stamphog_version = serializers.CharField(
@@ -66,6 +66,25 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="StamphogRepoConfig")
 class StamphogRepoConfigSerializer(DataclassSerializer):
+    user_access_level = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The caller's access level on the stamphog resource, resolved for the team that owns this "
+            "row. 'manager' is required to change enabled, review_mode, or trigger_label."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_access_level(self, _obj: contracts.RepoConfigDTO) -> str | None:
+        """The resource-wide level, not an object-level one: stamphog has no per-object rules.
+
+        The frontend gates the review settings on this rather than on the app context, which is
+        resolved for the environment in the URL while these rows belong to its parent project. The
+        view resolves it once per request, so every row on a page reports the same level.
+        """
+        view = self.context.get("view")
+        return view.stamphog_access_level if view else None
+
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         # provider + repository are the config's identity: they resolve inbound webhooks and anchor
@@ -97,6 +116,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "digest_enabled",
             "review_mode",
             "trigger_label",
+            "user_access_level",
             "created_at",
             "updated_at",
         ]
@@ -145,18 +165,18 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
     install_url = serializers.CharField(
         read_only=True,
         help_text=(
-            "GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the "
-            "App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the "
-            "primary 'Connect' button uses authorize_url instead."
+            "GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The "
+            "user picks a GitHub account there and chooses which repositories the App can reach, including "
+            "an account where the App is already installed. Blank if the App slug is unconfigured."
         ),
     )
     authorize_url = serializers.CharField(
         read_only=True,
         help_text=(
-            "GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. "
-            "Authorize-first: an already-installed user is redirected straight back with an OAuth code (no "
-            "installation_id), and sync_installation then discovers their installations server-side. Blank "
-            "if the App client id is unconfigured."
+            "GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an "
+            "existing installation carries no OAuth code, so the client passes through this URL once: an "
+            "installed App redirects straight back with a code, which sync_installation uses to prove "
+            "ownership. Blank if the App client id is unconfigured."
         ),
     )
 
@@ -309,6 +329,28 @@ class PullRequestSerializer(DataclassSerializer):
         return obj.merged_at is not None
 
 
+class _ReviewReasoningSerializer(serializers.Serializer):
+    """The reviewer's reasoning for one run, the same text stamphog posts as its GitHub review."""
+
+    reasoning = serializers.CharField(
+        read_only=True, allow_null=True, help_text="The reviewer's explanation of its verdict."
+    )
+    showstoppers = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Issues the reviewer found that block approval.",
+    )
+    review_body = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The review text stamphog posts on GitHub: the reasoning, the judgment points, and the gate outcome.",
+    )
+    change_summary = serializers.CharField(
+        read_only=True, allow_null=True, help_text="A plain-language summary of what the change does."
+    )
+
+
 @extend_schema_serializer(component_name="ReviewRun")
 class ReviewRunSerializer(DataclassSerializer):
     pull_request = serializers.UUIDField(
@@ -343,7 +385,7 @@ class ReviewRunSerializer(DataclassSerializer):
     trigger = serializers.ChoiceField(
         choices=[(t.value, t.name) for t in ReviewTrigger],
         read_only=True,
-        help_text="What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.",
+        help_text="What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.",
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],
@@ -389,23 +431,30 @@ class ReviewRunSerializer(DataclassSerializer):
     )
     output = serializers.SerializerMethodField(
         help_text=(
-            "Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer "
-            "exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file "
-            "contents are deliberately excluded — they carry repository content a project member without "
-            "repo access must not read."
+            "Allowlisted subset of the reviewer output blob (stamphog version, reviewer exit code). The raw "
+            "reviewer stdout, PR payload, changed-file patches, and policy file contents are excluded. "
+            "The reviewer's reasoning, the text stamphog posts on GitHub, is in `reasoning` instead."
         ),
     )
+
+    reasoning = serializers.SerializerMethodField(
+        help_text=(
+            "The reviewer's reasoning, the same text stamphog posts as its GitHub review. Returned only when "
+            "retrieving a single run, and null in list results. Its fields are null until the reviewer has run."
+        ),
+    )
+
+    @extend_schema_field(_ReviewReasoningSerializer(allow_null=True))
+    def get_reasoning(self, _obj: contracts.ReviewRunDTO) -> dict[str, object] | None:
+        # The view puts the parsed reasoning in the context on retrieve only, so list pages stay small.
+        reasoning = self.context.get("reasoning")
+        return _ReviewReasoningSerializer(reasoning).data if reasoning is not None else None
 
     @extend_schema_field(_ReviewOutputSummarySerializer)
     def get_output(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
         # Explicit allowlist: never echo reviewer_raw / pr / files / policy_files out of the API.
         raw = obj.output or {}
-        summary: dict[str, object] = {}
-        if "stamphog_version" in raw:
-            summary["stamphog_version"] = raw["stamphog_version"]
-        if "reviewer_exit_code" in raw:
-            summary["reviewer_exit_code"] = raw["reviewer_exit_code"]
-        return summary
+        return {key: raw[key] for key in contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS if key in raw}
 
     @extend_schema_field(_GateResultSummarySerializer)
     def get_gate_result(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
@@ -437,6 +486,7 @@ class ReviewRunSerializer(DataclassSerializer):
             "verdict",
             "gate_result",
             "output",
+            "reasoning",
             "error",
             "posted_review_id",
             "verdict_posted_at",
@@ -454,6 +504,34 @@ class ReviewRunSerializer(DataclassSerializer):
             "created_at": {"help_text": "When the review run was created."},
             "updated_at": {"help_text": "When the review run was last updated."},
         }
+
+
+class ReviewRequestSerializer(serializers.Serializer):
+    """Request body for asking stamphog to review one pull request."""
+
+    repository = serializers.CharField(
+        help_text="Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled in Stamphog."
+    )
+    pr_number = serializers.IntegerField(min_value=1, help_text="Pull request number on GitHub.")
+
+
+class ReviewRequestResponseSerializer(serializers.Serializer):
+    """The review run a request points at."""
+
+    run = ReviewRunSerializer(
+        read_only=True,
+        help_text=(
+            "The review run for the pull request's current head. Poll it by id until status is terminal "
+            "(completed, gated, failed, or superseded)."
+        ),
+    )
+    created = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when this request queued a new run. False when a queued, running, or finished run already "
+            "covered the current head, which is returned instead."
+        ),
+    )
 
 
 @extend_schema_serializer(component_name="DigestRun")

@@ -2,9 +2,9 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
-import operator
 import dataclasses
 import collections.abc
+from string import Template
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -25,7 +25,9 @@ from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_b
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
+from products.batch_exports.backend.billing import is_billable_run
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -47,6 +49,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    native_events_export_query,
 )
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -161,6 +164,7 @@ def default_fields() -> list[BatchExportField]:
             alias="set_once",
         ),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -179,6 +183,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -196,67 +201,65 @@ class TaskNotDoneError(Exception):
         super().__init__(f"Expected task '{task}' to be done by now")
 
 
-def generate_query_ranges(
-    remaining_range: tuple[dt.datetime | None, dt.datetime],
-    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
-) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
-    """Recursively yield ranges of dates that need to be queried.
+def select_events_query_template(
+    *,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> Template:
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    end_at = dt.datetime.fromisoformat(interval_end)
 
-    There are essentially 3 scenarios we are expecting:
-    1. The batch export just started, so we expect `done_ranges` to be an empty
-       list, and thus should return the `remaining_range`.
-    2. The batch export crashed mid-execution, so we have some `done_ranges` that
-       do not completely add up to the full range. In this case we need to yield
-       ranges in between all the done ones.
-    3. The batch export crashed right after we finish, so we have a full list of
-       `done_ranges` adding up to the `remaining_range`. In this case we should not
-       yield anything.
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
+    is_5_min_batch_export = start_at is not None and (end_at - start_at) == dt.timedelta(seconds=300)
 
-    Case 1 is fairly trivial and we can simply return `remaining_range` if we get
-    an empty `done_ranges`.
+    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+    # may not be able to handle the load from all batch exports
+    if is_5_min_batch_export and not is_backfill:
+        return SELECT_FROM_EVENTS_VIEW_RECENT
+    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+    # which is a distributed table that sits in front of the `events_recent` table
+    if use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
+        return SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        return SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+    if is_backfill:
+        return SELECT_FROM_EVENTS_VIEW_BACKFILL
+    return SELECT_FROM_EVENTS_VIEW
 
-    Case 2 is more complicated and we can expect that the ranges produced by this
-    function will lead to duplicate events selected, as our batch export query is
-    inclusive in the lower bound. Since multiple rows may have the same
-    `inserted_at` we cannot simply skip an `inserted_at` value, as there may be a
-    row that hasn't been exported as it with the same `inserted_at` as a row that
-    has been exported. So this function will return ranges with `inserted_at`
-    values that were already exported for at least one event. Ideally, this is
-    *only* one event, but we can never be certain.
+
+def reads_native_events_source(
+    *,
+    use_new_events_schema: bool,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> bool:
+    """Whether a run reads the native events source instead of a legacy events table.
+
+    Only the native source projects the `$unset` and `$group_set` columns, so a caller that asks for
+    them on a run routed to a legacy table builds a query ClickHouse cannot resolve. The routing is
+    wider than `is_backfill`: a backfill over recent data still reads `distributed_events_recent`.
     """
-    if len(done_ranges) == 0:
-        yield remaining_range
-        return
-
-    epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
-    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
-
-    list_done_ranges.sort(key=operator.itemgetter(0))
-
-    while True:
-        try:
-            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
-        except IndexError:
-            if remaining_range[0] != remaining_range[1]:
-                # If they were equal it would mean we have finished.
-                yield remaining_range
-
-            return
-        else:
-            candidate_end_at = next_range[0] if next_range[0] is not None else epoch
-
-        candidate_start_at = remaining_range[0]
-        remaining_range = (next_range[1], remaining_range[1])
-
-        if candidate_start_at is not None and candidate_start_at >= candidate_end_at:
-            # We have landed within a done range.
-            continue
-
-        if candidate_start_at is None and candidate_end_at == epoch:
-            # We have landed within the first done range of a backfill.
-            continue
-
-        yield (candidate_start_at, candidate_end_at)
+    if not use_new_events_schema:
+        return False
+    return (
+        select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
+        )
+        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    )
 
 
 def iter_records(
@@ -271,6 +274,8 @@ def iter_records(
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
     backfill_details: BackfillDetails | None = None,
+    *,
+    use_new_events_schema: bool,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -325,42 +330,27 @@ def iter_records(
         "include_events": events_to_include_array,
     }
 
-    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
-    end_at = dt.datetime.fromisoformat(interval_end)
-
-    # TODO: this can be simplified once all backfill inputs are migrated
-    is_backfill = (backfill_details is not None) or is_backfill
-
-    if start_at:
-        is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-    else:
-        is_5_min_batch_export = False
-
-    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-    # may not be able to handle the load from all batch exports
-    if is_5_min_batch_export and not is_backfill:
-        query = SELECT_FROM_EVENTS_VIEW_RECENT
-    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-    # which is a distributed table that sits in front of the `events_recent` table
-    elif use_distributed_events_recent_table(
-        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
-    ):
-        query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-    elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-    elif is_backfill:
-        query = SELECT_FROM_EVENTS_VIEW_BACKFILL
-    else:
-        query = SELECT_FROM_EVENTS_VIEW
-        lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-        base_query_parameters["lookback_days"] = lookback_days
-
-    if filters_str:
-        filters_str = f"AND {filters_str}"
-
-    query_str = query.safe_substitute(
-        fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+    query = select_events_query_template(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
     )
+
+    if query is SELECT_FROM_EVENTS_VIEW:
+        base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+        )
+
+    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
+        query_str = native_events_export_query(query_fields, filters_str or "", order="ORDER BY _inserted_at, event")
+    else:
+        if filters_str:
+            filters_str = f"AND {filters_str}"
+        query_str = query.safe_substitute(
+            fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+        )
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
@@ -679,6 +669,29 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         **update_params,
     )
 
+    # The run is already written, so nothing here must fail the activity
+    try:
+        if (
+            batch_export_run.status == BatchExportRun.Status.COMPLETED
+            and batch_export_run.records_completed
+            and is_billable_run(batch_export_run)
+        ):
+            await areport_usage(
+                [
+                    UsageRecord(
+                        record_id=str(batch_export_run.id),
+                        producer_id="batch-exports",
+                        team_id=inputs.team_id,
+                        usage_key="batch_export_rows",
+                        unit="rows",
+                        quantity=batch_export_run.records_completed,
+                    )
+                ],
+                site="batch_exports",
+            )
+    except Exception:
+        LOGGER.exception("batch_export_run.usage_collection_failed", batch_export_run_id=inputs.id)
+
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
         # We should never get here as we do not have a retry limit.
         # So, users should never be asked to retry for things we can retry ourselves.
@@ -802,7 +815,7 @@ def make_internal_events_payload(
     batch_export_run_id: str,
     batch_export_name: str,
     data_interval_start: dt.datetime | None,
-    data_interval_end: dt.datetime,
+    data_interval_end: dt.datetime | None,
     destination_type: str,
     rows_exported: int,
     error: str | None,
@@ -819,7 +832,7 @@ def make_internal_events_payload(
         "batch_export_run_id": batch_export_run_id,
         "batch_export_name": batch_export_name,
         "data_interval_start": data_interval_start.isoformat() if data_interval_start is not None else None,
-        "data_interval_end": data_interval_end.isoformat(),
+        "data_interval_end": data_interval_end.isoformat() if data_interval_end is not None else None,
         "destination_type": destination_type,
     }
 

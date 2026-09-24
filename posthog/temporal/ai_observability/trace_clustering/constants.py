@@ -54,7 +54,9 @@ EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely.
 COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=720)  # Two attempts, 60s backoff, and queue time
-LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=900)  # 15 min (2 attempts * 600s + backoff, capped)
+LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
+    seconds=1260
+)  # 21 min: 2 attempts * 600s + backoff, so a timed-out first attempt still leaves the retry a full run
 AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=330)  # 5.5 min (1 attempt only, best-effort)
 EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=150)  # 2.5 min (2 attempts * 60s + backoff)
 

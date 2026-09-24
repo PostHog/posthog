@@ -8,6 +8,8 @@ workspace = true
 
 [features]
 pg-test-support = []
+# Arms the tests that need a reachable ClickHouse, which the rust CI job's compose stack provides.
+ch-test-support = []
 
 [[bin]]
 name = "reconcile_dispatch"
@@ -37,6 +39,7 @@ hyper-util = { workspace = true, features = ["client-legacy"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+rand = { workspace = true }
 rdkafka = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }

@@ -65,6 +65,15 @@ def is_smtp_email_service_available() -> bool:
     return bool(get_instance_setting("EMAIL_HOST"))
 
 
+def single_line(value: str) -> str:
+    """Flatten CR/LF to spaces so a user-set value is safe in an email Subject.
+
+    A CR or LF in a Subject makes Django raise BadHeaderError, which the send path swallows, so
+    the whole notification would be dropped.
+    """
+    return value.replace("\r", " ").replace("\n", " ")
+
+
 def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
@@ -122,7 +131,6 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "password_reset": "32",
     "invite": "33",
     "member_join": "34",
-    "email_verification": "35",
     "email_change_old_address": "36",
     "email_change_new_address": "37",
     "password_changed": "42",
@@ -497,8 +505,7 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     return {k: sanitize_value(v, key=k) for k, v in properties.items()}
 
 
-@shared_task(**EMAIL_TASK_KWARGS)
-def _send_email(
+def _send_email_now(
     campaign_key: str,
     to: list[dict[str, str]],
     subject: str,
@@ -510,9 +517,6 @@ def _send_email(
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
 ) -> None:
-    """
-    Sends built email message asynchronously, either through SMTP or HTTP
-    """
     if use_http and is_http_email_service_available():
         _send_via_http(
             to=to,
@@ -532,6 +536,9 @@ def _send_email(
         )
     else:
         raise Exception("Email is not enabled in this instance.")
+
+
+_send_email = shared_task(**EMAIL_TASK_KWARGS, name="posthog.email._send_email")(_send_email_now)
 
 
 class EmailMessage:
@@ -585,7 +592,8 @@ class EmailMessage:
         email = email_override or user.email
         self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
-    def send(self, send_async: bool = True) -> None:
+    def send(self, send_async: bool = True, *, retry: bool = True) -> None:
+        """Synchronous callers can disable eager retries to own transport failure handling."""
         if not self.to:
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
@@ -604,5 +612,18 @@ class EmailMessage:
 
         if send_async:
             _send_email.apply_async(kwargs=kwargs)
-        else:
+        elif retry:
             _send_email.apply(kwargs=kwargs)
+        else:
+            _send_email_now(
+                campaign_key=self.campaign_key,
+                to=self.to,
+                subject=self.subject,
+                headers=self.headers,
+                txt_body=self.txt_body,
+                html_body=self.html_body,
+                template_name=self.template_name,
+                reply_to=self.reply_to,
+                use_http=self.use_http,
+                properties=self.properties,
+            )

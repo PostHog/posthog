@@ -129,7 +129,6 @@ export function TaskHistoryList(): JSX.Element {
 
 function TaskHistoryCard({ task, onOpen }: TaskHistoryRowProps): JSX.Element {
     const { deleteTask } = useActions(tasksLogic)
-    const { taskArchived } = useActions(taskHistoryLogic)
 
     return (
         <div
@@ -159,7 +158,6 @@ function TaskHistoryCard({ task, onOpen }: TaskHistoryRowProps): JSX.Element {
                     onClick={(e) => {
                         e.stopPropagation()
                         deleteTask({ taskId: task.id })
-                        taskArchived(task.id)
                     }}
                 />
             </div>

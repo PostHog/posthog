@@ -123,9 +123,11 @@ afterEach(() => {
 });
 
 // ExpandablePrompt measures how the prompt wraps to decide where to cut and
-// whether to show "more". jsdom does no layout, so simulate a 21px line height
-// and a scrollHeight that grows with text length (≈20 chars/line).
+// whether to show "more". jsdom does no layout, so simulate a 21px line height,
+// a scrollHeight that grows with text length (≈20 chars/line), and a non-zero
+// width — the prompt skips measuring an element that has no width yet.
 function mockLayout(charsPerLine: number) {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
   const realGetComputedStyle = window.getComputedStyle;
   vi.spyOn(window, "getComputedStyle").mockImplementation((el, ...rest) => {
     const style = realGetComputedStyle(el, ...rest);
@@ -162,6 +164,58 @@ describe("ChannelFeedView", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading tasks");
   });
 
+  it("shows a queued cloud run as starting", () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: true,
+      isPinned: false,
+      needsPermission: false,
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "queued",
+    };
+
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByText("Starting")).toBeInTheDocument();
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument();
+  });
+
+  it("does not show an idle interactive cloud run as in progress", () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: false,
+      isPinned: false,
+      needsPermission: false,
+      runMode: "interactive",
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "in_progress",
+    };
+
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument();
+  });
+
   it("hides archived tasks from the feed", () => {
     const archived = {
       ...task,
@@ -183,6 +237,35 @@ describe("ChannelFeedView", () => {
 
     expect(screen.queryByText("Already archived")).not.toBeInTheDocument();
     expect(screen.getByText(task.title)).toBeInTheDocument();
+  });
+
+  // The kickoff has to lead the feed in the shape of the view around it. It
+  // used to render as a card above the rows, whichever view was active, so the
+  // list view showed one card sitting on top of a list.
+  it.each([
+    ["cards" as const, true],
+    ["list" as const, false],
+  ])("shows a pending kickoff first, in the %s shape", (rowStyle, isCard) => {
+    const prompt = "Add a dark-mode toggle";
+    const { container } = render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          pending={[{ id: "pending-1", prompt }]}
+          rowStyle={rowStyle}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    const feed = container.textContent ?? "";
+    expect(feed).toContain(prompt);
+    expect(feed.indexOf(prompt)).toBeLessThan(feed.indexOf(task.title));
+    // Only the card puts a "New task" heading above the prompt.
+    expect(screen.queryByText("New task") !== null).toBe(isCard);
   });
 
   it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {

@@ -18,8 +18,10 @@ import { BarChart, useChartLayout } from '@posthog/quill-charts'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,7 +42,6 @@ import { formatCreditCount, formatCreditsRange } from '../../utils/credits'
 import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import {
     LABEL_CHART_DAYS,
     CALIBRATION_PAGE_SIZE,
@@ -147,16 +148,26 @@ function SuggestionEvaluationPanel({
     suggestion,
     preview,
     editedSinceTest,
+    evaluationSupported,
+    showUntestedNotice,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
     preview: boolean
     editedSinceTest: boolean
+    evaluationSupported: boolean
+    showUntestedNotice: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
-        return null
+        // Most people apply without testing, so say what testing is for rather than showing nothing.
+        return evaluationSupported && showUntestedNotice ? (
+            <div className="border rounded p-3 text-sm text-muted" data-attr="vision-calibration-untested-notice">
+                Not tested yet. Testing re-runs this recommendation on your rated results, so you can see what changes
+                before you apply it.
+            </div>
+        ) : null
     }
     const isPreview = preview || evaluation.results.some((result) => result.outcome === 'preview')
 
@@ -319,6 +330,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         loadSuggestionHistory,
     } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
     // `quota` gates the test button (enforcement), `displayQuota` renders spend copy (startup cap applied).
     const { quota, displayQuota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -394,6 +406,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         suggestion={currentSuggestion}
                         preview={previewEvaluation}
                         editedSinceTest={recommendationEditedSinceTest}
+                        evaluationSupported={evaluationSupported}
+                        showUntestedNotice={featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE] === 'test'}
                     />
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -605,7 +619,6 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string; 'd
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // buildTheme snapshots the current CSS vars, so rebuild when the app theme flips.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -725,14 +738,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                                         : badge.prompt}
                                                 </div>
                                             )}
-                                            <div className="text-muted">Click to view all prompt versions</div>
                                         </div>
                                     }
                                 >
                                     <div
-                                        className="absolute top-0 -translate-x-1/2 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
+                                        className="absolute top-0 -translate-x-1/2 inline-flex items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted"
                                         style={{ left: badge.x }}
-                                        onClick={() => setActiveTab(ReplayScannerTab.Configuration)}
                                         data-attr="vision-calibration-version-badge"
                                     >
                                         v{badge.version}

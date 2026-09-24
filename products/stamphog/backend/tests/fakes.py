@@ -120,11 +120,23 @@ class FakeResponse:
         self._json = json_data
         self.text = text if text else ("" if json_data is None else "<json>")
         self.headers = headers or {}
+        self.encoding = "utf-8"
 
     def json(self) -> Any:
         if self._json is None:
             raise ValueError("no json")
         return self._json
+
+    def iter_content(self, chunk_size: int = 8192) -> Iterable[bytes]:
+        raw = (json.dumps(self._json) if self._json is not None else self.text).encode()
+        for start in range(0, len(raw), chunk_size):
+            yield raw[start : start + chunk_size]
+
+    def __enter__(self) -> FakeResponse:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
 
 
 class GitHubRecorder:
@@ -157,11 +169,16 @@ class GitHubRecorder:
         # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
         # exercise the best-effort catch for exception types the client does not raise itself.
         self.add_label_side_effect: Exception | None = None
+        # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
+        self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         # Per-repository overrides for the same paths, for cases where two connected repos must
         # answer differently (one carries a root owners.yaml, another does not).
         self.repo_files: dict[tuple[str, str], str] = {}
+        # Repositories with no commits at all. GitHub answers their head lookup with a null
+        # defaultBranchRef, which is what a freshly created connected repo looks like.
+        self.empty_repositories: set[str] = set()
         self.github_writes: list[dict[str, Any]] = []
         self._next_id = 90000
 
@@ -211,6 +228,8 @@ class GitHubRecorder:
             # Split by event so a test asserting on approvals never matches a COMMENT review.
             event = (json_body or {}).get("event")
             kind = "approve_review" if event == "APPROVE" else "comment_review"
+            if kind == "comment_review" and self.comment_review_side_effect is not None:
+                raise self.comment_review_side_effect
             return self._record_write(kind, m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and (m := _ISSUE_COMMENTS_RE.match(path)):
             page = int(params.get("page", 1))
@@ -263,8 +282,23 @@ class GitHubRecorder:
     def _graphql(self, body: dict) -> FakeResponse:
         query = str(body.get("query") or "")
         variables = body.get("variables") or {}
-        # Two GraphQL callers share /graphql: get_pr_review_threads and get_user_team_slugs. Route by
-        # the query's shape (only the review-threads query mentions reviewThreads).
+        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, the minimizeComment
+        # mutation after a dismissal, and the shared ownership file reader. Route by the query's shape.
+        if "minimizeComment" in query:
+            self.github_writes.append({"kind": "minimize_review", "node_id": variables.get("id"), "query": query})
+            return FakeResponse(
+                200, json_data={"data": {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}}
+            )
+        if "defaultBranchRef" in query:
+            if f"{variables.get('owner', '')}/{variables.get('name', '')}" in self.empty_repositories:
+                return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": None}}})
+            # The ownership reader caches blobs per commit, and the cache outlives one test. A commit
+            # derived from the scripted files keeps each test reading its own files.
+            scripted = repr(sorted(self.policy_files.items()) + sorted(self.repo_files.items()))
+            oid = hashlib.sha256(scripted.encode()).hexdigest()
+            return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": {"target": {"oid": oid}}}}})
+        if "object(expression:" in query:
+            return self._ownership_blobs(f"{variables.get('owner', '')}/{variables.get('name', '')}", query, variables)
         if "reviewThreads" in query:
             repo = f"{variables.get('owner', '')}/{variables.get('name', '')}"
             number = int(variables.get("pr") or 0)
@@ -283,6 +317,21 @@ class GitHubRecorder:
         slugs = self.teams_by_login.get(login, [])
         teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
         return FakeResponse(200, json_data=teams_data)
+
+    def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:
+        """The aliased blob lookups the shared ownership reader sends, served from the same files the
+        contents API answers with. Each variable holds a ``<commit>:<path>`` expression."""
+        field: dict[str, Any] = {}
+        for name, expression in variables.items():
+            if name in ("owner", "name"):
+                continue
+            path = str(expression).split(":", 1)[1]
+            content = self.repo_files.get((repo, path), self.policy_files.get(path))
+            if content is None:
+                field[f"f{name[1:]}"] = None
+            else:
+                field[f"f{name[1:]}"] = {"text": content} if "text" in query else {"__typename": "Blob"}
+        return FakeResponse(200, json_data={"data": {"repository": field}})
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
@@ -341,7 +390,7 @@ class GitHubRecorder:
         for review in self.pr_reviews.get((repo, number), []):
             if review.get("id") == review_id:
                 review["state"] = "DISMISSED"
-        return FakeResponse(200, json_data={})
+        return FakeResponse(200, json_data={"id": review_id, "node_id": f"PRR_{review_id}", "state": "DISMISSED"})
 
 
 def _extract(query: str, prefix: str) -> str:
@@ -512,7 +561,7 @@ def approved_engine_output() -> str:
     return "uv run: resolved 1 package\n" + json.dumps(payload)
 
 
-def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, bytes]] | None = None) -> type:
+def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, bytes]] | None = None) -> type[Any]:
     """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise.
 
     ``write_sink``, when given, records every ``write_file`` as ``(path, payload)`` so a test can
@@ -522,6 +571,9 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     class _FakeSandbox:
         # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
         destroy_error: Exception | None = None
+        # A test can set this to make provisioning blow up, which is the first step of the review's
+        # paid phase (retry-boundary coverage).
+        create_error: Exception | None = None
         # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
         # (environment variables, egress allowlist).
         created_configs: list[Any] = []
@@ -529,6 +581,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
             cls.created_configs.append(config)
+            if cls.create_error is not None:
+                raise cls.create_error
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:

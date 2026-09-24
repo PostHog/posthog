@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, call, patch
 
 from django.template.loader import render_to_string
 
-from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.facade.email import send_alert_email
 
 
-@patch("products.alerts.backend.email_notifications.EmailMessage")
+@patch("products.alerts.backend.facade.email.EmailMessage")
 def test_send_alert_email_delivers_to_every_recipient(MockEmailMessage: MagicMock) -> None:
     send_alert_email(
         recipients=("first@example.com", "second@example.com"),
@@ -59,6 +59,45 @@ def test_alert_firing_email_labels_test_delivery_without_claiming_the_alert_is_f
 
     assert "This is a test delivery" in html
     assert "alert is firing" not in html
+
+
+def test_alert_firing_email_lists_every_breach_description() -> None:
+    html = render_to_string(
+        "email/alert_check_firing.html",
+        {
+            "match_descriptions": ["Signups dropped below 100", "Signups dropped below 50"],
+            "insight_url": "/project/1/insights/example",
+            "insight_name": "Example insight",
+            "alert_url": "/project/1/insights/example?alert_id=1",
+            "alert_name": "Example alert",
+            "project_name": "Example project",
+        },
+    )
+
+    assert "Signups dropped below 100" in html
+    assert "Signups dropped below 50" in html
+
+
+def test_alert_evaluation_failure_email_claims_no_cause_for_an_unavailable_detector() -> None:
+    html = render_to_string(
+        "email/alert_check_failed_to_evaluate.html",
+        {
+            "alert_error": "The AI detector could not complete this check.",
+            "alert_url": "/project/1/insights/example?alert_id=1",
+            "alert_name": "Example alert",
+            "insight_url": "/project/1/insights/example",
+            "insight_name": "Example insight",
+            "detector_unavailable": True,
+        },
+    )
+
+    assert "could not run the AI detector" in html
+    assert "model provider" not in html
+    assert "there is nothing to change" not in html
+    assert "Review the alert settings" not in html
+    assert "settings need attention" not in html
+    assert "PostHog will try again" in html
+    assert "View alert" in html
 
 
 def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timing() -> None:

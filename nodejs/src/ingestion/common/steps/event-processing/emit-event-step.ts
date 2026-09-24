@@ -7,6 +7,7 @@ import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
+import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
@@ -28,7 +29,7 @@ export interface EmitEventStepInput<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -54,7 +55,7 @@ export interface EmitEventStepOutput {
      * been ingested. Empty when nothing was emitted.
      */
     ingested: Promise<IngestedEventInfo | null>[]
-    eventUsageRecord?: EventUsageRecord
+    eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -119,7 +120,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
             ok(
                 {
                     ingested,
-                    eventUsageRecord: input.eventUsageRecord,
+                    eventUsageRecords: input.eventUsageRecords,
                     eventUsageBatch: input.eventUsageBatch,
                 },
                 ingested
@@ -152,5 +153,5 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
 }
 
 export function productTrackHeader(event: ProcessedEvent): string {
-    return event.event.startsWith('$ai_') ? 'llma' : 'general'
+    return isAiEventName(event.event) ? 'llma' : 'general'
 }

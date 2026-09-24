@@ -12,7 +12,12 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
-import { llmPromptsCreate, llmPromptsNamePartialUpdate, llmPromptsNameRetrieve } from '../generated/api'
+import {
+    evaluationsRetrieve,
+    llmPromptsCreate,
+    llmPromptsNamePartialUpdate,
+    llmPromptsNameRetrieve,
+} from '../generated/api'
 import { normalizeMessage } from '../messageNormalization'
 import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
@@ -69,7 +74,18 @@ export interface PlaygroundSetupPayload {
     sourceEvaluationId?: string
     input?: unknown
     output?: unknown
-    tools?: Record<string, unknown>[]
+    tools?: unknown
+}
+
+function normalizePlaygroundTools(tools: unknown): Record<string, unknown>[] | undefined {
+    if (Array.isArray(tools)) {
+        return tools.every(isObject) ? tools : undefined
+    }
+    if (!isObject(tools)) {
+        return undefined
+    }
+    const values = Object.values(tools)
+    return values.every(isObject) ? values : [tools]
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
@@ -1180,7 +1196,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 source_type: sourceType ?? 'unknown',
             })
             actions.setSourceSetupLoading(true)
-            const { input, tools, systemPrompt } = payload
+            const { input, systemPrompt } = payload
+            const tools = normalizePlaygroundTools(payload.tools)
             const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
             const promptId = currentPrompt.id
 
@@ -1504,13 +1521,19 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
+                const sourceEvaluation =
+                    prompt.sourceType === 'evaluation' && prompt.sourceEvaluationId
+                        ? await evaluationsRetrieve(String(teamId), prompt.sourceEvaluationId)
+                        : null
+                const compatibleSource = sourceEvaluation?.output_type === 'sentiment' ? null : sourceEvaluation
                 // nosemgrep: prefer-codegen-api
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: prompt.systemPrompt },
                     model_configuration: modelConfig,
-                    output_type: 'boolean',
+                    output_type: compatibleSource?.output_type ?? 'boolean',
+                    ...(compatibleSource ? { output_config: compatibleSource.output_config } : {}),
                     conditions: [],
                     enabled: false,
                 })

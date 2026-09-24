@@ -4,12 +4,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
+import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
@@ -317,6 +318,19 @@ describe('tracingDataLogic', () => {
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
+
+        it('re-fetches the sparkline on an explicit refresh with an unchanged scope', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            // The refresh button asks for newer data without touching the filters, so the
+            // memoized scope must not stop it from hitting the endpoint again.
+            await expectLogic(logic, () => {
+                logic.actions.refreshQuery()
+            }).toDispatchActions(['fetchSparklineSuccess'])
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
+            sparklineSpy.mockRestore()
+        })
     })
 
     describe('loading state across superseded queries', () => {
@@ -443,6 +457,45 @@ describe('tracingDataLogic', () => {
             } finally {
                 isolatedData.unmount()
                 isolatedFilters.unmount()
+            }
+        })
+    })
+
+    describe('refresh', () => {
+        // The sparkline, count and heatmap skip their fetch while the scope key is unchanged. A
+        // relative range ('-30M') holds that key identical however far the window has moved, so
+        // the refresh button reloaded the list while the chart and the "N traces" label stayed put.
+        // The default range is relative and open-ended ('-1h'), which is the case that broke.
+        it('refetches the count and sparkline when the user refreshes an unchanged relative range', async () => {
+            logic = mountWithSpans([])
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 1, traceCount: 1 })
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).toHaveBeenCalled()
+                countSpy.mockClear()
+                sparklineSpy.mockClear()
+
+                // A sort or view-mode toggle re-runs the query without changing scope — still skipped.
+                await expectLogic(logic, () => {
+                    logic.actions.runQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).not.toHaveBeenCalled()
+                expect(sparklineSpy).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshQuery()
+                }).toFinishAllListeners()
+                expect(countSpy).toHaveBeenCalled()
+                expect(sparklineSpy).toHaveBeenCalled()
+            } finally {
+                listSpansSpy.mockRestore()
+                countSpy.mockRestore()
+                sparklineSpy.mockRestore()
             }
         })
     })

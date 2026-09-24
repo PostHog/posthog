@@ -35,6 +35,7 @@ from posthog.exceptions import (
     generate_exception_response,
 )
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_property
 from posthog.models import Entity, User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
@@ -325,6 +326,21 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
+
+
+def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
+    """Read the `properties` query parameter of a person or cohort actors endpoint.
+
+    Filters that `ActorsQuery` requires an `operator` on get `exact` when the caller omits it.
+    """
+    if not raw_properties:
+        return []
+    properties = json.loads(raw_properties)
+    if not isinstance(properties, list):
+        return []
+    # An empty filter, bare `{}` or explicit `{"type": "empty"}`, must keep no operator;
+    # `clean_property` only excludes `hogql` from its default, not `empty`.
+    return [clean_property(prop) if prop and prop.get("type") != "empty" else prop for prop in properties]
 
 
 INSIGHT_KINDS = {

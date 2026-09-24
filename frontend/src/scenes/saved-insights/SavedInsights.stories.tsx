@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -43,11 +44,53 @@ export default meta
 type Story = StoryObj<{}>
 export const ListView: Story = {}
 
+export const Home: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test' },
+        pageUrl: `${urls.savedInsights()}?tab=home`,
+        testOptions: { viewport: { width: 1300, height: 2000 }, waitForLoadersToDisappear: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights/my_last_viewed/': [],
+                '/api/environments/:team_id/insights/trending/': [],
+                '/api/environments/:team_id/insights/activity': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/insights/': toPaginatedResponse(insightsJson.results.slice(0, 1)),
+                '/api/projects/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
+            },
+            post: {
+                '/api/environments/:team_id/query/': { results: [] },
+                '/api/environments/:team_id/persons/batch_by_distinct_ids/': { results: {} },
+            },
+        }),
+    ],
+}
+
+export const HomeWithBooleanFlag: Story = {
+    ...Home,
+    parameters: {
+        ...Home.parameters,
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: true },
+    },
+}
+
 export const EmptyState: Story = {
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const ErrorState: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights': () => [500, { detail: 'Internal server error' }],
             },
         }),
     ],

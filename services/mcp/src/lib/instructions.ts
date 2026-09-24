@@ -92,16 +92,15 @@ export function buildActiveEnvironmentContextPrompt(
     if (org || project) {
         const projectName = project?.name ?? 'Unknown'
         const projectId = project?.id ?? 'unknown'
-        const projectToken = project?.api_token ?? 'unknown'
 
         if (org) {
             const orgName = org.name ?? 'Unknown'
             const orgId = org.id ?? 'unknown'
             lines.push(
-                `You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}) within organization "${orgName}" (id: ${orgId}).`
+                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
             )
         } else {
-            lines.push(`You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}).`)
+            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
         }
     }
     if (regionalBaseUrl) {
@@ -230,7 +229,10 @@ export class ToolDomainExtractor {
         'run',
         'archive',
         'calculate',
+        'claim',
+        'complete',
         'copy',
+        'disable',
         'discard',
         'duplicate',
         'edit',
@@ -239,15 +241,19 @@ export class ToolDomainExtractor {
         'end',
         'freeze',
         'launch',
+        'migrate',
+        'move',
         'patch',
         'pause',
         'publish',
         'record',
+        'rename',
         'reset',
         'restore',
         'resume',
         'ship',
         'show',
+        'start',
         'test',
         'unarchive',
         'unfreeze',

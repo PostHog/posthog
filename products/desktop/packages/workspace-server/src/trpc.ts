@@ -1,8 +1,6 @@
 import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 import { z } from "zod";
-import { connectivityStatusOutput } from "./services/connectivity/schemas";
-import type { ConnectivityService } from "./services/connectivity/service";
 import {
   createEnvironmentInput,
   deleteEnvironmentInput,
@@ -41,6 +39,7 @@ import {
   readRepoFilesBoundedOutput,
   readRepoFilesInput,
   readRepoFilesOutput,
+  readWorkspaceFileInput,
   writeRepoFileInput,
 } from "./services/fs/schemas";
 import type { FsService } from "./services/fs/service";
@@ -161,7 +160,6 @@ export interface WorkspaceServerServices {
   fsService: FsService;
   watcherService: WatcherService;
   localLogsService: LocalLogsService;
-  connectivityService: ConnectivityService;
   environmentService: EnvironmentService;
 }
 
@@ -172,7 +170,6 @@ export function createAppRouter({
   fsService: fsServiceInst,
   watcherService: watcherServiceInst,
   localLogsService: localLogsServiceInst,
-  connectivityService: connectivityServiceInst,
   environmentService: environmentServiceInst,
 }: WorkspaceServerServices) {
   const focusService = () => focusServiceInst;
@@ -181,7 +178,6 @@ export function createAppRouter({
   const fsService = () => fsServiceInst;
   const watcherService = () => watcherServiceInst;
   const localLogsService = () => localLogsServiceInst;
-  const connectivityService = () => connectivityServiceInst;
   const environmentService = () => environmentServiceInst;
 
   return t.router({
@@ -821,6 +817,16 @@ export function createAppRouter({
         .output(readRepoFileOutput)
         .query(({ input }) => fsService().readFileAsBase64(input.filePath)),
 
+      readWorkspaceFileAsBase64: t.procedure
+        .input(readWorkspaceFileInput)
+        .output(readRepoFileOutput)
+        .query(({ input }) =>
+          fsService().readWorkspaceFileAsBase64(
+            input.workspaceRoot,
+            input.filePath,
+          ),
+        ),
+
       writeRepoFile: t.procedure
         .input(writeRepoFileInput)
         .mutation(({ input }) =>
@@ -881,23 +887,6 @@ export function createAppRouter({
         .mutation(({ input }) =>
           localLogsService().writeLocalLogs(input.taskRunId, input.content),
         ),
-    }),
-    connectivity: t.router({
-      getStatus: t.procedure
-        .output(connectivityStatusOutput)
-        .query(() => connectivityService().getStatus()),
-
-      checkNow: t.procedure
-        .output(connectivityStatusOutput)
-        .mutation(() => connectivityService().checkNow()),
-
-      onStatusChange: t.procedure.subscription(async function* (opts) {
-        for await (const status of connectivityService().statusChangeEvents(
-          opts.signal,
-        )) {
-          yield status;
-        }
-      }),
     }),
     environment: t.router({
       list: t.procedure

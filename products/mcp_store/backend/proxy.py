@@ -11,19 +11,24 @@ import httpx
 import structlog
 
 from posthog.api.streaming import sse_streaming_response
+from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
-from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
+from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import GatewayCaller, PolicyContext
+from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
 UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
+MAX_LOGGED_MISSING_TOOLS = 20
 REDIRECT_STATUS_CODES = {301, 302, 307, 308}
 
 # JSON-RPC error codes used by per-tool approval enforcement. -32000..-32099 is
@@ -114,6 +119,10 @@ def send_mcp_request_with_same_origin_redirect(
 
 
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
+    if installation.template and not oauth_credentials_source_is_allowed(
+        installation.template.oauth_credentials_source, installation.team_id
+    ):
+        raise TokenRefreshRejectedError("OAuth app is not available for this project")
     sensitive = installation.sensitive_configuration or {}
 
     if installation.auth_type == "api_key":
@@ -144,7 +153,12 @@ def validate_installation_auth(
 
     Returns (True, None) if auth is valid, or (False, error_response) if not.
     """
-    if not installation.is_enabled:
+    if not installation.is_enabled or (
+        installation.template
+        and not oauth_credentials_source_is_allowed(
+            installation.template.oauth_credentials_source, installation.team_id
+        )
+    ):
         logger.warning(
             "Proxy auth failed: server is disabled",
             installation_id=str(installation.id),
@@ -180,6 +194,17 @@ def validate_installation_auth(
             )
         try:
             ensure_valid_token(installation)
+        except TokenRefreshRejectedError:
+            # refresh_installation_token has flagged the installation, unless a concurrent
+            # request had already replaced the credential the provider turned down. Say the
+            # refresh was rejected either way rather than leaving the caller to read a
+            # permanent failure as a retryable one.
+            logger.warning("OAuth token refresh rejected", installation_id=str(installation.id))
+            return False, HttpResponse(
+                '{"error": "Installation needs re-authentication"}',
+                content_type="application/json",
+                status=401,
+            )
         except TokenRefreshError:
             logger.warning("OAuth token refresh failed", installation_id=str(installation.id))
             return False, HttpResponse(
@@ -341,6 +366,57 @@ def _evaluate_tool_call(
     return None
 
 
+def _requested_tool_names(data: dict[str, Any] | list[Any]) -> set[str]:
+    names: set[str] = set()
+    for item in data if isinstance(data, list) else [data]:
+        if not _is_tools_call(item):
+            continue
+        params = item.get("params") or {}
+        name = params.get("name") if isinstance(params, dict) else None
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def _unresolvable_tool_names(tools: dict[str, MCPServerInstallationTool], requested: set[str]) -> set[str]:
+    """The requested names no live row answers. A row marked removed counts as a
+    miss, so a tool the upstream server brings back is picked up by a re-listing."""
+    return {name for name in requested if tools.get(name) is None or tools[name].removed_at is not None}
+
+
+def _tools_by_name(installation: MCPServerInstallation, requested: set[str]) -> dict[str, MCPServerInstallationTool]:
+    """The installation's tool rows, re-listed from upstream on a miss.
+
+    These rows are the policy registry rather than a performance cache: a call
+    whose tool has no row cannot be resolved against policy, so it is refused.
+    An installation whose connect-time listing never landed therefore refuses
+    every call until a person presses "Refresh tools". Re-listing once on a miss
+    repairs that without waiting for them, and covers a tool the upstream server
+    renamed after the last listing.
+    """
+    tools = {t.tool_name: t for t in installation.tools.all()}
+    if not _unresolvable_tool_names(tools, requested):
+        return tools
+
+    from .tools import resync_installation_tools  # noqa: PLC0415 — tools.py imports this module
+
+    if resync_installation_tools(installation):
+        tools = {t.tool_name: t for t in installation.tools.all()}
+    missing = _unresolvable_tool_names(tools, requested)
+    if missing:
+        logger.warning(
+            "MCP tool call refers to an unregistered tool",
+            installation_id=str(installation.id),
+            url=installation.url,
+            # A batch carries as many names as the body allows, and the size limit
+            # is checked further down, so log a sample rather than all of them.
+            missing_tools=sorted(missing)[:MAX_LOGGED_MISSING_TOOLS],
+            missing_tool_count=len(missing),
+            registered_tool_count=len(tools),
+        )
+    return tools
+
+
 def enforce_tool_approval(
     installation: MCPServerInstallation,
     data: dict[str, Any] | list[Any],
@@ -358,7 +434,7 @@ def enforce_tool_approval(
         if not any(_is_tools_call(item) for item in data):
             return None
         # Pre-fetch the installation's tools once to avoid N queries on batched tools/call.
-        tools_by_name = {t.tool_name: t for t in installation.tools.all()}
+        tools_by_name = _tools_by_name(installation, _requested_tool_names(data))
         responses: list[dict[str, Any]] = []
         any_blocked = False
         any_passthrough = False
@@ -399,7 +475,7 @@ def enforce_tool_approval(
 
     if not _is_tools_call(data):
         return None
-    tools_by_name = {t.tool_name: t for t in installation.tools.all()}
+    tools_by_name = _tools_by_name(installation, _requested_tool_names(data))
     blocked = _evaluate_tool_call(tools_by_name, data, policy_context, audit_entries)
     if blocked is None:
         return None
@@ -457,11 +533,11 @@ def proxy_mcp_request(
     rides, so the audit trail answers whose connection an agent used. Both are
     empty for member calls, where the actor already is the credential owner.
     """
-    allowed, error = is_url_allowed(installation.url)
-    if not allowed:
-        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
+    verdict = resolve_mcp_url_policy(installation.url, installation.team_id)
+    if not verdict.allowed:
+        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=verdict.reason)
         return HttpResponse(
-            json.dumps({"error": f"URL not allowed: {error}"}),
+            json.dumps({"error": f"URL not allowed: {verdict.reason}"}),
             content_type="application/json",
             status=400,
         )
@@ -531,7 +607,12 @@ def proxy_mcp_request(
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
-    client = httpx.Client(timeout=UPSTREAM_TIMEOUT)
+    client = pinned_client(
+        installation.url,
+        verdict.pinned_ips,
+        timeout=UPSTREAM_TIMEOUT,
+        trust_env=trust_environment_proxy(installation.url, installation.team_id),
+    )
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
             client,
@@ -540,6 +621,14 @@ def proxy_mcp_request(
             content=body,
             headers=headers,
             stream=True,
+        )
+    except (SSRFBlockedError, httpx.ProxyError):
+        client.close()
+        logger.warning("Upstream MCP connection blocked by URL or proxy policy")
+        return HttpResponse(
+            '{"error": "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."}',
+            content_type="application/json",
+            status=502,
         )
     except httpx.ConnectError:
         client.close()

@@ -24,13 +24,18 @@ from posthog.models.utils import UUIDTModel
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
-# All destination types that share the s3-export Temporal workflow.
-# Includes the legacy "S3" alias for backwards compatibility.
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
+# S3-family destination types that are in use. Note that this excludes the legacy "S3"
+# type which has now been fully deprecated.
+S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
-# S3-family types that can be created via the API. The legacy "S3" type is excluded:
-# existing rows keep working, but new destinations must use "AwsS3" or "S3Compatible".
-S3_CREATABLE_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
+# Destinations that write files to object storage, as opposed to the data warehouse destinations
+# (BigQuery, Databricks, Postgres, Redshift, Snowflake) that write rows into a table. File format,
+# compression and object key layout are questions only this half has to answer.
+#
+# Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
+# TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
+# to properly categorize object storage and data warehouse destinations.
+OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
 
 
 class DayOfWeek(IntEnum):
@@ -70,7 +75,7 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"  # legacy alias; AwsS3 / S3Compatible are the preferred types for new rows
+        S3 = "S3"  # TODO: legacy alias which is no longer used so can be removed
         AWS_S3 = "AwsS3"
         S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"
@@ -84,6 +89,9 @@ class BatchExportDestination(UUIDTModel):
         NOOP = "NoOp"
         FILE_DOWNLOAD = "FileDownload"
 
+    # S3-family exports read their credentials from an Integration, but rows migrated off inline
+    # credentials still hold them in `config`. These entries keep those stale values out of API
+    # responses until a follow-up strips them from stored config.
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -125,6 +133,7 @@ class BatchExportDestination(UUIDTModel):
         help_text="The integration for this destination.",
         null=True,
         blank=True,
+        related_name="+",
     )
 
 
@@ -149,6 +158,7 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         help_text="The team this belongs to.",
+        related_name="+",
     )
     hogql_query = models.TextField(
         null=True,
@@ -218,7 +228,7 @@ class BatchExportRun(UUIDTModel):
     )
     latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
     data_interval_start = models.DateTimeField(help_text="The start of the data interval.", null=True)
-    data_interval_end = models.DateTimeField(help_text="The end of the data interval.")
+    data_interval_end = models.DateTimeField(help_text="The end of the data interval.", null=True)
     cursor = models.TextField(null=True, help_text="An opaque cursor that may be used to resume.")
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -254,9 +264,13 @@ class BatchExportRun(UUIDTModel):
         parent = self.parent
 
         if isinstance(parent, BatchExport):
+            if self.data_interval_end is None:
+                raise ValueError("Scheduled batch export runs require data_interval_end to compute a workflow ID")
             return f"{parent.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
 
         if isinstance(parent, BatchExportOnDemand):
+            if self.data_interval_start is None or self.data_interval_end is None:
+                return f"{parent.id}-{self.id}"
             return (
                 f"{parent.id}-{self.data_interval_start:%Y-%m-%dT%H:%M:%S}Z-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
             )
@@ -279,13 +293,15 @@ class BatchExportRun(UUIDTModel):
         raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
-BATCH_EXPORT_INTERVALS = [
-    ("hour", "hour"),
-    ("day", "day"),
-    ("week", "week"),
-    ("every 5 minutes", "every 5 minutes"),
-    ("every 15 minutes", "every 15 minutes"),
-]
+class BatchExportInterval(models.TextChoices):
+    HOUR = "hour", "hour"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+    EVERY_5_MINUTES = "every 5 minutes", "every 5 minutes"
+    EVERY_15_MINUTES = "every 15 minutes", "every 15 minutes"
+
+
+BATCH_EXPORT_INTERVALS = BatchExportInterval.choices
 
 BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
     "hour": timedelta(minutes=15),
@@ -319,7 +335,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
     destination = models.ForeignKey(
         "BatchExportDestination",
@@ -349,6 +367,16 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     last_updated_at = models.DateTimeField(
         auto_now=True,
         help_text="The timestamp at which this BatchExport was last updated.",
+    )
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The user who last saved this batch export's configuration.",
     )
     last_paused_at = models.DateTimeField(
         null=True,
@@ -486,6 +514,11 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             return offset_in_hours % 24
         return None
 
+    @property
+    def hogql_query(self) -> str | None:
+        """Return the HogQL query of this batch export's source, if it has one."""
+        return self.source.hogql_query if self.source is not None else None
+
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
     """Return a list of batch exports using integration_id.
@@ -622,7 +655,9 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "key"], name="team_key_idx"),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     batch_export_run = models.ForeignKey(
         "BatchExportRun",
         on_delete=models.CASCADE,
@@ -683,7 +718,9 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     destination = models.ForeignKey(
         "BatchExportDestination",
         on_delete=models.CASCADE,
@@ -704,6 +741,16 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
     last_updated_at = models.DateTimeField(
         auto_now=True,
         help_text="The timestamp at which this was last updated.",
+    )
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The user who last saved this batch export's configuration.",
     )
     model = models.CharField(
         max_length=64,

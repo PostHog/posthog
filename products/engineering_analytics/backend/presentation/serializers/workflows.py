@@ -5,6 +5,8 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
     CurrentBranchHealth,
+    DeliveryPipeline,
+    DeliveryStageTiming,
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
@@ -66,6 +68,10 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "Null when neither resolves. The only PR attribution a default-branch push has: read pr_number "
                 "first and fall back to this.",
                 "allow_null": True,
+            },
+            "is_merge_queue": {
+                "help_text": "True when a merge queue pushed this run to gate pr_number, rather than the author "
+                "pushing it. Count it when measuring CI; drop it when counting what the author did."
             },
         }
 
@@ -169,8 +175,8 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
             "completed": {"help_text": "Runs that completed in this bucket."},
             "successes": {"help_text": "Completed runs with conclusion 'success' in this bucket."},
             "failures": {
-                "help_text": "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); "
-                "excludes skipped, cancelled, and action_required runs."
+                "help_text": "Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded."
             },
         }
 
@@ -186,28 +192,38 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
+            "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
+            "conclusive_run_count": {
+                "help_text": "Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. "
+                "This is the success_rate denominator."
+            },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, "
+                "startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. "
+                "Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
-                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
+                "help_text": "Median duration in seconds over successful runs only: cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are "
+                "excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if "
+                "no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
-                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
-                "in the window.",
+                "help_text": "95th-percentile duration in seconds over successful runs only: cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did "
+                "no work are excluded when longer successful runs exist. An all-fast workflow uses every successful "
+                "run. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
+                "help_text": "When the most recent decisive failure started, or null.",
                 "allow_null": True,
             },
             "latest_run_failed": {
-                "help_text": "Whether the most recent completed run was a decisive failure (conclusion 'failure' "
-                "or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.",
+                "help_text": "Whether the most recent completed run ended in failure, timeout, startup failure, or "
+                "staleness. Null when no run has completed in the window. Powers the OK/RED status badge.",
                 "allow_null": True,
             },
             "latest_run_conclusion": {
@@ -232,9 +248,18 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
-                "Null when that window had no completed runs.",
+                "help_text": "Conclusive-run success rate over the equal-length window before date_from - the "
+                "delta baseline. Null when that window had no conclusive runs.",
                 "allow_null": True,
+            },
+            "percentile_run_count": {
+                "help_text": "Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to "
+                "shorter successful runs."
+            },
+            "merge_queue_run_count": {
+                "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "
+                "of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest "
+                "available proxy for a required check."
             },
         }
 
@@ -286,8 +311,9 @@ class PassRateBucketSerializer(DataclassSerializer):
                 "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
             },
             "success_rate": {
-                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
-                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "help_text": "Fraction (0-1) of conclusive runs started in this bucket that succeeded. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no "
+                "conclusive run (a gap, not a 0% pass rate).",
                 "allow_null": True,
             },
         }
@@ -324,6 +350,50 @@ class ReadyToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class DeliveryStageTimingSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DeliveryStageTiming
+        extra_kwargs = {
+            "stage": {
+                "help_text": "Which leg this is: 'open_to_gate' (created_at to the PR's first "
+                "merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). "
+                "The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds."
+            },
+            "median_seconds": {
+                "help_text": "Median seconds for this leg. Null when no PR in the window has both "
+                "of its bounds observed.",
+                "allow_null": True,
+            },
+            "p90_seconds": {
+                "help_text": "90th-percentile seconds for this leg. Null when not observed.",
+                "allow_null": True,
+            },
+            "pr_count": {
+                "help_text": "PRs behind this leg's figures: those with an observed gate run. A PR "
+                "that skipped the merge queue has no gate legs, so read a median against this "
+                "count, not merged_pr_count."
+            },
+        }
+
+
+class DeliveryPipelineSerializer(DataclassSerializer):
+    stages = DeliveryStageTimingSerializer(
+        many=True,
+        help_text="The legs, ordered open to merge. A leg with nothing observed still appears, "
+        "with a zero pr_count and null timings. The leg medians do not sum to a cycle-time "
+        "median: a median of sums is not a sum of medians.",
+    )
+
+    class Meta:
+        dataclass = DeliveryPipeline
+        extra_kwargs = {
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window with bots and drafts excluded. A narrower "
+                "population than RepoOverview.merged_pr_count, which counts all authors."
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -338,15 +408,19 @@ class RepoOverviewSerializer(DataclassSerializer):
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,
-        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
-        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
-        "series is empty when include_series=false.",
+        help_text="CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required "
+        "runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false.",
     )
     open_to_merge_series = OpenToMergeBucketSerializer(
         many=True,
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
         "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
         "the whole series is empty when include_series=false.",
+    )
+    delivery_pipeline = DeliveryPipelineSerializer(
+        help_text="Where a change's wall-clock time goes on the way to production, over PRs merged "
+        "in the window with bots and drafts excluded."
     )
     ready_to_merge_series = ReadyToMergeBucketSerializer(
         many=True,
@@ -361,21 +435,23 @@ class RepoOverviewSerializer(DataclassSerializer):
         extra_kwargs = {
             "run_count": {"help_text": "Workflow runs started in the window, all branches and workflows."},
             "run_count_prev": {
-                "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
+                "help_text": "Same count over the equal-length window immediately before date_from: the delta baseline."
             },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, "
+                "neutral, and action_required runs are excluded. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the previous window. Null if none completed.",
+                "help_text": "Conclusive-run success rate over the previous window. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
             "merged_pr_count": {
-                "help_text": "PRs merged in the window, all authors and bots included — the merge population "
-                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+                "help_text": "PRs merged in the window, all authors and bots included. billable_minutes and "
+                "estimated_cost_usd cover every run in the window, including default-branch and unmerged PR runs, "
+                "so dividing them by this count spreads all CI spend over the merges."
             },
             "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {
@@ -417,7 +493,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "cost_per_merge_usd": {
-                "help_text": "estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged "
+                "help_text": "estimated_cost_usd divided by merged_pr_count: the window's CI cost per merged "
                 "PR. Null when the job-level source isn't synced or nothing merged.",
                 "allow_null": True,
             },
@@ -437,7 +513,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "merge_queue_merged_pr_count": {
-                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run — "
+                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run: "
                 "the population behind every merge_queue_* landing stat. All authors, bots included."
             },
             "merge_queue_merged_pr_count_prev": {"help_text": "Queue-landed merges over the previous window."},
@@ -452,7 +528,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "merge_queue_p90_first_gate_to_merge_seconds": {
-                "help_text": "p90 of the same first-gate-run-to-merge measure — the tail, where queue pain "
+                "help_text": "p90 of the same first-gate-run-to-merge measure: the tail, where queue pain "
                 "concentrates. Null when no queue-landed merges.",
                 "allow_null": True,
             },
@@ -531,7 +607,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "median_time_to_green_seconds": {
-                "help_text": "Median wall clock for a PR push round to settle fully green over the window — the "
+                "help_text": "Median wall clock for a PR push round to settle fully green over the window: the "
                 "window-level twin of time_to_green_series, same population and exclusions. Null when no fully "
                 "green rounds.",
                 "allow_null": True,
@@ -586,14 +662,14 @@ class MasterFailureGroupSerializer(DataclassSerializer):
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
             "failed_job": {
-                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure "
+                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure "
                 "signature together with the workflow. '' when the job-level source isn't synced and the group "
                 "degrades to workflow level."
             },
             "run_count": {"help_text": "Distinct failing default-branch runs in this group within the window."},
             "first_seen": {"help_text": "When the oldest failing run in the group started."},
             "last_seen": {"help_text": "When the newest failing run in the group started."},
-            "latest_run_id": {"help_text": "Run id of the newest failing run — the drill-down anchor."},
+            "latest_run_id": {"help_text": "Run id of the newest failing run: the drill-down anchor."},
         }
 
 
@@ -607,7 +683,7 @@ class RunFailureLogsSerializer(DataclassSerializer):
         extra_kwargs = {
             "run_id": {"help_text": "Workflow run id the failure logs are for."},
             "logs_available": {
-                "help_text": "False when no failure logs were found — the run didn't fail, or its logs aged out of "
+                "help_text": "False when no failure logs were found: the run didn't fail, or its logs aged out of "
                 "the short Logs retention.",
             },
             "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
@@ -636,18 +712,18 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "help_text": "Median duration of successful job instances, in seconds: cancelled and failed "
                 "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "help_text": "95th-percentile duration of successful job instances, in seconds: cancelled and "
                 "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "failure_rate": {
-                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
-                "none completed.",
+                "help_text": "Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, "
+                "cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.",
                 "allow_null": True,
             },
             "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},

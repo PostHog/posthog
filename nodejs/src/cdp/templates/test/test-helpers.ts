@@ -4,6 +4,7 @@ import { Settings } from 'luxon'
 
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
@@ -178,18 +179,23 @@ export class TemplateTester {
 
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()
-    // Async functions (postHogGetAccount, postHogGetTicket, ...) resolve the team to read
-    // its secret_api_token — stub it so templates built on them are testable.
+    public mockInternalFetch = jest.fn()
     public mockTeamManager = {
-        getTeam: jest.fn().mockResolvedValue({ id: 1, secret_api_token: 'test-secret-token' }),
+        getTeam: jest.fn().mockResolvedValue({ id: 1 }),
     }
-    constructor(private _template: HogFunctionTemplate) {
+    constructor(
+        private _template: HogFunctionTemplate,
+        options: { executionTimeoutMs?: number } = {}
+    ) {
         this.template = {
             ..._template,
             bytecode: [],
         }
 
         this.mockHub = { ...defaultConfig } as any
+        if (options.executionTimeoutMs !== undefined) {
+            this.mockHub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS = options.executionTimeoutMs
+        }
 
         this.hogExecutor = this.createHogExecutor()
         this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)
@@ -231,10 +237,14 @@ export class TemplateTester {
             },
             {
                 teamManager: this.mockTeamManager as any,
-                // Disabled on purpose: template tests pin Hog response handling, and
-                // invokeFetchResponse simulates any transport's response push. The scoped-JWT
-                // transport itself is covered in hog-executor.service.test.ts.
-                conversationsTicketsJwt: new ScopedServiceJwt(PosthogJwtAudience.CONVERSATIONS_TICKETS, ''),
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    config.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                    config.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
@@ -253,6 +263,8 @@ export class TemplateTester {
     */
     async beforeEach() {
         Settings.defaultZone = 'UTC'
+        const requestModule = require('~/common/utils/request')
+        jest.spyOn(requestModule, 'internalFetch').mockImplementation(this.mockInternalFetch)
         if (!this.geoipService) {
             this.geoipService = new GeoIPService(defaultConfig.MMDB_FILE_LOCATION)
         }
@@ -281,7 +293,12 @@ export class TemplateTester {
     async invoke(
         _inputs: Record<string, any>,
         _globals?: DeepPartialHogFunctionInvocationGlobals,
-        _options?: { hogFlow?: { id: string }; actionId?: string }
+        _options?: {
+            hogFlow?: Partial<HogFlow> & { id: string }
+            actionId?: string
+            actionStepCount?: number
+            customerTaskIdempotencyVersion?: 1
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (this.template.mapping_templates) {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
@@ -311,10 +328,12 @@ export class TemplateTester {
         // Workflow-only async functions read the flow id and step id off the invocation the way
         // HogFlowFunctionsService sets them; there is no flow in this harness, so inject them.
         if (_options?.hogFlow) {
-            ;(invocation as { hogFlow?: { id: string } }).hogFlow = _options.hogFlow
+            ;(invocation as { hogFlow?: Partial<HogFlow> }).hogFlow = _options.hogFlow
         }
         if (_options?.actionId) {
             invocation.state.actionId = _options.actionId
+            invocation.state.actionStepCount = _options.actionStepCount ?? 0
+            invocation.state.customerTaskIdempotencyVersion = _options.customerTaskIdempotencyVersion
         }
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
@@ -391,6 +410,24 @@ export class TemplateTester {
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         return this.getExecutor().execute(invocation)
+    }
+
+    async resumeInvocation(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        return this.hogExecutor.execute(invocation)
+    }
+
+    // Set before invoke(): the internal-route handler consumes it inline, then the VM
+    // pauses — resume with resumeInvocation to run the Hog code after the call.
+    mockInternalFetchResponse(response: { status: number; body: unknown }): void {
+        this.mockInternalFetch.mockResolvedValue({
+            status: response.status,
+            headers: {},
+            text: () => Promise.resolve(JSON.stringify(response.body)),
+            json: () => Promise.resolve(response.body),
+            dump: () => Promise.resolve(),
+        })
     }
 
     async invokeFetchResponse(
