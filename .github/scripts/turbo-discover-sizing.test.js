@@ -207,7 +207,17 @@ test("a split product's last shard absorbs a small product without leaking split
     const shared = matrix.find((entry) => entry.group.includes('small-one'))
     assert.equal(shared.group, 'big-one (2/2), small-one')
     assert.equal(shared.legs.length, 2)
-    assert.match(shared.legs[0].pytest_args, /--splits 2 --group 2/)
+    // Both shards split by file, so neither collects the other's test files.
+    assert.deepEqual(
+        matrix
+            .flatMap((entry) => entry.legs)
+            .filter((leg) => leg.filters === '--filter=@posthog/products-big-one')
+            .map((leg) => leg.pytest_args),
+        [
+            '-- --splits 2 --group 1 --splitting-algorithm optimal_chunks --split-granularity file',
+            '-- --splits 2 --group 2 --splitting-algorithm optimal_chunks --split-granularity file',
+        ]
+    )
     // The whole product runs in its own leg, so it never sees --splits/--group.
     assert.equal(shared.legs[1].filters, '--filter=@posthog/products-small-one')
     assert.equal(shared.legs[1].pytest_args, '')

@@ -226,7 +226,7 @@ the row lists both.
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
-| dbt                              | HTTP                        | requests                                                        | ✅                          |
+| dbt                              | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | debugbear                        | HTTP                        | requests                                                        | ✅                          |
 | decagon                          | HTTP                        | requests                                                        | ✅                          |
 | deel                             | HTTP                        | requests                                                        | ✅                          |

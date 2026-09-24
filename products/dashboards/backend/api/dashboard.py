@@ -2562,7 +2562,7 @@ class DashboardsViewSet(
     scope_object = "dashboard"
     # Record a tags change per dashboard when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Dashboard"
-    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name", "id")
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
@@ -2648,7 +2648,7 @@ class DashboardsViewSet(
             span_prefix="dashboard.search",
             fields=(NAME_FIELD, DESCRIPTION_FIELD),
             include_tag_search=True,
-            tiebreakers=("-pinned", "name"),
+            tiebreakers=("-pinned", "name", "id"),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
@@ -2746,7 +2746,7 @@ class DashboardsViewSet(
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
         if self.action == "list" and self.request.query_params.get("pinned") == "true":
-            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name")
+            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name", "id")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

@@ -7,7 +7,9 @@ import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
+import { TerminalConfirmationModal } from './TerminalConfirmationModal'
 import { terminalDockLogic } from './terminalDockLogic'
+import { TerminalFramebufferWindow } from './TerminalFramebufferWindow'
 import { terminalLogic } from './terminalLogic'
 import { TerminalView } from './TerminalView'
 
@@ -50,42 +52,46 @@ export function TerminalPanel(): JSX.Element | null {
         return null
     }
     return (
-        <div
-            ref={container}
-            data-attr="terminal-dock"
-            aria-label="Terminal panel"
-            className={cn(
-                'fixed inset-x-0 bottom-0 z-[calc(var(--z-scene-layout-content-panel)+1)] border-t bg-surface-primary shadow-lg pt-1 min-h-40 max-h-[80vh]',
-                !visible && 'hidden'
-            )}
-            style={{ height: desiredSize ?? 320 }}
-        >
-            <Resizer {...resizeProps} />
-            <button
-                type="button"
-                role="separator"
-                aria-label="Resize terminal"
-                aria-orientation="horizontal"
-                aria-valuenow={desiredSize ?? 320}
-                aria-valuemin={160}
-                aria-valuemax={Math.floor(window.innerHeight * 0.8)}
-                className="absolute top-0 left-1/2 w-12 h-1 rounded bg-border cursor-ns-resize focus-visible:ring"
-                onKeyDown={(event) => {
-                    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                        event.preventDefault()
-                        setDesiredSize(
-                            Math.max(
-                                160,
-                                Math.min(
-                                    window.innerHeight * 0.8,
-                                    (desiredSize ?? 320) + (event.key === 'ArrowUp' ? 40 : -40)
+        <>
+            <TerminalConfirmationModal />
+            {!fullScene && <TerminalFramebufferWindow />}
+            <div
+                ref={container}
+                data-attr="terminal-dock"
+                aria-label="Terminal panel"
+                className={cn(
+                    'fixed inset-x-0 bottom-0 z-[calc(var(--z-scene-layout-content-panel)+1)] border-t bg-surface-primary shadow-lg pt-1 min-h-40 max-h-[80vh]',
+                    !visible && 'hidden'
+                )}
+                style={{ height: desiredSize ?? 320 }}
+            >
+                <Resizer {...resizeProps} />
+                <button
+                    type="button"
+                    role="separator"
+                    aria-label="Resize terminal"
+                    aria-orientation="horizontal"
+                    aria-valuenow={desiredSize ?? 320}
+                    aria-valuemin={160}
+                    aria-valuemax={Math.floor(window.innerHeight * 0.8)}
+                    className="absolute top-0 left-1/2 w-12 h-1 rounded bg-border cursor-ns-resize focus-visible:ring"
+                    onKeyDown={(event) => {
+                        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                            event.preventDefault()
+                            setDesiredSize(
+                                Math.max(
+                                    160,
+                                    Math.min(
+                                        window.innerHeight * 0.8,
+                                        (desiredSize ?? 320) + (event.key === 'ArrowUp' ? 40 : -40)
+                                    )
                                 )
                             )
-                        )
-                    }
-                }}
-            />
-            {visible && <TerminalView onClose={() => setDockOpen(false)} />}
-        </div>
+                        }
+                    }}
+                />
+                {visible && <TerminalView onClose={() => setDockOpen(false)} />}
+            </div>
+        </>
     )
 }

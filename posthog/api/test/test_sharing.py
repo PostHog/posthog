@@ -1699,11 +1699,30 @@ class TestExportRendererTokenFlow(APIBaseTest):
         encoded_data = json.loads(html[start:end])
         return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
 
+    @parameterized.expand(
+        [
+            ("exact", "https://example.com", "url_exact", "https://example.com"),
+            (
+                "query_string_stays_exact",
+                "https://example.com/p?a=1+2&b=(x)",
+                "url_exact",
+                "https://example.com/p?a=1+2&b=(x)",
+            ),
+            (
+                "wildcard_escapes_the_rest",
+                "https://example.com/users/*?tab=1",
+                "url_pattern",
+                "https\\:\\/\\/example\\.com\\/users\\/*\\?tab\\=1",
+            ),
+        ]
+    )
     @mock_exporter_template
-    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(self) -> None:
+    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(
+        self, _name: str, heatmap_data_url: str, url_param: str, url_value: str
+    ) -> None:
         export_context = {
             "heatmap_url": "https://example.com",
-            "heatmap_data_url": "https://example.com",
+            "heatmap_data_url": heatmap_data_url,
             "heatmap_type": "click",
             "width": 1400,
             "common_filters": {"date_from": "-7d"},
@@ -1732,7 +1751,7 @@ class TestExportRendererTokenFlow(APIBaseTest):
             {
                 "type": "click",
                 "date_from": "-7d",
-                "url_exact": "https://example.com",
+                url_param: url_value,
                 "viewport_width_min": "1260",
                 "viewport_width_max": "1540",
                 "aggregation": "total_count",
