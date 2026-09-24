@@ -340,7 +340,13 @@ class RankingModelResult(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def skipped_model_carries_no_scores(self) -> RankingModelResult:
+    def status_agrees_with_the_scores(self) -> RankingModelResult:
+        # `status` and `scores` are two statements about the same thing, so a row that disagrees
+        # with itself is worse than a missing one: a scored result with no score reads as a model
+        # that ran, and `RankingScore` would accept it as the served entry, leaving a reader with
+        # a served model it can get no probability out of.
+        if self.status == "scored" and not self.scores:
+            raise ValueError("a scored model must carry at least one score")
         if self.status == "skipped" and self.scores:
             raise ValueError("a skipped model must carry no scores")
         return self

@@ -284,6 +284,14 @@ class TestRankingScore(SimpleTestCase):
                 {"results": {"tabular@2026-01-01": _ranking_model_result(scores={"open": 1.4})}},
             ),
             (
+                "score_below_zero",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(scores={"open": -0.1})}},
+            ),
+            (
+                "scored_model_carries_no_scores",
+                {"results": {"tabular@2026-01-01": _ranking_model_result(scores={})}},
+            ),
+            (
                 "skipped_model_carries_scores",
                 {
                     "results": {
