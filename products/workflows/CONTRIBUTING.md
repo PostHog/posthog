@@ -363,6 +363,8 @@ Four more columns record where the file is and how the workflow first appeared.
 `created_via` is stamped from the request in `HogFlowSerializer.create`, never taken from the payload.
 `source_repository`, `source_path` and `source_ref` hold the source in parts rather than as a URL, because the backend cannot know whether a host is GitHub, GitLab or self-hosted.
 Nothing writes the three source columns yet; the CLI that pushes workflows does.
+The row keeps only the latest push, so each revision records the source fields its version was pushed with in its `content`.
+Restoring a revision copies only the content fields into the draft, so a publish never moves the recorded source.
 
 ### What the API allows on a code-managed workflow
 
@@ -410,7 +412,7 @@ When a push lands while someone has edits, the editor shows the reload or keep b
 On the workflow scene, a code-managed workflow has no save button and no draft actions.
 `CodeManagedTag` renders the badge beside the title and in the list.
 `CodeManagedSource` renders one line below the title with the file, the repository and the ref of the last push, linked through `GitMetadataParser` for GitHub and GitLab and plain text for any other host.
-The versions table adds a "Source" column that shows that ref on the live version, because a revision does not record one.
+The versions table adds a "Source" column that shows that ref on the live version.
 
 ## Common pitfalls
 

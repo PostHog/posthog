@@ -314,6 +314,42 @@ class TestCodeManagedHogFlow(APIBaseTest):
         gui_workflow.refresh_from_db()
         assert gui_workflow.name == "Renamed in the UI"
 
+    def test_each_revision_keeps_the_ref_of_the_push_that_produced_it(self) -> None:
+        client, auth = self._api_key_client()
+        created = client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Pushed",
+                "managed_by": "code",
+                "source_repository": "github.com/example/flows",
+                "source_path": "workflows/pushed.ts",
+                "source_ref": "1111111",
+                "actions": [TRIGGER_ACTION, EXIT_ACTION],
+            },
+            format="json",
+            headers=auth,
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}"
+        updated = client.patch(
+            url,
+            {"source_ref": "2222222", "actions": [TRIGGER_ACTION, {**EXIT_ACTION, "name": "done"}]},
+            format="json",
+            headers=auth,
+        )
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+
+        refs = {v: self.client.get(f"{url}/revisions/{v}").json()["content"].get("source_ref") for v in (1, 2)}
+        assert refs == {1: "1111111", 2: "2222222"}
+
+        # Restoring stages the content alone, so a later publish cannot move the recorded source back.
+        assert self.client.patch(url, {"managed_by": "gui"}).status_code == status.HTTP_200_OK
+        restored = self.client.post(f"{url}/revisions/1/restore", {})
+        assert restored.status_code == status.HTTP_200_OK, restored.json()
+        draft = HogFlow.objects.get(id=created.json()["id"]).draft
+        assert draft is not None
+        assert "source_ref" not in draft
+
     def test_a_push_reclaims_a_released_workflow_in_one_write(self) -> None:
         # The refusal, the help text and the docs all promise that the next push claims the workflow
         # back, and a push sends the ownership and the content together.

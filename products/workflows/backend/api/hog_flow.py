@@ -181,6 +181,7 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_person_ids,
 )
 from products.workflows.backend.services.code_ownership import (
+    SOURCE_FIELDS,
     OwnershipRefusal,
     RefusalKind,
     check_write,
@@ -4002,6 +4003,15 @@ class HogFlowRevisionBasicSerializer(serializers.ModelSerializer):
 
 
 class HogFlowRevisionSerializer(HogFlowRevisionBasicSerializer):
+    content = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. A version "
+            "that a push produced also records `source_repository`, `source_path` and `source_ref`, the file and "
+            "commit it came from. Restoring a version copies only the content fields."
+        ),
+    )
+
     class Meta(HogFlowRevisionBasicSerializer.Meta):
         fields = [*HogFlowRevisionBasicSerializer.Meta.fields, "content"]
         read_only_fields = fields
@@ -4901,11 +4911,14 @@ class HogFlowViewSet(
         self._append_revision(instance, created_by=_actor(self.request))
 
     def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
+        # The source fields name the file and commit that produced this version. The row keeps only
+        # the latest push, so the revision is the one place that remembers them.
+        provenance = {field: getattr(flow, field) for field in SOURCE_FIELDS if getattr(flow, field)}
         HogFlowRevision.objects.create(
             team_id=self.team_id,
             hog_flow=flow,
             version=flow.version,
-            content=snapshot_flow_content(flow),
+            content={**snapshot_flow_content(flow), **provenance},
             created_by=created_by,
         )
 
@@ -5426,7 +5439,9 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            locked.draft = dict(revision.content)
+            # Only the content fields: the source fields describe the push that produced the revision,
+            # and publishing them from a draft would rewrite where the workflow says it comes from.
+            locked.draft = {field: value for field, value in revision.content.items() if field in DRAFT_CONTENT_FIELDS}
             locked.draft_updated_at = timezone.now()
             # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
             # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
