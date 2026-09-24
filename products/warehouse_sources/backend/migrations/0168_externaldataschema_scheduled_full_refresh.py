@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             name="next_full_refresh_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="When the next scheduled full refresh is due. The first scheduled sync at or after this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+                help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
                 null=True,
             ),
         ),

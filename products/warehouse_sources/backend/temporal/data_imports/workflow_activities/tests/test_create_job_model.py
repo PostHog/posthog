@@ -312,12 +312,12 @@ class TestCreateJobActivityScheduledFullRefresh:
     )
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.activity")
-    def test_only_a_due_scheduled_run_resets_the_table(
+    def test_only_a_due_scheduled_run_becomes_a_full_refresh(
         self,
         _name: str,
         started_by_schedule: bool,
         due_in: dt.timedelta,
-        expect_reset: bool,
+        expect_refresh: bool,
         mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
     ) -> None:
@@ -330,7 +330,7 @@ class TestCreateJobActivityScheduledFullRefresh:
         schema.next_full_refresh_at = timezone.now() + due_in
         schema.save()
 
-        create_external_data_job_model_activity(
+        result = create_external_data_job_model_activity(
             CreateExternalDataJobModelActivityInputs(
                 team_id=team.id,
                 schema_id=schema.id,
@@ -343,8 +343,9 @@ class TestCreateJobActivityScheduledFullRefresh:
         schema.refresh_from_db()
         snapshot = ExternalDataJob.objects.get(schema_id=schema.id).schema_snapshot
         assert snapshot is not None
-        assert schema.reset_pipeline is expect_reset
-        assert (snapshot["sync_type_config"].get("reset_pipeline") is True) is expect_reset
+        assert result.scheduled_full_refresh is expect_refresh
+        assert snapshot.get("scheduled_full_refresh", False) is expect_refresh
+        assert schema.reset_pipeline is False
 
 
 @pytest.mark.django_db

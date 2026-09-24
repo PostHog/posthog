@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_schema_running_unless_halted,
-    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
@@ -217,7 +216,7 @@ def _create_job(
 # TODO: remove dependency
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CreateExternalDataJobModelActivityInputs:
     team_id: int
     schema_id: uuid.UUID
@@ -317,6 +316,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # Computed here because this activity already resolves the repair gates the decision needs.
     # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
+    # The workflow passes this to the import as a reset for this run alone. Nothing is stored on the schema,
+    # so a run that stops before the wipe leaves no reset behind for later runs.
+    scheduled_full_refresh: bool = False
 
 
 @activity.defn
@@ -353,11 +355,12 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type
         ):
             destination_ids = destination_ids_for_run(schema)
-        if inputs.started_by_schedule and not schema.reset_pipeline and schema.scheduled_full_refresh_due():
-            # Staged before the job row so the job's schema snapshot records the reset.
-            schema.sync_type_config = update_sync_type_config_keys(
-                schema.id, inputs.team_id, updates={"reset_pipeline": True}
-            )
+        scheduled_full_refresh = (
+            inputs.started_by_schedule and not schema.reset_pipeline and schema.scheduled_full_refresh_due()
+        )
+        schema_snapshot = _build_schema_snapshot(schema)
+        if scheduled_full_refresh:
+            schema_snapshot["scheduled_full_refresh"] = True
             logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
 
         job = _create_job(
@@ -366,7 +369,7 @@ def create_external_data_job_model_activity(
             schema_id=inputs.schema_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
-            schema_snapshot=_build_schema_snapshot(schema),
+            schema_snapshot=schema_snapshot,
             destination_ids=destination_ids,
         )
         # Persist the Running status only after the job row exists: a Running schema with no job
@@ -412,7 +415,7 @@ def create_external_data_job_model_activity(
         # customer_analytics via external_product_hooks; not imported here).
         person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
-        fast_return_eligible = _fast_return_eligible(
+        fast_return_eligible = not scheduled_full_refresh and _fast_return_eligible(
             schema=schema,
             team_id=inputs.team_id,
             enrichment_needed=enrichment_needed,
@@ -432,6 +435,7 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
+            scheduled_full_refresh=scheduled_full_refresh,
         )
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's

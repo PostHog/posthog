@@ -1078,6 +1078,12 @@ function FullRefreshIntervalField({
                     <TZLabel time={schema.next_full_refresh_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                 </span>
             )}
+            {draftFullRefreshDays !== null && (
+                <LemonBanner type="warning" className="max-w-md">
+                    If workflows or destinations run on new rows of this table, each full refresh runs them again for
+                    every row.
+                </LemonBanner>
+            )}
         </div>
     )
 }

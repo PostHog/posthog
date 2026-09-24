@@ -63,6 +63,7 @@ def _stub_activities(
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
     source_has_new_data: bool = True,
+    scheduled_full_refresh: bool = False,
 ) -> list:
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
@@ -92,6 +93,7 @@ def _stub_activities(
             statistics_needed=True,
             person_property_sync_enabled=True,
             fast_return_eligible=fast_return_eligible,
+            scheduled_full_refresh=scheduled_full_refresh,
         )
 
     @activity.defn(name="check_billing_limits_activity")
@@ -106,6 +108,8 @@ def _stub_activities(
     @activity.defn(name="import_data_activity_sync")
     async def import_data(inputs: ImportDataActivityInputs) -> PipelineResult:
         executed.append("import_data_activity_sync")
+        if inputs.reset_pipeline:
+            executed.append("import_data_activity_sync:reset")
         if inputs.fast_return_eligible and not source_has_new_data:
             return PipelineResult(
                 should_trigger_cdp_producer=False,
@@ -151,6 +155,7 @@ async def _run_workflow(
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
     source_has_new_data: bool = True,
+    scheduled_full_refresh: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Run the workflow with stubbed activities; return (executed activities + child starts in
     order, started child ids)."""
@@ -181,6 +186,7 @@ async def _run_workflow(
                     skip_post_import_activities=skip_post_import_activities,
                     fast_return_eligible=fast_return_eligible,
                     source_has_new_data=source_has_new_data,
+                    scheduled_full_refresh=scheduled_full_refresh,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -286,6 +292,16 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
         assert child_ids == []
     else:
         assert "create_source_templates" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheduled_full_refresh", [True, False])
+async def test_only_a_scheduled_full_refresh_run_resets_its_import(scheduled_full_refresh: bool):
+    executed, _ = await _run_workflow(
+        is_v3=False, consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh
+    )
+
+    assert ("import_data_activity_sync:reset" in executed) is scheduled_full_refresh
 
 
 @pytest.mark.asyncio

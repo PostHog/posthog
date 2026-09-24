@@ -870,6 +870,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                scheduled_full_refresh = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -881,6 +882,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                scheduled_full_refresh = create_job_result.scheduled_full_refresh
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -927,7 +929,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_id=job_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
-                reset_pipeline=inputs.reset_pipeline,
+                reset_pipeline=True if scheduled_full_refresh else inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
             )
 

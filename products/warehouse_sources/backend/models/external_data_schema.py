@@ -281,8 +281,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     next_full_refresh_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the next scheduled full refresh is due. The first scheduled sync at or after this time "
-        "re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+        help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour "
+        "before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
     )
     initial_sync_complete = models.BooleanField(default=False)
     description = models.CharField(max_length=1000, null=True, blank=True)
