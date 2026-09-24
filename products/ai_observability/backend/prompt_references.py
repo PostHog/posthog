@@ -162,6 +162,16 @@ def validate_reference_targets(team_id: int, *, prompt_name: str, prompt_payload
     if not references:
         return
 
+    # Splicing at fetch time inserts raw text into whatever surrounds the tag.
+    # Inside a JSON payload that corrupts the document, so references only
+    # live in plain-text prompts, the same rule referenced targets follow.
+    if not isinstance(prompt_payload, str):
+        raise _reference_error(
+            "References are only supported in plain-text prompts. Move the reference into a "
+            "plain-text prompt or remove it.",
+            "reference_in_non_text_prompt",
+        )
+
     # Checked here rather than only at publish so content written before the
     # cap existed cannot activate more references through a label.
     if len(references) > MAX_PROMPT_REFERENCES:
