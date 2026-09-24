@@ -198,6 +198,32 @@ interface SaveContext {
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
 }
 
+/** Writes a staged schedule change and returns the schedules the workflow now has. */
+async function writePendingSchedule(
+    workflowId: string,
+    pendingSchedule: Exclude<SaveContext['pendingSchedule'], false>,
+    existingScheduleId: string | undefined,
+    configSources: { natural_language: boolean; picker: boolean }
+): Promise<HogFlowSchedule[]> {
+    if (pendingSchedule === null && existingScheduleId) {
+        await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+    } else if (pendingSchedule !== null && existingScheduleId) {
+        await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+    } else if (pendingSchedule !== null) {
+        await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+    }
+
+    if (pendingSchedule !== null) {
+        posthog.capture('workflows schedule saved', {
+            workflow_id: workflowId,
+            configured_via_picker: configSources.picker,
+            configured_via_natural_language: configSources.natural_language,
+        })
+    }
+
+    return await api.hogFlows.getHogFlowSchedules(workflowId)
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -231,6 +257,7 @@ export interface workflowLogicValues {
     isAutoSavePending: boolean
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
+    isSavingSchedule: boolean
     isSyncingExternalEdit: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
@@ -2372,6 +2399,12 @@ export interface workflowLogicActions {
     resumeEmailSending: () => {
         value: true
     }
+    saveSchedule: () => {
+        value: true
+    }
+    saveScheduleFinished: () => {
+        value: true
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -3074,6 +3107,8 @@ export const workflowLogic = kea<workflowLogicType>([
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
         setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
         clearAutoSavePending: true,
+        saveSchedule: true,
+        saveScheduleFinished: true,
         setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
         setSaveBaseUpdatedAt: (updatedAt: string | null) => ({ updatedAt }),
@@ -3427,6 +3462,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 saveWorkflowFailure: () => false,
                 resetWorkflow: () => false,
                 setAutoSaveEnabled: (_, { enabled }) => (!enabled ? false : _),
+            },
+        ],
+        isSavingSchedule: [
+            false as boolean,
+            {
+                saveSchedule: () => true,
+                saveScheduleFinished: () => false,
             },
         ],
         autoSaveEnabled: [
@@ -4205,30 +4247,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 // reset the reducers, so the live value no longer describes what the user staged.
                 const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
                 const existingScheduleId = values.currentSchedule?.id
-                // A schedule is part of the trigger, which the file owns, so the API refuses a
-                // schedule write on a code-managed workflow. The status-only save is still allowed
-                // and would otherwise drag a staged schedule change into a 403.
-                const hasScheduleChanges = pendingSchedule !== false && !!workflowId && values.canSaveWorkflow
+                // A code-managed workflow saves its schedule only through `saveSchedule`. The only
+                // manual save it has is a status change, which must not also write a schedule the
+                // user has not saved.
+                const hasScheduleChanges = pendingSchedule !== false && !!workflowId && !values.isCodeManaged
 
                 if (hasScheduleChanges) {
                     try {
-                        if (pendingSchedule === null && existingScheduleId) {
-                            await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                        } else if (pendingSchedule !== null && existingScheduleId) {
-                            await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
-                        } else if (pendingSchedule !== null) {
-                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
-                        }
-
-                        if (pendingSchedule !== null) {
-                            posthog.capture('workflows schedule saved', {
-                                workflow_id: workflowId,
-                                configured_via_picker: values.scheduleConfigSources.picker,
-                                configured_via_natural_language: values.scheduleConfigSources.natural_language,
-                            })
-                        }
-
-                        const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
+                        const schedules = await writePendingSchedule(
+                            workflowId,
+                            pendingSchedule,
+                            existingScheduleId,
+                            values.scheduleConfigSources
+                        )
                         actions.setSchedules(schedules)
                     } catch (e) {
                         console.error('Failed to save schedule', e)
@@ -4336,6 +4367,31 @@ export const workflowLogic = kea<workflowLogicType>([
                     children: 'Cancel',
                 },
             })
+        },
+        // A code-managed workflow has no save for its form, but the app owns its schedule, so the
+        // schedule saves on its own. `setSchedules` rebaselines only the schedule, so edits to the
+        // graph stay in the form.
+        saveSchedule: async () => {
+            const workflowId = values.originalWorkflow?.id
+            const pendingSchedule = values.pendingSchedule
+            try {
+                if (!workflowId || pendingSchedule === false) {
+                    return
+                }
+                const schedules = await writePendingSchedule(
+                    workflowId,
+                    pendingSchedule,
+                    values.currentSchedule?.id,
+                    values.scheduleConfigSources
+                )
+                actions.setSchedules(schedules)
+                lemonToast.success('Schedule saved')
+            } catch (e) {
+                console.error('Failed to save schedule', e)
+                lemonToast.error('The schedule could not be saved. Please try again.')
+            } finally {
+                actions.saveScheduleFinished()
+            }
         },
         setWorkflowInfo: async ({ workflow }) => {
             actions.setWorkflowValues(workflow)
