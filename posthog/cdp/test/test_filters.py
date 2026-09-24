@@ -195,6 +195,22 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             ("qualified_column", {"type": "hogql", "key": "properties.organization = 'acme'"}),
             # A lambda parameter is a local, not a column.
             ("lambda_local", {"type": "hogql", "key": "arrayExists(x -> x = 'acme', [organization])"}),
+            # A lambda parameter named like the column shadows it inside the lambda only.
+            (
+                "lambda_shadows_column",
+                {
+                    "type": "hogql",
+                    "key": "arrayExists(organization -> organization = 'acme', ['acme']) and organization = 'acme'",
+                },
+            ),
+            # The same for the record alias.
+            (
+                "lambda_shadows_record",
+                {
+                    "type": "hogql",
+                    "key": "arrayExists(record -> record = 'acme', ['acme']) and record.organization = 'acme'",
+                },
+            ),
         ]
     )
     def test_warehouse_sql_filters_read_columns_from_the_row(self, _name: str, prop: dict):
