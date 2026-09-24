@@ -44,7 +44,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
         (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
         (item.path === 'Session replay' && currentPath.startsWith('/replay/'))
     const disabledReason = getProductAccessDisabledReason(item)
-    const CustomIcon = getCustomIcon(item.type)
+    const CustomIcon = getCustomIcon(item.type, item.href)
     const iconType = item.iconType ?? (item.type as FileSystemIconType | undefined)
 
     const hasProductMenu = ['Product analytics', 'Dashboards', 'Session replay'].includes(item.path)
