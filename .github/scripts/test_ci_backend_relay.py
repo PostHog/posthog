@@ -1,5 +1,6 @@
 import re
 import urllib.error
+import urllib.parse
 import importlib.util
 from collections.abc import Sequence
 from pathlib import Path
@@ -123,8 +124,8 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
             [],
             [run(1, "cancelled", workflow="earlier"), run(2, "success", workflow="later")],
             [run(10, "success", workflow="later")],
-            (relay.Phase.FINISHED, "success"),
-            id="cancelled legacy wait does not hide the live run",
+            (relay.Phase.ABSENT, ""),
+            id="plain wait cannot identify this event even with one live run",
         ),
         pytest.param(
             [],
@@ -145,19 +146,23 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
 def test_progress_of_this_events_run(
     event_waits: list[Any], plain_waits: list[Any], gates: list[Any], expected: tuple[Any, str]
 ) -> None:
-    wait = relay.locate_wait(event_waits, plain_waits, PR, EVENT_AT)
+    wait = relay.newest_live(event_waits)
+    if plain_waits and not event_waits:
+        assert wait is None
     result = relay.progress(wait, gates)
     assert (result.phase, result.state) == expected
 
 
 class FakeReader:
-    def __init__(self, polls: Sequence[dict[str, list[Any]]]) -> None:
+    def __init__(self, polls: Sequence[dict[str, list[Any]]], advance_on: str = EVENT_WAIT) -> None:
         self._polls = list(polls)
+        self._advance_on = advance_on
         self.poll = 0
+        self.reads: list[str] = []
 
     def read(self, name: str) -> list[Any]:
-        # poll() reads the event's wait check first, so that read starts the next snapshot.
-        if name == EVENT_WAIT:
+        self.reads.append(name)
+        if name == self._advance_on:
             self.poll += 1
         return self._polls[min(self.poll, len(self._polls)) - 1].get(name, [])
 
@@ -221,6 +226,64 @@ def test_poll_waits_out_a_replacement_before_failing(
     assert clock.now >= min_minutes * 60
 
 
+def test_poll_does_not_use_an_ambiguous_plain_named_wait() -> None:
+    clock = FakeClock()
+    reader = FakeReader([{PLAIN_WAIT: [run(1, "success")], relay.GATE_CHECK: [run(2, "success")]}])
+    result = relay.poll(
+        reader, EVENT, relay.GATE_CHECK, deadline_minutes=90, absent_minutes=15, clock=clock, sleep=clock.sleep
+    )
+    assert result.phase == relay.Phase.ABSENT
+    assert PLAIN_WAIT not in reader.reads
+
+
+@pytest.mark.parametrize(
+    "checks,decision",
+    [
+        ([run(1, "success"), run(2, "skipped")], True),
+        ([run(1, "skipped")], False),
+        ([run(1, "cancelled"), run(2, "success", prs=(PR + 1,))], None),
+    ],
+)
+def test_handoff_decision_matches_the_router(checks: list[Any], decision: bool | None) -> None:
+    assert relay.handoff_decision(checks, PR) is decision
+
+
+def test_report_requires_a_confirmed_handoff_before_waiting_for_depot() -> None:
+    clock = FakeClock()
+    reader = FakeReader(
+        [{relay.HANDOFF_CHECK: [run(1, "queued")]}] * 2 + [{relay.HANDOFF_CHECK: [run(1, "success")]}],
+        advance_on=relay.HANDOFF_CHECK,
+    )
+    assert relay.wait_for_handoff(reader, EVENT, clock=clock, sleep=clock.sleep)
+    assert clock.now == 40
+
+
+def test_report_fails_when_handoff_cannot_be_read() -> None:
+    clock = FakeClock()
+    reader = FakeReader([{}], advance_on=relay.HANDOFF_CHECK)
+    with pytest.raises(relay.HandoffUnresolvedError):
+        relay.wait_for_handoff(reader, EVENT, clock=clock, sleep=clock.sleep)
+    assert clock.now == 10 * 60
+
+
+def test_report_waits_past_ten_minutes_after_handoff() -> None:
+    clock = FakeClock()
+    reader = FakeReader(
+        [{}] * 23
+        + [
+            {
+                EVENT_WAIT: [run(1, "success")],
+                relay.MIGRATION_CHECK: [run(2, "success")],
+            }
+        ]
+    )
+    result = relay.poll(
+        reader, EVENT, relay.MIGRATION_CHECK, deadline_minutes=70, absent_minutes=70, clock=clock, sleep=clock.sleep
+    )
+    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
+    assert clock.now > 10 * 60
+
+
 def test_migration_report_stops_when_depot_did_not_receive_the_handoff() -> None:
     clock = FakeClock()
     result = relay.poll(
@@ -259,8 +322,7 @@ def test_migration_report_waits_for_a_late_replacement_of_a_cancelled_run() -> N
         EVENT,
         relay.MIGRATION_CHECK,
         deadline_minutes=70,
-        absent_minutes=10,
-        cancelled_minutes=70,
+        absent_minutes=70,
         clock=clock,
         sleep=clock.sleep,
     )
@@ -311,7 +373,7 @@ def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
         (relay.Progress(relay.Phase.FINISHED, "success", "https://example.com/not-depot"), 1, {}),
         (relay.Progress(relay.Phase.FINISHED, "skipped"), 0, {}),
         (relay.Progress(relay.Phase.CANCELLED, "cancelled"), 0, {}),
-        (relay.Progress(relay.Phase.ABSENT), 0, {}),
+        (relay.Progress(relay.Phase.ABSENT), 1, {}),
         (relay.Progress(relay.Phase.FINISHED, "timed_out"), 1, {}),
         (relay.Progress(relay.Phase.RUNNING), 1, {}),
     ],
@@ -335,6 +397,26 @@ class FakeResponse:
 
     def __exit__(self, *_: object) -> None:
         return None
+
+
+def test_handoff_reader_uses_the_github_actions_app() -> None:
+    requested: list[str] = []
+
+    def opener(request: Any, timeout: int) -> FakeResponse:
+        requested.append(request.full_url)
+        return FakeResponse(
+            b'{"check_runs":[{"id":1,"status":"completed","conclusion":"success",'
+            b'"pull_requests":[{"number":105723}]}]}',
+            '"e1"',
+        )
+
+    reader = relay.CheckRunReader(
+        "PostHog/posthog", EVENT.sha, "token", opener=opener, app_id=relay.GITHUB_ACTIONS_APP_ID
+    )
+    assert relay.handoff_decision(reader.read(relay.HANDOFF_CHECK), PR) is True
+    assert urllib.parse.parse_qs(urllib.parse.urlsplit(requested[0]).query)["app_id"] == [
+        str(relay.GITHUB_ACTIONS_APP_ID)
+    ]
 
 
 def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> None:

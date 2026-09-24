@@ -40,9 +40,8 @@ jobs:
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
 
-            # The script finds this event's Depot run by the event in its wait job's check name
-            # and waits for that run's migration check. When GitHub Actions kept the tests, the
-            # run skips the check, so this step ends without a report.
+            # First confirm GitHub Actions handed this commit to Depot. The script then finds
+            # this event's Depot run by its wait check name and waits for its migration check.
             - name: Find the handed-off Depot migration run
               id: source
               env:
