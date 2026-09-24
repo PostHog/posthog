@@ -22,6 +22,10 @@
 <!-- Describe steps to reproduce and verify the changes, and what the expected behavior is. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
+
+- [ ] New events schema check complete: this PR is unrelated, or the `test-new-events-schema` label was added before the final push or ready-for-review transition.
+
+<!-- Add the label when a change affects event ingestion, event property handling, event-table SQL, or schema-specific query snapshots. Label events do not start Backend CI, so a later label needs another push. -->
 <!-- Added or changed tests? Name the regression each group catches that no existing test did — if you can't name it, it probably shouldn't be in this PR. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
 <!-- Don't recite pass counts for suites CI runs; the checks report those with more authority. Link the evidence instead (run, permalink, error tracking issue), and say what you did not check. Long transcripts go in a <details> block. -->
 
