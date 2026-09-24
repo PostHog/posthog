@@ -1,11 +1,13 @@
+import asyncio
 import logging
 
 import pytest
 from unittest import mock
 
 from django.conf import settings
+from django.db import connections
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import (
     Client as TemporalClient,
     ScheduleDescription,
@@ -71,6 +73,19 @@ def temporal_worker(temporal):
     """
     with start_test_worker(temporal):
         yield
+
+
+@pytest.fixture(autouse=True)
+def close_activity_database_connections():
+    """Close the database connections that activities share before each test.
+
+    Workflows started by an earlier test can still run activities after that test ends, while pytest-django
+    blocks database access. An atomic block that exits in that gap cannot turn autocommit back on, so the
+    connection stays in a transaction and hides later activity writes, such as a backfill row, from the test.
+    """
+    # asyncio.run, not async_to_sync: outside async_to_sync, sync_to_async runs on asgiref's shared executor
+    # thread, which is the thread that runs the ORM calls of every activity.
+    asyncio.run(sync_to_async(connections.close_all)())
 
 
 @pytest.fixture
