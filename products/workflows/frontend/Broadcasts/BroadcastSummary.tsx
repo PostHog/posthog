@@ -133,11 +133,13 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold whitespace-nowrap">
-                    {sendsLoading && recipientCount === 0
-                        ? 'Loading recipients'
-                        : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
-                              recipientCount === 1 ? 'recipient' : 'recipients'
-                          }${recipientSearch || statusFilter ? ' matching' : ''}`}
+                    {sendsFailed
+                        ? "Couldn't load recipients"
+                        : sendsLoading && recipientCount === 0
+                          ? 'Loading recipients'
+                          : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
+                                recipientCount === 1 ? 'recipient' : 'recipients'
+                            }${recipientSearch || statusFilter ? ' matching' : ''}`}
                 </span>
                 <LemonDivider vertical />
                 <LemonInput
@@ -164,20 +166,21 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                 </div>
             </div>
             <LemonTable
-                dataSource={sends}
+                // The loader keeps the previous rows on failure, and they no longer match the search.
+                dataSource={sendsFailed ? [] : sends}
                 loading={sendsLoading}
                 rowKey="invocation_id"
                 columns={columns}
                 nouns={['recipient', 'recipients']}
                 emptyState={
                     sendsFailed
-                        ? "Couldn't load recipients. Refresh the page to try again."
+                        ? "Couldn't load recipients. Change the search or filter to try again, or refresh the page."
                         : recipientSearch || statusFilter
                           ? 'No recipients match. Clear the search or filter to see everyone.'
                           : 'No sends recorded for this run yet.'
                 }
             />
-            {hasMoreRecipients ? (
+            {hasMoreRecipients && !sendsFailed ? (
                 <div className="flex justify-center">
                     <LemonButton
                         type="secondary"

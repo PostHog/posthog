@@ -129,10 +129,19 @@ export const broadcastSentLogic = kea<broadcastSentLogicType>([
             sends: [
                 [] as MessageAsset[],
                 {
-                    loadSends: async () => {
+                    loadSends: async (_, breakpoint) => {
                         cache.queryVersion = (cache.queryVersion ?? 0) + 1
                         const query = { search: values.recipientSearch, status: values.statusFilter }
-                        const page = await loadPage(query, 0)
+                        let page: MessageAsset[]
+                        try {
+                            page = await loadPage(query, 0)
+                        } catch (error) {
+                            // A newer search has started, so this failure no longer describes what is shown.
+                            breakpoint()
+                            throw error
+                        }
+                        // Drops a response that lands after a newer search or filter started.
+                        breakpoint()
                         cache.loadedQuery = query
                         actions.setHasMoreRecipients(page.length >= SENT_ROW_LIMIT)
                         return page
