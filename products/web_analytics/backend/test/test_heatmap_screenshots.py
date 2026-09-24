@@ -726,6 +726,13 @@ class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("url", serializer.errors)
 
+    def test_accepts_a_query_string_url(self) -> None:
+        serializer = SavedHeatmapCaptureRequestSerializer(
+            data={"url": "https://app.example.com/dashboard?tab=(1)&q=a+b"}
+        )
+        serializer.is_valid()
+        self.assertNotIn("url", serializer.errors)
+
     @parameterized.expand(
         [
             ("mismatched_lengths", [320, 768, 1440], 2, False),

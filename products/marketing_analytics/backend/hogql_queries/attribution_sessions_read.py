@@ -32,10 +32,9 @@ from .attribution_session_dimensions import session_dimensions
 from .constants import UNKNOWN_CHANNEL
 from .marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
-    STALE_WHILE_REVALIDATE_SECONDS,
     handle_stale_served,
-    serve_stale_enabled,
 )
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
@@ -172,11 +171,7 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
         # event time cannot recover a row that was never built.
         ensure_start = read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS)
         revalidating = get_query_tag_value("trigger") == REVALIDATION_TRIGGER
-        grace = (
-            resolve_stale_while_revalidate_seconds(STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
-            if serve_stale_enabled(runner.team)
-            else None
-        )
+        grace = resolve_stale_while_revalidate_seconds(PRECOMPUTE_ONLY_MAX_STALE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
         # Only the dedicated revalidation task may rebuild; cold user reads keep the live fallback.
         result = ensure_marketing_sessions_precomputed(
             runner.team,
