@@ -27,6 +27,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
@@ -572,6 +573,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
+
+            flag_key = FLAG_GATED_TEMPLATE_IDS.get(template.template_id)
+            if instance is None and flag_key and not gated_template_enabled(flag_key, team):
+                raise serializers.ValidationError({"template_id": "This template is not available for this project."})
 
         if is_create:
             # Set defaults for new functions
