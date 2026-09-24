@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models import Comment, SessionRecordingPlaylist, Team
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
@@ -194,6 +194,24 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert count == 2
         assert recount == 2
         assert session_ids == ["exported-session-old", "exported-session-new"]
+
+    def test_exported_playlist_cache_is_scoped_per_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        for team, session_id in [(self.team, "exported-for-our-team"), (other_team, "exported-for-other-team")]:
+            ExportedAsset.objects.create(
+                team=team,
+                export_format=ExportedAsset.ExportFormat.GIF,
+                export_context={"session_recording_id": session_id},
+                created_by=self.user,
+            )
+
+        source = ExportedPlaylistSource()
+
+        # warming one team's cache must not answer for the other
+        assert source.get_session_ids(self.team, self.user) == ["exported-for-our-team"]
+        assert source.get_session_ids(other_team, self.user) == ["exported-for-other-team"]
+        assert source.count_session_ids(self.team, self.user) == 1
+        assert source.count_session_ids(other_team, self.user) == 1
 
     def test_synthetic_playlist_exported_content(self) -> None:
         ExportedAsset.objects.create(
