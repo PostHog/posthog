@@ -142,30 +142,15 @@ def close_waitlist_survey_for_feature(instance: EarlyAccessFeature) -> Optional[
     if survey_uuid is not None:
         survey = Survey.objects.filter(team=instance.team, id=survey_uuid, type=Survey.SurveyType.API).first()
 
-    ended = False
     if survey is not None and survey.end_date is None:
         survey.end_date = timezone.now()
         survey.save(update_fields=["end_date"])
-        ended = True
 
     # Same snapshot caveat as the create path: this merge is over the payload read when
     # `instance` was loaded, so a concurrent write to another key can be dropped.
     new_payload = {key: value for key, value in payload.items() if key not in ("survey_id", "survey_question_id")}
     new_payload["closed_survey_id"] = str(survey_id)
     EarlyAccessFeature.objects.filter(pk=instance.pk).update(payload=new_payload)
-
-    if ended:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=str(instance.team.uuid),
-                event="early access feature waitlist survey closed",
-                properties={
-                    "feature_id": str(instance.id),
-                    "feature_name": instance.name,
-                    "stage": instance.stage,
-                    "survey_id": str(survey_id),
-                },
-            )
     return survey
 
 
@@ -178,7 +163,23 @@ def close_waitlist_survey_for_graduated_feature(feature_id: str) -> None:
         return
     # Deliberately not gated by `coming_soon_waitlist_surveys_enabled`: a survey that exists
     # must close even when the gate that created it is off again.
-    close_waitlist_survey_for_feature(instance)
+    survey = close_waitlist_survey_for_feature(instance)
+    if survey is None:
+        return
+
+    # Only this task captures, not the helper: a backfill over many features would pay for a
+    # dedicated client and a blocking flush per row.
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(instance.team.uuid),
+            event="early access feature waitlist survey closed",
+            properties={
+                "feature_id": str(instance.id),
+                "feature_name": instance.name,
+                "stage": instance.stage,
+                "survey_id": str(survey.id),
+            },
+        )
 
 
 @shared_task(ignore_result=True, max_retries=3, autoretry_for=(Exception,), retry_backoff=True)
