@@ -417,18 +417,24 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         # user did not pick must not block the save. That makes this the only check that stops a
         # source being created with no credentials at all.
         auth_type = job_inputs.get("auth_type")
-        if not isinstance(auth_type, dict):
+        if isinstance(auth_type, str):
+            # A select container also arrives as the bare string naming the chosen option, and
+            # then its fields sit at the top level of the payload rather than under it.
+            selection, credentials = auth_type, job_inputs
+        elif isinstance(auth_type, dict):
+            selection, credentials = auth_type.get("selection"), auth_type
+        else:
             return is_valid, errors
 
-        if auth_type.get("selection") == "key_file":
-            key_file = auth_type.get("key_file")
+        if selection == "key_file":
+            key_file = credentials.get("key_file")
             if not isinstance(key_file, dict) or not any(key_file.values()):
                 errors.append(_MISSING_KEY_FILE_ERROR)
                 is_valid = False
             elif key_file_fields_missing:
                 errors.append(_INCOMPLETE_KEY_FILE_ERROR)
                 is_valid = False
-        elif auth_type.get("google_cloud_service_account_integration_id") in (None, ""):
+        elif credentials.get("google_cloud_service_account_integration_id") in (None, ""):
             errors.append("Pick a Google Cloud service account.")
             is_valid = False
 
