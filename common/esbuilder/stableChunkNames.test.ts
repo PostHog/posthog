@@ -1,4 +1,8 @@
-import { planStableChunks, stableFileName } from './stableChunkNames.mjs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
+import { planStableChunks, stableFileName, writeStableChunks } from './stableChunkNames.mjs'
 
 // Two chunks: an entry that imports a shared chunk, the way esbuild writes them with publicPath /static.
 const OUTPUTS = {
@@ -101,6 +105,63 @@ describe('planStableChunks', () => {
     describe('stableFileName', () => {
         it('throws when the esbuild output name has no -<hash> suffix to replace', () => {
             expect(() => stableFileName('index.js', 'source')).toThrow(/does not end in the expected/)
+        })
+    })
+
+    // The copied source map is shifted down exactly one line, so the prelude must be a line of its own.
+    it('puts a prelude on its own first line and names the chunk by it', () => {
+        const sources = entry('export const a=1')
+        const withPrelude = planStableChunks(
+            OUTPUTS,
+            (outputPath: string) => sources[outputPath],
+            'dist/',
+            new Map([['dist/Scene-AAAA1111.js', 'await window.ESBUILD_LOAD_CSS([]);']])
+        ).plan.get('dist/Scene-AAAA1111.js')!
+
+        expect(withPrelude.source.split('\n')[0]).toBe('await window.ESBUILD_LOAD_CSS([]);')
+        expect(withPrelude.stableFile).not.toBe(plan(sources).get('dist/Scene-AAAA1111.js')!.stableFile)
+    })
+
+    describe('writeStableChunks', () => {
+        const ENTRY_OUTPUTS = {
+            'dist/entry-AAAA1111.js': { entryPoint: 'src/entry.tsx', inputs: { 'src/entry.tsx': {} } },
+        }
+
+        function writeAndReadMap(prelude: string | null): unknown {
+            const absWorkingDir = mkdtempSync(path.join(tmpdir(), 'stable-chunks-'))
+            try {
+                const distDir = path.join(absWorkingDir, 'dist')
+                mkdirSync(distDir, { recursive: true })
+                writeFileSync(path.join(distDir, 'entry-AAAA1111.js'), 'console.log(1)')
+                writeFileSync(
+                    path.join(distDir, 'entry-AAAA1111.js.map'),
+                    JSON.stringify({ version: 3, mappings: 'AAAA' })
+                )
+
+                writeStableChunks({
+                    absWorkingDir,
+                    outputs: ENTRY_OUTPUTS,
+                    chunks: {},
+                    entrypoints: [],
+                    preloadManifest: undefined,
+                    preludes: prelude ? new Map([['dist/entry-AAAA1111.js', prelude]]) : new Map(),
+                })
+
+                const stableMapFile = readdirSync(distDir).find(
+                    (file) => file.startsWith('entry-S') && file.endsWith('.map')
+                )!
+                return JSON.parse(readFileSync(path.join(distDir, stableMapFile), 'utf8')).mappings
+            } finally {
+                rmSync(absWorkingDir, { recursive: true, force: true })
+            }
+        }
+
+        // Pins the map shift so a regression here doesn't only show up as misattributed stack traces.
+        it.each([
+            ['a prelude chunk', 'await window.ESBUILD_LOAD_CSS([]);', ';AAAA'],
+            ['a chunk with no prelude', null, 'AAAA'],
+        ])('shifts the written source map by one line for %s', (_name, prelude, expectedMappings) => {
+            expect(writeAndReadMap(prelude)).toBe(expectedMappings)
         })
     })
 })

@@ -751,6 +751,10 @@ def _build_template_context(
             context["stable_chunks"] = True
             context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
             context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
+            if stable_chunks.eager_css_urls:
+                # The stable page links its split stylesheets and loads the full one only as a fallback.
+                context["preload_css_url"] = ""
+                context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
         # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
         # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
         # means light, and only "system" defers to prefers-color-scheme.

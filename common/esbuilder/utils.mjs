@@ -17,7 +17,7 @@ import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
 import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
-import { cssLoaderScript } from './cssLoader.mjs'
+import { cssLoaderScript, stableCssLoaderScript } from './cssLoader.mjs'
 
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
@@ -87,7 +87,7 @@ export function copyIndexHtml(
     // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
-    const bootScript = (chunks, entrypoints, { isStable = false } = {}) => {
+    const bootScript = (chunks, entrypoints, { isStable = false, eagerCss = [] } = {}) => {
         const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
         const jsFile =
             relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
@@ -147,7 +147,13 @@ export function copyIndexHtml(
         // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
         // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
         const cssFileFallback = `${entry}.css?t=${buildId}`
-        const cssLoader = cssFile ? cssLoaderScript(cssFile, cssFileFallback) : ''
+        // The stable build links its split eager stylesheets and keeps the full one as its fallback.
+        const cssLoader =
+            isStable && eagerCss.length > 0
+                ? stableCssLoaderScript(eagerCss, cssFile, cssFileFallback)
+                : cssFile
+                  ? cssLoaderScript(cssFile, cssFileFallback)
+                  : ''
 
         return `<script nonce="{{ request.csp_nonce }}" type="application/javascript">
                     // The stylesheet link is added just below, at runtime, so a slow CSS fetch does
@@ -163,7 +169,7 @@ export function copyIndexHtml(
     // With stable chunk names built, the backend picks the boot variant per request. See
     // stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
     const scripts = stable
-        ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
+        ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true, eagerCss: stable.eagerCss ?? [] })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
         : bootScript(chunks, entrypoints)
 
     fse.writeFileSync(

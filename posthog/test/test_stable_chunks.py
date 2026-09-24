@@ -3,24 +3,28 @@ import tempfile
 from pathlib import Path
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.stable_chunks import (
     STABLE_CHUNKS_COOKIE,
+    StableChunks,
     persist_stable_chunks_choice,
     read_stable_chunks_manifest,
     stable_chunks_opted_in,
 )
-from posthog.utils import render_template
+from posthog.utils import get_context_for_template, render_template
 
 VALID_MANIFEST = {
     "imports": {"@c/eAAAA": "static/index-S0000000000.js"},
     "preload": {"js": ["static/index-S0000000000.js"], "authenticatedJs": ["static/chunk-S1111111111.js"]},
+    "eagerCss": ["static/styles-eager-tailwind-AAAA1111.css", "static/styles-eager-app-BBBB2222.css"],
 }
 
 
@@ -31,6 +35,7 @@ class TestStableChunks(SimpleTestCase):
             ("imports is not a mapping", {**VALID_MANIFEST, "imports": ["static/index.js"]}, False),
             ("empty imports", {**VALID_MANIFEST, "imports": {}}, False),
             ("preload url is not a string", {**VALID_MANIFEST, "preload": {"js": [1], "authenticatedJs": []}}, False),
+            ("eager css url is not a string", {**VALID_MANIFEST, "eagerCss": [1]}, False),
         ]
     )
     def test_manifest_problems_fall_back_to_the_default_build(self, _name, manifest, expect_stable):
@@ -46,6 +51,10 @@ class TestStableChunks(SimpleTestCase):
                 "imports": {"@c/eAAAA": "https://cdn.example.com/static/index-S0000000000.js"}
             }
             assert stable.preload_urls(include_authenticated_shell=False) == ("static/index-S0000000000.js",)
+            assert stable.eager_css_urls == (
+                "static/styles-eager-tailwind-AAAA1111.css",
+                "static/styles-eager-app-BBBB2222.css",
+            )
 
     def test_import_map_cannot_close_its_script_tag(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -91,6 +100,39 @@ class TestStableChunks(SimpleTestCase):
             assert cookie is not None
             # Only the server reads the choice, so scripts on the page never need it.
             assert cookie["httponly"] is True
+
+    def _context_with_stable_chunks(self, stable: StableChunks) -> dict:
+        # no-preloaded-app-context and E2E_TESTING skip the request's team/user lookups, which need
+        # a database that a SimpleTestCase cannot use.
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+        with (
+            override_settings(E2E_TESTING=True),
+            patch("posthog.utils.stable_chunks_for_request", return_value=stable),
+        ):
+            return get_context_for_template("index.html", request)
+
+    def test_eager_css_urls_replace_the_single_preload_link(self):
+        stable = StableChunks(
+            imports={"@c/eAAAA": "static/index-S0000000000.js"},
+            preload_js_urls=(),
+            authenticated_preload_js_urls=(),
+            eager_css_urls=("static/styles-eager-tailwind-AAAA1111.css", "static/styles-eager-app-BBBB2222.css"),
+        )
+
+        context = self._context_with_stable_chunks(stable)
+
+        assert context["preload_css_url"] == ""
+        assert context["stable_preload_css_urls"] == stable.eager_css_urls
+
+    def test_no_eager_css_urls_keeps_the_single_preload_link(self):
+        stable = StableChunks(
+            imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
+        )
+
+        context = self._context_with_stable_chunks(stable)
+
+        assert "stable_preload_css_urls" not in context
 
 
 class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):

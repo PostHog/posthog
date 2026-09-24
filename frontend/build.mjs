@@ -16,6 +16,8 @@ import {
 } from '@posthog/esbuilder'
 import { writeStableChunks } from '@posthog/esbuilder/stableChunkNames.mjs'
 
+import { buildCssGroups } from './bin/stableCss.mjs'
+import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -113,12 +115,25 @@ await buildInParallel(
                     const preloadManifest = writePreloadManifest(buildResponse.outputs)
                     // A throw here must fail the build: it reaches buildInParallel's catch, which
                     // exits non-zero for non-dev builds. Keep it in this awaited call chain.
+                    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
+                    const cssPlan = planCssGroups(buildResponse)
+                    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
                     stable = writeStableChunks({
                         absWorkingDir: __dirname,
                         outputs: buildResponse.outputs,
                         chunks,
                         entrypoints,
                         preloadManifest,
+                        preludes: new Map(
+                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                file,
+                                cssPrelude(groups, cssPlan.rankOfGroup),
+                            ])
+                        ),
+                        extraImports: Object.fromEntries(
+                            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
+                        ),
+                        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
                     })
                 }
                 writeIndexHtml(chunks, entrypoints, stable)
