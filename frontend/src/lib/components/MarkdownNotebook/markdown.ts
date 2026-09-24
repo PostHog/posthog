@@ -2018,11 +2018,12 @@ export function escapeMarkdownLineStart(line: string): string {
 const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
 
 // For markdown the author meant to render: only a line that would parse as a component tag or a
-// comment is neutralized, so headings and lists stay live.
+// comment is neutralized, so headings and lists stay live. The parser lifts a quoted tag out of
+// its blockquote, so the check runs after any `>` markers too.
 export function escapeComponentTagLineStart(line: string): string {
-    const leadingWhitespace = line.match(/^\s*/)?.[0] ?? ''
-    const content = line.slice(leadingWhitespace.length)
-    return COMPONENT_TAG_LINE_START.test(content) ? `${leadingWhitespace}\\${content}` : line
+    const prefix = line.match(/^[\s>]*/)?.[0] ?? ''
+    const content = line.slice(prefix.length)
+    return COMPONENT_TAG_LINE_START.test(content) ? `${prefix}\\${content}` : line
 }
 
 function getCodeBlockFence(text: string): string {

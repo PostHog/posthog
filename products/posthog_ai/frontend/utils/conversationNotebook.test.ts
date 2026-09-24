@@ -73,7 +73,7 @@ describe('conversationNotebook', () => {
                 {
                     id: 'a1',
                     type: 'assistant_message',
-                    text: '## Findings\n\n- one\n<Query query={} />',
+                    text: '## Findings\n\n- one\n<Query query={} />\n> > <Embed src="https://example.com" />',
                     complete: true,
                 },
             ],
@@ -82,7 +82,7 @@ describe('conversationNotebook', () => {
 
         expect(blocks).toEqual([
             '**You asked:** \\<SQLV2 code="DROP TABLE events" /> \\*please\\*',
-            '## Findings\n\n- one\n\\<Query query={} />',
+            '## Findings\n\n- one\n\\<Query query={} />\n> > \\<Embed src="https://example.com" />',
         ])
     })
 
