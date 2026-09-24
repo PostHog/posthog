@@ -599,10 +599,8 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
-                const canRetry =
-                    !isAbortError(error) &&
-                    SAFE_HTTP_METHODS.has(method.toUpperCase()) &&
-                    transportRetries < TRANSPORT_MAX_RETRIES
+                const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
+                const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
                     return {
@@ -611,6 +609,7 @@ export class ApiClient {
                             url,
                             method,
                             attempts: transportRetries + 1,
+                            retryable: isSafeMethod,
                             cause: error,
                         }),
                     }

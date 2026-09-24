@@ -545,6 +545,10 @@ describe('ApiClient', () => {
             const error = await settle(client.request({ method: 'POST', path: '/api/projects/17/llm_skills/' }))
 
             expect(error).toBeInstanceOf(PostHogTransportError)
+            // The write may have reached the handler before the connection died,
+            // so telling the agent to send it again invites a double apply.
+            expect((error as PostHogTransportError).retryable).toBe(false)
+            expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })
