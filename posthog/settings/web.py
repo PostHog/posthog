@@ -609,6 +609,9 @@ SPECTACULAR_SETTINGS = {
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # `type` already names several choice sets; this one is the property
+            # definition scope, shared by the property usage_metrics serializers.
+            "PropertyUsageTypeEnum": ["event", "person", "group", "session"],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
