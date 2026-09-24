@@ -34382,6 +34382,8 @@ export namespace Schemas {
          * @nullable
          */
       append_note?: string | null;
+      /** Mark an active report as already addressed after verifying that its fix landed or is in flight. Requires append_note with the evidence. Prevents new autonomous work; does not resolve the report or close any linked pull requests. */
+      mark_addressed?: boolean;
       /** Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log. */
       corroboration_only?: boolean;
       /**
@@ -34435,6 +34437,8 @@ export namespace Schemas {
       updated_fields: string[];
       /** Whether the edit included a note. True for a collapsed corroboration too, where the report's count moves and no work-log entry is written. Read `corroboration_collapsed` to tell the two apart. */
       note_appended: boolean;
+      /** Whether this edit marked the report already addressed. */
+      addressed_marked: boolean;
       /** How many observations this edit added to the report's evidence rail; 0 if none. */
       evidence_appended: number;
       /** How many typed report-to-report links this edit wrote; 0 if none. */

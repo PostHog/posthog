@@ -1314,6 +1314,7 @@ export const signalsScoutEditReportBodySummaryMax = 20000
 
 export const signalsScoutEditReportBodyAppendNoteMax = 10000
 
+export const signalsScoutEditReportBodyMarkAddressedDefault = false
 export const signalsScoutEditReportBodyAppendEvidenceItemDescriptionMax = 4000
 
 export const signalsScoutEditReportBodyAppendEvidenceMax = 50
@@ -1378,6 +1379,12 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+        mark_addressed: zod
+            .boolean()
+            .default(signalsScoutEditReportBodyMarkAddressedDefault)
+            .describe(
+                'Mark an active report as already addressed after verifying that its fix landed or is in flight. Requires append_note with the evidence. Prevents new autonomous work; does not resolve the report or close any linked pull requests.'
+            ),
         corroboration_only: zod
             .boolean()
             .optional()

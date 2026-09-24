@@ -986,6 +986,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
         }
+        if (params.mark_addressed !== undefined) {
+            body['mark_addressed'] = params.mark_addressed
+        }
         if (params.corroboration_only !== undefined) {
             body['corroboration_only'] = params.corroboration_only
         }
@@ -1930,6 +1933,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.mark_addressed !== undefined) {
+            body['mark_addressed'] = params.mark_addressed
         }
         if (params.corroboration_only !== undefined) {
             body['corroboration_only'] = params.corroboration_only
