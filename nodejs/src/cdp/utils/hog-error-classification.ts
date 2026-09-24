@@ -11,10 +11,12 @@ import { HogVMErrorKind, HogVMException } from '@posthog/hogvm'
  *   broke it. Replay after the runtime or the compiler is fixed.
  * - `bug`: the same, but compiled against this runtime, so the compiler and the VM disagree about
  *   what exists. Ours to fix.
- * - `platform`: a resource limit, a JavaScript error the VM let through, or something that is not an
- *   error at all. Ours to look at.
+ * - `limit`: the program ran out of time, memory or stack. Replay would run out again, so it is the
+ *   owner's to fix. Many functions hitting it at once is a different story, and the label shows that.
+ * - `platform`: a JavaScript error the VM let through, or something that is not an error at all.
+ *   Ours to look at.
  */
-export type HogErrorClass = 'data' | 'legacy' | 'drift' | 'bug' | 'platform'
+export type HogErrorClass = 'data' | 'legacy' | 'drift' | 'bug' | 'limit' | 'platform'
 
 export type HogErrorContract = {
     /** The stamp on the bytecode that ran, from `filters.bytecode_contract`. Absent on older bytecode. */
@@ -58,7 +60,7 @@ export function classifyHogError(error: unknown, contract: HogErrorContract): Ho
         case 'data':
             return 'data'
         case 'limit':
-            return 'platform'
+            return 'limit'
         case 'contract':
             if (!contract.bytecodeContract) {
                 return 'legacy'

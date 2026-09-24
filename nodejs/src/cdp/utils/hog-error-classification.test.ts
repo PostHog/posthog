@@ -71,13 +71,15 @@ describe('classifyHogError', () => {
         })
     })
 
-    describe('platform errors are ours', () => {
-        it('a resource limit', async () => {
-            const bytecode = await compileHog('let i := 0; while (true) { i := i + 1 } return i')
-            const { error, execResult } = await execHog(bytecode, { globals: {}, timeout: 1 })
-            expect(classifyHogError(error ?? execResult?.error, { runtimeContract: runtime })).toBe('platform')
-        })
+    it("a filter that runs out of time is the owner's loop, not ours", async () => {
+        // Replay would time out again, so this is never parked. Read alongside the fleet: many
+        // functions hitting it at once is a starved worker, one function is a bad program.
+        const bytecode = await compileHog('let i := 0; while (true) { i := i + 1 } return i')
+        const { error, execResult } = await execHog(bytecode, { globals: {}, timeout: 1 })
+        expect(classifyHogError(error ?? execResult?.error, { runtimeContract: runtime })).toBe('limit')
+    })
 
+    describe('platform errors are ours', () => {
         it('a JavaScript error the VM let through', () => {
             const error = new TypeError('Cannot convert undefined or null to object')
             expect(classifyHogError(error, { runtimeContract: runtime })).toBe('platform')
