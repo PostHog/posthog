@@ -59,6 +59,7 @@ export function SavedInsightsFilters({
                     {quickFilterSet.has('tags') && (
                         <TagSelect
                             defaultLabel="Tags"
+                            listDataAttr="saved-insights-tags-list"
                             value={tags || []}
                             borderless={borderless}
                             onChange={(tags) => {

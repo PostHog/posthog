@@ -24,13 +24,13 @@ describe('TagSelect', () => {
             </Provider>
         )
 
-        await userEvent.click(screen.getByRole('button', { name: 'revenue' }))
-        await waitFor(() => expect(screen.getByRole('checkbox', { name: /topic-1\b/ })).toBeInTheDocument())
-        expect(screen.queryByRole('checkbox', { name: /topic-75/ })).not.toBeInTheDocument()
+        await userEvent.click(screen.getByText('revenue'))
+        await waitFor(() => expect(screen.getByLabelText('topic-1')).toBeInTheDocument())
+        expect(screen.queryByLabelText('topic-75')).not.toBeInTheDocument()
         await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-75')
-        await waitFor(() => expect(screen.getByRole('checkbox', { name: /topic-75/ })).toBeInTheDocument())
-        expect(screen.queryByRole('checkbox', { name: /revenue/ })).not.toBeInTheDocument()
-        await userEvent.click(screen.getByRole('checkbox', { name: /topic-75/ }))
+        await waitFor(() => expect(screen.getByLabelText('topic-75')).toBeInTheDocument())
+        expect(screen.queryByLabelText('revenue')).not.toBeInTheDocument()
+        await userEvent.click(screen.getByLabelText('topic-75'))
         expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-75'])
     })
 
@@ -45,9 +45,38 @@ describe('TagSelect', () => {
             </Provider>
         )
 
-        await userEvent.click(screen.getByRole('button', { name: 'Any tags' }))
-        await userEvent.click(await screen.findByRole('button', { name: "Couldn't load tags. Try again." }))
-        await waitFor(() => expect(screen.getByRole('checkbox', { name: 'available' })).toBeInTheDocument())
+        await userEvent.click(screen.getByText('Any tags'))
+        await userEvent.click(
+            await screen.findByText("Couldn't load tags. Try again.", { selector: '.LemonButton__content' })
+        )
+        await waitFor(() => expect(screen.getByLabelText('available')).toBeInTheDocument())
         expect(loadTags).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores a page that finishes after the picker closes', async () => {
+        let resolveFirstPage: (page: { results: { tag: string }[]; hasMore: boolean }) => void = () => {}
+        const loadTags = jest
+            .fn()
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFirstPage = resolve
+                    })
+            )
+            .mockResolvedValue({ results: [{ tag: 'current' }], hasMore: false })
+        render(
+            <Provider>
+                <TagSelect value={['selected']} onChange={jest.fn()} loadTags={loadTags} />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getAllByText('selected')[0].closest('button')!)
+        await waitFor(() => expect(loadTags).toHaveBeenCalledTimes(1))
+        await userEvent.click(screen.getByText('Clear selection'))
+        expect(screen.getAllByText('selected')[0].closest('button')!).toHaveFocus()
+        resolveFirstPage({ results: [{ tag: 'stale' }], hasMore: false })
+        await userEvent.click(screen.getAllByText('selected')[0].closest('button')!)
+        await waitFor(() => expect(screen.getByLabelText('current')).toBeInTheDocument())
+        expect(screen.queryByLabelText('stale')).not.toBeInTheDocument()
     })
 })
