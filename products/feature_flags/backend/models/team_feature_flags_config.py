@@ -25,8 +25,9 @@ class PropertyMatchingVersion(models.IntegerChoices):
 
 
 class FlagEvaluationsMode(models.IntegerChoices):
-    """Which table the product reads a team's $feature_flag_called data from, and which tables
-    ingestion writes it to. Ingestion writes both tables in every mode. FLAG_EVALUATIONS_ONLY is
+    """Which table the product reads a team's $feature_flag_called data from. This field does not
+    control ingestion. The INGESTION_FLAG_EVALUATIONS_TEAMS allowlist in FlagEvaluationsService
+    decides which teams ingestion also writes to flag_evaluations. FLAG_EVALUATIONS_ONLY is
     reserved for the ingestion change that stops the events writes.
     """
 
