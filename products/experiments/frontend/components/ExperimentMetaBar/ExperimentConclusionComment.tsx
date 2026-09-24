@@ -1,9 +1,10 @@
-import clsx from 'clsx'
 import { useLayoutEffect, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-export function ConclusionComment({ comment }: { comment: string }): JSX.Element {
+import { cn } from 'lib/utils/css-classes'
+
+export function ExperimentConclusionComment({ comment }: { comment: string }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const [isOverflowing, setIsOverflowing] = useState(false)
     const textRef = useRef<HTMLParagraphElement>(null)
@@ -28,7 +29,7 @@ export function ConclusionComment({ comment }: { comment: string }): JSX.Element
             <p
                 ref={textRef}
                 id="experiment-conclusion-comment-text"
-                className={clsx(
+                className={cn(
                     'metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap break-words',
                     !isExpanded && 'max-h-36 overflow-hidden'
                 )}

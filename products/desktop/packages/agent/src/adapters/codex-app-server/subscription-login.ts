@@ -1,5 +1,6 @@
 import type { ProcessSpawnedCallback } from "../../types";
 import type { Logger } from "../../utils/logger";
+import { shellQuote } from "../../utils/shell-quote";
 import {
   nodeReadableToWebReadable,
   nodeWritableToWebWritable,
@@ -34,6 +35,21 @@ export interface CodexLoginSession {
   authUrl: string;
   completed: Promise<boolean>;
   cancel: () => Promise<void>;
+}
+
+export interface CodexAuthTerminalCommand {
+  command: string;
+  env: { set: Record<string, string>; unset: string[] };
+}
+
+export function codexCloudAuthTerminalCommand(
+  binaryPath: string,
+  codexHome: string,
+): CodexAuthTerminalCommand {
+  return {
+    command: [binaryPath, "login", "--device-auth"].map(shellQuote).join(" "),
+    env: { set: { CODEX_HOME: codexHome }, unset: [] },
+  };
 }
 
 export interface CodexLoginStatus {

@@ -42,6 +42,8 @@ from posthog.models.person.util import (
     get_person_by_id,
     get_person_by_uuid,
 )
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
@@ -1996,6 +1998,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # We would return an empty "next" url.
         # Now we just return 9 people instead
         create_person_in_ch(team_id=self.team.pk, version=0)
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
 
         returned_ids = []
         # The property-access-control feature check reuses the request's already-loaded team,
