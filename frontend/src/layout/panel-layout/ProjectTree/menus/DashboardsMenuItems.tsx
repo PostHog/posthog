@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -18,6 +18,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 
 import { CustomMenuProps } from '../types'
 
+const PINNED_DASHBOARDS_URL = combineUrl(urls.dashboards(), { pinned: true }).url
+
 export function DashboardsMenuItems({
     MenuItem = DropdownMenuItem,
     MenuSub = DropdownMenuSub,
@@ -28,7 +30,13 @@ export function DashboardsMenuItems({
 }: CustomMenuProps): JSX.Element {
     const { pinnedDashboards, dashboardsLoading, loadDashboardsFailed } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
-    const pinnedDashboardsUrl = `${urls.dashboards()}?pinned=true`
+    const emptyMessage = loadDashboardsFailed
+        ? "Couldn't load dashboards. Reopen this menu to retry."
+        : dashboardsLoading
+          ? 'Loading...'
+          : pinnedDashboards.length === 0
+            ? 'No pinned dashboards'
+            : null
 
     return (
         <>
@@ -44,7 +52,7 @@ export function DashboardsMenuItems({
                         buttonProps={{
                             menuItem: true,
                         }}
-                        to={pinnedDashboardsUrl}
+                        to={PINNED_DASHBOARDS_URL}
                         onClick={() => onLinkClick?.(false)}
                     >
                         Pinned dashboards
@@ -54,18 +62,11 @@ export function DashboardsMenuItems({
 
                 <MenuSubContent>
                     <MenuGroup>
-                        {/* A failed load leaves dashboardsLoading true for good, so it has to be read first */}
-                        {loadDashboardsFailed ? (
+                        {emptyMessage ? (
                             <MenuItem disabled>
-                                <ButtonPrimitive menuItem>
-                                    Couldn't load dashboards. Reopen this menu to retry.
-                                </ButtonPrimitive>
+                                <ButtonPrimitive menuItem>{emptyMessage}</ButtonPrimitive>
                             </MenuItem>
-                        ) : dashboardsLoading ? (
-                            <MenuItem disabled>
-                                <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
-                            </MenuItem>
-                        ) : pinnedDashboards.length > 0 ? (
+                        ) : (
                             pinnedDashboards.map((dashboard) => (
                                 <MenuItem asChild key={dashboard.id}>
                                     <Link
@@ -90,10 +91,6 @@ export function DashboardsMenuItems({
                                     </Link>
                                 </MenuItem>
                             ))
-                        ) : (
-                            <MenuItem disabled>
-                                <ButtonPrimitive menuItem>No pinned dashboards</ButtonPrimitive>
-                            </MenuItem>
                         )}
                     </MenuGroup>
                 </MenuSubContent>

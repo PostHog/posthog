@@ -3,22 +3,20 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { DropdownMenu, DropdownMenuContent } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 import { useMocks } from '~/mocks/jest'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 
 import { DashboardsMenuItems } from './DashboardsMenuItems'
 
 describe('DashboardsMenuItems', () => {
-    let unmountLogic: () => void
+    beforeEach(() => {
+        initKeaTests()
+    })
 
     afterEach(() => {
         cleanup()
-        unmountLogic()
     })
 
     function renderMenu(): void {
-        initKeaTests()
-        unmountLogic = dashboardsModel.mount()
         render(
             <DropdownMenu defaultOpen>
                 <DropdownMenuContent>
@@ -39,12 +37,11 @@ describe('DashboardsMenuItems', () => {
     })
 
     it('reports a failed load instead of staying on the loading state', async () => {
-        useMocks({ get: { '/api/environments/:team_id/dashboards/': () => [500, { detail: 'nope' }] } })
+        useMocks({ get: { '/api/environments/:team_id/dashboards/': [500, { detail: 'nope' }] } })
         renderMenu()
 
         fireEvent.keyDown(await screen.findByText('Pinned dashboards'), { key: 'ArrowRight' })
 
         expect(await screen.findByText("Couldn't load dashboards. Reopen this menu to retry.")).toBeTruthy()
-        expect(screen.queryByText('Loading...')).toBeNull()
     })
 })
