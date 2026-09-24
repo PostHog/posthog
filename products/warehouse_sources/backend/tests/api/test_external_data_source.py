@@ -13619,6 +13619,14 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         listed: list[dict[str, Any]] = [
             {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
             {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+            {
+                "parent_id": "6501924158",
+                "id": "5555555555",
+                "level": "1",
+                "name": "Client Test",
+                "manager": False,
+                "test_account": True,
+            },
         ]
 
         response = self._google_ads_accounts(listed)
@@ -13639,6 +13647,14 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
                 "display_name": "Client One",
                 "is_primary": False,
                 "badges": [],
+                "group": "Acme Corp",
+                "secondary_text": None,
+            },
+            {
+                "value": "555-555-5555",
+                "display_name": "Client Test",
+                "is_primary": False,
+                "badges": ["Test"],
                 "group": "Acme Corp",
                 "secondary_text": None,
             },

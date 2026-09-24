@@ -9,6 +9,8 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
+    GOOGLE_ADS_WALK_FAILED_ERROR,
+    GoogleAdsAccountWalkError,
     GoogleAdsIntegration,
     Integration,
     OauthIntegration,
@@ -80,6 +82,16 @@ _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
 def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
     # Keyed on (team, integration) only — never the search term — so distinct searches share one walk.
     return f"@dwh/google_ads/{team_id}/{integration_id}/oauth_accounts"
+
+
+def _google_ads_account_badges(account: dict) -> tuple[str, ...]:
+    # A test account takes no real traffic, so it must be distinguishable from a production one.
+    badges: list[str] = []
+    if account.get("manager"):
+        badges.append("Manager")
+    if account.get("test_account"):
+        badges.append("Test")
+    return tuple(badges)
 
 
 # The connected Google login granted PostHog an OAuth token without the adwords scope, so
@@ -374,6 +386,11 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsAccountWalkError as e:
+            # Google failed on one of the manager accounts, so the list would be short without saying so.
+            raise IntegrationAccountListingError(
+                f"{GOOGLE_ADS_WALK_FAILED_ERROR} You can also type the customer ID of the account you want."
+            ) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.
@@ -396,7 +413,7 @@ class GoogleAdsSource(
                 value=format_customer_id(account["id"]),
                 display_name=account["name"],
                 is_primary=google_ads_hierarchy_level(account) == 0,
-                badges=("Manager",) if account.get("manager") else (),
+                badges=_google_ads_account_badges(account),
                 # `parent_id` is the accessible account the walk started from, not the direct manager, so
                 # it only names the true parent one level down. Deeper accounts get no group rather than a
                 # wrong one (the client renders this as "under <group>").
