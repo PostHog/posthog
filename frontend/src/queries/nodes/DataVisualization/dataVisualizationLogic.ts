@@ -1538,9 +1538,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                                     const decimalPlaces = series.settings.formatting?.decimalPlaces
                                     if (decimalPlaces != null) {
-                                        return parseFloat(
-                                            (parseFloat(n[column.dataIndex]) * multiplier).toFixed(decimalPlaces)
-                                        )
+                                        const parsed = parseFloat(n[column.dataIndex])
+                                        if (Number.isNaN(parsed)) {
+                                            return showNullsAsZero ? 0 : null
+                                        }
+                                        return parseFloat((parsed * multiplier).toFixed(decimalPlaces))
                                     }
 
                                     const isInt = Number.isInteger(n[column.dataIndex])
