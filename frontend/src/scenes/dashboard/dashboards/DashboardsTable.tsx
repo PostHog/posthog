@@ -113,7 +113,7 @@ export function DashboardsTable({
         {
             title: 'Name',
             dataIndex: 'name',
-            width: 440,
+            width: 540,
             render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = accessLevelSatisfied(
@@ -170,7 +170,7 @@ export function DashboardsTable({
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
-            width: 240,
+            width: 140,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
                     <ObjectTags
