@@ -355,11 +355,13 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(
     r"login/code-based-verification", authentication.CodeBasedVerificationViewSet, "login_code_based_verification"
 )
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
@@ -388,6 +390,7 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
@@ -543,6 +546,7 @@ projects_router.register(
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
 
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 projects_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
@@ -551,6 +555,7 @@ projects_router.register(
 )
 
 
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
 
