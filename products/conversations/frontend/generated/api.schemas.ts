@@ -41,6 +41,8 @@ export interface AIReplyPlaybookApi {
 }
 
 export interface TicketPatternApi {
+    /** Identity of this spike. Send it back to dismiss the spike. */
+    readonly key: string
     /** Short label for the problem the tickets share. */
     topic: string
     /** One sentence describing what the customers are hitting. */
@@ -66,7 +68,7 @@ export interface TicketPatternApi {
 }
 
 export interface TicketPatternDismissApi {
-    /** Identity of the spike to dismiss, as `topic:detected_at` from the list response. */
+    /** Identity of the spike to dismiss: the `key` from the list response. */
     key: string
 }
 

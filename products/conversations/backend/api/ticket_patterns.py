@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -16,6 +17,7 @@ from products.conversations.backend.temporal.ticket_patterns.recent import dismi
 
 
 class TicketPatternSerializer(serializers.Serializer):
+    key = serializers.SerializerMethodField(help_text="Identity of this spike. Send it back to dismiss the spike.")
     topic = serializers.CharField(help_text="Short label for the problem the tickets share.")
     summary = serializers.CharField(
         allow_blank=True, help_text="One sentence describing what the customers are hitting."
@@ -34,11 +36,13 @@ class TicketPatternSerializer(serializers.Serializer):
     )
     dismissed_at = serializers.DateTimeField(required=False, allow_null=True, help_text="When the spike was dismissed.")
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_key(self, spike: dict) -> str:
+        return spike_key(spike)
+
 
 class TicketPatternDismissSerializer(serializers.Serializer):
-    key = serializers.CharField(
-        help_text="Identity of the spike to dismiss, as `topic:detected_at` from the list response."
-    )
+    key = serializers.CharField(help_text="Identity of the spike to dismiss: the `key` from the list response.")
 
 
 class TicketPatternDismissErrorSerializer(serializers.Serializer):

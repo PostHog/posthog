@@ -36,7 +36,7 @@ class TestTicketPatternsAPI(APIBaseTest):
             email_subject=f"Cannot pay {number}",
         )
 
-    def _record(self, tickets: list[Ticket], team: Team | None = None) -> str:
+    def _record(self, tickets: list[Ticket], team: Team | None = None) -> None:
         # Relative, not a literal: the endpoint only serves spikes from the last day, so a fixed
         # timestamp would stop meaning "recent" as soon as real time moved past it.
         detected_at = timezone.now().isoformat()
@@ -51,7 +51,6 @@ class TestTicketPatternsAPI(APIBaseTest):
                 "detected_at": detected_at,
             },
         )
-        return f"{TOPIC}:{detected_at}"
 
     def _only_these_tickets_readable(self, tickets: list[Ticket]):
         ids = [t.id for t in tickets]
@@ -106,7 +105,8 @@ class TestTicketPatternsAPI(APIBaseTest):
     def test_dismissal_hides_the_spike_for_everyone(self):
         self.user.first_name = "Robin"
         self.user.save()
-        key = self._record(self.tickets)
+        self._record(self.tickets)
+        key = self._list()[0]["key"]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/conversations/ticket_patterns/dismiss/", {"key": key}
@@ -130,7 +130,8 @@ class TestTicketPatternsAPI(APIBaseTest):
     def test_partial_ticket_access_cannot_dismiss_for_the_whole_project(self):
         # Dismissing hides the spike for everyone, so someone who can read only part of it must
         # not be able to clear the warning for the teammates who can read all of it.
-        key = self._record(self.tickets)
+        self._record(self.tickets)
+        key = self._list()[0]["key"]
 
         with self._only_these_tickets_readable(self.tickets[:1]):
             response = self.client.post(

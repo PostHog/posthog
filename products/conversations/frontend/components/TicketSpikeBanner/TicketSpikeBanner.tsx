@@ -7,7 +7,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
 import type { TicketPatternApi } from '../../generated/api.schemas'
-import { spikeKey, ticketSpikeBannerLogic } from './ticketSpikeBannerLogic'
+import { ticketSpikeBannerLogic } from './ticketSpikeBannerLogic'
 
 // The list narrows to exactly these tickets. The topic stays out of the URL for the same reason
 // the search box does: a model wrote it from customer messages, and query strings reach browser
@@ -20,7 +20,7 @@ function SpikeBanner({ spike }: { spike: TicketPatternApi }): JSX.Element {
     const { dismissSpike } = useActions(ticketSpikeBannerLogic)
 
     return (
-        <LemonBanner type="warning" onClose={() => dismissSpike(spikeKey(spike))} data-attr="ticket-spike-banner">
+        <LemonBanner type="warning" onClose={() => dismissSpike(spike.key)} data-attr="ticket-spike-banner">
             <Link to={spikeTicketsUrl(spike)} className="font-semibold" data-attr="ticket-spike-banner-tickets">
                 {spike.topic}
             </Link>
@@ -65,12 +65,12 @@ export function TicketSpikeBanner(): JSX.Element | null {
             {expanded && (
                 <>
                     {rest.map((spike) => (
-                        <SpikeBanner key={spikeKey(spike)} spike={spike} />
+                        <SpikeBanner key={spike.key} spike={spike} />
                     ))}
                     {/* Dismissed spikes stay listed, muted, so a teammate can see one was picked up
                         and by whom rather than finding an empty inbox. */}
                     {dismissedSpikes.map((spike) => (
-                        <p key={spikeKey(spike)} className="text-xs text-muted-alt mb-0">
+                        <p key={spike.key} className="text-xs text-muted-alt mb-0">
                             <Link subtle to={spikeTicketsUrl(spike)} data-attr="ticket-spike-dismissed-tickets">
                                 {spike.topic}
                             </Link>

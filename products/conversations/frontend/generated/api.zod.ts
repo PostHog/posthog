@@ -13,7 +13,7 @@ import * as zod from 'zod'
  * Dismiss one spike for everyone in the project, so the inbox banner stops showing it.
  */
 export const ConversationsTicketPatternsDismissCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().describe('Identity of the spike to dismiss, as `topic:detected_at` from the list response.'),
+    key: zod.string().describe('Identity of the spike to dismiss: the `key` from the list response.'),
 })
 
 /**
