@@ -33,12 +33,6 @@
             border: 1px solid var(--color-border-primary);
             border-radius: var(--radius);
         }
-
-        &__tabs {
-            & .LemonTabs__tab-content {
-                padding: 10px 0;
-            }
-        }
     }
 
     &--stacked-vertically {
@@ -143,7 +137,7 @@
             position: absolute;
             inset: -2px;
             content: '';
-            border: 2px solid var(--primary);
+            border: 2px solid var(--color-accent);
             border-radius: 4px;
             animation: SkipToNextButton__Countdown 3s linear forwards;
         }
