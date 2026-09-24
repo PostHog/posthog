@@ -367,16 +367,30 @@ def _iter_asset_parents(sess: requests.Session, url: str) -> Iterator[dict[str, 
             yield {"assetId": row.get("id"), "assetKeyPath": path, "assetKeyInput": {"path": path}}
 
 
-def _iter_run_parents(sess: requests.Session, url: str, watermark_epoch: float | None) -> Iterator[dict[str, Any]]:
-    # logsForRun takes no timestamp filter, so the only way an incremental sync avoids re-reading
-    # every run's whole log is to narrow the parent walk to runs that moved since the watermark.
+def _iter_run_parents(
+    sess: requests.Session,
+    url: str,
+    watermark_epoch: float | None,
+    sync_start_epoch: float,
+) -> Iterator[dict[str, Any]]:
+    """Walk the runs whose `updateTime` falls in this sync's window, newest first.
+
+    logsForRun takes no timestamp filter, so the only way an incremental sync avoids re-reading
+    every run's whole log is to narrow the parent walk instead. `updatedBefore` pins the top of
+    the window to the instant the walk started: the walk pages backwards from the newest run, so
+    a run that moves while it is in progress would otherwise never be fetched, and the watermark
+    would still advance past it.
+    """
     endpoint_config = DAGSTER_CLOUD_ENDPOINTS["runs"]
-    variables: dict[str, Any] = {"limit": DAGSTER_CLOUD_PAGE_SIZE}
+    runs_filter: dict[str, float] = {"updatedBefore": sync_start_epoch}
     if watermark_epoch is not None:
-        variables["filter"] = {"updatedAfter": watermark_epoch}
+        runs_filter["updatedAfter"] = watermark_epoch
+    variables: dict[str, Any] = {"limit": DAGSTER_CLOUD_PAGE_SIZE, "filter": runs_filter}
     for rows, _ in _iter_cursor_pages(sess, url, endpoint_config, variables):
         for row in rows:
-            yield {"runId": row.get("runId")}
+            # The child rows checkpoint on this, not on their own event timestamp, so the next
+            # window starts where this one ended.
+            yield {"runId": row.get("runId"), "runUpdateTime": _epoch_to_iso(row.get("updateTime"))}
 
 
 def _iter_instigation_state_parents(sess: requests.Session, url: str) -> Iterator[dict[str, Any]]:
@@ -401,14 +415,15 @@ def _iter_parents(
     sess: requests.Session,
     url: str,
     fan_out: DagsterCloudFanOutConfig,
-    watermark_epoch: float | None = None,
+    watermark_epoch: float | None,
+    sync_start_epoch: float,
 ) -> Iterator[dict[str, Any]]:
     if fan_out.parent_kind == "repositories":
         yield from _iter_repository_parents(sess, url)
     elif fan_out.parent_kind == "assets":
         yield from _iter_asset_parents(sess, url)
     elif fan_out.parent_kind == "runs":
-        yield from _iter_run_parents(sess, url, watermark_epoch)
+        yield from _iter_run_parents(sess, url, watermark_epoch, sync_start_epoch)
     else:
         yield from _iter_instigation_state_parents(sess, url)
 
@@ -578,6 +593,7 @@ def _iter_fanout_rows(
     resumable_source_manager: ResumableSourceManager[DagsterCloudResumeConfig],
     resume_config: DagsterCloudResumeConfig | None,
     watermark_epoch: float | None,
+    sync_start_epoch: float,
 ) -> Iterator[list[dict[str, Any]]]:
     fan_out = endpoint_config.fan_out
     assert fan_out is not None
@@ -591,7 +607,7 @@ def _iter_fanout_rows(
     index = parents_done - 1
     batch: list[dict[str, Any]] = []
 
-    for index, parent in enumerate(_iter_parents(sess, url, fan_out, watermark_epoch)):
+    for index, parent in enumerate(_iter_parents(sess, url, fan_out, watermark_epoch, sync_start_epoch)):
         if index < parents_done:
             continue
 
@@ -639,7 +655,14 @@ def _make_fanout_request(
 
     try:
         yield from _iter_fanout_rows(
-            sess, url, endpoint_config, logger, resumable_source_manager, resume_config, watermark_epoch
+            sess,
+            url,
+            endpoint_config,
+            logger,
+            resumable_source_manager,
+            resume_config,
+            watermark_epoch,
+            datetime.now(tz=UTC).timestamp(),
         )
     finally:
         sess.close()

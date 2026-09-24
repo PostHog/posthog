@@ -46,7 +46,9 @@ def _gql_response(response_field: str, container: dict[str, Any]) -> MagicMock:
 def _runs_container(run_ids: list[str]) -> dict[str, Any]:
     return {
         "__typename": "Runs",
-        "results": [{"runId": rid, "status": "SUCCESS", "creationTime": EPOCH_2024} for rid in run_ids],
+        "results": [
+            {"runId": rid, "status": "SUCCESS", "creationTime": EPOCH_2024, "updateTime": EPOCH_2024} for rid in run_ids
+        ],
     }
 
 
@@ -863,11 +865,11 @@ class TestRunLogFanOut:
         # only checkpoints once a run is finished.
         assert manager.save_state.call_args_list == [call(DagsterCloudResumeConfig(parents_done=1))]
 
-    @parameterized.expand([("incremental", EPOCH_2024, {"updatedAfter": EPOCH_2024}), ("full_refresh", None, None)])
+    @parameterized.expand([("incremental", EPOCH_2024), ("full_refresh", None)])
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
-    def test_watermark_narrows_the_parent_run_walk(
-        self, _name: str, watermark: float | None, expected: dict | None, mock_session_cls: MagicMock
+    def test_the_parent_run_walk_is_bounded_at_both_ends(
+        self, _name: str, watermark: float | None, mock_session_cls: MagicMock
     ) -> None:
         # logsForRun has no timestamp filter of its own; without narrowing the parent walk every
         # incremental sync would re-read the whole log of every run the deployment ever had.
@@ -880,10 +882,17 @@ class TestRunLogFanOut:
         )
         mock_session_cls.return_value = session
 
-        list(_make_fanout_request("org", "prod", "tok", "run_logs", MagicMock(), _manager(), watermark))
+        before = datetime.now(tz=UTC).timestamp()
+        pages = list(_make_fanout_request("org", "prod", "tok", "run_logs", MagicMock(), _manager(), watermark))
 
-        runs_variables = next(v for op, v in calls if op == "PaginatedRuns")
-        assert runs_variables.get("filter") == expected
+        runs_filter = next(v for op, v in calls if op == "PaginatedRuns")["filter"]
+        assert runs_filter.get("updatedAfter") == watermark
+        # The walk pages backwards from the newest run, so a run that moves after it started
+        # would never be fetched while the watermark advanced past it.
+        assert before <= runs_filter["updatedBefore"] <= datetime.now(tz=UTC).timestamp()
+        # The child checkpoints on the parent's update time, so the parent has to put it on
+        # every row rather than leave the row's own event timestamp as the cursor.
+        assert pages[0][0]["runUpdateTime"] == ISO_2024
 
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")

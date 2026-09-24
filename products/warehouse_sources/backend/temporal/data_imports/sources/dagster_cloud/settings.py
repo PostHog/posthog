@@ -391,9 +391,11 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         # sync reads a run from its start, so the event's position in the run is stable.
         primary_keys=["runId", "eventIndex"],
         millis_timestamp_fields=["timestamp"],
-        # logsForRun has no timestamp filter, so incremental works by narrowing the parent walk:
-        # only runs whose updateTime moved past the watermark get their logs re-read.
-        incremental_fields=[_incremental_datetime_field("timestamp")],
+        # logsForRun has no timestamp filter, so incremental works by narrowing the parent walk.
+        # The cursor is the parent run's updateTime rather than the event's own timestamp: the
+        # two advance independently, and checkpointing the event time would move the next window
+        # past runs whose logs were never read.
+        incremental_fields=[_incremental_datetime_field("runUpdateTime")],
         supports_incremental=True,
         partition_key="timestamp",
         # Events ascend inside a run, but runs arrive newest-first, so the stream as a whole is
@@ -405,6 +407,7 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
         fan_out=DagsterCloudFanOutConfig(
             parent_kind="runs",
             parent_variables={"runId": "runId"},
+            include_from_parent=["runId", "runUpdateTime"],
             cursor_variable="afterCursor",
             has_more_key="hasMore",
             row_index_field="eventIndex",

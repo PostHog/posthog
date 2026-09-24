@@ -209,6 +209,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "runId": "Identifier of the run the event belongs to.",
             "eventIndex": "Position of the event in its run's event stream, counted from zero.",
+            "runUpdateTime": "When the run record was last updated. Each incremental sync reads the runs that moved since the previous one.",
             "eventTypename": "GraphQL type of the event (e.g. ExecutionStepFailureEvent, LogMessageEvent).",
             "eventType": "Dagster event type the event reports (e.g. STEP_START, STEP_FAILURE), when it has one.",
             "message": "Human-readable message recorded with the event.",

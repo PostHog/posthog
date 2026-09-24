@@ -2254,7 +2254,7 @@ Note: `deployments / fullDeployments / branchDeployments` land as one `deploymen
 
 Note: the Insights tables are one row per metric, entity and time bucket, at DAILY granularity. `reportingMetricsBy*` takes one required `metricName` per request, so each sync reads the deployment's metric catalog (`metricTypesForJob` / `ForAsset` / `ForDeployment`) and walks it. `reportingMetricsByAssetGroup` and `reportingMetricsByAssetSelection` were left out: they report the same metrics rolled up over a grouping that the asset table already carries as a column.
 
-Note: `run_logs` has no timestamp filter of its own, so an incremental sync narrows the parent run walk with `RunsFilter.updatedAfter` instead and re-reads only the runs that moved. A run event carries no identifier, so the key is the run id plus the event's position in the run's append-only stream, which also means the walk restarts a run rather than resuming mid-stream.
+Note: `run_logs` has no timestamp filter of its own, so an incremental sync bounds the parent run walk with `RunsFilter.updatedAfter` and `updatedBefore` instead and re-reads only the runs that moved inside that window. Child rows carry the parent's `updateTime` and checkpoint on it rather than on their own event timestamp, because the two advance independently. A run event carries no identifier, so the key is the run id plus the event's position in the run's append-only stream, which also means the walk restarts a run rather than resuming mid-stream.
 
 Note: `autoMaterializeTicks` was not implemented separately. It returns the ticks of the legacy global auto-materialize daemon; current Dagster runs automation as an asset daemon whose ticks are an ordinary instigation state, so `instigation_ticks` already covers them.
 
