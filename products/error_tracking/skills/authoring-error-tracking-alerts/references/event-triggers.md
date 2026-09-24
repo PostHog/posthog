@@ -27,6 +27,7 @@ firehose into the user's primary channel will train them to ignore it.
 - `event.properties.status` — `"active"` at this point.
 - `event.properties.fingerprint` — used in the deep link.
 - `event.properties.exception_timestamp` — used in the deep link.
+- `event.properties.assignee`: set only when an assignment rule matched the new issue. See **Assignee** below.
 - `event.distinct_id` — the issue id.
 - The originating exception's event properties are also spread onto the alert event, so property
   filters can reference keys like `$exception_issue_id` (per-issue scoping) and `$exception_types`.
@@ -46,6 +47,8 @@ if this comes back" trigger.
 
 **Useful event properties for templating:** same as `_created`, plus the issue's current `status` will
 be `"active"` (the reopen has already taken effect).
+`event.properties.assignee` holds the issue's assignee after the reopen.
+A matching assignment rule sets it, and otherwise it is the assignee the issue already had.
 
 ## `$error_tracking_issue_spiking`
 
@@ -80,6 +83,7 @@ no `status` and no exception properties (so no per-issue property scoping). Avai
 - `event.properties.computed_baseline` — the historical baseline the current value is being compared
   to. May be 0 on the first spike if there isn't enough history yet — the canonical Slack template
   guards against this with a conditional expression.
+- `event.properties.assignee`: the issue's current assignee, when it has one. See **Assignee** below.
 
 **Pre-flight check:** before creating a `_spiking` alert, verify the spike detection config has been
 turned on for the project. There is no MCP tool for this today — direct the user to the error tracking
@@ -91,6 +95,21 @@ detector is running.
 **Project context** is exposed as `{project.url}` (already includes `/project/<team_id>`), `{project.id}`,
 and `{project.name}`. The alert's own metadata is exposed as `{source.url}` and `{source.name}` —
 useful for "manage this alert" links inside the message body.
+
+**Assignee** (`event.properties.assignee`) is present only when the issue has an assignee.
+On an unassigned issue the key is missing, so it reads as `null`.
+The value is a JSON string that identifies the assignee, such as `{"type":"user","id":123}` or `{"type":"role","id":"<uuid>"}`.
+It is not a name or an email, so a message can say whether the issue is assigned but not who it is assigned to:
+
+```text
+{isNotNull(event.properties.assignee) ? 'Assigned' : 'Unassigned'}
+```
+
+To alert only on unassigned issues, add this to `filters` (use `is_set` for assigned issues only):
+
+```json
+"properties": [{ "key": "assignee", "operator": "is_not_set", "type": "error_tracking_issue" }]
+```
 
 **Deep-link shape** for the issue page (used by the canonical block templates):
 
