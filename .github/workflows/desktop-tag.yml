@@ -41,14 +41,14 @@ jobs:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
-            # The quiet-period step below dispatches its retry as github-actions[bot]. A workflow on any
-            # branch can also dispatch as that bot, so the bot passes only with the inputs of a real retry.
-            # Keep these two input conditions equal to the ones the later steps read, so a bot run still
-            # runs Desktop Tests before it tags, as a scheduled run does.
+            # The quiet-period step below dispatches its retry with the release App's token, and the App
+            # is not on the team. Only a holder of the App key can dispatch as the App. Any branch workflow
+            # can dispatch as github-actions[bot], so that bot gets no exception. Keep the two input
+            # conditions equal to the ones the later steps read, so an App run still runs Desktop Tests.
             - name: Check the dispatcher is on team-posthog-desktop
               if: >-
                   github.event_name == 'workflow_dispatch' &&
-                  !(github.triggering_actor == 'github-actions[bot]' &&
+                  !(github.triggering_actor == 'releaser-posthog-desktop[bot]' &&
                     github.event.inputs.quiet_retries != '0' &&
                     github.event.inputs.ignore_master_ci != 'true')
               env:
@@ -79,11 +79,19 @@ jobs:
               id: quiet
               if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.quiet_retries != '0')
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  # The dispatcher check trusts a retry from the release App, so the retry must run as it.
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   QUIET_RETRIES: ${{ github.event.inputs.quiet_retries || 0 }}
               run: |
                   RETRIES="${QUIET_RETRIES}"
                   MAX_RETRIES=5
+                  # Bash arithmetic evaluates a variable's value as an expression, which can run a command.
+                  case "$RETRIES" in
+                    '' | *[!0-9]*)
+                      echo "::error::quiet_retries must be a whole number."
+                      exit 1
+                      ;;
+                  esac
                   # Scoped to products/desktop/: monorepo master always has commits landing, so an
                   # unscoped check would never see a quiet period.
                   LAST_COMMIT_EPOCH=$(git log -1 --format=%ct HEAD -- products/desktop/)
