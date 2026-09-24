@@ -80,6 +80,16 @@ describe('useTaxonomicFilter', () => {
         })
     })
 
+    it.each([TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.CohortsWithAllUsers])(
+        '%s requests the trimmed cohort payload',
+        (groupType) => {
+            const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: [groupType] }), { wrapper })
+
+            const group = result.current.groups.find((g) => g.type === groupType)!
+            expect(new URL(group.endpoint!, 'http://localhost').searchParams.get('basic')).toBe('true')
+        }
+    )
+
     it('exposes groups in the consumer-requested order, with Recent/Pinned auto-injected', () => {
         const { result } = renderHook(
             () =>

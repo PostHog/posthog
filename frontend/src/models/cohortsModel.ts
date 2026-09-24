@@ -42,7 +42,6 @@ import {
 } from '~/types'
 
 import * as cohortsApi from 'products/cohorts/frontend/generated/api'
-import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { TeamPublicType, TeamType } from '../types'
 
@@ -207,10 +206,7 @@ export interface cohortsModelValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     allCohorts: CountedPaginatedResponse<CohortType>
     allCohortsLoading: boolean
-    cohorts: CountedPaginatedResponse<CohortType>
     cohortsById: Partial<Record<number | string, CohortType>>
-    cohortsLoading: boolean
-    count: number
     pollTimeout: number | null
 }
 
@@ -270,7 +266,6 @@ export interface cohortsModelActions {
         }
         payload?: any
     }
-    loadCohorts: () => any
     loadCohortsByIds: ({ ids }: { ids: number[] }) => {
         ids: number[]
     }
@@ -292,26 +287,6 @@ export interface cohortsModelActions {
             ids: number[]
         }
     }
-    loadCohortsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadCohortsSuccess: (
-        cohorts: {
-            count: number
-            results: CohortType[]
-        },
-        payload?: any
-    ) => {
-        cohorts: {
-            count: number
-            results: CohortType[]
-        }
-        payload?: any
-    }
     setPollTimeout: (pollTimeout: number | null) => {
         pollTimeout: number | null
     }
@@ -324,7 +299,6 @@ export interface cohortsModelActions {
 export interface cohortsModelMeta {
     __keaTypeGenInternalSelectorTypes: {
         cohortsById: (allCohorts: CountedPaginatedResponse<CohortType>) => Partial<Record<number | string, CohortType>>
-        count: (cohorts: CountedPaginatedResponse<CohortType>) => number
     }
 }
 
@@ -350,19 +324,6 @@ export const cohortsModel = kea<cohortsModelType>([
         hydrateAllCohortsFromExport: (cohorts: Pick<CohortType, 'id' | 'name'>[]) => ({ cohorts }),
     })),
     loaders(({ actions, values, cache }) => ({
-        cohorts: {
-            __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
-            loadCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
-                    limit: MAX_COHORTS_FOR_FULL_LIST,
-                })
-                personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
-                return {
-                    count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
-                }
-            },
-        },
         allCohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohortsByIds: async ({ ids }: { ids: number[] }) => {
@@ -437,37 +398,6 @@ export const cohortsModel = kea<cohortsModelType>([
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
-        cohorts: {
-            updateCohort: (state, { cohort }) => {
-                if (!cohort) {
-                    return state
-                }
-                return {
-                    ...state,
-                    results: state.results.map((existingCohort) =>
-                        existingCohort.id === cohort.id ? cohort : existingCohort
-                    ),
-                }
-            },
-            cohortCreated: (state, { cohort }) => {
-                if (!cohort) {
-                    return state
-                }
-                return {
-                    ...state,
-                    results: [cohort, ...state.results],
-                }
-            },
-            deleteCohort: (state, { cohort }) => {
-                if (!cohort.id) {
-                    return state
-                }
-                return {
-                    ...state,
-                    results: state.results.filter((c) => c.id !== cohort.id),
-                }
-            },
-        },
         // Update allCohorts state to keep breadcrumbs in sync when cohorts are modified
         // The cohortsById selector depends on allCohorts, not cohorts
         allCohorts: {
@@ -531,7 +461,6 @@ export const cohortsModel = kea<cohortsModelType>([
             (allCohorts: CountedPaginatedResponse<CohortType>): Partial<Record<string | number, CohortType>> =>
                 Object.fromEntries(allCohorts.results.map((cohort) => [cohort.id, cohort])),
         ],
-        count: [(selectors) => [selectors.cohorts], (cohorts: CountedPaginatedResponse<CohortType>) => cohorts.count],
     }),
     listeners(({ actions, values, cache }) => ({
         loadAllCohortsFailure: () => {
@@ -556,13 +485,6 @@ export const cohortsModel = kea<cohortsModelType>([
         },
         updateCohort: () => {
             invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
-        },
-        loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
-            const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
-            if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
-                return
-            }
-            actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
         loadAllCohortsSuccess: async ({ allCohorts }: { allCohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = allCohorts.results.filter((cohort) => cohort.is_calculating).length > 0

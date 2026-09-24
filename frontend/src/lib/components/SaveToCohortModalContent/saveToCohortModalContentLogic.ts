@@ -125,12 +125,15 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
+                // The picker reads only id, name and description, so ask for the trimmed
+                // payload — the full one detoasts the JSON columns for every row.
+                const response = await api.cohorts.listBasic({
                     ...values.paramsFromFilters,
                 })
                 return {
                     count: response.count,
-                    results: response.results,
+                    // `groups` is dropped from the basic payload but required on CohortType.
+                    results: response.results.map((cohort) => ({ ...cohort, groups: [] })),
                 }
             },
         },
