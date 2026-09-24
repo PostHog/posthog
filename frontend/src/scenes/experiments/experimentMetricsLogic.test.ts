@@ -699,6 +699,21 @@ describe('experimentMetricsLogic', () => {
                 expect(logic.values.recalculationLoading).toBe(false)
             })
 
+            it('undims the rows it dimmed, so results stop reading as refreshing', async () => {
+                useFailingCreate()
+                mountLogic()
+
+                // The completed run loaded on mount populates the rows a config change then dims.
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('experiment_config_change')
+                }).toFinishAllListeners()
+
+                expect(logic.values.recalculatingMetricUuids).toEqual([])
+            })
+
             it.each([
                 ['manual', true],
                 ['cold_run', false],

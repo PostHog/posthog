@@ -1432,17 +1432,25 @@ class EnterpriseExperimentsViewSet(
                 # where only discovery ran, the rollback wins deliberately: the mark_started and
                 # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
                 # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
+                rolled_back = ExperimentMetricsRecalculation.objects.filter(
                     team=self.team,
                     id=recalculation_id,
                     status=ExperimentMetricsRecalculation.Status.PENDING,
                     query_to__isnull=True,
                 ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                logger.exception(
-                    "Failed to start the experiment metrics recalculation workflow",
-                    extra={"recalculation_id": recalculation_id, "experiment_id": experiment.id},
-                )
-                raise RecalculationSchedulingUnavailable from error
+                log_context = {"recalculation_id": recalculation_id, "experiment_id": experiment.id}
+                if not rolled_back:
+                    # The worker claimed the row, so the start landed and only the response leg failed.
+                    # Telling the client the run never started would be wrong: it is running. Answer as a
+                    # normal create and let the client poll it.
+                    logger.warning(
+                        "Experiment metrics recalculation start errored after the worker claimed the run",
+                        extra=log_context,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("Failed to start the experiment metrics recalculation workflow", extra=log_context)
+                    raise RecalculationSchedulingUnavailable from error
 
         return Response(
             ExperimentMetricsRecalculationSerializer(result).data,

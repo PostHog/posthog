@@ -144,6 +144,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # start_workflow can raise after Temporal accepted the start (RPC failure on the response leg).
         # By then the worker may have run mark_started; flipping that row to FAILED would release the
         # per-experiment uniqueness constraint and let a retry launch a second concurrent workflow.
+        # The run is genuinely running, so the response must be a normal create: a start failure would
+        # make the client report and announce a run that never started.
         exp = self._launched_experiment()
 
         def _start_lands_then_rpc_fails(*args, **kwargs):
@@ -156,8 +158,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
         mock_run.side_effect = _start_lands_then_rpc_fails
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
-        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["id"] == str(row.id)
         assert row.status == ExperimentMetricsRecalculation.Status.IN_PROGRESS
 
     # ------------------------------------------------------------------

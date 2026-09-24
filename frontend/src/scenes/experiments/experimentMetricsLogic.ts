@@ -886,6 +886,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * Re-enable the reload button: the run never started, so nothing else will clear loading.
                      */
                     actions.setRecalculationLoading(false)
+                    // Undim the rows this trigger dimmed. Nothing else will: the run never started, so no
+                    // result ever lands for them, and an automatic trigger shows no toast to explain it.
+                    actions.setRecalculatingMetricUuids([])
                     // A run that never started emits no terminal event, so `failed_to_start` is the only
                     // signal that separates this class from a run that started and then failed.
                     actions.reportExperimentMetricRecalculation('failed', {
