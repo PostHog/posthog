@@ -10,11 +10,11 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
 from posthog.models.person.util import (
     PersonTombstone,
+    PersonTombstonePublication,
     create_person,
     create_person_distinct_id,
+    get_person_tombstones,
     get_persons_by_uuids,
-    publish_and_ack_person_tombstones,
-    tombstone_persons_in_postgres,
 )
 
 logger = structlog.get_logger(__name__)
@@ -283,11 +283,12 @@ def tombstone_orphaned_ch_persons(
     as reverse drift (not touched).
 
     Persons DB reads skip tombstoned rows, so a person that a deletion tombstoned in the
-    persons DB without publishing to ClickHouse also looks like an orphan. The tombstone
-    call returns the versions such a person holds, and those are published instead of
-    version + 100. A version + 100 tombstone would stay above the version that a later
-    revival writes, so the revived person would stay hidden in ClickHouse. A dry run
-    cannot tell the two apart, because the tombstone call writes.
+    persons DB without publishing to ClickHouse also looks like an orphan. Such a person is
+    republished at the versions the persons DB holds instead of version + 100. A version
+    + 100 tombstone would stay above the version that a later revival writes, so the
+    revived person would stay hidden in ClickHouse. The lookup is read-only because the
+    orphan read is eventually consistent: a live person can be reported as an orphan, and
+    it must not be tombstoned in the persons DB for that.
     """
     result = OrphanRepairResult(orphaned_person_uuids=sorted(o.uuid for o in orphans), dry_run=dry_run)
     if not orphans:
@@ -306,20 +307,16 @@ def tombstone_orphaned_ch_persons(
 
     result.reverse_drift_mappings = _find_reverse_drift(team_id, deleted_winners, orphan_uuids)
 
+    # Raises rather than falling back to version + 100 for every orphan.
+    stored = get_person_tombstones(team_id, [UUID(o.uuid) for o in orphans])
+    stored_by_uuid = {str(t.uuid): t for t in stored}
+
     if dry_run:
-        result.tombstoned_persons = len(orphans)
-        result.tombstoned_mappings = len(to_tombstone)
+        result.republished_persons = sum(1 for o in orphans if o.uuid in stored_by_uuid)
+        result.tombstoned_persons = len(orphans) - result.republished_persons
+        result.tombstoned_mappings = sum(1 for m in to_tombstone if m.winner_person_id not in stored_by_uuid)
         return result
 
-    # Raises rather than falling back to version + 100 for every orphan.
-    stored = tombstone_persons_in_postgres(team_id, [UUID(o.uuid) for o in orphans])
-    if stored.newly_tombstoned:
-        logger.warning(
-            "Tombstoned persons that were live in the persons DB; a lagging read reported them as orphans",
-            team_id=team_id,
-            newly_tombstoned=stored.newly_tombstoned,
-        )
-    stored_by_uuid = {str(t.uuid): t for t in stored.tombstones}
     republished: set[str] = set()
     to_republish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
     for orphan in orphans:
@@ -339,12 +336,13 @@ def tombstone_orphaned_ch_persons(
         )
         result.tombstoned_persons += 1
 
-    publish_and_ack_person_tombstones(team_id, to_republish, on_failure=_raise_publish_failure)
+    publication = PersonTombstonePublication(team_id=team_id)
+    publication.publish(to_republish)
     result.republished_persons = len(to_republish)
 
     for mapping in to_tombstone:
         if mapping.winner_person_id in republished:
-            # publish_and_ack_person_tombstones already wrote this distinct ID at the stored version.
+            # The republish already produced this distinct ID at the stored version.
             continue
         create_person_distinct_id(
             team_id=team_id,
@@ -355,11 +353,12 @@ def tombstone_orphaned_ch_persons(
         )
         result.tombstoned_mappings += 1
 
+    # Wait only after the mapping rows are produced. A rerun skips a person whose version + 100
+    # row already landed, so a raise before this loop would leave its mappings live for good.
+    publication.await_and_ack()
+    if publication.failures:
+        raise publication.failures[0].error
     return result
-
-
-def _raise_publish_failure(person_uuid: UUID, exc: Exception) -> None:
-    raise exc
 
 
 _LIVE_PERSONS_BASE = """

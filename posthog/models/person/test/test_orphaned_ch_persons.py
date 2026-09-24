@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -9,8 +10,10 @@ from posthog.models.person.deletion import OrphanedPerson, find_orphaned_ch_pers
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
     create_person_distinct_id,
+    get_person_tombstones,
     tombstone_persons_in_postgres,
 )
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import create_person
 
 
@@ -69,17 +72,51 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
             _, mapping_deleted, _ = self._ch_mapping_state(did)
             assert mapping_deleted == 1
 
-    def test_person_tombstoned_in_the_persons_db_is_republished_at_its_stored_versions(self):
+    @parameterized.expand([("dry_run", True), ("apply", False)])
+    def test_person_tombstoned_in_the_persons_db_is_republished_at_its_stored_versions(self, _name: str, dry_run: bool):
         person = create_person(team=self.team, distinct_ids=["did-t"], properties={})
-        [written] = tombstone_persons_in_postgres(self.team.pk, [person.uuid]).tombstones
+        [written] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
         # The fake still reads tombstoned persons, so the orphan is built the way a real read reports it.
+        orphan = OrphanedPerson(uuid=str(person.uuid), ch_max_version=0, created_at=person.created_at)
+
+        result = tombstone_orphaned_ch_persons(self.team.pk, [orphan], dry_run=dry_run)
+
+        assert (result.republished_persons, result.tombstoned_persons) == (1, 0)
+        if dry_run:
+            assert self._ch_person_state(str(person.uuid))[0] == 0
+            return
+        assert self._ch_person_state(str(person.uuid)) == (1, written.version)
+        assert self._ch_mapping_state("did-t")[1:] == (1, written.distinct_ids[0].version)
+
+    def test_live_person_reported_as_orphan_by_a_lagging_read_stays_live_in_the_persons_db(self):
+        person = create_person(team=self.team, distinct_ids=["did-l"], properties={})
         orphan = OrphanedPerson(uuid=str(person.uuid), ch_max_version=0, created_at=person.created_at)
 
         result = tombstone_orphaned_ch_persons(self.team.pk, [orphan], dry_run=False)
 
-        assert (result.republished_persons, result.tombstoned_persons) == (1, 0)
-        assert self._ch_person_state(str(person.uuid)) == (1, written.version)
-        assert self._ch_mapping_state("did-t")[1:] == (1, written.distinct_ids[0].version)
+        assert (result.republished_persons, result.tombstoned_persons) == (0, 1)
+        assert get_person_tombstones(self.team.pk, [person.uuid]) == []
+        assert self._ch_person_state(str(person.uuid)) == (1, 100)
+
+    def test_a_failed_republish_still_tombstones_the_true_orphans_mappings(self):
+        orphan_uuid = str(uuid4())
+        self._seed_ch_only_person(orphan_uuid, ["did-o"])
+        person = create_person(team=self.team, distinct_ids=["did-t"], properties={})
+        tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        orphans = [
+            *find_orphaned_ch_persons(self.team.pk, [orphan_uuid]),
+            OrphanedPerson(uuid=str(person.uuid), ch_max_version=0, created_at=person.created_at),
+        ]
+
+        with (
+            patch("posthog.models.person.util.publish_person_tombstone", side_effect=RuntimeError("kafka down")),
+            self.assertRaises(RuntimeError),
+        ):
+            tombstone_orphaned_ch_persons(self.team.pk, orphans, dry_run=False)
+
+        # A rerun would not revisit this orphan, so its mapping has to be tombstoned on this run.
+        assert self._ch_person_state(orphan_uuid)[0] == 1
+        assert self._ch_mapping_state("did-o")[1] == 1
 
     def test_dry_run_produces_nothing(self):
         uuid = str(uuid4())
@@ -91,10 +128,11 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         assert result.dry_run is True
         assert result.tombstoned_persons == 1
         assert result.tombstoned_mappings == 1
-        # ...but ClickHouse is untouched.
+        # ...but ClickHouse and the persons DB are untouched.
         is_deleted, version = self._ch_person_state(uuid)
         assert is_deleted == 0
         assert version == 3
+        assert not [c for c in get_active_fake().calls if c.method == "delete_persons"]
 
     def test_live_person_is_never_an_orphan(self):
         # A person present in the persons DB (seeded into the fake) must not be

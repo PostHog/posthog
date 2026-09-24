@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import time
 import datetime
 import contextvars
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -732,24 +733,23 @@ class PersonTombstone:
     distinct_ids: list[DistinctIdForPerson]
 
 
-@frozen
-class PersonTombstones:
-    tombstones: list[PersonTombstone]
-    # Persons this call tombstoned. The others were tombstoned before and came back with the
-    # versions they hold, so a count above zero on a republish means a live row was tombstoned.
-    newly_tombstoned: int
+def _to_tombstone(t: person_pb2.TombstonedPerson) -> PersonTombstone:
+    return PersonTombstone(
+        uuid=UUID(t.person_uuid),
+        version=int(t.version),
+        distinct_ids=[DistinctIdForPerson(id=d.distinct_id, version=int(d.version)) for d in t.distinct_ids],
+    )
 
 
-def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> PersonTombstones:
+def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
     """Tombstone Person rows via the personhog RPC and return the versions it wrote.
 
     Batches of 1000, the RPC maximum. An already tombstoned person comes back with the
     versions it holds; one that no longer exists comes back with nothing.
     """
 
-    def personhog_fn() -> PersonTombstones:
+    def personhog_fn() -> list[PersonTombstone]:
         tombstones: list[PersonTombstone] = []
-        newly_tombstoned = 0
         uuids = [str(u) for u in person_uuids]
         for i in range(0, len(uuids), 1000):
             batch = uuids[i : i + 1000]
@@ -758,18 +758,8 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> Per
                     team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
                 )
             )
-            newly_tombstoned += response.deleted_count
-            tombstones.extend(
-                PersonTombstone(
-                    uuid=UUID(t.person_uuid),
-                    version=int(t.version),
-                    distinct_ids=[
-                        DistinctIdForPerson(id=d.distinct_id, version=int(d.version)) for d in t.distinct_ids
-                    ],
-                )
-                for t in response.tombstones
-            )
-        return PersonTombstones(tombstones=tombstones, newly_tombstoned=newly_tombstoned)
+            tombstones.extend(_to_tombstone(t) for t in response.tombstones)
+        return tombstones
 
     return personhog_call("tombstone_persons", personhog_fn)
 
@@ -780,14 +770,6 @@ class QueuedPersonTombstone:
     person_uuid: UUID
     person_version: int
     tombstoned_at_ms: int
-
-
-def _to_tombstone(t) -> PersonTombstone:
-    return PersonTombstone(
-        uuid=UUID(t.person_uuid),
-        version=int(t.version),
-        distinct_ids=[DistinctIdForPerson(id=d.distinct_id, version=int(d.version)) for d in t.distinct_ids],
-    )
 
 
 def get_person_tombstones(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
@@ -876,39 +858,75 @@ def publish_person_tombstone(
 TOMBSTONE_DELIVERY_TIMEOUT_SECONDS = 10
 
 
-def publish_and_ack_person_tombstones(
-    team_id: int,
-    tombstones: Sequence[tuple[PersonTombstone, Optional[datetime.datetime]]],
-    on_failure: Callable[[UUID, Exception], None],
-) -> None:
-    published: list[tuple[PersonTombstone, list[ProduceResult]]] = []
-    for tombstone, created_at in tombstones:
-        try:
-            published.append((tombstone, publish_person_tombstone(team_id, tombstone, created_at=created_at)))
-        except Exception as exc:
-            on_failure(tombstone.uuid, exc)
-    if not published:
-        return
+@frozen
+class PersonTombstonePublishFailure:
+    person_uuid: UUID
+    error: Exception
 
-    if not all(result.done() for _, results in published for result in results):
-        for topic in (KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID):
-            get_producer(topic=topic).flush(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
 
-    delivered: list[tuple[UUID, int]] = []
-    for tombstone, results in published:
+@frozen(frozen=False)
+class PersonTombstonePublication:
+    """ClickHouse tombstone rows produced for one team, waiting for delivery and the queue ack.
+
+    ``publish`` produces the rows for a batch of tombstones and returns without waiting.
+    ``await_and_ack`` waits once for Kafka to deliver everything produced so far, then acks
+    the delivered persons off the tombstone queue. Publish every batch first and wait once,
+    so a request pays the delivery timeout once instead of once per batch.
+
+    A person that fails to produce or deliver is reported in ``failures`` and stays queued for
+    the weekly sweep. A failed ack is only logged, because the sweep republishes those rows too.
+    """
+
+    team_id: int
+    failures: list[PersonTombstonePublishFailure] = field(default_factory=list)
+    _pending: list[tuple[PersonTombstone, list[ProduceResult]]] = field(default_factory=list, init=False, repr=False)
+
+    def publish(self, tombstones: Sequence[tuple[PersonTombstone, Optional[datetime.datetime]]]) -> None:
+        for tombstone, created_at in tombstones:
+            try:
+                results = publish_person_tombstone(self.team_id, tombstone, created_at=created_at)
+            except Exception as exc:
+                self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
+                continue
+            self._pending.append((tombstone, results))
+
+    def await_and_ack(self) -> None:
+        pending, self._pending = self._pending, []
+        if not pending:
+            return
+
+        if not all(result.done() for _, results in pending for result in results):
+            _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+
+        delivered: list[tuple[UUID, int]] = []
+        for tombstone, results in pending:
+            try:
+                for result in results:
+                    result.get(timeout=0)
+            except Exception as exc:
+                self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
+                continue
+            delivered.append((tombstone.uuid, tombstone.version))
+        if not delivered:
+            return
         try:
-            for result in results:
-                result.get(timeout=0)
-        except Exception as exc:
-            on_failure(tombstone.uuid, exc)
-            continue
-        delivered.append((tombstone.uuid, tombstone.version))
-    if not delivered:
-        return
-    try:
-        ack_person_tombstones(team_id, delivered)
-    except Exception:
-        logger.warning("person_tombstones.ack_failed", team_id=team_id, person_count=len(delivered), exc_info=True)
+            ack_person_tombstones(self.team_id, delivered)
+        except Exception:
+            logger.warning(
+                "person_tombstones.ack_failed", team_id=self.team_id, person_count=len(delivered), exc_info=True
+            )
+
+
+def _flush_person_producers(timeout: float) -> None:
+    """Flush each producer behind the person topics once, within one shared deadline.
+
+    Both topics normally route to the same producer. Flushing it once per topic would wait
+    for the full timeout twice while the brokers are unreachable.
+    """
+    deadline = time.monotonic() + timeout
+    producers = {id(p): p for p in (get_producer(topic=KAFKA_PERSON), get_producer(topic=KAFKA_PERSON_DISTINCT_ID))}
+    for producer in producers.values():
+        producer.flush(max(0.0, deadline - time.monotonic()))
 
 
 def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:

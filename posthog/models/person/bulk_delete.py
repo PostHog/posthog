@@ -21,6 +21,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import (
     DistinctIdForPerson,
     PersonTombstone,
+    PersonTombstonePublication,
     _batched_get_distinct_ids_for_persons,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
@@ -28,7 +29,6 @@ from posthog.models.person.util import (
     delete_person,
     delete_persons_from_postgres,
     get_person_tombstones,
-    publish_and_ack_person_tombstones,
     tombstone_persons_in_postgres,
 )
 from posthog.models.user import User
@@ -116,16 +116,17 @@ def _record_step_failure(
     exc: Exception,
     person_uuids: Iterable[uuid_lib.UUID | None],
 ) -> None:
-    """Record one step failure. Call from inside the ``except`` block so the traceback is logged."""
+    """Record one step failure with its traceback."""
     uuids = list(person_uuids) or [None]
     PERSON_DELETION_STEP_FAILURES_COUNTER.labels(step=step.value).inc()
-    logger.exception(
+    logger.error(
         "person_deletion.step_failed",
         step=step.value,
         team_id=team_id,
         person_count=len([u for u in uuids if u is not None]),
         person_uuids=[str(u) for u in uuids[:20] if u is not None],
         error_type=type(exc).__name__,
+        exc_info=exc,
     )
     error = f"{type(exc).__name__}: {exc}"
     failures.extend(PersonDeletionFailure(step=step, person_uuid=u, error=error) for u in uuids)
@@ -567,30 +568,36 @@ def _tombstone_persons_at_exact_versions(
     """
     deleted: builtins.list[Person] = []
     person_by_uuid = {person.uuid: person for person in persons}
-
-    def publish_failed(person_uuid: uuid_lib.UUID, exc: Exception) -> None:
-        _record_step_failure(
-            failures,
-            step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
-            team_id=team_id,
-            exc=exc,
-            person_uuids=[person_uuid],
-        )
+    publication = PersonTombstonePublication(team_id=team_id)
 
     for batch in _batches_by_distinct_id_count(persons):
         uuids = [person.uuid for person in batch]
         try:
-            tombstones = tombstone_persons_in_postgres(team_id, uuids).tombstones
+            tombstones = tombstone_persons_in_postgres(team_id, uuids)
         except Exception as exc:
             tombstones = _committed_tombstones(team_id, uuids, exc, failures)
-        published = [
+        to_publish = [
             (tombstone, person_by_uuid[tombstone.uuid].created_at)
             for tombstone in tombstones
             if tombstone.uuid in person_by_uuid
         ]
-        deleted.extend(person_by_uuid[tombstone.uuid] for tombstone, _ in published)
-        publish_and_ack_person_tombstones(team_id, published, on_failure=publish_failed)
+        deleted.extend(person_by_uuid[tombstone.uuid] for tombstone, _ in to_publish)
+        publication.publish(to_publish)
+
+    publication.await_and_ack()
+    for failure in publication.failures:
+        _record_step_failure(
+            failures,
+            step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
+            team_id=team_id,
+            exc=failure.error,
+            person_uuids=[failure.person_uuid],
+        )
     return deleted
+
+
+class PersonTombstoneStateUnknown(Exception):
+    """The tombstone RPC failed, and so did the check for what it committed before failing."""
 
 
 def _committed_tombstones(
@@ -599,10 +606,26 @@ def _committed_tombstones(
     exc: Exception,
     failures: builtins.list[PersonDeletionFailure],
 ) -> builtins.list[PersonTombstone]:
+    """Return the tombstones a failed RPC committed, and record every other person as a failure.
+
+    When the check itself fails, every person in the batch is recorded, under an error that
+    says the state is unknown rather than still live: a person the RPC did commit is deleted
+    and queued for the weekly sweep, but not counted or logged here.
+    """
     try:
         stored = get_person_tombstones(team_id, person_uuids)
-    except Exception:
+    except Exception as check_exc:
+        logger.warning(
+            "person_deletion.committed_tombstone_check_failed",
+            team_id=team_id,
+            person_count=len(person_uuids),
+            exc_info=True,
+        )
         stored = []
+        exc = PersonTombstoneStateUnknown(
+            f"{type(exc).__name__}: {exc}; the committed-tombstone check failed too: "
+            f"{type(check_exc).__name__}: {check_exc}"
+        )
     committed = {tombstone.uuid for tombstone in stored}
     uncommitted = [u for u in person_uuids if u not in committed]
     if uncommitted:
