@@ -273,9 +273,6 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert isinstance(warm_response, CachedExperimentQueryResponse)
         self.assertTrue(warm_response.is_cached)
 
-
-@override_settings(IN_UNIT_TESTING=True)
-class TestTemporalMetricActivityValidationErrors(ExperimentQueryRunnerBaseTest):
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_regular_metric_activity_returns_permanent_failure_on_validation_error(self):
         feature_flag = self.create_feature_flag()
