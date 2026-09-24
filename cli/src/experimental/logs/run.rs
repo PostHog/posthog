@@ -124,14 +124,18 @@ pub struct Importer<'a> {
 }
 
 pub fn project_key_from_env() -> Result<String> {
-    let key = std::env::var(PROJECT_KEY_VAR).unwrap_or_default();
-    if key.is_empty() {
-        bail!(
+    resolve_project_key(std::env::var(PROJECT_KEY_VAR).ok())
+}
+
+/// Split from the environment read so the message can be tested without mutating process globals.
+fn resolve_project_key(raw: Option<String>) -> Result<String> {
+    match raw.filter(|key| !key.is_empty()) {
+        Some(key) => Ok(key),
+        None => bail!(
             "set {PROJECT_KEY_VAR} to the project API key for the project you are importing into. \
              The intake rejects a personal API token."
-        );
+        ),
     }
-    Ok(key)
 }
 
 impl Importer<'_> {
@@ -393,17 +397,15 @@ mod tests {
 
     #[test]
     fn a_missing_project_key_says_which_variable_to_set_and_why() {
-        temp_unset(PROJECT_KEY_VAR);
+        for (case, raw) in [("unset", None), ("set but empty", Some(String::new()))] {
+            let error = resolve_project_key(raw).expect_err(case);
 
-        let error = project_key_from_env().expect_err("must not run without a project key");
-
-        let rendered = format!("{error:#}");
-        assert!(rendered.contains(PROJECT_KEY_VAR), "got {rendered}");
-        assert!(rendered.contains("personal API token"), "got {rendered}");
-    }
-
-    fn temp_unset(key: &str) {
-        // Safe here: the tests in this module do not read this variable concurrently.
-        unsafe { std::env::remove_var(key) };
+            let rendered = format!("{error:#}");
+            assert!(rendered.contains(PROJECT_KEY_VAR), "{case}: {rendered}");
+            assert!(
+                rendered.contains("personal API token"),
+                "{case}: {rendered}"
+            );
+        }
     }
 }
