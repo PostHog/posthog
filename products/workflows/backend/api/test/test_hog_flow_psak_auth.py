@@ -57,7 +57,6 @@ class TestHogFlowProjectSecretApiKeyAuth(APIBaseTest):
         super().setUp()
         sync_template_to_db(webhook_template)
         cache.clear()
-        # A CI job holds no session, so every service request goes through a fresh client.
         self.service = APIClient()
         self.token = self._mint_psak(self.team, ["hog_flow:write"], label="ci push key")
 
@@ -65,7 +64,6 @@ class TestHogFlowProjectSecretApiKeyAuth(APIBaseTest):
         raw_token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
             team=team,
-            # Labels are unique per team, so a second key in one test needs its own.
             label=label or f"ci key {raw_token[-6:]}",
             secure_value=hash_key_value(raw_token),
             scopes=scopes,
@@ -117,7 +115,6 @@ class TestHogFlowProjectSecretApiKeyAuth(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.version == 2
-        # The session user who created the flow stays its creator; only the revision is unattributed.
         assert flow.created_by_id == self.user.id
         revision = HogFlowRevision.objects.for_team(self.team.id).get(hog_flow=flow, version=2)
         assert revision.created_by_id is None
