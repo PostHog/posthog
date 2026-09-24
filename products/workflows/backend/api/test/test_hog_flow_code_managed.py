@@ -57,7 +57,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
             secure_value=hash_key_value(key),
             scopes=scopes or ["hog_flow:write", "hog_flow:read"],
         )
-        # A fresh client keeps the request session-free, so it classifies as API rather than WEB.
         return self.client_class(), {"authorization": f"Bearer {key}"}
 
     @parameterized.expand(
@@ -71,7 +70,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
             ("action_email", "patch", "/actions/exit_node/email", {"email_patch": {"subject": "Hello"}}),
             ("publish", "post", "/publish", {}),
             ("discard_draft", "post", "/discard_draft", {}),
-            # The guard runs inside get_object(), so it refuses before the revision is even looked up.
             ("restore_revision", "post", "/revisions/1/restore", {}),
         ]
     )
@@ -103,9 +101,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
     def test_a_push_that_lands_mid_request_still_refuses_the_write(
         self, _name: str, method: str, payload: dict | None
     ) -> None:
-        # The race the locked re-read exists for: the permission check passes on a workflow the app
-        # owns, a push claims it, and the mutation would land on a row that is now code-managed. The
-        # flip runs after get_object() returns, which is the moment between the check and the row lock.
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
         original_get_object = HogFlowViewSet.get_object
 
@@ -125,8 +120,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert gui_workflow.name == "Welcome"
 
     def test_a_status_write_racing_a_push_keeps_what_the_push_wrote(self) -> None:
-        # The push lands after the status PATCH was validated and before it takes the row lock, so
-        # the serializer still holds the app-owned row with the old graph.
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
         pushed_trigger = {
             **TRIGGER_ACTION,
@@ -172,18 +165,13 @@ class TestCodeManagedHogFlow(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.json()["code"] == "immutable"
-        # The whole request is refused, so the workflow that was fine to delete survives too.
         assert HogFlow.objects.filter(id=gui_workflow.id).exists()
         assert HogFlow.objects.filter(id=self.workflow.id).exists()
 
     @parameterized.expand(
         [
             ("mcp_transport", {"x-posthog-client": "mcp"}, True),
-            # The MCP server forwards this header from the caller with no allow-list, so an agent can
-            # declare itself the CLI even on an API key. The transport is what the guard has to read.
             ("cli_consumer_over_mcp", {"x-posthog-client": "mcp", "x-posthog-mcp-consumer": "posthog-cli"}, True),
-            # A browser can set both of the headers `cli` is resolved from, so the guard must not take
-            # the claim from a session-authenticated request.
             ("cli_user_agent_from_the_browser", {"user-agent": "posthog-cli"}, False),
             ("cli_consumer_header_from_the_browser", {"x-posthog-mcp-consumer": "posthog-cli"}, False),
         ]
@@ -202,11 +190,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Operating a workflow is not defining it: the file says what the workflow is, not what is
-            # running right now. resume_email_sending is the sharpest of these, because PostHog itself
-            # applies the pause and the endpoint is the only way out of it.
-            # Both answer 400 on an empty body: the endpoint's own validation, which it only reaches
-            # once the lock has let the request through.
             ("cancel_invocations", "/invocations/cancel"),
             ("resume_email_sending", "/resume_email_sending"),
         ]
@@ -229,8 +212,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
         [
             ("the_source", {"source_repository": "github.com/example/not-mine"}, "source_repository"),
             ("code_ownership", {"managed_by": "code"}, "managed_by"),
-            # A form body spread into a PATCH must not move the lock, so the editor hears the refusal
-            # rather than having the field silently stripped.
             ("code_ownership_in_a_form_body", {"managed_by": "code", "name": "Claimed"}, "managed_by"),
         ]
     )
@@ -272,8 +253,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
     @parameterized.expand(
         [
             ("bare", False),
-            # The editor fences every save with the copy it loaded, so the status-only save is never
-            # literally status-only on the wire.
             ("with_concurrency_fence", True),
         ]
     )
@@ -301,8 +280,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
 
     def test_an_unchanged_managed_by_does_not_make_an_ordinary_save_a_release(self) -> None:
-        # The editor loads a workflow and spreads the whole thing into its next save, so every save
-        # carries the stored managed_by beside the fields the person actually changed.
         gui_workflow = self._create_workflow(managed_by=None)
 
         response = self.client.patch(
@@ -342,7 +319,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
         refs = {v: self.client.get(f"{url}/revisions/{v}").json()["content"].get("source_ref") for v in (1, 2)}
         assert refs == {1: "1111111", 2: "2222222"}
 
-        # Restoring stages the content alone, so a later publish cannot move the recorded source back.
         assert self.client.patch(url, {"managed_by": "gui"}).status_code == status.HTTP_200_OK
         restored = self.client.post(f"{url}/revisions/1/restore", {})
         assert restored.status_code == status.HTTP_200_OK, restored.json()
@@ -351,8 +327,6 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert "source_ref" not in draft
 
     def test_a_push_reclaims_a_released_workflow_in_one_write(self) -> None:
-        # The refusal, the help text and the docs all promise that the next push claims the workflow
-        # back, and a push sends the ownership and the content together.
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
         client, auth = self._api_key_client()
 

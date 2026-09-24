@@ -575,7 +575,6 @@ function WorkflowRecurringSchedulePicker(): JSX.Element {
                 onTimezoneChange={setScheduleTimezone}
                 onRepeatingChange={setScheduleRepeating}
             />
-            {/* The file declares a schedule trigger but not when it runs, so the schedule saves here. */}
             {isCodeManaged && (
                 <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
                     <span className="text-xs text-secondary">

@@ -4,10 +4,6 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { codeManagedReason, isCodeManagedWorkflow } from './codeManagedWorkflow'
 import { HogFlow } from './hogflows/types'
 
-/**
- * Marks a workflow a repository owns. Renders nothing for a workflow this app owns, so callers can
- * drop it in beside a name without branching.
- */
 export function CodeManagedTag({ workflow }: { workflow: HogFlow | null | undefined }): JSX.Element | null {
     if (!isCodeManagedWorkflow(workflow)) {
         return null

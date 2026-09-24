@@ -124,7 +124,6 @@ describe('workflowLogic auto-save', () => {
 
             expect(logic.values.workflow.name).toBe('Edited in the UI')
             expect(updateCalls).toBe(0)
-            // The badge tooltip shows this, and it has to name the file
             expect(logic.values.workflowSaveDisabledReason).toContain('workflows/welcome.ts')
         })
 
@@ -203,9 +202,6 @@ describe('workflowLogic auto-save', () => {
             )
             await mountLogic()
 
-            // The header drops both buttons, but the menu bar still lists them while a draft is
-            // staged. Reading only the draft state would leave them live and send a request the API
-            // answers with a 403.
             expect(logic.values.showDraftActions).toBe(false)
             expect(logic.values.publishDisabledReason).toContain('workflows/welcome.ts')
             expect(logic.values.discardDisabledReason).toContain('workflows/welcome.ts')

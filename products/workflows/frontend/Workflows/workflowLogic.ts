@@ -198,7 +198,6 @@ interface SaveContext {
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
 }
 
-/** Writes a staged schedule change and returns the schedules the workflow now has. */
 async function writePendingSchedule(
     workflowId: string,
     pendingSchedule: Exclude<SaveContext['pendingSchedule'], false>,
@@ -3233,8 +3232,6 @@ export const workflowLogic = kea<workflowLogicType>([
                             )
                         const isStatusTransition = isStatusSave && !!latest && updates.status !== latest.status
                         if (values.isCodeManaged && !isStatusTransition) {
-                            // Every path that saves the form checks `canSaveWorkflow` first. This is the
-                            // backstop for a path that does not, so it fails here and not with a 403.
                             throw new Error(values.workflowSaveDisabledReason ?? 'This workflow is managed by code.')
                         }
                         // Content edits on an active workflow stage into its draft (publish promotes them).
@@ -3256,9 +3253,6 @@ export const workflowLogic = kea<workflowLogicType>([
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
                         }
-                        // Provenance is server state the form only reads. The form is seeded from the
-                        // whole loaded workflow, so without this every save would send it back and
-                        // read as a claim about who owns the workflow and where its file is.
                         delete payload.managed_by
                         delete payload.created_via
                         delete payload.source_repository
@@ -3569,10 +3563,6 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean => isCodeManagedWorkflow(originalWorkflow),
         ],
-        // Why the form cannot be written to the API: the auto-save, the save button, the draft
-        // actions and a revision restore all read it. A status-only save does not, because the API
-        // accepts one on a code-managed workflow. The access level is not a reason here, because the
-        // API already refuses a save from a viewer and the editor shows that refusal.
         workflowSaveDisabledReason: [
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): string | null =>
@@ -3915,7 +3905,6 @@ export const workflowLogic = kea<workflowLogicType>([
         // once a draft exists would move the save button on the first auto-save, which is the jump
         // this editor is meant to stop. A live workflow can always be published into, so the button
         // is honest when idle: it says there is nothing staged yet.
-        // A code-managed workflow has no draft cycle here, because only a push changes what runs.
         showDraftActions: [
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean =>
@@ -3932,7 +3921,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 draftActionPending: 'publish' | 'discard' | null,
                 workflowSaveDisabledReason: string | null
             ): string | undefined => {
-                // The API refuses publish on a workflow a repository owns, so say so rather than 403.
                 if (workflowSaveDisabledReason) {
                     return workflowSaveDisabledReason
                 }
@@ -4039,8 +4027,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // a few seconds old, so reconcile silently instead of interrupting with a conflict
             // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
             // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose. A code-managed workflow never flushes, so a push
-            // that lands while someone edits it asks before it replaces their edits.
+            // so the banner lets the user choose.
             const autoSaveCanFlush =
                 values.canSaveWorkflow &&
                 values.autoSaveEnabled &&
@@ -4187,8 +4174,6 @@ export const workflowLogic = kea<workflowLogicType>([
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
             const merged = { ...values.workflow, ...workflow }
-            // Enabling a code-managed workflow runs the pushed content, not the unsaved edits in the
-            // form, so errors in those edits must not block it.
             if (merged.status === 'active' && values.workflowHasActionErrors && !values.isCodeManaged) {
                 lemonToast.error('Fix all errors before enabling')
                 return
@@ -4247,9 +4232,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 // reset the reducers, so the live value no longer describes what the user staged.
                 const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
                 const existingScheduleId = values.currentSchedule?.id
-                // A code-managed workflow saves its schedule only through `saveSchedule`. The only
-                // manual save it has is a status change, which must not also write a schedule the
-                // user has not saved.
                 const hasScheduleChanges = pendingSchedule !== false && !!workflowId && !values.isCodeManaged
 
                 if (hasScheduleChanges) {
@@ -4333,8 +4315,6 @@ export const workflowLogic = kea<workflowLogicType>([
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
                 cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
-            // A code-managed workflow only saves its status, so the form still holds edits the save
-            // did not send. The reset below would drop them.
             const keepUnsentEdits = values.isCodeManaged && values.workflowChanged
             const editsDuringSave = editedDuringSave || keepUnsentEdits ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
@@ -4368,9 +4348,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             })
         },
-        // A code-managed workflow has no save for its form, but the app owns its schedule, so the
-        // schedule saves on its own. `setSchedules` rebaselines only the schedule, so edits to the
-        // graph stay in the form.
         saveSchedule: async () => {
             const workflowId = values.originalWorkflow?.id
             const pendingSchedule = values.pendingSchedule
@@ -4448,9 +4425,6 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         autoSaveWorkflow: async (_, breakpoint) => {
-            // A code-managed workflow must not fire a PATCH that only the backend would refuse, so its
-            // edits stay in the form. This runs before the debounce, so the editor does not show a
-            // pending save for 3 seconds.
             if (!values.canSaveWorkflow) {
                 actions.clearAutoSavePending()
                 return
@@ -4462,7 +4436,6 @@ export const workflowLogic = kea<workflowLogicType>([
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
-                // The ownership can change while the debounce waits.
                 !values.canSaveWorkflow ||
                 !props.id ||
                 props.id === 'new' ||

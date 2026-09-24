@@ -33,7 +33,6 @@ function workflow(overrides: Partial<HogFlow> = {}): HogFlow {
 
 export const Basic: StoryFn = () => <CodeManagedTag workflow={workflow()} />
 
-// The three source columns stay null until a push writes them, so the tag has to read without them
 export const WithoutARecordedSource: StoryFn = () => (
     <CodeManagedTag workflow={workflow({ source_repository: null, source_path: null, source_ref: null })} />
 )

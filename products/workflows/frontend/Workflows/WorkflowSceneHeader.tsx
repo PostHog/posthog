@@ -212,8 +212,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             })
                                         }
                                         size="small"
-                                        // A code-managed workflow saves only its status here, and the
-                                        // edits in the form survive the save, so they do not block it.
                                         disabledReason={
                                             hasUnsavedChanges && !isCodeManaged ? 'Save changes first' : undefined
                                         }
@@ -299,7 +297,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             // which moved a different action under a pointer that had not left the
                             // button.
                             <>
-                                {/* Only a push saves a code-managed workflow, so it has no save button. */}
                                 {!isCodeManaged && (
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.Workflow}
@@ -380,7 +377,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                     </>
                 }
             />
-            {/* Pulled up into the gap below the title and description, so it reads as part of them. */}
             <CodeManagedSource workflow={originalWorkflow} className="-mt-3" />
         </>
     )

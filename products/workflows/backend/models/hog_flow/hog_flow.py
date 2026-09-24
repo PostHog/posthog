@@ -108,7 +108,6 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
 
 
 def hog_flow_created_via_choices() -> list[tuple[str, str | Promise]]:
-    # Callable for the same reason: the set of surfaces that can create a workflow grows over time.
     return list(HogFlow.CreatedVia.choices)
 
 
@@ -152,10 +151,6 @@ class HogFlow(UUIDTModel):
         GUI = "gui", "GUI"
         CODE = "code", "Code"
 
-    # Values copied from ExternalDataSourceCreatedVia rather than imported, because that type belongs
-    # to another product's facade. The labels are deliberately not copied: two Choices classes whose
-    # (value, label) pairs match exactly hash the same, so the OpenAPI enum namer cannot tell them
-    # apart and falls back to naming both after the field (see posthog/openapi/enum_names.py).
     class CreatedVia(models.TextChoices):
         WEB = "web", "Web"
         API = "api", "API"
@@ -183,19 +178,10 @@ class HogFlow(UUIDTModel):
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
 
-    # What owns this workflow's content. `code` means a repository owns it, so the API refuses every
-    # content write that does not come from the client that pushes it, and the editor keeps edits local.
-    # NULL reads as `gui`, which is why the column needs no backfill.
     managed_by = models.CharField(max_length=400, choices=ManagedBy, null=True, blank=True)
-    # How this workflow first appeared. Stamped from the request, never taken from the payload, and
-    # never changed afterwards. NULL on rows created before this field existed.
     created_via = models.CharField(max_length=400, choices=hog_flow_created_via_choices, null=True, blank=True)
-    # Where the owning file lives, in parts rather than as a URL: the backend cannot know whether a
-    # host is GitHub, GitLab or self-hosted, and the pushing client compares the path it was given
-    # against the recorded one. The UI composes a link from the parts and falls back to plain text.
     source_repository = models.CharField(max_length=400, null=True, blank=True)
     source_path = models.CharField(max_length=400, null=True, blank=True)
-    # Commit sha or branch of the last push, so a link can point at the revision that produced this.
     source_ref = models.CharField(max_length=400, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

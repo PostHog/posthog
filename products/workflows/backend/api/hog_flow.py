@@ -233,12 +233,7 @@ DRAFT_CONTENT_FIELDS = (
 
 
 class CodeManagedWorkflowError(exceptions.PermissionDenied):
-    """Refusal of a write that code ownership forbids. `extra` is drf-exceptions-hog's channel
-    for anything beyond `detail`."""
-
     default_code = "immutable"
-    # A plain PermissionDenied renders as `authentication_error`, which reads as "log in again". This
-    # refusal is about the state of the row, not about who is asking.
     default_type = "invalid_request"
 
     def __init__(self, refusal: OwnershipRefusal) -> None:
@@ -249,11 +244,6 @@ class CodeManagedWorkflowError(exceptions.PermissionDenied):
             self.extra["source_path"] = refusal.source_path
 
 
-# Which attribution each transport earns a new workflow. Copied in shape from the warehouse table
-# map rather than imported, because that one answers for another product's enum. A CLI push lands on
-# `api`: it pushes over REST with a personal or project secret API key, so `api` is what it actually
-# is, and `managed_by` with the source fields already records that a push wrote it. Anything
-# without a surface of its own is a plain API caller.
 _EVENT_SOURCE_TO_CREATED_VIA: Final[dict[EventSource, str]] = {
     EventSource.WEB: HogFlow.CreatedVia.WEB,
     EventSource.WIZARD: HogFlow.CreatedVia.WIZARD,
@@ -268,14 +258,7 @@ _EVENT_SOURCE_TO_CREATED_VIA: Final[dict[EventSource, str]] = {
 
 
 def resolve_workflow_created_via(request: Request) -> str:
-    """Attribute a new workflow to the surface the request came from.
-
-    Read from the transport rather than from the body, so no caller can label its own workflows as
-    web- or wizard-created.
-    """
     created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(get_event_source(request), HogFlow.CreatedVia.API)
-    # Every wizard program shares the `posthog/wizard` user-agent, so only the marker it adds to that
-    # UA separates a self-driving run from a plain setup.
     if created_via == HogFlow.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
         return HogFlow.CreatedVia.SELF_DRIVING
     return created_via
@@ -2985,7 +2968,6 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "version",
             "status",
             "origin_product",
-            # So an agent listing workflows can see which ones it must not edit before it tries.
             "managed_by",
             "created_at",
             "created_by",
@@ -3026,8 +3008,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "alongside any other field is refused."
         ),
     )
-    # Read-only rather than writable-and-stripped: the value is resolved from the request, so a caller
-    # that could send it would only ever be ignored, and a read-only field cannot be claimed at all.
     created_via = serializers.ChoiceField(
         choices=HogFlow.CreatedVia.choices,
         read_only=True,
@@ -3360,7 +3340,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "updated_at",
             "trigger",  # Derived from the trigger action in the actions array
-            "created_via",  # Resolved from the request in create(), never from the payload
+            "created_via",
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
@@ -3582,11 +3562,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         return super().update(instance, validated_data)
 
     def _enforce_code_ownership(self, *, action: str, stored: Optional[HogFlow]) -> None:
-        # Checked on save rather than in validate(), because the test-run endpoint validates a whole
-        # workflow as its `configuration` and saves nothing. The editor sends a code-managed workflow
-        # there as it loaded it, with `managed_by: code`.
         request = self.context.get("request")
-        # The lock is a rule of the REST API, and a facade caller saves without a request.
         if request is None:
             return
         refusal = check_write(request, action=action, stored=stored, payload=getattr(self, "initial_data", None))
@@ -4457,22 +4433,12 @@ class HogFlowViewSet(
         return super().safely_get_object(queryset)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
-        """Refuse every write that code ownership forbids.
-
-        Placed here because there is no single write chokepoint: `graph`, `action_email`, `publish`,
-        `discard_draft` and `restore_revision` never reach `perform_update`, and every detail action
-        reaches this through `get_object()`.
-        """
         super().check_object_permissions(request, obj)
         if request.method in permissions.SAFE_METHODS or not isinstance(obj, HogFlow):
             return
         self._enforce_code_ownership(request, obj)
 
     def _enforce_code_ownership(self, request: Request, hog_flow: HogFlow) -> None:
-        """Called again on the locked row inside each mutating transaction, because a push can claim the
-        workflow between `check_object_permissions` and the lock, and the row the write lands on is
-        the one that decides.
-        """
         refusal = check_write(request, action=self.action, stored=hog_flow, payload=request.data)
         if refusal is not None:
             raise CodeManagedWorkflowError(refusal)
@@ -4692,14 +4658,6 @@ class HogFlowViewSet(
         )
 
     def _validate_against_locked_row(self, serializer: BaseSerializer, locked: HogFlow) -> BaseSerializer:
-        """Return a serializer whose save applies this request to the row read under the lock.
-
-        DRF validated the request against the row that get_object() read before the lock. A write
-        can land between the two reads, for example a push that claims the workflow. Saving the older
-        copy would then write its stale fields back over that write. validate() also derives the
-        trigger, billable_action_types and the recovered secrets from the row it was given. So when
-        the locked row differs, the same request is validated again against it.
-        """
         if isinstance(serializer.instance, HogFlow) and _stored_values(serializer.instance) == _stored_values(locked):
             return serializer
         # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; `locked` stays the pre-write state)
@@ -4748,8 +4706,6 @@ class HogFlowViewSet(
             stages_draft_if_active = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
-        # UpdateModelMixin renders the response from the serializer it passed in, so it has to end up
-        # holding the row this method saved.
         response_serializer = serializer
 
         # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
@@ -4769,7 +4725,6 @@ class HogFlowViewSet(
                 # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
                 before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
             except HogFlow.DoesNotExist:
-                # Saving the serializer's copy now would insert the deleted row again.
                 raise exceptions.NotFound()
 
             self._enforce_code_ownership(self.request, before_update)
@@ -4912,8 +4867,6 @@ class HogFlowViewSet(
         self._append_revision(instance, created_by=_actor(self.request))
 
     def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
-        # The source fields name the file and commit that produced this version. The row keeps only
-        # the latest push, so the revision is the one place that remembers them.
         provenance = {field: getattr(flow, field) for field in SOURCE_FIELDS if getattr(flow, field)}
         HogFlowRevision.objects.create(
             team_id=self.team_id,
@@ -5440,8 +5393,6 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # Only the content fields: the source fields describe the push that produced the revision,
-            # and publishing them from a draft would rewrite where the workflow says it comes from.
             locked.draft = {field: value for field, value in revision.content.items() if field in DRAFT_CONTENT_FIELDS}
             locked.draft_updated_at = timezone.now()
             # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
@@ -5821,10 +5772,6 @@ class HogFlowViewSet(
             if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
         ]
 
-        # bulk_delete is detail=False, so it never calls get_object() and the code-managed guard in
-        # check_object_permissions never runs for it. Without this the lock is bypassable one archived
-        # row at a time. Refuse the whole request rather than skipping the locked rows, so the caller
-        # cannot mistake a partial delete for a complete one.
         for flow in deletable:
             self._enforce_code_ownership(request, flow)
 
@@ -5839,8 +5786,6 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .only("id", "managed_by", "source_repository", "source_path")
             )
-            # A push can claim a workflow between the check above and this lock, so the locked row is
-            # the one that decides.
             for row in locked_rows:
                 self._enforce_code_ownership(request, row)
             deleted_ids = {row.id for row in locked_rows}

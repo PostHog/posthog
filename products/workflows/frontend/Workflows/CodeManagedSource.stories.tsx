@@ -32,7 +32,6 @@ function workflow(overrides: Partial<HogFlow> = {}): HogFlow {
     } as HogFlow
 }
 
-// The tag sits beside the title and the source line sits below it, so the stories render both.
 const Template: StoryFn<{ workflow: HogFlow }> = ({ workflow }) => (
     <div className="flex flex-col gap-1 max-w-120">
         <div className="flex items-center gap-2">
@@ -57,10 +56,8 @@ LongPathOnGitLab.args = {
     }),
 }
 
-// A host we cannot link reads as plain text rather than as a broken link
 export const UnknownHost = Template.bind({})
 UnknownHost.args = { workflow: workflow({ source_repository: 'git.example.com/team/flows' }) }
 
-// The source columns stay null until a push writes them, so each part has to be optional
 export const OnlyARepository = Template.bind({})
 OnlyARepository.args = { workflow: workflow({ source_path: null, source_ref: null }) }

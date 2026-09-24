@@ -8,7 +8,6 @@ export type ParsedRemoteUrl = {
     providerUrl: string | undefined
 }
 
-// Keeps the slashes of a path or of a branch like `feature/x`, and escapes the other characters a URL reserves.
 function encodePathSegments(value: string): string {
     return value.split('/').map(encodeURIComponent).join('/')
 }
@@ -36,7 +35,6 @@ export class GitMetadataParser {
         return this.buildBranchLink(parsedRemoteUrl, branch)
     }
 
-    /** Links a sha to its commit and anything else, such as a branch or a tag, to its tree. */
     static getRefLink(remote_url?: string, ref?: string): string | undefined {
         if (!ref) {
             return undefined
@@ -44,7 +42,6 @@ export class GitMetadataParser {
         return this.isCommitSha(ref) ? this.getCommitLink(remote_url, ref) : this.getBranchLink(remote_url, ref)
     }
 
-    /** Links a repository-relative file path as it was at a commit, branch or tag. */
     static getFileLink(remote_url?: string, ref?: string, path?: string): string | undefined {
         if (!remote_url || !ref || !path) {
             return undefined
@@ -56,7 +53,6 @@ export class GitMetadataParser {
         return this.buildFileLink(parsedRemoteUrl, ref, path)
     }
 
-    /** A full or abbreviated commit sha. A branch named like one reads as a sha too. */
     static isCommitSha(ref: string): boolean {
         return /^[0-9a-f]{7,40}$/i.test(ref)
     }
@@ -188,8 +184,6 @@ export class GitMetadataParser {
         return { provider, owner, repository, providerUrl }
     }
 
-    // A GitLab project can sit in nested subgroups, so every part up to the `-` that starts a page
-    // within the project belongs to its path. Keeping only the first part would link a parent group.
     private static gitlabProjectPath(partsAfterOwner: string[]): string {
         const pageStart = partsAfterOwner.indexOf('-')
         const projectParts = pageStart === -1 ? partsAfterOwner : partsAfterOwner.slice(0, pageStart)
@@ -197,7 +191,6 @@ export class GitMetadataParser {
     }
 
     private static parseSchemelessRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {
-        // github.com/user/repo, which is how the workflows CLI records a repository
         if (remoteUrl.includes('://') || remoteUrl.includes('@')) {
             return undefined
         }

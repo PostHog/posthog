@@ -48,8 +48,6 @@ class HogFlowAdmin(admin.ModelAdmin):
     readonly_fields = (
         "id",
         "version",
-        # Shown so a staff editor can see that a repository owns this workflow's content before
-        # changing anything here. The API refuses such a write; the admin does not.
         "managed_by",
         "created_via",
         "source_repository",
