@@ -40,8 +40,8 @@ export interface tagSelectLogicActions {
     }: {
         loadTags: LoadTags
         offset: number
-        search: string
         requestEpoch: number
+        search: string
     }) => {
         search: string
         offset: number
@@ -69,6 +69,7 @@ export interface tagSelectLogicActions {
             search: string
             offset: number
             loadTags: LoadTags
+            requestEpoch: number
         }
     }
     setSearch: (search: string) => {

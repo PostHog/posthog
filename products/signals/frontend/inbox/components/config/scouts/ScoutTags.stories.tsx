@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import type {
@@ -100,7 +102,7 @@ function ManyTagsPreview(): JSX.Element {
     const [selected, setSelected] = useState<string[]>(['topic-02'])
 
     return (
-        <div className="w-64 rounded border border-primary bg-bg-light p-3">
+        <div className="w-64 mx-auto rounded border border-primary bg-bg-light p-3">
             <ScoutTagsFilter options={MANY_TAG_OPTIONS} selected={selected} onChange={setSelected} />
         </div>
     )
@@ -108,4 +110,29 @@ function ManyTagsPreview(): JSX.Element {
 
 export const ManyTags: Story = {
     render: () => <ManyTagsPreview />,
+}
+
+async function openFilter(canvasElement: HTMLElement): Promise<void> {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Filter scouts by tag' }))
+    await screen.findByRole('checkbox', { name: 'topic-01 (75)' })
+}
+
+export const OpenFilter: Story = {
+    ...ManyTags,
+    parameters: {
+        layout: 'padded',
+        testOptions: { snapshotTargetSelector: 'body', viewportWidths: ['narrow', 'wide'] },
+    },
+    play: async ({ canvasElement }) => {
+        await openFilter(canvasElement)
+    },
+}
+
+export const SearchedFilter: Story = {
+    ...OpenFilter,
+    play: async ({ canvasElement }) => {
+        await openFilter(canvasElement)
+        await userEvent.type(await screen.findByPlaceholderText('Search tags'), 'topic-75')
+        await screen.findByRole('checkbox', { name: 'topic-75 (1)' })
+    },
 }
