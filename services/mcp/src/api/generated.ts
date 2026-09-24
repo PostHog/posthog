@@ -11509,6 +11509,71 @@ export namespace Schemas {
       is_bot: boolean;
     }
 
+    /**
+     * * `ci` - CI
+     * * `review` - REVIEW
+     * * `queue` - QUEUE
+     * * `rework` - REWORK
+     */
+    export type FrictionGroupEnum = typeof FrictionGroupEnum[keyof typeof FrictionGroupEnum];
+
+
+    export const FrictionGroupEnum = {
+      Ci: 'ci',
+      Review: 'review',
+      Queue: 'queue',
+      Rework: 'rework',
+    } as const;
+
+    export interface FrictionGroupShare {
+      /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+       *
+       * * `ci` - CI
+       * * `review` - REVIEW
+       * * `queue` - QUEUE
+       * * `rework` - REWORK */
+      group: FrictionGroupEnum;
+      /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
+      score: number;
+    }
+
+    export interface AuthorFriction {
+      /** The score split by the kind of friction. */
+      groups: FrictionGroupShare[];
+      /** GitHub login. */
+      author: string;
+      /** The author's GitHub avatar, or empty when the pull requests carry none. */
+      avatar_url: string;
+      /** Friction as a multiple of the typical author: 1.0 is typical, 2.0 is twice as much. Counts only what happened to the author, never how much or how fast they ship. */
+      score: number;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+      /** Position by friction in the repository, 1 is the most. */
+      rank: number;
+      /** Best rank the author reaches when their pull requests are resampled. */
+      rank_low: number;
+      /** Worst rank the author reaches when their pull requests are resampled. */
+      rank_high: number;
+    }
+
+    export interface AuthorFrictionList {
+      /** Authors by friction, most first. */
+      items: AuthorFriction[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors with at least 3 merged pull requests, all ranked together. A team list keeps these repository-wide ranks. */
+      ranked_author_count: number;
+      /**
+         * The team the list is filtered to, or null for every author.
+         * @nullable
+         */
+      github_team: string | null;
+      /** False when the team membership table isn't synced, so a team filter matches nobody. */
+      has_membership_data: boolean;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -107857,6 +107922,21 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EngineeringAnalyticsAuthorFrictionParams = {
+    /**
+     * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsAuthorWorkflowCostsParams = {

@@ -24,6 +24,7 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    AuthorFrictionList,
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
@@ -276,6 +277,22 @@ def list_author_workflow_costs(
         author=author,
         date_from=date_from,
         date_to=date_to,
+    )
+
+
+def get_author_friction(
+    *,
+    team: Team,
+    github_team: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorFrictionList:
+    """Every author's friction over the last 30 days, most first. ``github_team`` lists only its members,
+    with their repository-wide scores and ranks."""
+    return logic.build_author_friction(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        github_team=github_team.strip() if github_team and github_team.strip() else None,
     )
 
 
