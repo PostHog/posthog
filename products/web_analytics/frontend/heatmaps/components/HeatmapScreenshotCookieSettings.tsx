@@ -45,14 +45,21 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
     const deliveryDisabledReason = deliveryDisabled
         ? 'Screenshot cookie delivery is turned off for this installation.'
         : undefined
+    const rotateDisabledReason =
+        deliveryDisabledReason ??
+        (!settings.allowed_hostnames.length
+            ? 'Save at least one approved hostname first.'
+            : settingsLoading || hasChanges
+              ? 'Save your hostname changes first.'
+              : undefined)
 
     return (
         <div className="flex flex-col gap-3 max-w-160">
             {deliveryDisabled && (
                 <LemonBanner type="warning">
                     Screenshot cookie delivery is turned off for this PostHog installation, so these settings would have
-                    no effect and cannot be changed. Screenshots still run, without the cookie. On PostHog Cloud,
-                    contact support to turn delivery on. On a self-hosted installation, ask whoever runs it to set
+                    no effect. Screenshots still run, without the cookie. On PostHog Cloud, contact support to turn
+                    delivery on. On a self-hosted installation, ask whoever runs it to set
                     HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED to true.
                 </LemonBanner>
             )}
@@ -127,14 +134,7 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             loading={rotatedSecretLoading}
-                            disabledReason={
-                                deliveryDisabledReason ??
-                                (!settings.allowed_hostnames.length
-                                    ? 'Save at least one approved hostname first.'
-                                    : settingsLoading || hasChanges
-                                      ? 'Save your hostname changes first.'
-                                      : undefined)
-                            }
+                            disabledReason={rotateDisabledReason}
                             onClick={() => {
                                 if (!settings.has_secret) {
                                     rotateSecret()

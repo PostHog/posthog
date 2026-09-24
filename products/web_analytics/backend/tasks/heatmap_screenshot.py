@@ -1,4 +1,5 @@
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -92,8 +93,11 @@ class PageHttpStatusError(BrowserlessPermanentError):
     """The customer's page answered the render with a non-2xx, so the capture is a picture of that."""
 
 
-def _last_delivery_reason(reasons: list[str]) -> str | None:
-    return reasons[-1] if reasons else None
+@dataclass(frozen=False)
+class DeliveryReason:
+    """Written per width by the render, read by the task's telemetry after it succeeds or raises."""
+
+    value: str | None = None
 
 
 def _width_bucket(width: int) -> str:
@@ -237,8 +241,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
     )
 
     started_at = time.monotonic()
-    # Appended to per width. The reason can change mid-render, so the event reports the last one.
-    delivery_reasons: list[str] = []
+    delivery = DeliveryReason()
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", screenshot.team_id)
         posthoganalytics.tag("screenshot_id", screenshot.id)
@@ -260,7 +263,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 )
                 return
 
-            width_count = _generate_screenshots(screenshot, delivery_reasons)
+            width_count = _generate_screenshots(screenshot, delivery)
             duration_seconds = round(time.monotonic() - started_at, 2)
 
             # If a create expanded target_widths mid-render, finish the new widths in a follow-up run
@@ -290,7 +293,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 success=True,
                 width_count=width_count,
                 duration_seconds=duration_seconds,
-                credential_delivery_reason=_last_delivery_reason(delivery_reasons),
+                credential_delivery_reason=delivery.value,
             )
 
             logger.info(
@@ -301,14 +304,12 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 mode="browserless",
                 width_count=width_count,
                 duration_seconds=duration_seconds,
-                credential_delivery_reason=_last_delivery_reason(delivery_reasons),
+                credential_delivery_reason=delivery.value,
             )
 
         except (BrowserlessPermanentError, SoftTimeLimitExceeded) as e:
             # Won't succeed on retry (bad request / config / oversized output / timed out) — fail now.
-            _record_failure(
-                screenshot, e, started_at=started_at, credential_delivery_reason=_last_delivery_reason(delivery_reasons)
-            )
+            _record_failure(screenshot, e, started_at=started_at, credential_delivery_reason=delivery.value)
             raise
         except Exception as e:
             # Transient Browserless failure: retry with backoff, but only record FAILED + emit the
@@ -319,7 +320,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                     screenshot,
                     e,
                     started_at=started_at,
-                    credential_delivery_reason=_last_delivery_reason(delivery_reasons),
+                    credential_delivery_reason=delivery.value,
                 )
                 raise
             countdown = min(2 ** (self.request.retries + 1), 60)
@@ -630,18 +631,17 @@ def _screenshot_cookie_delivery(screenshot: SavedHeatmap) -> tuple[str, list[dic
     config = TeamHeatmapConfig.objects.filter(team_id=screenshot.team_id).first()
     secret = config.screenshot_secret if config else None
     allowed_hostnames = config.allowed_hostnames if config else []
-    return (
-        screenshot_credential_delivery_reason(secret, screenshot.url, allowed_hostnames),
-        heatmap_screenshot_cookies(secret, screenshot.url, allowed_hostnames),
-    )
+    reason = screenshot_credential_delivery_reason(secret, screenshot.url, allowed_hostnames)
+    cookies = heatmap_screenshot_cookies(secret, screenshot.url, allowed_hostnames) if reason == "sent" else []
+    return reason, cookies
 
 
-def _generate_screenshots(screenshot: SavedHeatmap, delivery_reasons: list[str]) -> int:
+def _generate_screenshots(screenshot: SavedHeatmap, delivery: DeliveryReason) -> int:
     widths = _resolve_widths(screenshot)
-    return _generate_browserless_screenshots(screenshot, widths, delivery_reasons)
+    return _generate_browserless_screenshots(screenshot, widths, delivery)
 
 
-def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int], delivery_reasons: list[str]) -> int:
+def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int], delivery: DeliveryReason) -> int:
     # REST /screenshot: one request per width (viewport.width sets the captured width). Persist and
     # release each image as it arrives so worker memory holds one full-page JPEG at a time.
     endpoint_url = _build_browserless_screenshot_url()
@@ -662,9 +662,8 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     for w in pending:
         # Reload the cookie config per width, so removing a hostname or rotating the secret takes
         # effect on the next render rather than at the end of this one.
-        delivery_reason, cookies = _screenshot_cookie_delivery(screenshot)
-        delivery_reasons.append(delivery_reason)
-        HEATMAP_SCREENSHOT_CREDENTIAL_DELIVERY.labels(reason=delivery_reason).inc()
+        delivery.value, cookies = _screenshot_cookie_delivery(screenshot)
+        HEATMAP_SCREENSHOT_CREDENTIAL_DELIVERY.labels(reason=delivery.value).inc()
         image_data, page_status = _browserless_screenshot(
             endpoint_url, screenshot.url, w, screenshot.block_consent_modals, cookies
         )
@@ -672,9 +671,9 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
             guidance = (
                 "Screenshot cookie delivery is turned off for this installation, so no cookie was sent. "
                 "On PostHog Cloud, contact support to turn it on."
-                if delivery_reason == "delivery_disabled"
+                if delivery.value == "delivery_disabled"
                 else "The screenshot cookie was configured. Check the page and your bot protection rule before retrying."
-                if cookies
+                if delivery.value == "sent"
                 else "No screenshot cookie was sent. If bot protection blocks this page, ask a project admin to "
                 "approve its HTTPS hostname and configure a screenshot cookie in project settings under Heatmaps."
             )
