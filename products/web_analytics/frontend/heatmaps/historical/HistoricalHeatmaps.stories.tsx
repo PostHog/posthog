@@ -66,6 +66,11 @@ const meta: Meta<typeof HistoricalHeatmaps> = {
         ],
     },
     decorators: [
+        (Story) => (
+            <div className="w-[1200px]">
+                <Story />
+            </div>
+        ),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/heatmap_analyses/:id/': result,
@@ -85,7 +90,7 @@ export const Variants: Story = {}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
-            <div className="max-w-[520px]">
+            <div className="w-[520px]">
                 <Story />
             </div>
         ),
@@ -95,6 +100,7 @@ export const Empty: Story = { parameters: { pageUrl: '/heatmap/example' } }
 export const ReadOnly: Story = { args: { disabledReason: 'Editor access is required to change this analysis.' } }
 
 export const Detail: Story = {
+    parameters: { layout: 'fullscreen' },
     render: () => (
         <HistoricalHeatmapDetail
             variant={result.variants[0]}

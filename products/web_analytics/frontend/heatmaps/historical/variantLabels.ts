@@ -9,7 +9,8 @@ export function variantClickCount(variant: HeatmapAnalysisVariantApi): number {
 }
 
 export function variantStatsLabel(variant: HeatmapAnalysisVariantApi): string {
-    return `${variant.visits.toLocaleString()} recorded ${pluralize(variant.visits, 'visit', undefined, false)} · ${variantClickCount(variant).toLocaleString()} clicks`
+    const clicks = variantClickCount(variant)
+    return `${variant.visits.toLocaleString()} recorded ${pluralize(variant.visits, 'visit', undefined, false)} · ${clicks.toLocaleString()} ${pluralize(clicks, 'click', undefined, false)}`
 }
 
 export function variantDateRange(variant: HeatmapAnalysisVariantApi, timezone: string): string {

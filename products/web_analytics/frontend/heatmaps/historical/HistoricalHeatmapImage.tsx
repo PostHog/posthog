@@ -14,10 +14,12 @@ import { HISTORICAL_HEATMAP_RADIUS, countHistoricalHeatmapClicks } from './count
 export function HistoricalHeatmapImage({
     variant,
     backgroundUrl,
+    maxHeight,
     overlayClassName,
 }: {
     variant: HeatmapAnalysisVariantApi
     backgroundUrl: string
+    maxHeight?: number
     overlayClassName?: string
 }): JSX.Element {
     const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -25,6 +27,7 @@ export function HistoricalHeatmapImage({
     const [imageState, setImageState] = useState<'loading' | 'ready' | 'error'>('loading')
     const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
     const scale = Math.min(1, (width || variant.width) / variant.width)
+    const visibleHeight = Math.min(variant.height, maxHeight ?? variant.height)
     const hoveredClicks = hoverPosition ? countHistoricalHeatmapClicks(variant.clicks, hoverPosition, scale) : 0
     useEffect(() => {
         setHoverPosition(null)
@@ -51,16 +54,18 @@ export function HistoricalHeatmapImage({
         heatmap.setData({
             max: Math.max(1, ...variant.clicks.map((click) => click.count)),
             min: 0,
-            data: variant.clicks.map((click) => ({
-                x: Math.round(click.x * scale),
-                y: Math.round(click.y * scale),
-                value: click.count,
-            })),
+            data: variant.clicks
+                .filter((click) => click.y <= visibleHeight)
+                .map((click) => ({
+                    x: Math.round(click.x * scale),
+                    y: Math.round(click.y * scale),
+                    value: click.count,
+                })),
         })
         return () => {
             container.replaceChildren()
         }
-    }, [variant, scale, imageState])
+    }, [variant, scale, imageState, visibleHeight])
     return (
         <div ref={ref} className="w-full overflow-hidden">
             {imageState === 'error' ? (
@@ -69,8 +74,8 @@ export function HistoricalHeatmapImage({
                 </LemonBanner>
             ) : (
                 <div
-                    className="relative mx-auto"
-                    style={{ width: variant.width * scale, height: variant.height * scale }}
+                    className="relative mx-auto overflow-hidden"
+                    style={{ width: variant.width * scale, height: visibleHeight * scale }}
                     onPointerMove={(event) => {
                         if (imageState === 'ready') {
                             const bounds = event.currentTarget.getBoundingClientRect()

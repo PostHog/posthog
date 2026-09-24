@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
@@ -46,9 +46,14 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const historicalEnabled = useFeatureFlag('HEATMAPS_HISTORICAL_VARIANTS')
     const { currentTeam } = useValues(teamLogic)
     const { searchParams } = useValues(router)
-    const [view, setView] = useState<'combined' | 'variants'>(
-        searchParams.historical_analysis ? 'variants' : 'combined'
-    )
+    const view: 'combined' | 'variants' =
+        searchParams.heatmap_view === 'combined' || searchParams.heatmap_view === 'variants'
+            ? searchParams.heatmap_view
+            : searchParams.historical_analysis
+              ? 'variants'
+              : 'combined'
+    const setView = (value: 'combined' | 'variants'): void =>
+        router.actions.replace(router.values.location.pathname, { ...searchParams, heatmap_view: value })
 
     const {
         name,

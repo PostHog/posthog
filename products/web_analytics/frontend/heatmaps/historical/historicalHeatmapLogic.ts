@@ -1,6 +1,6 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { eventFilterParam, heatmapDataLogic, selectedEventFilters } from 'lib/components/heatmaps/heatmapDataLogic'
 import { dayjs } from 'lib/dayjs'
@@ -196,7 +196,7 @@ export const historicalHeatmapLogic = kea<historicalHeatmapLogicType>([
                     if (result.analysis.heatmap_id !== props.heatmapId) {
                         throw new Error('This analysis belongs to another heatmap.')
                     }
-                    if (!values.result) {
+                    if (values.result?.analysis.id !== result.analysis.id) {
                         const timezone = values.timezone
                         const shared = heatmapDataLogic({ context: 'in-app' })
                         const from = dayjs(result.analysis.date_from).tz(timezone)
@@ -346,15 +346,17 @@ export const historicalHeatmapLogic = kea<historicalHeatmapLogicType>([
                 }
             },
             startAnalysis: () => cache.disposables.dispose('poll'),
-            loadAnalysisFailure: () => cache.disposables.dispose('poll'),
+            loadAnalysisFailure: syncPolling,
             loadAnalysisSuccess: syncPolling,
             startAnalysisSuccess: syncPolling,
         }
     }),
-    afterMount(({ actions }) => {
-        const id = router.values.searchParams.historical_analysis
-        if (typeof id === 'string') {
-            actions.loadAnalysis(id)
-        }
-    }),
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            const id = searchParams.historical_analysis
+            if (typeof id === 'string' && id !== values.result?.analysis.id && !values.resultLoading) {
+                actions.loadAnalysis(id)
+            }
+        },
+    })),
 ])

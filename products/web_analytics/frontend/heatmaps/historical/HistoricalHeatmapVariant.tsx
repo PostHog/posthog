@@ -1,5 +1,7 @@
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
 import type { HeatmapAnalysisVariantApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { HistoricalHeatmapImage } from './HistoricalHeatmapImage'
@@ -18,13 +20,14 @@ export function HistoricalHeatmapVariant({
     backgroundUrl: string
     onSelect: () => void
 }): JSX.Element {
+    const clickCount = variantClickCount(variant)
     return (
         <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
             <button
                 type="button"
                 className="group/variant block w-full text-left cursor-pointer hover:bg-surface-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2"
                 onClick={onSelect}
-                aria-label={`Open variant ${index + 1} heatmap, ${variantClickCount(variant).toLocaleString()} clicks`}
+                aria-label={`Open variant ${index + 1} heatmap, ${clickCount.toLocaleString()} ${pluralize(clickCount, 'click', undefined, false)}`}
                 data-attr="historical-heatmap-variant"
             >
                 <div className="aspect-[4/3] overflow-hidden border-b bg-surface-secondary" aria-hidden>
@@ -32,6 +35,7 @@ export function HistoricalHeatmapVariant({
                         key={backgroundUrl}
                         variant={variant}
                         backgroundUrl={backgroundUrl}
+                        maxHeight={(variant.width * 3) / 4}
                         overlayClassName="opacity-0 group-hover/variant:opacity-100 group-focus-visible/variant:opacity-100 motion-safe:transition-opacity motion-safe:duration-150"
                     />
                 </div>

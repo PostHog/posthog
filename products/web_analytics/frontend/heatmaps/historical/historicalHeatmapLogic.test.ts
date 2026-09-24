@@ -159,4 +159,26 @@ describe('historicalHeatmapLogic', () => {
         expect(logic.values.selectedVariant).toBeNull()
         logic.unmount()
     })
+
+    it('loads the analysis named in the URL when the link changes while mounted', async () => {
+        const other = { ...result, analysis: { ...result.analysis, id: 'other-analysis', viewport_width: 1024 } }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/heatmap_analyses/:id/': ({ params }) => [
+                    200,
+                    params.id === other.analysis.id ? other : result,
+                ],
+            },
+        })
+        router.actions.push('/heatmaps/example', { historical_analysis: result.analysis.id })
+        const logic = historicalHeatmapLogic({ heatmapId: result.analysis.heatmap_id })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadAnalysisSuccess'])
+        await expectLogic(logic, () =>
+            router.actions.push('/heatmaps/example', { historical_analysis: other.analysis.id })
+        ).toDispatchActions(['loadAnalysisSuccess'])
+        expect(logic.values.result?.analysis.id).toBe(other.analysis.id)
+        expect(logic.values.widthOverride).toBe(1024)
+        logic.unmount()
+    })
 })
