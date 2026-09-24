@@ -95,10 +95,10 @@ const organizationSecuritySettings = feature(
     'Organization security settings',
     'Configure security permissions for organization members.'
 )
-const memberNotificationGovernance = feature(
-    'member_notification_governance',
-    'Member notification governance',
-    'Choose which email notifications organization members receive.'
+const memberGovernance = feature(
+    'member_governance',
+    'Member governance',
+    'Manage settings for the members of your organization, such as which email notifications they receive.'
 )
 const sessionReplayDataRetention = (months: number): AddonPlanFeature =>
     feature(
@@ -193,7 +193,7 @@ const TEAMS_FEATURES: AddonPlanFeature[] = [
     dataColorThemes,
     organizationInviteSettings,
     organizationSecuritySettings,
-    memberNotificationGovernance,
+    memberGovernance,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
 ]
@@ -211,7 +211,7 @@ const BOOST_FEATURES: AddonPlanFeature[] = [
     supportResponseTime('48 hours'),
     organizationInviteSettings,
     organizationSecuritySettings,
-    memberNotificationGovernance,
+    memberGovernance,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
 ]
@@ -233,7 +233,7 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     supportResponseTime('24 hours'),
     organizationInviteSettings,
     organizationSecuritySettings,
-    memberNotificationGovernance,
+    memberGovernance,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
     realTimeAlerts,
@@ -262,7 +262,7 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     supportResponseTime('8 hours'),
     organizationInviteSettings,
     organizationSecuritySettings,
-    memberNotificationGovernance,
+    memberGovernance,
     prioritySupport('Target response time 8 hours'),
     saml,
     approvals,

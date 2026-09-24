@@ -240,7 +240,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
-    MEMBER_NOTIFICATION_GOVERNANCE = 'member_notification_governance',
+    MEMBER_GOVERNANCE = 'member_governance',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 

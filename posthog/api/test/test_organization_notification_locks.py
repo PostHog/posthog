@@ -20,7 +20,7 @@ class TestOrganizationNotificationLocks(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.MEMBER_NOTIFICATION_GOVERNANCE, "name": "Member notification governance"}
+            {"key": AvailableFeature.MEMBER_GOVERNANCE, "name": "Member governance"}
         ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

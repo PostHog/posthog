@@ -115,7 +115,7 @@ def _notify(user: User, organization: Organization, change_count: int) -> None:
 class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     permission_classes = [OrganizationAdminReadPermissions, PremiumFeaturePermission]
-    premium_feature = AvailableFeature.MEMBER_NOTIFICATION_GOVERNANCE
+    premium_feature = AvailableFeature.MEMBER_GOVERNANCE
     pagination_class = None
 
     @extend_schema(
