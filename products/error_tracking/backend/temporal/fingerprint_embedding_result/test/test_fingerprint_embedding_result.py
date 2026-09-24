@@ -33,6 +33,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _target_embedding_from_inputs,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
+    AutoMergeOutcome,
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
@@ -497,7 +498,7 @@ class TestAutoMergeReopensTarget(BaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
-    def _merge(self, event_reference: str = "event-1") -> object:
+    def _merge(self, event_reference: str = "event-1") -> AutoMergeOutcome:
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
