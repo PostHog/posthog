@@ -37,12 +37,12 @@ describe('optional terminal packages', () => {
             return true
         }),
     }
-    const mount = (signal = new AbortController().signal): TerminalFilesystem => {
+    const mount = (signal = new AbortController().signal, baseUrl?: string): TerminalFilesystem => {
         const filesystem = new TerminalFilesystem()
         new TerminalPackages(
             filesystem,
             signal,
-            { example: pkg },
+            { example: { ...pkg, baseUrl } },
             'https://raw.githubusercontent.com/example/tools/pinned'
         ).mount()
         return filesystem
@@ -88,20 +88,23 @@ describe('optional terminal packages', () => {
         }
     })
 
-    it('downloads only when opened, shares concurrent reads, and reuses verified downloads across sessions', async () => {
-        const filesystem = mount()
-        expect(fetch).not.toHaveBeenCalled()
-        const [first, second] = await Promise.all([open(filesystem), open(filesystem)])
-        expect(first.bytes).toEqual(archive)
-        expect(second.bytes).toEqual(archive)
-        expect(fetch).toHaveBeenCalledTimes(1)
-        expect(fetch).toHaveBeenCalledWith(
-            expect.stringContaining('/pinned/example.tar.gz'),
-            expect.objectContaining({ credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' })
-        )
-        expect((await open(mount())).bytes).toEqual(archive)
-        expect(fetch).toHaveBeenCalledTimes(1)
-    })
+    it.each([undefined, 'https://raw.githubusercontent.com/example/tools/package-pin'])(
+        'downloads lazily and reuses verified downloads with package source %s',
+        async (baseUrl) => {
+            const filesystem = mount(undefined, baseUrl)
+            expect(fetch).not.toHaveBeenCalled()
+            const [first, second] = await Promise.all([open(filesystem), open(filesystem)])
+            expect(first.bytes).toEqual(archive)
+            expect(second.bytes).toEqual(archive)
+            expect(fetch).toHaveBeenCalledTimes(1)
+            expect(fetch).toHaveBeenCalledWith(
+                `${baseUrl ?? 'https://raw.githubusercontent.com/example/tools/pinned'}/example.tar.gz`,
+                expect.objectContaining({ credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' })
+            )
+            expect((await open(mount(undefined, baseUrl))).bytes).toEqual(archive)
+            expect(fetch).toHaveBeenCalledTimes(1)
+        }
+    )
 
     it.each(['network', 'checksum', 'size', 'cached checksum'])(
         'allows retry after a %s failure without exposing unverified bytes',

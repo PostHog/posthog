@@ -1,4 +1,5 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
+import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -74,10 +75,6 @@ const CHANNELS: TaskChannel[] = [
   channel("web-analytics"),
 ];
 
-/**
- * The column reads its rows through authenticated queries that never resolve in
- * Storybook, so seed their caches — a disabled query still serves cached data.
- */
 function seededClient({
   pinnedTaskIds = [],
   tasks = TASKS,
@@ -95,12 +92,10 @@ function seededClient({
   return client;
 }
 
-/** The same sessions, with the facts a row draws a badge for. */
 const MARKED_TASKS: Task[] = TASKS.map((entry, index) =>
   index === 1 ? { ...entry, origin_product: "slack" } : entry,
 );
 
-/** The column at the width the app gives it, against one seeded cache. */
 function column(client: QueryClient) {
   return function Decorator(Story: () => ReactElement) {
     return (
@@ -113,24 +108,47 @@ function column(client: QueryClient) {
   };
 }
 
+function app(client: QueryClient) {
+  return function Decorator(Story: () => ReactElement) {
+    return (
+      <QueryClientProvider client={client}>
+        <div className="flex h-screen bg-chrome">
+          <NavRail />
+          <div className="w-[280px] shrink-0">
+            <Story />
+          </div>
+          <div className="flex-1 rounded-tl-sm border-border border-t border-l bg-background" />
+        </div>
+      </QueryClientProvider>
+    );
+  };
+}
+
 const meta = {
   title: "Canvas/WorkColumn",
   component: WorkColumn,
   parameters: { layout: "fullscreen" },
-  decorators: [column(seededClient())],
 } satisfies Meta<typeof WorkColumn>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Recent capped at five rows, spaces below it. */
-export const Default: Story = {};
+export const Default: Story = {
+  decorators: [column(seededClient())],
+};
 
-/**
- * The marks a row carries: a pin, and where a session came from. Recent has no
- * pinned run, so a pinned session keeps its place in the list and says so with
- * its badge alone.
- */
+export const WithPinned: Story = {
+  decorators: [
+    column(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
+  ],
+};
+
+export const InTheApp: Story = {
+  decorators: [
+    app(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
+  ],
+};
+
 export const WithBadges: Story = {
   decorators: [
     column(seededClient({ pinnedTaskIds: ["task-3"], tasks: MARKED_TASKS })),
