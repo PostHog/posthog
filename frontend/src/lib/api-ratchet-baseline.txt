@@ -235,6 +235,7 @@ signalReport projects/{}/signals/reports/{}
 signalReports projects/{}/signals/reports
 signalSourceConfig projects/{}/signals/source_configs/{}
 signalSourceConfigs projects/{}/signals/source_configs
+signalTeamConfig projects/{}/signals/config
 subscription projects/{}/subscriptions/{}
 subscriptions projects/{}/subscriptions
 survey projects/{}/surveys/{}

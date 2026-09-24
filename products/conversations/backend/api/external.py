@@ -27,7 +27,7 @@ from products.conversations.backend.api.ticket_actions import (
     handle_ticket_patch,
     wants_first_customer_message_text,
 )
-from products.conversations.backend.metrics import TICKET_ACTION_AUTH_COUNTER
+from products.conversations.backend.metrics import LEGACY_TICKET_AUTH_BY_TEAM_COUNTER, TICKET_ACTION_AUTH_COUNTER
 
 
 class _ExternalTicketThrottle(SimpleRateThrottle):
@@ -71,6 +71,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TICKET_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method=(request.method or "").lower()).inc()
+    LEGACY_TICKET_AUTH_BY_TEAM_COUNTER.labels(team_id=str(team.id)).inc()
     return team, None
 
 

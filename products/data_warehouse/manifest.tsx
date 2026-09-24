@@ -4,8 +4,6 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
-import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'
-import type { NodeDetailSceneTab } from '../../frontend/src/scenes/models/nodeDetailSceneLogic'
 import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
@@ -14,24 +12,12 @@ export const manifest: ProductManifest = {
     scenes: {
         DataOps: {
             name: 'Data ops',
-            import: () => import('./DataWarehouseScene'),
+            import: () => import('./frontend/scenes/DataOpsScene/DataWarehouseScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
             docsHref: 'https://posthog.com/docs/data-warehouse',
-        },
-        Models: {
-            name: 'Models',
-            import: () => import('../../frontend/src/scenes/models/ModelsScene'),
-            projectBased: true,
-            description: 'Create and manage views and materialized views for transforming and organizing your data.',
-            iconType: 'sql_editor',
-        },
-        NodeDetail: {
-            name: 'Model detail',
-            import: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
-            projectBased: true,
         },
         SQLEditor: {
             projectBased: true,
@@ -80,9 +66,6 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
-        '/models': ['Models', 'models'],
-        '/models/:id': ['NodeDetail', 'nodeDetail'],
-        '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
             'DataWarehouseSourceSchema',
@@ -121,8 +104,6 @@ export const manifest: ProductManifest = {
             const query = params.toString()
             return query ? `/data-ops?${query}` : '/data-ops'
         },
-        models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
-        nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
             `/data-management/sources/${id}/${tab ?? 'schemas'}`,
@@ -186,6 +167,20 @@ export const manifest: ProductManifest = {
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',
+            // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
+            // The generated list otherwise follows product membership and leaves them out.
+            sceneKeys: [
+                'DataOps',
+                'Models',
+                'NodeDetail',
+                'SQLEditor',
+                'Sources',
+                'DataWarehouseSource',
+                'DataWarehouseSourceNew',
+                'DataWarehouseSourceConnect',
+                'DataWarehouseSourceSchema',
+                'WarehouseDestinations',
+            ],
         },
     ],
     treeItemsMetadata: [
@@ -197,16 +192,6 @@ export const manifest: ProductManifest = {
             href: urls.sources(),
             sceneKey: 'Sources',
             sceneKeys: ['Sources'],
-        },
-        {
-            path: 'Models',
-            category: 'Tools',
-            type: 'sql',
-            iconType: 'sql_editor',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
-            href: urls.models(),
-            sceneKey: 'Models',
-            sceneKeys: ['Models'],
         },
         {
             path: 'Warehouse destinations',
@@ -223,6 +208,20 @@ export const manifest: ProductManifest = {
             iconType: 'managed_viewsets',
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+            // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
+            // The generated list otherwise follows product membership and leaves them out.
+            sceneKeys: [
+                'DataOps',
+                'Models',
+                'NodeDetail',
+                'SQLEditor',
+                'Sources',
+                'DataWarehouseSource',
+                'DataWarehouseSourceNew',
+                'DataWarehouseSourceConnect',
+                'DataWarehouseSourceSchema',
+                'WarehouseDestinations',
+            ],
         },
     ],
 }

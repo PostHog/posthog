@@ -16,8 +16,12 @@ from posthog.hogql import ast
 
 from posthog.api.capture import CaptureInternalError
 from posthog.cdp.validation import compile_hog
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, PropertyDefinition, Team, User
+from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -316,6 +320,65 @@ class TestBuildTraceSkipResult:
         assert result["skip_reason"] == "trace_not_found"
 
 
+class TestBackgroundEvaluationPropertyAccess:
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("target", ["trace", "session"])
+    @pytest.mark.parametrize(
+        "property_type,member_only,access_level,should_skip",
+        [
+            (PropertyDefinition.Type.EVENT, False, PropertyAccessLevel.NONE, True),
+            (PropertyDefinition.Type.EVENT, True, PropertyAccessLevel.NONE, False),
+            (PropertyDefinition.Type.EVENT, False, PropertyAccessLevel.READ, False),
+            (PropertyDefinition.Type.PERSON, False, PropertyAccessLevel.NONE, False),
+            (PropertyDefinition.Type.GROUP, False, PropertyAccessLevel.NONE, False),
+        ],
+    )
+    def test_only_default_event_denials_skip_before_reading_content(
+        self,
+        setup_data: dict[str, object],
+        target: str,
+        property_type: int,
+        member_only: bool,
+        access_level: PropertyAccessLevel,
+        should_skip: bool,
+    ) -> None:
+        organization = cast(Organization, setup_data["organization"])
+        team = cast(Team, setup_data["team"])
+        organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        organization.save()
+        member = None
+        if member_only:
+            user = User.objects.create_and_join(organization, "restricted-evaluator@example.com", "test-password")
+            member = user.organization_memberships.get(organization=organization)
+        definition = PropertyDefinition.objects.create(
+            team=team,
+            name="$ai_input",
+            type=property_type,
+            group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
+        )
+        PropertyAccessControl.objects.create(
+            team=team,
+            property_definition=definition,
+            organization_member=member,
+            access_level=access_level.value,
+        )
+        with patch(
+            f"posthog.temporal.ai_observability.run_{target}_evaluation.query_ai_events",
+            return_value=MagicMock(results=[]),
+        ) as mock_query:
+            fetch = fetch_trace_for_evaluation if target == "trace" else fetch_session_for_evaluation
+            outcome = fetch(team.id, "missing-unit", FROZEN_NOW)
+
+        assert outcome.skip_reason == ("property_access_restricted" if should_skip else f"{target}_not_found")
+        assert outcome.event_count == 0
+        if should_skip:
+            mock_query.assert_not_called()
+        else:
+            mock_query.assert_called_once()
+
+
 class TestFetchTraceForEvaluation:
     @pytest.mark.django_db(transaction=True)
     def test_skips_when_no_events_found(self, setup_data):
@@ -444,8 +507,10 @@ class TestRunHogEvalOverRecentTraces:
         assert rewritten_condition.left.chain == ["input"]
 
     @time_machine.travel(FROZEN_NOW, tick=False)
-    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_uses_the_sampled_trigger_and_configured_aggregation_window(self, output_type: str):
         team = MagicMock(spec=Team)
+        user = MagicMock()
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
         trace = create_trace(
             [
@@ -454,7 +519,9 @@ class TestRunHogEvalOverRecentTraces:
             ]
         )
         bytecode = compile_hog(
-            "return target.type == 'trace' and length(evaluation_events) == 2",
+            "return length(evaluation_events) / 4"
+            if output_type == "numeric"
+            else "return target.type == 'trace' and length(evaluation_events) == 2",
             "destination",
         )
 
@@ -462,16 +529,23 @@ class TestRunHogEvalOverRecentTraces:
             "posthog.temporal.ai_observability.run_trace_evaluation._sample_recent_traces",
             return_value=[TraceHogTestSample(trace_id="trace-123", trigger_timestamp=trigger_timestamp)],
         ) as mock_sample:
-            with patch(
-                "posthog.temporal.ai_observability.run_trace_evaluation._fetch_trace",
-                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=2),
-            ) as mock_fetch:
+            with (
+                patch(
+                    "posthog.temporal.ai_observability.run_trace_evaluation.query_ai_events",
+                    side_effect=[MagicMock(results=[[2]]), MagicMock(results=[[0]])],
+                ) as mock_query,
+                patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+            ):
+                mock_runner.return_value.calculate.return_value = MagicMock(results=[trace])
                 results = run_hog_eval_over_recent_traces(
                     team=team,
+                    user=user,
                     bytecode=bytecode,
                     condition_filter=None,
                     sample_count=1,
                     allows_na=False,
+                    output_type=output_type,
+                    output_config={"min": 0, "max": 1} if output_type == "numeric" else {},
                     window_seconds=120,
                 )
 
@@ -481,14 +555,20 @@ class TestRunHogEvalOverRecentTraces:
             1,
             FROZEN_NOW - timedelta(seconds=120, days=7),
             FROZEN_NOW - timedelta(seconds=120),
+            user=user,
         )
-        mock_fetch.assert_called_once_with(
-            team,
-            "trace-123",
-            trigger_timestamp - TRACE_EVENTS_LOOKBACK,
-            trigger_timestamp + timedelta(seconds=120),
-        )
-        assert results[0].verdict is True
+        for query_call in mock_query.call_args_list:
+            assert query_call.kwargs["user"] is user
+        runner_kwargs = mock_runner.call_args.kwargs
+        assert runner_kwargs["user"] is user
+        assert runner_kwargs["query"].traceId == "trace-123"
+        assert runner_kwargs["query"].dateRange.date_from == (trigger_timestamp - TRACE_EVENTS_LOOKBACK).isoformat()
+        assert runner_kwargs["query"].dateRange.date_to == (trigger_timestamp + timedelta(seconds=120)).isoformat()
+        if output_type == "numeric":
+            assert results[0].score == 0.5
+            assert results[0].verdict is None
+        else:
+            assert results[0].verdict is True
         assert results[0].input_preview == "first"
         assert results[0].output_preview == "two"
 
@@ -535,24 +615,31 @@ class TestExecuteTraceLLMJudgeActivity:
         assert result["verdict"] is True
         assert result["reasoning"] == "Resolved both questions"
 
-    @pytest.mark.django_db(transaction=True)
-    def test_skips_without_llm_call_when_trace_missing(self, setup_data):
+    @pytest.mark.parametrize("skip_reason", ["trace_not_found", "property_access_restricted"])
+    def test_skips_without_llm_call(self, skip_reason: str) -> None:
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
-            return_value=TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0),
+            return_value=TraceFetchOutcome(trace=None, skip_reason=skip_reason, event_count=0),
         ):
             with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
                 result = execute_trace_llm_judge_activity(
                     ExecuteTraceEvaluationInputs(
-                        evaluation=evaluation_dict(setup_data),
-                        team_id=setup_data["team"].id,
+                        evaluation={
+                            "evaluation_type": "llm_judge",
+                            "evaluation_config": {"prompt": "Is the response correct?"},
+                            "output_type": "boolean",
+                            "output_config": {},
+                        },
+                        team_id=1,
                         trace_id="trace-123",
                         window_start=FROZEN_NOW.isoformat(),
                     )
                 )
 
         assert result["skipped"] is True
-        assert result["skip_reason"] == "trace_not_found"
+        assert result["skip_reason"] == skip_reason
+        if skip_reason == "property_access_restricted":
+            assert "property access rules" in result["reasoning"]
         mock_client_class.assert_not_called()
 
 
@@ -589,30 +676,29 @@ class TestExecuteTraceHogEvalActivity:
         assert result["verdict"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_skips_when_trace_too_large(self, setup_data):
+    @pytest.mark.parametrize("skip_reason", ["trace_too_large", "property_access_restricted"])
+    async def test_skips_without_running_hog(self, skip_reason: str) -> None:
         bytecode = compile_hog("return true", "destination")
-        evaluation = evaluation_dict(
-            setup_data,
-            evaluation_type="hog",
-            evaluation_config={"source": "return true", "bytecode": bytecode},
-        )
+        evaluation = {
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return true", "bytecode": bytecode},
+        }
 
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
-            return_value=TraceFetchOutcome(trace=None, skip_reason="trace_too_large", event_count=10_000),
+            return_value=TraceFetchOutcome(trace=None, skip_reason=skip_reason, event_count=10_000),
         ):
             result = await execute_trace_hog_eval_activity(
                 ExecuteTraceEvaluationInputs(
                     evaluation=evaluation,
-                    team_id=setup_data["team"].id,
+                    team_id=1,
                     trace_id="trace-123",
                     window_start=FROZEN_NOW.isoformat(),
                 )
             )
 
         assert result["skipped"] is True
-        assert result["skip_reason"] == "trace_too_large"
+        assert result["skip_reason"] == skip_reason
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

@@ -15,11 +15,15 @@ ALL_ENDPOINTS = [
     "spend",
     "agent_edits",
     "tabs",
+    "dau",
+    "models",
+    "top_file_extensions",
     "by_user_agent_edits",
     "by_user_tabs",
     "by_user_models",
     "by_user_top_file_extensions",
     "ai_code_commits",
+    "ai_code_changes",
 ]
 
 
@@ -68,11 +72,15 @@ class TestCursorSource:
             ("spend", False, None),
             ("agent_edits", True, "event_date"),
             ("tabs", True, "event_date"),
+            ("dau", True, "date"),
+            ("models", True, "date"),
+            ("top_file_extensions", True, "event_date"),
             ("by_user_agent_edits", True, "event_date"),
             ("by_user_tabs", True, "event_date"),
             ("by_user_models", True, "date"),
             ("by_user_top_file_extensions", True, "event_date"),
             ("ai_code_commits", True, "commitTs"),
+            ("ai_code_changes", True, "createdAt"),
         ]
     )
     def test_get_schemas_incremental_support(self, endpoint, supports_incremental, incremental_field):

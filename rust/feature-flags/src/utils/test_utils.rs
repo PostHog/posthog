@@ -6,7 +6,10 @@ use crate::{
         flag_group_type_mapping::{
             GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
         },
-        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow},
+        flag_models::{
+            EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
+            HypercacheFlagsWrapper,
+        },
     },
     properties::property_models::PropertyType,
     team::team_models::Team,
@@ -16,7 +19,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
-use common_redis::{Client as RedisClientTrait, RedisClient};
+use common_redis::{Client as RedisClientTrait, MockRedisClient, MockRedisValue, RedisClient};
 use common_types::{Person, PersonId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
@@ -307,6 +310,48 @@ impl common_hypercache::S3Client for StaticS3Client {
 /// An S3 client that serves `body` for every key, for injecting into the test server.
 pub fn static_s3_client(body: &str) -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(StaticS3Client(body.to_string()))
+}
+
+pub async fn insert_v1_and_v2_flags(context: &TestContext, team_id: i32) {
+    for (key, filters) in [
+        (
+            "v1-flag",
+            json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+        ),
+        (
+            "v2-flag",
+            json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
+        ),
+    ] {
+        context
+            .insert_flag(
+                team_id,
+                Some(FeatureFlagRow {
+                    team_id,
+                    key: key.to_string(),
+                    name: Some(String::new()),
+                    filters,
+                    active: true,
+                    evaluation_runtime: Some("all".to_string()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("Failed to insert flag");
+    }
+}
+
+pub fn published_flag_keys(redis: &MockRedisClient) -> Vec<String> {
+    let written = redis
+        .get_calls()
+        .into_iter()
+        .find(|call| call.op == "pipeline_setex" && call.key.ends_with("/flags.json"))
+        .expect("payload write");
+    let MockRedisValue::StringWithTTLAndFormat(payload, _, _) = written.value else {
+        panic!("unexpected write {:?}", written.value)
+    };
+    let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&payload).unwrap();
+    wrapper.flags.into_iter().map(|flag| flag.key).collect()
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.

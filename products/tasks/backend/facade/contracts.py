@@ -15,7 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -598,6 +598,7 @@ class TaskRunDetailDTO:
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -658,6 +659,69 @@ class TaskRunSandboxConnectionDTO:
     connection_token: str | None = None
     # Query-param name the transport token travels under (provider-specific).
     sandbox_token_param: str = "_modal_connect_token"
+
+
+SPACE_SETUP_SCOPES = (
+    "task:write",
+    "canvas:write",
+    "hog_flow:write",
+    "query:read",
+    "data_catalog:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "experiment:read",
+    "error_tracking:read",
+    "session_recording:read",
+    "event_definition:read",
+    "property_definition:read",
+    "project:read",
+    "organization:read",
+    "survey:read",
+)
+
+
+class SpaceSetupInProgressError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class SpaceGoalRequest:
+    """The metric a goal space is set up to move."""
+
+    statement: str
+    period: Literal["day", "week", "month"] = "week"
+    direction: Literal["at_least", "at_most"] = "at_least"
+    target: str | None = None
+    deadline: date | None = None
+    insight_short_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceFeatureRequest:
+    """The feature a feature space is set up around."""
+
+    name: str
+    description: str = ""
+    flag_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupRequest:
+    """What the space setup task should set the space up for. Exactly one of ``goal`` and
+    ``feature`` is set, matching ``kind``."""
+
+    kind: Literal["goal", "feature"]
+    goal: SpaceGoalRequest | None = None
+    feature: SpaceFeatureRequest | None = None
+    repository: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupStartedDTO:
+    """The setup task that now owns the channel's context generation marker."""
+
+    task_id: UUID
 
 
 @dataclass(frozen=True)

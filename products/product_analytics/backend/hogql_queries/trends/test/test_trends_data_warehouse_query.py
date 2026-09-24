@@ -10,8 +10,10 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import skipIf
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -513,6 +515,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert TrendsQueryRunner(team=self.team, query=trends_query)._is_breakdown_filter_field_boolean() is expected
 
+    @skipIf(
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        "the native-JSON events table keeps flags in the $feature_flags map, which HogQL does not read yet",
+    )
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
 

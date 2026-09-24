@@ -188,7 +188,7 @@ class SourceBatchEvaluation:
 
 # The platform's write, which a source's evaluation workflow starts by name. One definition,
 # because a rename that misses a source breaks it at runtime and nothing else would catch it.
-RECORD_OUTCOMES_ACTIVITY: Final[str] = "alerts_product_record_outcomes"
+RECORD_OUTCOMES_ACTIVITY: Final[str] = "alerts_platform_record_outcomes"
 
 
 @frozen

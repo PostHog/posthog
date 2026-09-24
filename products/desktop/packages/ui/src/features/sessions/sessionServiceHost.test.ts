@@ -6548,7 +6548,7 @@ describe("SessionService", () => {
             { value: "low", name: "Low" },
             { value: "medium", name: "Medium" },
             { value: "high", name: "High" },
-            { value: "xhigh", name: "Extra High" },
+            { value: "xhigh", name: "Extra high" },
           ],
         },
       ]);

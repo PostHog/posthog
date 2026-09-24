@@ -51,9 +51,11 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
 from products.canvas.backend.models import Canvas
+from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
@@ -69,6 +71,7 @@ from products.tasks.backend.constants import (
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PR_LOOP_ENABLED_STATE_KEY,
@@ -103,6 +106,15 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.space_setup import (
+    SPACE_SETUP_FEED_EVENT,
+    SPACE_SETUP_MODEL,
+    SPACE_SETUP_REASONING_EFFORT,
+    SPACE_SETUP_RUNTIME_ADAPTER,
+    SpaceSetupUnavailableError as SpaceSetupUnavailableError,
+    build_space_setup_prompt,
+    space_setup_task_title,
+)
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -589,6 +601,7 @@ def _task_run_detail_to_dto(
         updated_at=run.updated_at,
         completed_at=run.completed_at,
         preview_available=task_run_preview_ready(run.state),
+        scheduled_at=run.scheduled_at,
     )
 
 
@@ -2484,6 +2497,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
+        # The image a run boots from; a PATCHed value would pick an image the task never asked for.
+        "sandbox_template",
         # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
         # creation; a PATCHable value would let a task controller bypass the org feature flags
         # (for telemetry, that means injecting the internal OTLP capture token into their
@@ -2575,6 +2590,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # interaction_origin is "slack"; a removed actor falls back to the task creator.
         "interaction_origin",
         "slack_actor_user_id",
+        # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
+        "autoresearch_training_run_id",
     }
 )
 
@@ -2789,7 +2806,7 @@ def signal_workflow_completion(run_id: str | UUID, status: str, error_message: s
     )
 
     run = TaskRun.objects.filter(pk=run_id).first()
-    if run is None:
+    if run is None or (run.scheduled_at is not None and run.queued_at is None):
         return
     try:
         client = sync_connect()
@@ -2928,7 +2945,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
         # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
         # must not import signals internals.
-        if not new_pr_url.startswith("https://github.com/"):
+        if not new_pr_url.startswith(GITHUB_PR_URL_PREFIX):
             return
         organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
         if organization_id is None:
@@ -3008,6 +3025,7 @@ def update_task_run(
     *,
     validated_data: dict,
     only_if_non_terminal: bool = False,
+    only_if_not_started: bool = False,
     caller_is_agent: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
@@ -3069,8 +3087,16 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation or only_if_non_terminal or "status" in validated_data:
+        if (
+            has_output_merge
+            or has_state_mutation
+            or only_if_non_terminal
+            or only_if_not_started
+            or "status" in validated_data
+        ):
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if only_if_not_started and run.status != TaskRun.Status.NOT_STARTED:
+            return None
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
@@ -3126,6 +3152,10 @@ def update_task_run(
             update_fields.add("state")
 
         new_status = validated_data.get("status")
+        if only_if_not_started and new_status == TaskRun.Status.CANCELLED:
+            # A dormant run has no workflow to complete its stream after cancellation.
+            run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
+            update_fields.add("state")
         if (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
@@ -5403,16 +5433,15 @@ def _trigger_task_processing_workflow(
         enqueue_or_start_workflow,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        RunSource,
+        mcp_scopes_for_run_source,
         parse_run_state,
     )
     from products.tasks.backend.temporal.process_task.workflow import PendingFollowup  # noqa: PLC0415
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
-    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
     run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
+    posthog_mcp_scopes = mcp_scopes_for_run_source(run_source)
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         message = None
@@ -6504,6 +6533,7 @@ def create_task(
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    validated_data.pop("scheduled_at", None)
     # Names the task from the pasted content while `description` stays the bare prompt. Write-only,
     # never persisted, so it must be popped before `Task.objects.create(**validated_data)`.
     naming_source = (validated_data.pop("naming_source", None) or "").strip() or None
@@ -7380,12 +7410,16 @@ def _attach_staged_artifacts_to_run(
         storage_path = str(staged_artifact["storage_path"])
         if _find_artifact_manifest_entry(manifest, str(staged_artifact.get("id")), storage_path):
             continue
-        tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+        # Scheduled attachments are tagged before the run-creation transaction takes its locks.
+        if run.scheduled_at is None:
+            tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
         manifest.append(dict(staged_artifact))
     _save_artifact_manifest(run, manifest)
-    get_tasks_cache().delete_many(
-        [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
-    )
+    cache_keys = [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
+    if run.scheduled_at is not None:
+        transaction.on_commit(lambda: get_tasks_cache().delete_many(cache_keys), robust=True)
+    else:
+        get_tasks_cache().delete_many(cache_keys)
 
 
 REPORT_WARM_RUN_NOT_ACTIVATED = "This sandbox is waiting for the report's Ask AI question. Send it from the report."
@@ -7984,8 +8018,11 @@ def run_task(
         is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        RUN_ARTIFACT_TTL_DAYS,
         get_task_run_artifacts_by_id,
         get_task_staged_artifacts,
+        staged_artifacts_expire_by,
+        tag_task_artifact,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
@@ -7993,6 +8030,7 @@ def run_task(
         cache_github_user_token,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
+        mcp_scopes_for_run_source,
         parse_run_state,
     )
 
@@ -8035,6 +8073,7 @@ def run_task(
             )
     mode = validated_data.get("mode", "background")
     run_source = validated_data.get("run_source")
+    scheduled_at = validated_data.get("scheduled_at")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
@@ -8099,7 +8138,16 @@ def run_task(
     if claude_model_access is None and previous_state is not None:
         claude_model_access = previous_state.claude_model_access
 
-    warm_run = None if run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
+    if scheduled_at is not None and claude_model_access == "own-subscription":
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="Scheduled runs must use the PostHog gateway.",
+                attr="claude_model_access",
+            )
+        )
+    warm_run = None if scheduled_at is not None or run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
     if warm_run is not None and claude_model_access == "own-subscription":
         warm_run = None
     if warm_run is not None:
@@ -8419,13 +8467,42 @@ def run_task(
                 )
             )
 
+    if scheduled_at is not None and staged_artifacts_expire_by(staged_artifacts, scheduled_at):
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="The attached files expire before this run can start. Choose an earlier time or upload new files.",
+                attr="scheduled_at",
+            )
+        )
+
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
+    if scheduled_at is not None:
+        for staged_artifact in staged_artifacts:
+            tag_task_artifact(
+                str(staged_artifact["storage_path"]),
+                ttl_days=RUN_ARTIFACT_TTL_DAYS,
+                team_id=task.team_id,
+                raise_on_error=True,
+            )
+        extra_state["pending_dispatch"] = {
+            "user_id": user_id,
+            "create_pr": True,
+            "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
+        }
     try:
         with transaction.atomic():
-            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id)
+            task_run = task.create_run(
+                mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id, scheduled_at=scheduled_at
+            )
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+                )
+            if scheduled_at is not None and pending_user_artifact_ids:
+                _attach_staged_artifacts_to_run(
+                    task_run, task, staged_artifacts=staged_artifacts, artifact_ids=pending_user_artifact_ids
                 )
     except InvalidTaskOriginError as error:
         return contracts.TaskRunResult(
@@ -8451,13 +8528,18 @@ def run_task(
             update_fields.append("relayed_mcp_servers")
         task_run.save(update_fields=update_fields)
 
-    if pending_user_artifact_ids:
+    if pending_user_artifact_ids and scheduled_at is None:
         _attach_staged_artifacts_to_run(
             task_run, task, staged_artifacts=staged_artifacts, artifact_ids=pending_user_artifact_ids
         )
 
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(task_run.id), github_user_token)
+
+    if scheduled_at is not None:
+        return contracts.TaskRunResult(
+            task=_task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False)
+        )
 
     logger.info("Triggering workflow for task %s, run %s", task.id, task_run.id)
     if is_pi_task:
@@ -9619,6 +9701,93 @@ def set_channel_context_generation(
             channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
         )
         return str(task_id) if task_id else None
+
+
+def start_space_setup(
+    channel_id: str | UUID,
+    team: Team,
+    user_id: int,
+    *,
+    request: contracts.SpaceSetupRequest,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.SpaceSetupStartedDTO | None:
+    """Start the one task that sets a space up for a goal or a feature.
+
+    The task runs unattended in the channel and publishes the context page itself, so it
+    takes over the channel's context generation marker the same way a CONTEXT.md
+    generation task does. ``None`` when the channel is not visible to the user.
+    """
+    if _visible_channel(channel_id, team.id, user_id) is None:
+        return None
+    if request.kind == "goal" and not cdp_facade.is_hog_function_template_available(
+        "template-posthog-create-task", team
+    ):
+        raise SpaceSetupUnavailableError(
+            "Goal setup is not available because the Create AI task workflow action is unavailable. "
+            "Ask an administrator to sync workflow templates and enable the action, then retry setup."
+        )
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team.id, user_id)
+        if channel is None:
+            return None
+        active_setup = (
+            Task.objects.filter(team_id=team.id, channel_id=channel.id, origin_product=Task.OriginProduct.SPACE_SETUP)
+            .annotate(
+                setup_run_status=Subquery(
+                    TaskRun.objects.filter(team_id=team.id, task_id=OuterRef("pk"))
+                    .order_by("-created_at", "-id")
+                    .values("status")[:1]
+                )
+            )
+            .filter(
+                setup_run_status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
+            )
+            .exists()
+        )
+        if active_setup:
+            raise contracts.SpaceSetupInProgressError("Space setup is already running. Open its task to see progress.")
+        repository = request.repository or (channel.repositories[0] if channel.repositories else None)
+        request = replace(request, repository=repository)
+        task = Task.create_and_run(
+            team=team,
+            title=space_setup_task_title(channel.name, request),
+            description=build_space_setup_prompt(
+                team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
+            ),
+            origin_product=Task.OriginProduct.SPACE_SETUP,
+            user_id=user_id,
+            channel=channel,
+            create_pr=False,
+            posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+            runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+            model=SPACE_SETUP_MODEL,
+            reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+            initial_permission_mode="auto",
+            client_provenance=client_provenance,
+        )
+        ChannelContextGeneration.objects.update_or_create(
+            channel_id=channel.id, defaults={"team_id": team.id, "task_id": task.id}
+        )
+        _emit_space_setup_started(channel, user_id, request=request, task_id=task.id)
+        return contracts.SpaceSetupStartedDTO(task_id=task.id)
+
+
+def _emit_space_setup_started(
+    channel: Channel, user_id: int, *, request: contracts.SpaceSetupRequest, task_id: UUID
+) -> None:
+    subject = request.goal.statement if request.goal is not None else request.feature.name if request.feature else ""
+    try:
+        with transaction.atomic():
+            ChannelFeedMessage.objects.create(
+                team_id=channel.team_id,
+                channel_id=channel.id,
+                author_id=user_id,
+                author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+                event=SPACE_SETUP_FEED_EVENT,
+                payload={"kind": request.kind, "subject": subject, "task_id": str(task_id)},
+            )
+    except Exception:
+        logger.exception("Failed to emit space_setup_started feed message", extra={"channel_id": str(channel.id)})
 
 
 def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:

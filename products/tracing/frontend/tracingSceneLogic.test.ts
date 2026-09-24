@@ -160,6 +160,42 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.displayMode).toBe('spans')
     })
 
+    it.each([
+        ['already loaded', () => mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })],
+        [
+            'arriving after the URL parse',
+            () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+                mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            },
+        ],
+    ])('drops a tab=sql deep link when the scene tabs flag is off, with flags %s', (_, mount) => {
+        mount()
+        expect(logic.values.sceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+    })
+
+    it('restores the SQL tab from a deep link without dropping the filter params', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+        mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+        expect(logic.values.activeSceneTab).toBe('sql')
+        expect(router.values.searchParams).toMatchObject({ tab: 'sql', serviceNames: ['checkout'] })
+
+        logic.actions.selectSceneTab('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+
+        logic.actions.selectSceneTab('sql')
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+        expect(logic.values.activeSceneTab).toBe('viewer')
+    })
+
     // Guards the operations-tab rate denominator: on the operations tab the aggregate must always
     // cover the whole selected range (compare: false), even with a comparison active. A filter
     // change fires both the windowed aggregate (via runQuery) and the explicit full-range one, and

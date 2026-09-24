@@ -1169,6 +1169,8 @@ rules:
           - pattern: api.signalReports.$MEMBER.$METHOD(...)
           - pattern: api.signalSourceConfigs.$METHOD(...)
           - pattern: api.signalSourceConfigs.$MEMBER.$METHOD(...)
+          - pattern: api.signalTeamConfig.$METHOD(...)
+          - pattern: api.signalTeamConfig.$MEMBER.$METHOD(...)
       paths:
           include:
               - '/products/signals/frontend/'

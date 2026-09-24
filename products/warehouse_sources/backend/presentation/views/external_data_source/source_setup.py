@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -1365,6 +1366,32 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         "message": (
                             "CDC requires a primary key on each table. "
                             f"The following tables have no primary key: {', '.join(tables_missing_pk)}."
+                        )
+                    },
+                )
+
+            # Capture stamps each change with this column, so a source column of the same name would
+            # fail the source's first sync. Refuse before any replication state exists.
+            tables_with_reserved_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                    and CDC_SEQ_COLUMN
+                    in {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
+                }
+            )
+            if tables_with_reserved_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
+                            "that name. Rename the column on your database, or choose another sync method for "
+                            f"these tables: {', '.join(tables_with_reserved_column)}."
                         )
                     },
                 )

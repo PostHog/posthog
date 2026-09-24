@@ -26,11 +26,14 @@ type Statement struct {
 	budget             *projectionBudget
 	scopes             []*queryScope
 	tables             []TableReference
+	resolvedTables     []TableReference
 	analyzed           bool
 }
 
 type TableReference struct {
 	Name       string
+	Canonical  string
+	CTE        bool
 	Start, End int
 	Known      bool
 }
@@ -114,11 +117,13 @@ func (s *Statement) analyze() {
 		}
 		if cte := resolveCTE(scope, name, start); cte != nil {
 			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
+			s.resolvedTables = append(s.resolvedTables, TableReference{Name: name, Canonical: cte.name, CTE: true, Start: start, End: end, Known: true})
 			return true
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})
 		if exists {
+			s.resolvedTables = append(s.resolvedTables, TableReference{Name: name, Canonical: table.Name, Start: start, End: end, Known: true})
 			if alias == "" && implicitAlias != name {
 				// HogQL registers multi-part table paths under a double-underscore alias.
 				alias = implicitAlias
@@ -137,6 +142,10 @@ func (s *Statement) Walk(visit func(clickhouse.Expr) bool) {
 
 func (s *Statement) Tables() iter.Seq[TableReference] {
 	return slices.Values(s.tables)
+}
+
+func (s *Statement) ResolvedTables() iter.Seq[TableReference] {
+	return slices.Values(s.resolvedTables)
 }
 
 func (s *Statement) DuplicateSources() iter.Seq[Source] {
@@ -215,6 +224,33 @@ func (b Bindings) CTENames(prefix string) iter.Seq[catalog.Entry] {
 func (b Bindings) Relation(name string) (Relation, bool) {
 	relation, ok := b.relations[name]
 	return relation, ok
+}
+
+func (b Bindings) UnambiguousRelation(name string) (Relation, bool) {
+	relation, ok := b.Relation(name)
+	return relation, ok && b.scope != nil && !b.scope.hasDuplicateSource(name)
+}
+
+func (b Bindings) ResolvedField(name string) (catalog.Entry, bool) {
+	if b.scope == nil {
+		return catalog.Entry{}, false
+	}
+	var found catalog.Entry
+	matches := 0
+	for source := range b.sources() {
+		if b.scope.hasDuplicateSource(source.name) {
+			return catalog.Entry{}, false
+		}
+		if _, ok := source.relation.Field(name); ok {
+			matches++
+			field, resolved := source.relation.ResolvedField(name)
+			if !resolved {
+				return catalog.Entry{}, false
+			}
+			found = field
+		}
+	}
+	return found, matches == 1 && !b.scope.budget.lookupExceeded
 }
 
 func (b Bindings) All() iter.Seq2[string, Relation] {
@@ -413,6 +449,15 @@ func (r Relation) Name() string {
 
 func (r Relation) Field(name string) (catalog.Entry, bool) {
 	return bindingField(r, name)
+}
+
+func (r Relation) ResolvedField(name string) (catalog.Entry, bool) {
+	field, ok := bindingField(r, name)
+	if !ok || r.cte == nil {
+		return field, ok
+	}
+	projected, exists := r.cte.fieldIndex[foldedFieldName(name)]
+	return field, exists && !projected.ambiguous
 }
 
 // Fields yields values without copying catalog indexes or exposing their backing slices.

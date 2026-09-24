@@ -27,6 +27,7 @@ from products.ai_observability.backend.prompt_references import (
     parse_prompt_references,
     record_prompt_references,
     validate_prompt_references,
+    validate_reference_targets,
 )
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
@@ -462,6 +463,13 @@ def set_prompt_label(
         )
         if target is None:
             raise LLMPromptNotFoundError()
+
+        # Labeling activates the target's content for fetches, and this is the
+        # one write path where that content was validated in the past rather
+        # than now: its references may have gone dead since (the referenced
+        # prompt archived while only inactive versions pointed at it).
+        if isinstance(target.prompt, str) and parse_prompt_references(target.prompt):
+            validate_reference_targets(team.id, prompt_name=prompt_name, prompt_payload=target.prompt)
 
         # A referenced label is part of other prompts' assembled content, so it
         # must keep pointing at a version those prompts can splice in. An

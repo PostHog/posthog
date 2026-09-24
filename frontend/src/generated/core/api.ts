@@ -24,6 +24,7 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
+    FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
@@ -1731,6 +1732,20 @@ export const fileSystemCountByPathCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system/home_folder/`
+}
+
+export const fileSystemHomeFolderCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<FileSystemHomeFolderApi> => {
+    return apiMutator<FileSystemHomeFolderApi>(getFileSystemHomeFolderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
