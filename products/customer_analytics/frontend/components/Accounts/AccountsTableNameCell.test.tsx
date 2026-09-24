@@ -35,7 +35,7 @@ describe('AccountsTableNameCell', () => {
 
         render(
             <Provider>
-                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" />
+                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" viewers={[]} />
             </Provider>
         )
 
@@ -51,7 +51,7 @@ describe('AccountsTableNameCell', () => {
 
         render(
             <Provider>
-                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" />
+                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" viewers={[]} />
             </Provider>
         )
 
@@ -66,7 +66,7 @@ describe('AccountsTableNameCell', () => {
 
         render(
             <Provider>
-                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" />
+                <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" viewers={[]} />
             </Provider>
         )
 
@@ -79,5 +79,29 @@ describe('AccountsTableNameCell', () => {
         expect(router.values.location.pathname).toMatch(new RegExp(`/customer_analytics/accounts/${ACCOUNT_ID}$`))
         expect(accountsExpansionLogic.values.isAccountExpanded(ACCOUNT_ID)).toBe(false)
         expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.AccountOpened)
+    })
+
+    it('shows three viewer indicators and names every viewer in the hover label', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        render(
+            <Provider>
+                <AccountsTableNameCell
+                    accountId={ACCOUNT_ID}
+                    name="Test account"
+                    viewers={[
+                        { user_id: 1, display_name: 'Alex Rivera' },
+                        { user_id: 2, display_name: 'Morgan Lee' },
+                        { user_id: 3, display_name: 'Sam Patel' },
+                        { user_id: 4, display_name: 'Jordan Kim' },
+                    ]}
+                />
+            </Provider>
+        )
+
+        expect(
+            screen.getByLabelText('Alex Rivera, Morgan Lee, Sam Patel, and Jordan Kim are viewing this account')
+        ).toBeVisible()
+        expect(screen.getByText('+1')).toBeVisible()
     })
 })

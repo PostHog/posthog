@@ -133,6 +133,12 @@ class AccountPresenceViewer:
 
 
 @dataclass(frozen=True)
+class AccountPresence:
+    account_id: UUID
+    viewers: list[AccountPresenceViewer]
+
+
+@dataclass(frozen=True)
 class EmailAccountMatch:
     account_id: str
     account_external_id: str | None

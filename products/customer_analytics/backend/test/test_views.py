@@ -661,6 +661,40 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json(), [{"user_id": teammate.id, "display_name": "Alex Rivera"}])
 
+    def test_presence_list_returns_viewers_for_requested_accessible_accounts(self) -> None:
+        first_account = self._create_account(name="First account")
+        second_account = self._create_account(name="Second account")
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        teammate.first_name = "Alex"
+        teammate.last_name = "Rivera"
+        teammate.save(update_fields=["first_name", "last_name"])
+
+        self.client.force_login(teammate)
+        self.client.post(f"{self.endpoint_base}{first_account.id}/presence/", format="json")
+        self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json")
+
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"{self.endpoint_base}presence-list/",
+            {"account_ids": [str(first_account.id), str(second_account.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            response.json(),
+            [
+                {
+                    "account_id": str(first_account.id),
+                    "viewers": [{"user_id": teammate.id, "display_name": "Alex Rivera"}],
+                },
+                {
+                    "account_id": str(second_account.id),
+                    "viewers": [{"user_id": teammate.id, "display_name": "Alex Rivera"}],
+                },
+            ],
+        )
+
     @patch("products.customer_analytics.backend.logic.account_presence.time")
     def test_presence_removes_expired_viewers(self, mock_time: MagicMock) -> None:
         account = self._create_account()

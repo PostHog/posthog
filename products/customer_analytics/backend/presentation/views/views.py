@@ -71,6 +71,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceListRequestSerializer,
+    AccountPresenceSerializer,
     AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
@@ -1868,6 +1870,23 @@ class AccountViewSet(
         if viewers is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
+
+    @validated_request(
+        request_serializer=AccountPresenceListRequestSerializer,
+        operation_id="accounts_presence_list",
+        responses={200: AccountPresenceSerializer(many=True)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="presence-list",
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def presence_list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        account_ids = [str(account_id) for account_id in request.validated_data["account_ids"]]
+        presence = api.list_accounts_presence(self.team_id, account_ids, self.user_access_control)
+        return Response(AccountPresenceSerializer(instance=presence, many=True).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
