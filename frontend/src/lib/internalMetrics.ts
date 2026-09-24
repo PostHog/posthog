@@ -1,9 +1,7 @@
 import posthog from 'posthog-js'
 
-export interface TimeToSeeDataPayload {
+interface TimeToSeeDataFields {
     team_id?: number | null
-    type: 'dashboard_load' | 'insight_load'
-    context: 'dashboard' | 'insight'
     time_to_see_data_ms: number
     primary_interaction_id: string
     query_id?: string
@@ -19,6 +17,26 @@ export interface TimeToSeeDataPayload {
     // Signifies whether the action was user-initiated or a secondary effect
     is_primary_interaction?: boolean
 }
+
+export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {
+    type: 'page_load'
+    context: string
+    scene: string | null
+    time_since_mount_ms: number
+    failed_tile_count?: number
+    last_tile_id?: string | null
+    last_tile_kind?: string | null
+    last_tile_status?: string | null
+    tiles_still_loading?: number
+    cancel_reason?: 'navigated_away' | 'left_app' | 'refreshed'
+}
+
+export type TimeToSeeDataPayload =
+    | (TimeToSeeDataFields & {
+          type: 'dashboard_load' | 'insight_load'
+          context: 'dashboard' | 'insight'
+      })
+    | PageLoadTimeToSeeData
 
 export function currentSessionId(): string | undefined {
     const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)

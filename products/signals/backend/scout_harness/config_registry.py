@@ -13,6 +13,7 @@ goes through the write-scoped config `create` endpoint.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from django.db import transaction
@@ -33,6 +34,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_deprecation_for,
     canonical_display_name_for,
     canonical_skill_names,
+    canonical_structured_output_schema_for,
     is_operational_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -311,6 +313,10 @@ def register_missing_configs(
         # before the scout declared a label has no way to acquire one otherwise.
         if name in canonical_names and (canonical_display_name := canonical_display_name_for(name)):
             defaults["display_name"] = canonical_display_name
+        # The schema's presence is what switches the structured-output channel on, so a measurement
+        # scout records from its first run. Backfilled onto existing rows below, like the label.
+        if name in canonical_names and (canonical_schema := canonical_structured_output_schema_for(name)):
+            defaults["structured_output_schema"] = canonical_schema
         # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
         # enabled now or stays disabled for the user to switch on later — so a specialist a user
         # toggles on runs at the flag's launch cadence rather than the model default (daily).
@@ -335,6 +341,7 @@ def register_missing_configs(
             )
 
     reconcile_canonical_display_names(team_id, canonical_names & skill_names)
+    reconcile_canonical_structured_output_schemas(team_id, canonical_names & skill_names)
 
     reconcile_operational_configs(
         team_id, operational_names & skill_names, withheld_skill_names, max_enabled_scouts=max_enabled_scouts
@@ -350,27 +357,50 @@ def register_missing_configs(
 def reconcile_canonical_display_names(team_id: int, canonical_names: set[str]) -> None:
     """Give every canonical scout on this team the label the fleet ships it under, if it has none.
 
-    The rest of the seed posture is forward-only, and for the same reason this pass is narrow: it
-    writes only where `display_name` is blank, so a scout a person renamed keeps the name they gave
-    it, on this tick and on every tick after. Blank is not a choice a person can lose — it is what
-    "no name of its own" is stored as, and the label the fleet ships is exactly the default that
-    stands for, so filling it in is the sync doing what blank already meant.
-
-    Backfill, not posture: a canonical scout registered before the fleet declared its label would
-    otherwise read as "Apm" forever, since nothing else ever revisits the column. Costs one read
-    per tick once every row is named, and nothing after that.
+    Blank is not a choice a person can lose — it is what "no name of its own" is stored as, and the
+    label the fleet ships is exactly the default that stands for. Without this a canonical scout
+    registered before the fleet declared its label would read as "Apm" forever, since nothing else
+    revisits the column.
     """
     labelled = {name: label for name in canonical_names if (label := canonical_display_name_for(name))}
-    if not labelled:
+    _backfill_unset_column(team_id, labelled, column="display_name", unset_filter={"display_name": ""})
+
+
+def reconcile_canonical_structured_output_schemas(team_id: int, canonical_names: set[str]) -> None:
+    """Give every canonical scout on this team the record contract the fleet ships it with, if it
+    has none.
+
+    Null is what "this scout records nothing" is stored as, and the canonical schema is the default
+    that stands for. Without this a config registered before the scout shipped a schema would never
+    acquire one, so the scout would run without its record channel forever.
+    """
+    schemas = {name: schema for name in canonical_names if (schema := canonical_structured_output_schema_for(name))}
+    _backfill_unset_column(
+        team_id, schemas, column="structured_output_schema", unset_filter={"structured_output_schema__isnull": True}
+    )
+
+
+def _backfill_unset_column(
+    team_id: int, values: Mapping[str, object], *, column: str, unset_filter: Mapping[str, object]
+) -> None:
+    """Write a canonical default onto the rows of `values` whose `column` is still unset.
+
+    The rest of the seed posture is forward-only — an existing row is the team's to tune — and this
+    pass stays narrow for the same reason: it writes only where the column holds the value that
+    means "unset", so a team that set the column keeps what they set, on this tick and every tick
+    after. It is a backfill for rows created before the fleet declared the default, so it costs one
+    read per tick and nothing more once every row carries one.
+    """
+    if not values:
         return
     configs = SignalScoutConfig.objects.for_team(team_id)
-    unnamed = set(configs.filter(skill_name__in=labelled, display_name="").values_list("skill_name", flat=True))
-    for skill_name in sorted(unnamed):
-        # Re-checking `display_name=""` in the update makes the write lose to a rename that landed
+    unset = set(configs.filter(skill_name__in=values, **unset_filter).values_list("skill_name", flat=True))
+    for skill_name in sorted(unset):
+        # Re-checking the unset value in the update makes the write lose to an edit that landed
         # since the read, rather than reverting it. QuerySet.update() skips both auto_now and the
         # activity log, which is what this should do: a seeded default is not an edit anyone made.
-        configs.filter(skill_name=skill_name, display_name="").update(
-            display_name=labelled[skill_name], updated_at=timezone.now()
+        configs.filter(skill_name=skill_name, **unset_filter).update(
+            **{column: values[skill_name]}, updated_at=timezone.now()
         )
 
 
