@@ -2672,7 +2672,22 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
-            it('allows another manual dashboard refresh after five minutes', () => {
+            it('allows another manual dashboard refresh after five minutes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                for (const tile of logic.values.dashboard!.tiles) {
+                    const insight = tile.insight
+                    if (!insight) {
+                        continue
+                    }
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            { ...insight, last_refresh: now().toISOString(), query: insight.query ?? null },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+
                 const recentRefresh = now().subtract(4, 'minutes')
                 logic.actions.updateDashboardLastRefresh(recentRefresh)
                 expect(logic.values.blockRefresh).toBe(true)

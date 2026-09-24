@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardTile, DashboardType, InsightModel } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction } from './DashboardReloadAction'
@@ -18,7 +18,7 @@ const REFRESH_BUTTON_SELECTOR = '[data-attr="dashboard-items-action-refresh"]'
 // The "up to date" check icon is what contradicted a stale age, and its clip path is the only marker it leaves
 const CHECK_ICON_SELECTOR = 'clipPath[id="icon/check__a"]'
 
-function makeDashboard(tileLastRefresh: string): DashboardType<QueryBasedInsightModel> {
+function makeDashboard(tileLastRefresh: string): DashboardType {
     const insight = {
         id: 1,
         short_id: 'insight1',
@@ -27,13 +27,13 @@ function makeDashboard(tileLastRefresh: string): DashboardType<QueryBasedInsight
         query: null,
         result: [],
         filters: {},
-    } as unknown as QueryBasedInsightModel
+    } as unknown as InsightModel
 
     return {
         id: 5,
         name: 'Test dashboard',
         pinned: false,
-        tiles: [{ id: 1, color: null, layouts: {}, insight } as unknown as DashboardTile<QueryBasedInsightModel>],
+        tiles: [{ id: 1, color: null, layouts: {}, insight } as unknown as DashboardTile],
         tags: [],
         created_at: '2020-01-01T00:00:00Z',
         last_accessed_at: '2020-01-01T00:00:00Z',
@@ -43,7 +43,7 @@ function makeDashboard(tileLastRefresh: string): DashboardType<QueryBasedInsight
         user_access_level: AccessControlLevel.Editor,
         filters: {},
         variables: {},
-    } as unknown as DashboardType<QueryBasedInsightModel>
+    } as unknown as DashboardType
 }
 
 describe('DashboardReloadAction', () => {
