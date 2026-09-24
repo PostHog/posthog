@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from clickhouse_driver.errors import NetworkError
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -40,6 +42,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
@@ -47,7 +50,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -238,59 +241,47 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("/home", result)
         mock_capture.assert_not_called()
 
+    # A caller that only learns "something failed" rewrites a query that was never the problem, so
+    # every failure must name its backend category and the retry verdict that follows from it.
+    @parameterized.expand(
+        [
+            ("api_exception", APIException("API error message"), MaxToolRetryableError, "user_error"),
+            ("exposed_hogql_error", ExposedHogQLError("HogQL error"), MaxToolRetryableError, "user_error"),
+            ("exposed_ch_query_error", ExposedCHQueryError("ClickHouse error"), MaxToolRetryableError, "user_error"),
+            ("cluster_at_capacity", ClickHouseAtCapacity(), MaxToolTransientError, "rate_limited"),
+            ("query_timed_out", ClickHouseQueryTimeOut(), MaxToolRetryableError, "query_performance_error"),
+            ("lost_connection", NetworkError("Connection reset by peer"), MaxToolTransientError, "transport"),
+            ("unknown_failure", ValueError("Some other error"), MaxToolFatalError, "error"),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_api_exception(self, mock_process_query):
-        """Test handling of APIException"""
+    async def test_run_and_format_query_reports_failure_category(
+        self,
+        _name: str,
+        raised: Exception,
+        expected_error: type[Exception],
+        expected_category: str,
+        mock_process_query: Mock,
+    ):
+        mock_process_query.side_effect = raised
 
-        mock_process_query.side_effect = APIException("API error message")
+        with self.assertRaises(expected_error) as context:
+            await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
 
-        query = AssistantTrendsQuery(series=[])
-
-        with self.assertRaises(MaxToolRetryableError) as context:
-            await self.query_runner.arun_and_format_query(query)
-
-        self.assertIn("API error message", str(context.exception))
-
-    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
-        """Test handling of ExposedHogQLError"""
-
-        mock_process_query.side_effect = ExposedHogQLError("HogQL error")
-
-        query = AssistantHogQLQuery(query="SELECT invalid")
-
-        with self.assertRaises(MaxToolRetryableError) as context:
-            await self.query_runner.arun_and_format_query(query)
-
-        self.assertIn("HogQL error", str(context.exception))
-
-    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
-        """Test handling of ExposedCHQueryError"""
-
-        mock_process_query.side_effect = ExposedCHQueryError("ClickHouse error")
-
-        query = AssistantTrendsQuery(series=[])
-
-        with self.assertRaises(MaxToolRetryableError) as context:
-            await self.query_runner.arun_and_format_query(query)
-
-        self.assertIn("ClickHouse error", str(context.exception))
+        message = str(context.exception)
+        self.assertIn(f"category={expected_category}", message)
+        self.assertIn(str(raised), message)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
-        """Test handling of generic exceptions"""
-        mock_process_query.side_effect = ValueError("Some other error")
+    async def test_run_and_format_query_marks_a_capacity_failure_as_overload(self, mock_process_query):
+        # Waiting is the only thing that clears cluster pressure, so the marker has to distinguish
+        # it from a query the caller can fix.
+        mock_process_query.side_effect = ClickHouseAtCapacity()
 
-        query = AssistantTrendsQuery(series=[])
+        with self.assertRaises(MaxToolTransientError) as context:
+            await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
 
-        with self.assertRaises(Exception) as context:
-            await self.query_runner.arun_and_format_query(query)
-
-        # The underlying error text must be surfaced, not collapsed to an opaque generic message —
-        # that opacity is what left callers unable to diagnose failures like invalid-UTF-8 results.
-        self.assertIn("There was an unknown error running this query", str(context.exception))
-        self.assertIn("Some other error", str(context.exception))
+        self.assertIn("overloaded=yes", str(context.exception))
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_truncates_long_error(self, mock_process_query):
@@ -369,7 +360,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query hasn't completed in time", str(context.exception))
+        message = str(context.exception)
+        self.assertIn("Query hasn't completed in time", message)
+        # The polling budget is spent, and the query id is the only handle on the run that outlived it.
+        self.assertIn("retries_exhausted=yes", message)
+        self.assertIn("query_id=test-query-id", message)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -394,7 +389,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query failed with error", str(context.exception))
+        message = str(context.exception)
+        self.assertIn("Query failed with error", message)
+        self.assertIn("query_id=test-query-id", message)
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

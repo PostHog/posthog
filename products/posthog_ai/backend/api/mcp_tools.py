@@ -1,5 +1,6 @@
 import json
 from typing import cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.views.generic import View
@@ -174,12 +175,21 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 }
             )
         except Exception as e:
-            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
-            capture_exception(e, properties={"tag": "mcp", "args": args_data})
+            # An unclassified crash tells the caller nothing it can act on, so it gets an id it can
+            # quote back. The same id is on the log line and the captured exception, which is what
+            # turns "the tool failed" into a failure someone can look up.
+            error_id = str(uuid4())
+            logger.exception(
+                "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
+            )
+            capture_exception(e, properties={"tag": "mcp", "args": args_data, "error_id": error_id})
             return Response(
                 {
                     "success": False,
-                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                    "content": (
+                        f"The tool raised an internal error (error_id={error_id}). Do not immediately retry "
+                        "the tool call. Report this id if the failure continues."
+                    ),
                 }
             )
 
