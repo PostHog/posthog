@@ -14,7 +14,7 @@ The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
-- At or after **Monday, 2026-09-21 at 17:00 UTC** (18:00 in Europe/London): v3 keeps the v2 identifiers and keys, and stores its objects in the v3 buckets under `rrweb_3/` and the `/v3/` dataset paths.
+- At or after **Monday, 2026-09-21 at 17:00 UTC** (18:00 in Europe/London): v3 keeps the v2 identifiers and keys, and stores its objects in the v3 buckets under `rrweb_3/` and the `/v3/` dataset paths. Its metadata catalog and evaluation index are plain Parquet.
 - The ML mirror drops a session if its ID is not UUIDv7 or its start year is beyond 9999.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
@@ -58,7 +58,8 @@ An object body is a binary frame: the ASCII magic `AISR03`, the length of the ad
 The frame carries those bytes verbatim, so a reader passes them to AES-GCM as they are rather than rebuilding the canonical JSON and risking a re-serialization mismatch.
 A reader must still decode that context and check it equals the object it asked for, because one team month key seals every image object in a flush and the context is the only thing that tells them apart: a reader that skips the check authenticates a shard where it expected an index, or one image's location where it expected another's.
 A reader must also bound the frame before it slices, because the magic and the length sit outside the authenticated data.
-A parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
+In the v2 dataset, a parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
+The v3 dataset does not seal its metadata or its replay index. Both are plain Parquet columns, described in [Data layout and readers](#data-layout-and-readers).
 The `frame` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes. It carries the whole frame and also each part on its own: the additional authenticated data as text, the nonce, the sealed bytes, the tag, the brotli body, and the decompressed data.
 The framed context names a `codec`, which tells a reader how to expand the plaintext.
 An `rrweb` block uses `brotli` at quality 9. Each lane declares its own codec, so this lane never produces snappy. It reads a block rarely and keeps it for months, so it stores fewer bytes instead.
@@ -147,8 +148,8 @@ A failed request backs off without blocking unrelated requests.
 Completion follows key removal and the five-minute reader lifetime.
 Scrubbed images remain available after session or person deletion, but become unreadable after team or month deletion.
 
-This mechanism covers encrypted v2 objects.
-It does not erase legacy plaintext objects, previously downloaded data, derived training artifacts, or a trained model.
+This mechanism covers encrypted v2 and v3 objects.
+It does not erase legacy plaintext objects, plain v3 metadata and index rows, previously downloaded data, derived training artifacts, or a trained model.
 Legacy dataset retirement needs a separate storage operation before claiming deletion across the entire bucket.
 
 ## Monthly key deletion
@@ -185,14 +186,24 @@ A session that crosses a month boundary stays in its start month, including late
 | URL images           | `scrubbed-images/v2/<month>/<team>/url/<hash>`              | Team and session month                   |
 
 A v3 session uses the same layout in the v3 buckets: blocks under `rrweb_3/<month>/`, and the metadata catalog, the evaluation index and every image path with `/v3/` in place of `/v2/`.
+The v3 metadata catalog and the v3 evaluation index use no key.
+Some v3 objects under those two paths are sealed, mostly under 2026-09. A sealed object has a `payload` column that holds an encrypted JSON envelope, as in v2.
+A reader checks each object for a `payload` column in every month. See [the structured data index](../../../docs/internal/session-replay-structured-data-index.md#plain-v3-index-and-metadata).
 A reader finds the bucket of a block in its `block_url`, and resolves an `image:v3:` or `imageurl:v3:` reference in the v3 images bucket under the `/v3/` paths.
 
-Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
+A v2 metadata catalog exposes raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
 URLs, block locations, and replay indexes are inside that payload.
 Neither the catalog nor its encrypted payload includes a distinct-ID field.
 V2 does not write a separate plaintext replay index.
 
-Athena can select catalog rows but cannot decrypt replay fields.
+A v3 metadata catalog stores each block as plain Parquet columns: raw `team_id` and `session_id`, the block location, timestamps, counts, and the scrubbed `first_url` and `urls`.
+It has no distinct-ID field and no replay index entries.
+The v3 evaluation index stores its entries as plain Parquet columns with raw team and session IDs and the scrubbed URL.
+Deletion does not remove v3 metadata or index rows. The sink reads no session key for a v3 row, so it also writes rows for a session that was deleted after the mirror produced them.
+Those rows hold no personal data, and the recording blocks they point to become unreadable when the session key is shredded and the cached copies of that key expire.
+
+Athena can select v2 catalog rows but cannot decrypt replay fields. It can query every column of a plain v3 object.
+To leave out sealed v3 objects, include a `payload` column in the table and filter on `payload IS NULL`.
 Training readers must bulk-read live keys and deletion markers before decrypting.
 If a download exceeds the key read lifetime, readers must check live eligibility again before decryption.
 Cross-account readers use the full DynamoDB table ARN and the prod-us KMS key ARN.
@@ -210,7 +221,9 @@ Resolve image references before training because they contain team IDs.
 
 A reference names its dataset version: `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>` for a v2 session, `image:v3:...` and `imageurl:v3:...` for a v3 session. The version is part of the reference, so the fetch frontier and every dedup cache treat a v3 reference as new even when a v2 session already stored the same image, and the v3 dataset gets its own copy.
 Images do not deduplicate across teams or session months.
-Kafka records between the ML lanes travel in cleartext; only objects in S3 are sealed, and stored scrubbed images use team image keys.
+Kafka records between the ML lanes travel in cleartext.
+In S3, recording blocks and images are sealed, and stored scrubbed images use team image keys.
+V2 metadata and the v2 evaluation index are sealed. V3 metadata and the v3 evaluation index are plain Parquet, apart from the sealed v3 objects that [Data layout and readers](#data-layout-and-readers) describes.
 Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
@@ -229,7 +242,8 @@ Retries and dead-letter replay preserve this header and the record bytes.
 Consumers drop records that still use the sealed envelope shape from before cleartext records, and count them in `recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total`.
 Headerless queued messages mean v1.
 Unknown versions are rejected, and so is an image reference whose version does not match the header.
-The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted is dropped.
+For a v2 session, the metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted is dropped.
+A v3 row needs no key, because the sink writes it as plain Parquet.
 
 Legacy image references and paths remain available for v1 sessions.
 Their HMAC key must remain stable while that data is in use.
@@ -243,7 +257,7 @@ New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 - `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
-- `S3_BUCKET` names the v3 bucket, which holds only AISR03 frames. A session that started at or after the v3 cutoff writes there, and v2 keeps its own bucket. The mirror, the sink and the image scrubber stop at startup when it is empty.
+- `S3_BUCKET` names the v3 bucket of a lane. A session that started at or after the v3 cutoff writes there, and v2 keeps its own bucket. The mirror and the metadata sink use the recording bucket, which holds AISR03 frames for recording blocks and Parquet for the v3 metadata catalog and evaluation index. The image scrubber uses the images bucket, which holds AISR03 frames. The mirror, the sink and the image scrubber stop at startup when it is empty.
 - `S3_V3_PREFIX` selects the block prefix inside the v3 bucket and defaults to `rrweb_3`. Each dataset version has its own prefix, so a bucket policy grants only the versions it holds.
 
 The v2 producer requires `AI_RESEARCH_REPLAY_KEY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
@@ -275,9 +289,14 @@ Each Parquet row exposes real `team_id` and `session_id` values and encrypts the
 Session, person, team, and month deletion therefore remove access to the index along with its recording.
 The JSON-LD payload remains in the referenced recording block.
 
+The v3 metadata consumer writes the same three kinds as plain Parquet columns with real team and session IDs.
+Athena can pair v3 labels with snapshots by URL and time. See [the pairing query](../../../docs/internal/session-replay-structured-data-index.md#pairing-labels-with-snapshots).
+Deletion does not remove v3 index rows. It makes the recording blocks that they point to unreadable, as [Data layout and readers](#data-layout-and-readers) describes.
+
 Use the real team ID to exclude all teams present in the model's training data before selecting eval examples.
 The exclusion must cover every training month, not only the eval partition's month.
-Use the encrypted reader for index entries, then fetch selected recording blocks to inspect their JSON-LD payloads.
+For v2, use the encrypted reader for index entries. For v3, read the Parquet columns directly.
+Then fetch selected recording blocks to inspect their JSON-LD payloads.
 Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
 ### Deletion worker isolation
