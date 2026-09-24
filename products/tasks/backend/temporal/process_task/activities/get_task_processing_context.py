@@ -1137,6 +1137,14 @@ def _is_continue_as_new_enabled(
     return enabled
 
 
+def _run_allowed_domains(state: dict) -> list[str]:
+    """Hosts the run was created with, on top of whatever its sandbox environment allows."""
+    value = state.get("allowed_domains")
+    if not isinstance(value, list):
+        return []
+    return [domain for domain in value if isinstance(domain, str)]
+
+
 @activity.defn
 @asyncify
 @close_db_connections
@@ -1194,6 +1202,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
+    run_allowed_domains = _run_allowed_domains(state)
     environment_custom_image_name: str | None = None
 
     if sandbox_environment_id:
@@ -1226,15 +1235,19 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         "using the default base image",
                     )
             if sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
+                # Unrestricted already covers whatever the run asked for, so the per-run list is moot.
                 allowed_domains = None
             else:
-                allowed_domains = sandbox_environment.get_effective_domains()
+                environment_domains = sandbox_environment.get_effective_domains()
+                allowed_domains = list(dict.fromkeys([*environment_domains, *run_allowed_domains]))
+                run_added = len(allowed_domains) - len(dict.fromkeys(environment_domains))
 
             if allowed_domains is not None:
                 emit_agent_log(
                     run_id,
                     "debug",
-                    f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}",
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}"
+                    + (f" (run added {run_added})" if run_added else ""),
                 )
             else:
                 emit_agent_log(
@@ -1242,6 +1255,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                     "debug",
                     f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
                 )
+    elif run_allowed_domains:
+        # No environment normally means unrestricted. A run that names hosts is asking to be held
+        # to them, so it gets that list plus the always-on infrastructure domains.
+        allowed_domains = list(dict.fromkeys(run_allowed_domains))
+        emit_agent_log(
+            run_id,
+            "debug",
+            f"Resolved per-run agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}",
+        )
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")

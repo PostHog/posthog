@@ -103,7 +103,7 @@ from products.tasks.backend.logic.services.image_builder import (
 )
 from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
-    normalize_requested_domains,
+    normalize_sandbox_allowed_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.space_setup import (
@@ -220,6 +220,7 @@ __all__ = [
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "MAX_SANDBOX_ALLOWED_DOMAINS",
     "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
     "is_public_sandbox_repo",
@@ -289,6 +290,7 @@ __all__ = [
     "is_internal_debug_team",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
+    "normalize_sandbox_allowed_domains",
     "latest_task_run_pr_merged_subquery",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
@@ -2116,12 +2118,6 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
 
 
-def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
-    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
-        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
-    return list(normalize_requested_domains(allowed_domains))
-
-
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -2486,6 +2482,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        # The per-run egress allowlist is written once at task creation from a validated list. A
+        # PATCHable value would let a task controller or the sandbox agent widen its own reach, and
+        # removing it from a run with no environment would lift the restriction entirely.
+        "allowed_domains",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
@@ -7923,6 +7923,7 @@ def warm_task_resume_sandbox(
         "initial_permission_mode": state_value(resolved_permission_mode),
         "sandbox_environment_id": sandbox_environment_id,
         "custom_image_id": custom_image_id,
+        "allowed_domains": (previous_run.state or {}).get("allowed_domains") or None,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
     for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
@@ -7944,6 +7945,7 @@ def warm_task_resume_sandbox(
             "initial_permission_mode",
             "sandbox_environment_id",
             "custom_image_id",
+            "allowed_domains",
             "pr_authorship_mode",
             "github_credential_source",
         }
@@ -8132,8 +8134,10 @@ def run_task(
             desired_fast_mode = validated_data.get("fast_mode")
             desired_sandbox_environment_id = validated_data.get("sandbox_environment_id")
             desired_custom_image_id = validated_data.get("custom_image_id")
+            desired_allowed_domains = None
             if previous_state is not None:
                 assert previous_run is not None
+                desired_allowed_domains = (previous_run.state or {}).get("allowed_domains") or None
                 desired_runtime_adapter = desired_runtime_adapter or previous_state.runtime_adapter
                 desired_model = desired_model or previous_state.model
                 desired_context_window = desired_context_window or previous_state.context_window
@@ -8152,6 +8156,7 @@ def run_task(
                 warm_state.get("fast_mode") or None,
                 warm_state.get("sandbox_environment_id") or None,
                 warm_state.get("custom_image_id") or None,
+                warm_state.get("allowed_domains") or None,
             ) == (
                 state_value(desired_runtime_adapter) or None,
                 desired_model or None,
@@ -8159,6 +8164,7 @@ def run_task(
                 desired_fast_mode or None,
                 str(desired_sandbox_environment_id) if desired_sandbox_environment_id else None,
                 str(desired_custom_image_id) if desired_custom_image_id else None,
+                desired_allowed_domains,
             )
             requested_permission_mode = validated_data.get("initial_permission_mode")
             if previous_state is not None:
@@ -8284,6 +8290,13 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
+
+        # The per-run allowlist is PATCH-protected and describes the run's reach. A successor
+        # without it falls back to the environment alone, or with no environment to unrestricted
+        # egress, so the server-side copy is the only way it reaches the new run.
+        prev_allowed_domains = (previous_run.state or {}).get("allowed_domains")
+        if prev_allowed_domains:
+            extra_state["allowed_domains"] = prev_allowed_domains
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

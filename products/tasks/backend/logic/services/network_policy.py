@@ -95,6 +95,12 @@ def normalize_requested_domains(domains: Sequence[str]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def normalize_sandbox_allowed_domains(allowed_domains: Sequence[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
+    return list(normalize_requested_domains(allowed_domains))
+
+
 def domain_pattern_matches(pattern: str, hostname: str) -> bool:
     normalized_hostname = hostname.rstrip(".").lower()
     if pattern.startswith("*."):

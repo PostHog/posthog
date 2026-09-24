@@ -1672,6 +1672,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-5",
                 "initial_permission_mode": "plan",
+                "allowed_domains": ["status.example.com"],
             },
         )
         terminal.status = TaskRun.Status.CANCELLED
@@ -1702,6 +1703,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         assert warm_run.state["await_user_message"] is True
         assert warm_run.state["auto_publish"] is True
         assert warm_run.state["pr_authorship_mode"] == "bot"
+        assert warm_run.state["allowed_domains"] == ["status.example.com"]
         execute_workflow.assert_called_once()
         assert execute_workflow.call_args.kwargs.get("create_pr", True) is True
 

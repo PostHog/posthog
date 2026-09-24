@@ -1397,13 +1397,15 @@ class TestCreateTaskAndTriggerForwardsContext:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "ctx_env, ctx_scopes, expected_env, expected_scopes",
+        "ctx_env, ctx_scopes, ctx_domains, expected_env, expected_scopes, expected_domains",
         [
-            ("env-uuid-abc", "read_only", "env-uuid-abc", "read_only"),
-            (None, None, None, "full"),
+            ("env-uuid-abc", "read_only", ("status.example.com",), "env-uuid-abc", "read_only", ["status.example.com"]),
+            (None, None, (), None, "full", None),
         ],
     )
-    async def test_forwards_sandbox_env_and_scopes(self, ctx_env, ctx_scopes, expected_env, expected_scopes):
+    async def test_forwards_sandbox_env_and_scopes(
+        self, ctx_env, ctx_scopes, ctx_domains, expected_env, expected_scopes, expected_domains
+    ):
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(
             team_id=team.id,
@@ -1411,6 +1413,7 @@ class TestCreateTaskAndTriggerForwardsContext:
             repository="posthog/posthog",
             sandbox_environment_id=ctx_env,
             posthog_mcp_scopes=ctx_scopes,
+            allowed_domains=ctx_domains,
         )
 
         mock_task = MagicMock()
@@ -1424,6 +1427,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         kwargs = mock_create.call_args.kwargs
         assert kwargs["sandbox_environment_id"] == expected_env
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
+        assert kwargs["allowed_domains"] == expected_domains
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
