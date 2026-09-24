@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -388,7 +389,11 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                         ? `"${updated.name}" re-indexed into ${updated.chunk_count} chunks`
                         : `"${updated.name}" renamed`
                     lemonToast.success(msg)
-                    actions.resetEditSource({ name, text, always_include })
+                    const submitted = { name, text, always_include }
+                    // Fields stay editable during the save, so keep any edit made in flight.
+                    if (objectsEqual(values.editSource, submitted)) {
+                        actions.resetEditSource(submitted)
+                    }
                     actions.loadSource()
                 } catch (error: any) {
                     lemonToast.error(
@@ -425,7 +430,9 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 try {
                     const updated = await updateSource(props.id, payload)
                     lemonToast.success(`"${updated.name}" updated`)
-                    actions.resetEditUrlSource(vals)
+                    if (objectsEqual(values.editUrlSource, vals)) {
+                        actions.resetEditUrlSource(vals)
+                    }
                     actions.loadSource()
                 } catch (error: any) {
                     lemonToast.error(
