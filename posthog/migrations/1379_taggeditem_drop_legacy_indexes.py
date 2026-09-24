@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1377_untrack_superseded_experiment_settings"),
+        ("posthog", "1378_taggeditem_drop_legacy_constraints"),
     ]
 
     operations = [

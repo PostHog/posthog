@@ -28,11 +28,16 @@ DROP_CHECK = "ALTER TABLE posthog_taggeditem DROP CONSTRAINT IF EXISTS exactly_o
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1378_taggeditem_drop_legacy_indexes"),
+        ("posthog", "1377_untrack_superseded_experiment_settings"),
     ]
 
     # Two catalog changes, each taking ACCESS EXCLUSIVE on posthog_taggeditem for microseconds.
     # Both are idempotent, so this does nothing where an operator already dropped them.
+    #
+    # This runs before the concurrent index drops on purpose. DropIndexConcurrently sets
+    # lock_timeout to 0 on the connection and does not put it back, so a migration after it
+    # would wait for this table lock without a limit, and every query that loads a tag would
+    # queue behind that wait.
     operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
