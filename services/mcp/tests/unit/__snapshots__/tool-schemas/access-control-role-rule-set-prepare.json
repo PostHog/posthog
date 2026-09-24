@@ -31,6 +31,7 @@
                 "dashboard",
                 "dashboard_template",
                 "data_catalog",
+                "data_deletion",
                 "dataset",
                 "early_access_feature",
                 "endpoint",
