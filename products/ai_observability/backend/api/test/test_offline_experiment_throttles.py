@@ -25,7 +25,10 @@ from products.ai_observability.backend.api.offline_experiment_access import (
 
 
 class _ProjectView(APIView):
-    team_id = 1
+    def __init__(self, team_id: int = 1, parent_team_id: int | None = None) -> None:
+        super().__init__()
+        self.team_id = team_id
+        self.team = Team(id=team_id, parent_team_id=parent_team_id)
 
 
 class _AuthenticatedRequest(Request):
@@ -87,21 +90,32 @@ class TestOfflineExperimentThrottles(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("burst", OfflineEvaluationIngestionTeamBurstThrottle),
-            ("sustained", OfflineEvaluationIngestionTeamSustainedThrottle),
+            ("burst", OfflineEvaluationIngestionTeamBurstThrottle, False),
+            ("burst_child_environments", OfflineEvaluationIngestionTeamBurstThrottle, True),
+            ("sustained", OfflineEvaluationIngestionTeamSustainedThrottle, False),
+            ("sustained_child_environments", OfflineEvaluationIngestionTeamSustainedThrottle, True),
         ]
     )
-    def test_project_budget_is_shared_across_authentication_methods(
-        self, _name: str, throttle_class: type[PersonalApiKeyRateThrottle]
+    def test_project_budget_is_shared_across_authentication_methods_and_environments(
+        self, _name: str, throttle_class: type[PersonalApiKeyRateThrottle], child_environments: bool
     ) -> None:
         view = _ProjectView()
-        other_view = _ProjectView()
-        other_view.team_id = 2
+        personal_key_view = _ProjectView(team_id=2, parent_team_id=1) if child_environments else view
+        project_key_view = _ProjectView(team_id=3, parent_team_id=1) if child_environments else view
+        other_view = _ProjectView(team_id=4)
         with patch.object(throttle_class, "rate", "2/minute"):
             self.assertTrue(throttle_class().allow_request(self._request("session"), view))
-            self.assertTrue(throttle_class().allow_request(self._request("personal_key"), view))
-            self.assertFalse(throttle_class().allow_request(self._request("project_key"), view))
-            self.assertTrue(throttle_class().allow_request(self._request("project_key", team_id=2), other_view))
+            self.assertTrue(
+                throttle_class().allow_request(
+                    self._request("personal_key", team_id=personal_key_view.team_id), personal_key_view
+                )
+            )
+            self.assertFalse(
+                throttle_class().allow_request(
+                    self._request("project_key", team_id=project_key_view.team_id), project_key_view
+                )
+            )
+            self.assertTrue(throttle_class().allow_request(self._request("project_key", team_id=4), other_view))
 
     def test_unused_api_key_cannot_change_session_bucket(self) -> None:
         view = _ProjectView()

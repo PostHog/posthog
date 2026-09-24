@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle, PersonalOrProjectSecretApiKeyRateThrottle
@@ -6,6 +6,8 @@ from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle, PersonalOrProje
 if TYPE_CHECKING:
     from rest_framework.request import Request
     from rest_framework.views import APIView
+
+    from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
 class _OfflineEvaluationCallerThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
@@ -36,7 +38,8 @@ class OfflineEvaluationIngestionTeamBurstThrottle(PersonalApiKeyOrUserRateThrott
     rate = "60/minute"
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
-        team_id = self.safely_get_team_id_from_view(view)
+        team = cast("TeamAndOrgViewSetMixin", view).team
+        team_id = team.parent_team_id or team.id
         return self.cache_format % {"scope": self.scope, "ident": f"team:{team_id}"}
 
 
