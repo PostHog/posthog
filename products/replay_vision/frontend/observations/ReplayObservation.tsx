@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, Link, Spinner } from '@posthog/lemon-ui'
@@ -34,6 +34,7 @@ import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
+import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
 import { ObservationShareButton } from './ObservationShareButton'
 import { ObservationUnsuccessfulScan } from './ObservationUnsuccessfulScan'
 import {
@@ -85,6 +86,7 @@ function CalibrationEntryPoint({ observation }: { observation: ReplayObservation
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
+    const playerRef = useRef<HTMLDivElement>(null)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
     // A shared link carries the moment the sharer was watching, in seconds, the same way a recording link does.
     const sharedStartSeconds = parseNumericParam(searchParams.t)
@@ -162,7 +164,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const scannerName = scannerLabel(observation)
     const prompt = configFromSnapshot(snapshot)?.prompt ?? null
 
-    const seekEmbeddedPlayer = (ms: number): void => setPendingSeek({ ms, trigger: Date.now() })
+    const seekEmbeddedPlayer = (ms: number): void => {
+        setPendingSeek({ ms, trigger: Date.now() })
+        // On narrow screens the player sits below the result, so bring it into view with the seek.
+        playerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
 
     return (
         <SceneContent>
@@ -236,8 +242,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <div className="grid grid-cols-1 gap-4 items-start @4xl:grid-cols-[minmax(20rem,1fr)_minmax(0,2fr)]">
                     <div className="flex flex-col gap-4 min-w-0">
                         <section className="border rounded p-4 bg-surface-primary flex flex-col gap-4">
-                            {/* A scan that failed or never ran answered nothing, so the question alone adds no context. */}
-                            {prompt && observation.status !== 'failed' && observation.status !== 'ineligible' && (
+                            {/* Only a finished scan answered the prompt, so the question shows beside its answer. */}
+                            {prompt && observation.status === 'succeeded' && (
                                 <LabeledRow label="Prompt">
                                     <PromptPreview prompt={prompt} dataAttr="vision-observation-show-prompt" />
                                 </LabeledRow>
@@ -289,7 +295,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     </div>
 
                     {/* 16:10 leaves the player's top bar on top of a 16:9 frame, the shape of most recordings. */}
-                    <div className="@container/player min-w-0 @4xl:sticky @4xl:top-4">
+                    <div ref={playerRef} className="@container/player min-w-0 @4xl:sticky @4xl:top-4">
                         <LemonCard
                             className="overflow-hidden p-0 h-[min(62.5cqw,calc(100vh-8rem))]"
                             hoverEffect={false}
@@ -300,6 +306,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     playerKey={playerKey}
                                     sessionRecordingId={observation.session_id}
                                     pendingSeek={pendingSeek}
+                                    unavailable={<ObservationRecordingUnavailable observation={observation} />}
                                 />
                             </Suspense>
                         </LemonCard>

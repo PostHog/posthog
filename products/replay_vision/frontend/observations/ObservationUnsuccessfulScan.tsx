@@ -18,16 +18,17 @@ export function ObservationUnsuccessfulScan({
     onRetry: () => void
 }): JSX.Element | null {
     const failed = observation.status === 'failed'
-    if ((!failed && observation.status !== 'ineligible') || !observation.error_reason) {
+    if (!failed && observation.status !== 'ineligible') {
         return null
     }
-    const failure = failed ? parseFailureReason(observation.error_reason) : null
-    const ineligible = failed ? null : parseIneligibleReason(observation.error_reason)
+    const errorReason = observation.error_reason
+    const failure = failed && errorReason ? parseFailureReason(errorReason) : null
+    const ineligible = !failed && errorReason ? parseIneligibleReason(errorReason) : null
     const description = failure
         ? failureKindDescription(failure.kind)
         : ineligible
           ? ineligibleKindDescription(ineligible.kind)
-          : observation.error_reason
+          : errorReason || 'No reason was recorded for this scan.'
     const message = (failure ?? ineligible)?.message
 
     return (
@@ -46,7 +47,7 @@ export function ObservationUnsuccessfulScan({
             <div>
                 <ObservationRetryButton
                     status={observation.status}
-                    errorReason={observation.error_reason}
+                    errorReason={errorReason}
                     onRetry={onRetry}
                     loading={retrying}
                     emphasis={failed ? 'primary' : undefined}

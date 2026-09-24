@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -827,7 +826,7 @@ const meta: Meta = {
                 // The observation page embeds the player, so it needs a recording to play.
                 '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) =>
                     new URL(request.url).searchParams.get('source') === 'blob_v2'
-                        ? new HttpResponse(snapshotsAsJSONLines())
+                        ? new Response(snapshotsAsJSONLines())
                         : {
                               sources: [
                                   {
@@ -1117,12 +1116,16 @@ const observationDetailFor = (
         previous_observation_id: '00000000-0000-0000-0000-0000000000b1',
         next_observation_id: '00000000-0000-0000-0000-0000000000b4',
         scanner_snapshot: {
-            ...observation().scanner_snapshot,
+            ...observation().scanner_snapshot!,
             name: scannerResponse.name,
             scanner_type: scannerResponse.scanner_type,
             scanner_config: scannerResponse.scanner_config,
         },
-        scanner_result: { model_output: { scanner_type: scannerResponse.scanner_type, ...output }, signals_count: 0 },
+        scanner_result: {
+            model_output: { scanner_type: scannerResponse.scanner_type, ...output },
+            signals_count: 0,
+            verification: null,
+        },
     })
 
 const classifierObservationDetail = observationDetailFor(
@@ -1181,6 +1184,19 @@ const runningObservationDetail = observation({
 export const ObservationDetailNotScanned: StoryObj = observationDetailStory(notScannedObservationDetail)
 
 export const ObservationDetailRunning: StoryObj = observationDetailStory(runningObservationDetail)
+
+// The observation outlived its recording, so the player's place explains why and shows the saved frame.
+export const ObservationDetailRecordingExpired: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionObservation(monitorObservationDetail.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
+                '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
+            },
+        }),
+    ],
+}
 
 export const ObservationDetailClassifier: StoryObj = observationDetailStory(classifierObservationDetail)
 

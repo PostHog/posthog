@@ -21,6 +21,8 @@ export function ObservationFacts({ observation }: { observation: ReplayObservati
                     <Link to={urls.personByDistinctId(observation.distinct_id)} className="block truncate">
                         {person}
                     </Link>
+                ) : observation.recording_subject_email ? (
+                    <span className="block truncate">{observation.recording_subject_email}</span>
                 ) : (
                     <span className="text-muted">Unknown person</span>
                 )}
@@ -33,7 +35,15 @@ export function ObservationFacts({ observation }: { observation: ReplayObservati
             </Fact>
             <Fact label="Triggered by">
                 {observation.triggered_by !== 'schedule' && observation.triggered_by_user ? (
-                    <ProfilePicture user={observation.triggered_by_user} size="xs" showName />
+                    <ProfilePicture
+                        user={{
+                            first_name: observation.triggered_by_user.first_name,
+                            last_name: observation.triggered_by_user.last_name,
+                            email: observation.triggered_by_user.email,
+                        }}
+                        size="xs"
+                        showName
+                    />
                 ) : (
                     OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
                 )}

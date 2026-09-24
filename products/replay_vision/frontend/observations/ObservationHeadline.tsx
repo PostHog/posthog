@@ -138,7 +138,7 @@ export function ObservationHeadline({
         return null
     }
     return (
-        <LabeledRow label={HEADLINE_LABEL[scannerType]}>
+        <LabeledRow label={HEADLINE_LABEL[scannerType] ?? 'Result'}>
             <HeadlineValue observation={observation} scannerType={scannerType} onSeek={onSeek} />
         </LabeledRow>
     )

@@ -149,7 +149,7 @@ export function ObservationLabelControl({
     onChange,
     scannerUserAccessLevel,
     compact = false,
-}: ObservationLabelProps & { compact?: boolean }): JSX.Element {
+}: ObservationLabelProps & { compact?: boolean }): JSX.Element | null {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
     const { label, saving, feedbackDraft } = useValues(logic)
     const { rate, clearRating } = useActions(logic)
@@ -169,6 +169,14 @@ export function ObservationLabelControl({
         }
         rate(isCorrect, feedbackDraft)
         setFeedbackOpen(!compact)
+    }
+
+    // Saves a typed note at once, since leaving the page cancels the pending autosave.
+    const closeNote = (): void => {
+        if (label && (label.feedback ?? '').trim() !== feedbackDraft.trim()) {
+            rate(label.is_correct, feedbackDraft)
+        }
+        setFeedbackOpen(false)
     }
 
     const buttons = (
@@ -239,7 +247,7 @@ export function ObservationLabelControl({
             <Popover
                 // Waits for the saved label, since the feedback autosave writes onto it.
                 visible={feedbackOpen && !!label}
-                onClickOutside={() => setFeedbackOpen(false)}
+                onClickOutside={closeNote}
                 placement="bottom-end"
                 overlay={
                     <div className="w-80 p-1 flex flex-col gap-2">
@@ -259,7 +267,7 @@ export function ObservationLabelControl({
                             size="small"
                             type="secondary"
                             className="self-end"
-                            onClick={() => setFeedbackOpen(false)}
+                            onClick={closeNote}
                             data-attr="replay-vision-label-feedback-done"
                         >
                             Done
