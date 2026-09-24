@@ -78,14 +78,10 @@ class EventSchemaViewSet(
     def safely_get_queryset(self, queryset):
         event_definition_id = self.request.query_params.get("event_definition")
         if event_definition_id:
-            return (
-                queryset.filter(event_definition_id=event_definition_id)
-                .select_related("property_group")
-                .prefetch_related("property_group__properties")
-                .order_by("-created_at")
-            )
+            queryset = queryset.filter(event_definition_id=event_definition_id)
+        # created_at is not unique, so it cannot page reliably on its own
         return (
             queryset.select_related("property_group")
             .prefetch_related("property_group__properties")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
