@@ -334,9 +334,19 @@ tools:
             This tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response and
             use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in one
             keep getting the holdout variant instead of the rollout. Early access enrollment is evaluated before both.
-            Check `filters.feature_enrollment` in the definition you read: when it is true, a user who enrolled keeps
-            the flag and a user who opted out is served nothing, whatever this rollout says, so do not report that
-            everyone now gets the flag.
+
+
+            Check `filters.feature_enrollment` in the definition you read. When it is true, this tool refuses the
+            rollout with 400 and writes nothing. Only the early access feature's own move to general availability with
+            its roll out to everyone option clears the gate. That move writes the 100% condition itself, so do not call
+            this tool after it. A plain stage change to general availability leaves `feature_enrollment` true, and this
+            tool keeps returning 400. The API does not expose that option, so ask the person to make the move in the
+            early access feature.
+
+
+            `update-feature-flag` and `feature-flag-set-release-condition-rollout` are not gated on enrollment. A
+            rollout written through either returns 200 while the enrollment marker still decides who is served. Do not
+            use either tool to bypass the 400.
 
 
             Check `filters.aggregation_group_type_index` in the definition you read. When it is set, the flag buckets
@@ -365,9 +375,9 @@ tools:
             out to everyone writes nothing and returns the version unchanged.
 
 
-            Returns 400 when the flag is multivariate and `variant_key` is missing, when the flag defines no such
-            variant, or when `variant_key` is sent for a flag with no variants. Returns 409 when an approval policy
-            gates rollout changes.
+            Returns 400 when the flag is gated on early access enrollment, when a multivariate flag has no
+            `variant_key`, when the flag defines no such variant, or when `variant_key` is sent for a flag with no
+            variants. Returns 409 when an approval policy gates rollout changes.
         param_overrides:
             id:
                 cast: string-int
@@ -887,9 +897,9 @@ tools:
             `feature-flag-set-release-condition-rollout` changes one release condition's percentage and
             `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both
             refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This
-            tool has no such check on the agent path: it replaces the whole `filters` object with your copy of it. Use
-            it for a rollout change only when those two tools cannot express it, such as changing the split between
-            variants while leaving the audience alone.
+            tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole
+            `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express
+            it, such as changing the split between variants while leaving the audience alone.
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
