@@ -43,6 +43,7 @@ import {
   type CompletionSound,
   type CustomSound,
   NOTIFICATION_DEFAULTS,
+  NOTIFICATION_PAUSE_MS,
   notificationsPaused,
   type SpokenFocusMode,
   useSettingsStore,
@@ -59,8 +60,6 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { formatDurationSeconds } from "@posthog/ui/utils/customSound";
 import { playCompletionSound } from "@posthog/ui/utils/sounds";
 import { useCallback, useEffect, useState } from "react";
-
-const PAUSE_DURATION_MS = 60 * 60 * 1000;
 
 const BUILT_IN_SOUND_OPTIONS: { value: CompletionSound; label: string }[] = [
   { value: "guitar", label: "Guitar solo" },
@@ -154,7 +153,7 @@ export function NotificationsSettings() {
         old_value: paused,
       });
       setNotificationsPausedUntil(
-        pause ? Date.now() + PAUSE_DURATION_MS : null,
+        pause ? Date.now() + NOTIFICATION_PAUSE_MS : null,
       );
     },
     [paused, setNotificationsPausedUntil],

@@ -376,6 +376,8 @@ export const NOTIFICATION_DEFAULTS = {
   elevenLabsKeyConfigured: false,
 };
 
+export const NOTIFICATION_PAUSE_MS = 60 * 60 * 1000;
+
 // No timer clears the pause: it ends when the clock passes the stored time.
 export function notificationsPaused(
   pausedUntil: number | null,
