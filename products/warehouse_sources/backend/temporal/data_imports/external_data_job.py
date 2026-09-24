@@ -86,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -686,6 +687,7 @@ class CreateSourceTemplateInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 

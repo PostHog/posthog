@@ -270,6 +270,16 @@ pub trait Client: Send + Sync {
         ttl_seconds: usize,
     ) -> Result<(), CustomRedisError>;
 
+    /// Increment each key and set its expiry to an absolute unix second, as
+    /// `(key, increment, expire_at)`.
+    ///
+    /// Prefer this over `batch_incr_by_expire` when the key fixes its own
+    /// deadline; do not add `NX`, which needs Redis 7 and buys nothing here.
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
