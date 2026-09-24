@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
@@ -439,7 +439,7 @@ describe('ReportCard', () => {
         const renders = renderCountedPair()
         const before = { ...renders }
 
-        act(() => ciLogic.actions.loadCiStatusesSuccess({ 'r-1': 'failure' }))
+        act(() => ciLogic.actions.loadCiStatusesSuccess({ 'r-1': PullRequestCiStatusEnumApi.Failing }))
 
         expect(renders['r-1']).toBeGreaterThan(before['r-1'])
         expect(renders['r-2']).toBe(before['r-2'])
