@@ -33,7 +33,6 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -4121,9 +4120,6 @@ class TeamTasksConfig(models.Model):
 
     def __str__(self):
         return f"TeamTasksConfig(team={self.team_id})"
-
-
-register_team_extension_signal(TeamTasksConfig)
 
 
 class UserTasksConfig(TeamScopedRootMixin):
