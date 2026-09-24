@@ -46711,7 +46711,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -72439,7 +72439,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
