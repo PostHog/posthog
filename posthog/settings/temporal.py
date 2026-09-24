@@ -89,10 +89,21 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # entry beats the team override and the default: run cost tracks the kind of work, and
 # implementation runs regularly outspend every other stage. Each interactive cap and the
 # workflows cap clear their observed ceiling with room for the holds, because nothing
-# retries behind a cap that binds mid-run. Suggestion runs stay on the default.
+# retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
+# Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
+    "signals_implementation": "20",
+    "signals_inbox": "75",
+    "signals_chat": "30",
+    "slack_app": "75",
+    "workflows": "75",
+    "posthog_ai": "75",
+    "posthog_code": "500",
+}
+# A JSON object merged onto the defaults per product. Malformed JSON is captured at mint and
+# leaves the defaults in force.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
-    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75", "posthog_ai": "75"}',
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", ""
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)

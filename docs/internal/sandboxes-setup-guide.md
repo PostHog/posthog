@@ -176,13 +176,12 @@ per-run dollar cap. Two JSON object settings can override it:
 
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
-  caps and defaults to
-  `{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}`.
+  caps. It is merged onto the built-in `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS`
+  map in `posthog/settings/temporal.py`, and its entry wins per product.
 
-A product override takes precedence over a team override, which takes precedence
-over the default cap. Set the product override to `{}` to disable the built-in
-implementation override. An empty environment value is treated as unset and
-restores the built-in map.
+A product cap takes precedence over a team override, which takes precedence over
+the default cap. An invalid entry, or a value that is not a JSON object, is
+reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 

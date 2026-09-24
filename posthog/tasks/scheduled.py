@@ -69,6 +69,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
 )
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
+from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
@@ -348,6 +349,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="10"),
         refresh_gateway_credentials.s(),
         name="gateway credential cache sync",
+    )
+
+    # Gateway quota projection reconcile - every 15 min, offset from the quota-limiting run and
+    # the :05/:10 gateway cache refreshes, so a missed signal or an expiring blob heals within a tick
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="7,22,37,52"),
+        reconcile_llm_gateway_quota_projection.s(),
+        name="llm-gateway quota projection reconcile",
     )
 
     # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.

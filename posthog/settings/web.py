@@ -1350,6 +1350,24 @@ except ValueError:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
+# PostHog Desktop on the Go ai-gateway: the URL is the ai-gateway host because gateway.* cannot
+# validate a phe_. A dedicated relay-team phs_ keeps the mint ceiling to desktop tokens. Unset
+# refuses as `unconfigured`, which keeps the app on the legacy gateway.
+DESKTOP_GATEWAY_URL = get_from_env("DESKTOP_GATEWAY_URL", "")
+DESKTOP_GATEWAY_MINT_KEY = get_from_env("DESKTOP_GATEWAY_MINT_KEY", "")
+DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "200")
+# Per-team cap overrides as a JSON object of team id to dollars, e.g. {"2": "500"}.
+DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+# A plan, access or membership change outlives a token by at most this long. All mints share the
+# gateway's relay-key mint ceiling, so a shorter TTL supports fewer concurrent sessions; past it the
+# gateway answers 429 and the app stays on the legacy gateway.
+DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECONDS", 300, type_cast=int)
+# Org-targeted; gates the desktop mint and the sandbox worker's posthog_code mint alike.
+DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "posthog-desktop-ai-gateway")
+# Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
+# open project on each device mints about 13 times an hour.
+DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
+
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an
 # internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must

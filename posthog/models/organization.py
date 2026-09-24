@@ -518,6 +518,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
             if resource == QuotaResource.RECORDINGS:
                 dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+            self._project_llm_gateway_quota_if_ai(resource)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -548,6 +549,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
         if resource == QuotaResource.RECORDINGS:
             dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+        self._project_llm_gateway_quota_if_ai(resource)
+
+    def _project_llm_gateway_quota_if_ai(self, resource: "QuotaResource") -> None:
+        from ee.billing.quota_limiting import QuotaResource, _project_llm_gateway_quota_for_org
+
+        if resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+            _project_llm_gateway_quota_for_org(self)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """
@@ -705,7 +713,18 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
         team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
         invalidate_llm_gateway_quota_cache(team_ids)
 
+    def _project_gateway_quota():
+        from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task
+
+        try:
+            project_org_llm_gateway_quota_task.delay(str(organization_id))
+        except Exception:
+            # The reconcile re-derives a deactivated org's blobs; never fail the org save.
+            logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
+
     transaction.on_commit(_invalidate_cache)
+    if settings.AI_GATEWAY_REDIS_URL:
+        transaction.on_commit(_project_gateway_quota)
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
