@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
-import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -24,12 +23,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import {
-    addProjectIdIfMissing,
-    getProjectIdentifierInPath,
-    removeProjectIdIfPresent,
-    stripTrailingSlash,
-} from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -270,27 +264,6 @@ export interface sceneLogicActions {
     hideInviteModal: () => {
         value: true
     } // inviteLogic
-    locationChanged: ({
-        method,
-        pathname,
-        search,
-        searchParams,
-        hash,
-        hashParams,
-        initial,
-        url,
-        routerState,
-    }: LocationChangedPayload) => {
-        hash: string
-        hashParams: Record<string, any>
-        initial: boolean
-        method: 'POP' | 'PUSH' | 'REPLACE'
-        pathname: string
-        routerState: Record<string, any>
-        search: string
-        searchParams: Record<string, any>
-        url: string
-    } // router
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
@@ -406,7 +379,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic, teamLogic],
-        actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
+        actions: [inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
@@ -737,17 +710,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }).catch((error) => {
                 console.error('Failed to persist homepage', error)
             })
-        },
-        locationChanged: ({ pathname, search, hash }) => {
-            pathname = addProjectIdIfMissing(pathname)
-
-            // Remove trailing slash from the address bar. Route matching itself is handled
-            // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
-            // before this replace runs.
-            const stripped = stripTrailingSlash(pathname)
-            if (stripped !== pathname) {
-                router.actions.replace(stripped, search, hash)
-            }
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {
