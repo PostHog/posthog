@@ -113,6 +113,21 @@ def test_depot_caps_log_but_keeps_failure_tail(requests_mock):
     assert len(result.encode()) < 1000
 
 
+def test_depot_stops_paging_at_the_read_budget(requests_mock):
+    # A job that prints an endless log must not hold the worker in the download.
+    requests_mock.post(
+        _DEPOT_URL,
+        [
+            {"json": _depot_page(*["noise line"] * 100, next_page_token="page-2")},
+            {"json": _depot_page("##[error]never read")},
+        ],
+    )
+    result = fetch_depot_job_log("zf6sbbn2wh", "depot-tok", max_read_bytes=100)
+    assert result is not None
+    assert "stopped at the read budget" in result
+    assert requests_mock.call_count == 1
+
+
 @pytest.mark.parametrize(
     "status, headers, error, retry_delay",
     [

@@ -103,14 +103,23 @@ def _retry_after(response: requests.Response) -> dt.timedelta | None:
 
 
 def fetch_depot_job_log(
-    attempt_id: str, api_token: str, *, timeout: int = 60, max_bytes: int = _MAX_LOG_BYTES
+    attempt_id: str,
+    api_token: str,
+    *,
+    timeout: int = 60,
+    max_bytes: int = _MAX_LOG_BYTES,
+    max_read_bytes: int = 4 * _MAX_LOG_BYTES,
 ) -> str | None:
     """Return the Depot CI attempt's log text (capped at ``max_bytes``), or None if Depot has none (404).
 
     ``api_token`` is the team's own Depot organization token, so no shared PostHog egress budget
     applies. A 429 passes Depot's ``Retry-After`` to the Temporal retry instead.
+
+    The pages stop after ``max_read_bytes`` of responses, so a job that prints an unbounded log
+    cannot hold a worker in the download. The log then keeps its head and the tail read so far.
     """
     log = _HeadAndTail(max_bytes)
+    read_budget = max_read_bytes
     request = {"attemptId": attempt_id}
     with requests.Session() as session:
         session.headers["Authorization"] = f"Bearer {api_token}"
@@ -125,10 +134,14 @@ def fetch_depot_job_log(
                     next_retry_delay=_retry_after(response),
                 )
             response.raise_for_status()
+            read_budget -= len(response.content)
             page = response.json()
             for line in page.get("lines", []):
                 log.extend(f"{_depot_line_text(line)}\n".encode())
             page_token = page.get("nextPageToken")
             if not page_token:
+                return log.text()
+            if read_budget <= 0:
+                log.extend(b"\n... [log download stopped at the read budget] ...\n")
                 return log.text()
             request = {"attemptId": attempt_id, "pageToken": page_token}
