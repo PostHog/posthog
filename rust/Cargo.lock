@@ -7242,6 +7242,7 @@ dependencies = [
  "moka",
  "rand 0.8.5",
  "serde_json",
+ "siphasher 1.0.2",
  "strum 0.26.3",
  "tokio",
  "tracing",
@@ -9392,7 +9393,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",

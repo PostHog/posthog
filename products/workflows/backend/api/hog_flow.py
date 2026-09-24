@@ -3837,6 +3837,50 @@ def workflow_type_q(requested: set[str]) -> Q:
     return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
 
 
+BROADCAST_TRIGGER_TYPE = "batch"
+BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
+
+
+def _json_path(path: str) -> models.Func:
+    # A jsonpath bind parameter. Postgres types a plain parameter as text and the jsonb_path_*
+    # functions take jsonpath, so the cast has to be spelled out.
+    return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
+
+
+def _jsonb_path_exists(path: str) -> models.Func:
+    return models.Func(
+        models.F("actions"),
+        _json_path(path),
+        function="jsonb_path_exists",
+        output_field=models.BooleanField(),
+    )
+
+
+def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
+    # Whether a workflow has the shape the broadcasts UI renders: a batch trigger and one email step,
+    # evaluated in Postgres so a list can filter on the graph without loading every row's actions.
+    # The trigger comes from the trigger action, where mask_trigger_config reads it: the `trigger`
+    # column is a legacy copy and rows exist where the two disagree. jsonpath runs in lax mode, so a
+    # row whose `actions` is not an array yields no matches rather than an error.
+    other_step = " && ".join(f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES))
+    return queryset.annotate(
+        _has_batch_trigger=_jsonb_path_exists(
+            f'$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
+        ),
+        _email_step_count=models.Func(
+            models.Func(
+                models.F("actions"),
+                _json_path('$[*] ? (@.type == "function_email")'),
+                function="jsonb_path_query_array",
+                output_field=models.JSONField(),
+            ),
+            function="jsonb_array_length",
+            output_field=models.IntegerField(),
+        ),
+        _has_other_step=_jsonb_path_exists(f"$[*] ? ({other_step})"),
+    )
+
+
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
@@ -3981,6 +4025,11 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
             ),
+            OpenApiParameter(
+                "broadcast_eligible",
+                OpenApiTypes.BOOL,
+                description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
+            ),
         ]
     )
 )
@@ -4121,6 +4170,17 @@ class HogFlowViewSet(
                     named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
                     raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
                 queryset = queryset.filter(workflow_type_q(requested))
+
+            if self.request.GET.get("broadcast_eligible") == "true":
+                queryset = annotate_broadcast_shape(queryset).filter(
+                    Q(origin_product=HogFlow.OriginProduct.BROADCASTS)
+                    | Q(
+                        origin_product__isnull=True,
+                        _has_batch_trigger=True,
+                        _email_step_count=1,
+                        _has_other_step=False,
+                    )
+                )
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.
