@@ -11,6 +11,7 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { TruncatedText } from 'products/experiments/frontend/components/TruncatedText'
 import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { RunningTimeConfigModal } from 'products/experiments/frontend/modals/RunningTimeConfigModal/RunningTimeConfigModal'
 
@@ -87,9 +88,11 @@ export function ExperimentMetaBar(): JSX.Element | null {
                         <Tooltip title="Feature flag">
                             <IconFlag className="text-secondary text-base shrink-0" />
                         </Tooltip>
-                        <CopyToClipboardInline className="font-normal truncate max-w-80" description="feature flag key">
-                            {experiment.feature_flag.key}
-                        </CopyToClipboardInline>
+                        <TruncatedText text={experiment.feature_flag.key} maxLength={32} />
+                        <CopyToClipboardInline
+                            explicitValue={experiment.feature_flag.key}
+                            description="feature flag key"
+                        />
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
