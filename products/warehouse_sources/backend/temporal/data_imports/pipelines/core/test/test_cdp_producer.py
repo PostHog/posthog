@@ -22,6 +22,9 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -955,6 +958,52 @@ def _make_producer(job_id: str) -> CDPProducer:
 
 def _make_view_producer(job_id: str) -> CDPProducer:
     return CDPProducer.for_view(team_id=1, saved_query_id="view_1", job_id=job_id, logger=mock.AsyncMock())
+
+
+def _aws_write_error(code: str, detail: str) -> OSError:
+    return OSError(
+        "When initiating multiple part upload for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        f"AWS Error {code} during CreateMultipartUpload operation: {detail}"
+    )
+
+
+@parameterized.expand(
+    [
+        (
+            "transient_internal_error",
+            _aws_write_error("INTERNAL_FAILURE", "We encountered an internal error. Please try again."),
+            2,
+            None,
+        ),
+        ("refused_access_denied", _aws_write_error("ACCESS_DENIED", "Access Denied"), 1, ObjectStoreConfigurationError),
+    ]
+)
+@pytest.mark.asyncio
+async def test_stage_chunk_retries_only_a_transient_object_store_failure(_name, error, expected_attempts, raises):
+    # Creating the multipart upload is a single network call, so a blip on it drops the whole chunk
+    # unless it is retried. A refused write is the deployment's configuration, which no retry
+    # changes, so it fails once as a typed error instead of stalling the sync and paging someone.
+    producer = _make_producer("job_1")
+    test_data = pa.table({"id": [1], "name": ["Alice"]})
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.write_table",
+            side_effect=[error, None],
+        ) as mock_write_table,
+        patch.object(producer, "_get_fs", return_value=MagicMock()),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store.asyncio.sleep",
+            new=mock.AsyncMock(),
+        ),
+    ):
+        if raises is not None:
+            with pytest.raises(raises):
+                await producer.stage_chunk(chunk=0, table=test_data)
+        else:
+            await producer.stage_chunk(chunk=0, table=test_data)
+
+    assert mock_write_table.call_count == expected_attempts
 
 
 @parameterized.expand([("local_setup", True), ("non_local_setup", False)])

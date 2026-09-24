@@ -1167,6 +1167,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         ):
             assert fragment in html
 
+    def test_send_hog_function_filters_uncompilable_skips_a_destination_still_on_its_last_bytecode(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A save whose recompile fails keeps the previous bytecode beside the error, so this
+        # destination still delivers. The email says the listed destinations dropped events, which
+        # would be wrong for this one.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Still delivering", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": ["_H", 1, 29], "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
+
     def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

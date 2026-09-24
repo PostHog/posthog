@@ -2233,18 +2233,17 @@ class TestScoutReportAPI(APIBaseTest):
             assert captured is not None
             return captured.event_uuid
 
-        def observation(source_id: str, description: str = "Checkout errors doubled", weight: float = 1.0):
-            return ScoutReportSignal(description=description, source_id=source_id, weight=weight)
+        def observation(source_id: str, description: str = "Checkout errors doubled"):
+            return ScoutReportSignal(description=description, source_id=source_id, weight=1.0)
 
         checkout = forward([observation("checkout-errors")])
         assert checkout == forward([observation("checkout-errors")])
         # The rail carries a row per source id, so the same prose recorded twice is two observations.
         assert checkout != forward([observation("checkout-errors-eu")])
         assert checkout != forward([observation("checkout-errors", description="Signups fell")])
-        assert checkout != forward([observation("checkout-errors", weight=2.0)])
         # A description is scout-authored free text, so on a pipe-joined key a note carrying the
         # evidence part verbatim hashes like the evidence edit itself and one of the two is dropped.
-        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors",1.0]]')
+        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors"]]')
 
     @parameterized.expand(
         [

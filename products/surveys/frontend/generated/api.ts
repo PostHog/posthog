@@ -64,6 +64,9 @@ export const desktopFeedbackCreate = async (
     formData.append(`response`, desktopFeedbackRequestApi.response)
     formData.append(`source`, desktopFeedbackRequestApi.source)
     formData.append(`feedback_view`, desktopFeedbackRequestApi.feedback_view)
+    if (desktopFeedbackRequestApi.feedback_type !== undefined) {
+        formData.append(`feedback_type`, desktopFeedbackRequestApi.feedback_type)
+    }
     if (desktopFeedbackRequestApi.feedback_task_id !== undefined) {
         formData.append(`feedback_task_id`, desktopFeedbackRequestApi.feedback_task_id)
     }

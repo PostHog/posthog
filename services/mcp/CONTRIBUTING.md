@@ -382,6 +382,7 @@ The HTML import only works with wrangler's Text rule. If you see this error duri
 ### UI not rendering in Claude Desktop
 
 1. Verify the tunnel is running (`cloudflared tunnel --url ...`)
+   - If OAuth metadata or the `WWW-Authenticate` challenge names `localhost` instead of the tunnel host, set `MCP_TRUST_FORWARDED_HOST=true` in `.env` (see `.env.example`)
 2. Check Claude Desktop config has correct URL
 3. Restart Claude Desktop after config changes
 4. Verify tool has `_meta.ui.resourceUri` set

@@ -23,15 +23,21 @@ from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role import Role, RoleMembership
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
-from ..property_access_control import is_property_access_control_enabled
+from ..property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
+    is_property_access_control_enabled,
+)
 from . import contracts
 from .contracts import PropertyAccessLevel
 from .user_access_control import (
@@ -96,6 +102,29 @@ def _get_property_definition(property_definition_id: str, team_id: int) -> Prope
 
 
 # --- Read API ---
+
+
+def get_restricted_properties_with_group_type_index_for_team(
+    *, user: User | None, team_id: int
+) -> set[RestrictedProperty]:
+    """Return property restrictions for a user and team."""
+    return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+
+
+def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
+    """Return restricted event and person property names."""
+    return contracts.RestrictedPropertyNames(
+        event=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.EVENT
+        ),
+        person=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.PERSON
+        ),
+    )
 
 
 def get_property_access_state(
@@ -259,6 +288,26 @@ def object_ids_restricted_from_any_member(
         .values_list("resource_id", flat=True)
     )
     return {resource_id for resource_id in restricted if resource_id}
+
+
+def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
+    """Whether the role is a role of that organization.
+
+    For a caller that accepts a role id from a request and must not let it name a role of
+    another organization.
+    """
+    return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
+
+
+def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
+    """Ids of the users the role grants access to.
+
+    A membership whose organization member moved to another organization no longer grants
+    anything, so it is left out.
+    """
+    return list(
+        RoleMembership.objects.filter(role_id=role_id).valid_for_authorization().values_list("user_id", flat=True)
+    )
 
 
 # --- Write API ---

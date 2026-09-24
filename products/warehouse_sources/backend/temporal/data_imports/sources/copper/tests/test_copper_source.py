@@ -34,6 +34,10 @@ class TestCopperSource:
             ("activity_types", False),
             ("custom_activity_types", False),
             ("loss_reasons", False),
+            ("custom_field_definitions", False),
+            ("tags", False),
+            ("field_layouts", False),
+            ("related_items", False),
         ],
     )
     def test_get_schemas_incremental_support(self, endpoint, expected_incremental):

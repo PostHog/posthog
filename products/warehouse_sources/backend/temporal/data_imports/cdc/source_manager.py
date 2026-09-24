@@ -106,35 +106,23 @@ class CDCLane:
     write_mode: CDCWriteMode
 
 
-# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer, cleared by
-# its rollback. `cdc_buffered_before` stays after a rollback, so a later flip can tell the
-# `_ph_cdc_seq` the buffered lane wrote from a column the source owns.
-BUFFERED_LANE_KEY = "cdc_buffered_lane"
+# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer and never
+# cleared, so a later flip can tell the `_ph_cdc_seq` the buffered lane wrote from a column the
+# source owns.
 BUFFERED_BEFORE_KEY = "cdc_buffered_before"
 
 
-def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
-    """Whether the flip command may move this schema to the buffer: streaming, seeded, with lanes."""
+def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
+    """Schema-side conditions for buffered ingress: streaming, seeded, and in a table mode with lanes.
+
+    The source's `ingest_mode` is the other half.
+    """
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
         and schema.cdc_table_mode in _LANE_WRITE_MODES
         and schema.initial_sync_complete
     )
-
-
-def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
-
-    Eligibility is opt-in per schema, by the marker the flip command writes. A source flipped
-    before history modes were served left its `cdc_only` and `both` schemas on legacy with
-    their schedules paused; widening this predicate by mode alone would have capture route
-    those schemas into the buffer on deploy, with nothing scheduled to consume it. Consolidated
-    schemas on an already-buffered source predate the marker and stay served without it.
-    """
-    if not buffered_lane_candidate(schema):
-        return False
-    return schema.cdc_table_mode == "consolidated" or bool(schema.sync_type_config.get(BUFFERED_LANE_KEY))
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:

@@ -1,6 +1,7 @@
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -13,8 +14,13 @@ from requests.exceptions import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
     _date_only,
     _flatten_page_metrics_item,
+    _flatten_rum_metrics,
+    _iter_annotations_for_project,
     _iter_page_metrics_for_project,
+    _iter_pages,
     _iter_projects,
+    _iter_rum_metrics_for_project,
+    _iter_rum_page_views_for_project,
     _parse_datetime,
     debugbear_source,
     validate_credentials,
@@ -226,21 +232,264 @@ class TestIterPageMetricsForProject:
         assert session.get.call_count == 1
 
 
+def _query(call: Any) -> dict[str, list[str]]:
+    return parse_qs(urlparse(call.args[0]).query)
+
+
+class TestIterPages:
+    def test_flattens_pages_out_of_the_projects_listing(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(
+            [
+                {
+                    "id": "p1",
+                    "name": "My Project",
+                    "pages": [
+                        {"id": 999, "name": "Homepage", "url": "https://example.com"},
+                        {"name": "No id"},
+                        "unexpected",
+                    ],
+                },
+                {"id": "p2", "name": "Empty", "pages": None},
+            ]
+        )
+
+        rows = list(_iter_pages(session, {}))
+
+        assert rows == [
+            {
+                "id": "999",
+                "name": "Homepage",
+                "url": "https://example.com",
+                "project_id": "p1",
+                "project_name": "My Project",
+            }
+        ]
+
+
+class TestFlattenRumMetrics:
+    def test_one_row_per_metric_bucket(self) -> None:
+        payload = {
+            "info": {"groupByTime": "day", "stat": "p75"},
+            "lcp": [
+                {"date": "2026-04-06T00:00:00.000Z", "count": 2, "value": 1400},
+                {"date": "2026-04-07T00:00:00.000Z", "count": 1, "value": 2000},
+            ],
+            "cls": [{"date": "2026-04-06T00:00:00.000Z", "count": 2, "value": 0.01}],
+        }
+
+        rows = list(_flatten_rum_metrics({"project_id": "p1", "project_name": "Proj"}, payload))
+
+        assert rows == [
+            {
+                "project_id": "p1",
+                "project_name": "Proj",
+                "metric": "lcp",
+                "date": "2026-04-06T00:00:00.000Z",
+                "value": 1400,
+                "count": 2,
+                "stat": "p75",
+            },
+            {
+                "project_id": "p1",
+                "project_name": "Proj",
+                "metric": "lcp",
+                "date": "2026-04-07T00:00:00.000Z",
+                "value": 2000,
+                "count": 1,
+                "stat": "p75",
+            },
+            {
+                "project_id": "p1",
+                "project_name": "Proj",
+                "metric": "cls",
+                "date": "2026-04-06T00:00:00.000Z",
+                "value": 0.01,
+                "count": 2,
+                "stat": "p75",
+            },
+        ]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [],
+            {"info": {"stat": "p75"}},
+            {"lcp": [{"count": 2, "value": 1400}]},
+            {"lcp": ["unexpected"]},
+        ],
+    )
+    def test_unusable_payloads_yield_nothing(self, payload: Any) -> None:
+        assert list(_flatten_rum_metrics({"project_id": "p1"}, payload)) == []
+
+
+class TestIterRumMetricsForProject:
+    def test_incremental_asks_the_server_for_rows_after_the_watermark(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({"info": {"stat": "p75"}, "lcp": []})
+
+        list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=datetime(2026, 4, 6, 12, 30, tzinfo=UTC)))
+
+        query = _query(session.get.call_args)
+        assert query["from"] == ["2026-04-06T12:30:00Z"]
+        assert query["groupByTime"] == ["day"]
+
+    def test_full_refresh_asks_for_the_backfill_window(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({"info": {"stat": "p75"}, "lcp": []})
+
+        list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=None))
+
+        requested_from = _parse_datetime(_query(session.get.call_args)["from"][0])
+        assert requested_from is not None
+        assert abs((datetime.now(UTC) - requested_from) - timedelta(days=365)) < timedelta(minutes=5)
+
+    def test_project_without_id_makes_no_request(self) -> None:
+        session = MagicMock()
+
+        assert list(_iter_rum_metrics_for_project(session, {}, {}, since=None)) == []
+        session.get.assert_not_called()
+
+
+class TestIterRumPageViewsForProject:
+    def test_walks_backward_with_the_to_cutoff_until_empty(self) -> None:
+        session = MagicMock()
+        page1 = [
+            {"path": "/", "date": "2026-04-14T20:30:15.000Z"},
+            {"path": "/pricing", "date": "2026-04-14T18:00:00.000Z"},
+        ]
+        page2 = [{"path": "/", "date": "2026-04-13T09:00:00.000Z"}]
+        session.get.side_effect = [_response(page1), _response(page2), _response([])]
+
+        rows = list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=None))
+
+        assert [row["date"] for row in rows] == [
+            "2026-04-14T20:30:15.000Z",
+            "2026-04-14T18:00:00.000Z",
+            "2026-04-13T09:00:00.000Z",
+        ]
+        queries = [_query(call) for call in session.get.call_args_list]
+        assert "to" not in queries[0]
+        assert queries[0]["count"] == ["5000"]
+        assert queries[1]["to"] == ["2026-04-14T18:00:00.000Z"]
+        assert queries[2]["to"] == ["2026-04-13T09:00:00.000Z"]
+
+    def test_incremental_passes_the_watermark_as_from(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [_response([{"date": "2026-04-14T20:30:15.000Z"}]), _response([])]
+
+        list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=datetime(2026, 4, 14, tzinfo=UTC)))
+
+        assert all(_query(call)["from"] == ["2026-04-14T00:00:00Z"] for call in session.get.call_args_list)
+
+    def test_stops_when_the_oldest_row_does_not_move(self) -> None:
+        session = MagicMock()
+        page = [{"path": "/", "date": "2026-04-14T20:30:15.000Z"}]
+        session.get.side_effect = [_response(page), _response(page)]
+
+        rows = list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=None))
+
+        assert session.get.call_count == 2
+        # The repeat is yielded, but its id matches the first row's so merge collapses them.
+        assert len({row["id"] for row in rows}) == 1
+
+    def test_synthesized_id_separates_different_page_views(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(
+                [
+                    {"path": "/", "device": "mobile", "date": "2026-04-14T20:30:15.000Z"},
+                    {"path": "/", "device": "desktop", "date": "2026-04-14T20:30:15.000Z"},
+                ]
+            ),
+            _response([]),
+        ]
+
+        rows = list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=None))
+
+        assert len({row["id"] for row in rows}) == 2
+
+    def test_rows_without_a_date_are_skipped(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response([{"path": "/"}])
+
+        assert list(_iter_rum_page_views_for_project(session, {}, {"id": "p1"}, since=None)) == []
+        assert session.get.call_count == 1
+
+
+class TestIterAnnotationsForProject:
+    def test_reads_a_bare_list(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response([{"id": 7, "title": "V5 release", "date": "2026-04-14T20:30:15.000Z"}])
+
+        rows = list(_iter_annotations_for_project(session, {}, {"id": "p1", "name": "Proj"}))
+
+        assert rows == [
+            {
+                "id": "7",
+                "title": "V5 release",
+                "date": "2026-04-14T20:30:15.000Z",
+                "project_id": "p1",
+                "project_name": "Proj",
+            }
+        ]
+
+    def test_reads_a_wrapped_list(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({"annotations": [{"id": "7", "title": "V5 release"}]})
+
+        rows = list(_iter_annotations_for_project(session, {}, {"id": "p1"}))
+
+        assert [row["id"] for row in rows] == ["7"]
+
+    def test_annotation_without_an_id_gets_a_content_id(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response([{"title": "V5 release"}, {"title": "V6 release"}])
+
+        rows = list(_iter_annotations_for_project(session, {}, {"id": "p1"}))
+
+        assert len({row["id"] for row in rows}) == 2
+
+    @pytest.mark.parametrize("payload", [{"error": "nope"}, "unexpected"])
+    def test_unusable_payloads_yield_nothing(self, payload: Any) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(payload)
+
+        assert list(_iter_annotations_for_project(session, {}, {"id": "p1"})) == []
+
+
 class TestDebugbearSourceRouting:
-    def test_projects_source_response(self) -> None:
-        response = debugbear_source(api_key="key", endpoint="Projects")
+    @pytest.mark.parametrize(
+        ("endpoint", "name", "primary_keys", "sort_mode", "partition_keys"),
+        [
+            ("Projects", "projects", ["id"], "asc", None),
+            ("Pages", "pages", ["project_id", "id"], "asc", None),
+            (
+                "PageMetrics",
+                "page_metrics",
+                ["project_id", "page_id", "analysis_date"],
+                "desc",
+                ["analysis_date"],
+            ),
+            ("RumMetrics", "rum_metrics", ["project_id", "metric", "date"], "desc", ["date"]),
+            ("RumPageViews", "rum_page_views", ["project_id", "id"], "desc", ["date"]),
+            ("Annotations", "annotations", ["project_id", "id"], "asc", None),
+        ],
+    )
+    def test_endpoint_routes_to_its_response(
+        self,
+        endpoint: str,
+        name: str,
+        primary_keys: list[str],
+        sort_mode: str,
+        partition_keys: list[str] | None,
+    ) -> None:
+        response = debugbear_source(api_key="key", endpoint=endpoint)
 
-        assert response.name == "projects"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-
-    def test_page_metrics_source_response(self) -> None:
-        response = debugbear_source(api_key="key", endpoint="PageMetrics")
-
-        assert response.name == "page_metrics"
-        assert response.primary_keys == ["project_id", "page_id", "analysis_date"]
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["analysis_date"]
+        assert response.name == name
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == sort_mode
+        assert response.partition_keys == partition_keys
 
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown DebugBear endpoint"):

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from temporalio.common import MetricMeter
 from temporalio.testing import ActivityEnvironment
 
@@ -32,6 +33,7 @@ from products.business_knowledge.backend.temporal.learning.constants import (
 )
 from products.business_knowledge.backend.temporal.learning.schemas import (
     AnalyzeLearningEvidenceInput,
+    ContradictionVerdict,
     ExtractedKnowledge,
     PiiVerdict,
     PromotionDecision,
@@ -40,6 +42,9 @@ from products.business_knowledge.backend.temporal.learning.schemas import (
 _TICKET_ID = UUID("10000000-0000-4000-8000-000000000001")
 _COMMENT_ID = UUID("20000000-0000-4000-8000-000000000002")
 _MODULE = "products.business_knowledge.backend.temporal.learning.activities.analyze"
+_OLD_TICKET_ID = UUID("10000000-0000-4000-8000-000000000007")
+_OLD_COMMENT_ID = UUID("20000000-0000-4000-8000-000000000008")
+_REVISION_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class _Provider:
@@ -99,7 +104,7 @@ def _evidence(*, ticket_number: int = 42) -> EvidenceRef:
         ticket_id=_TICKET_ID,
         ticket_number=ticket_number,
         resolution_comment_id=_COMMENT_ID,
-        revision_at=datetime(2026, 1, 1, tzinfo=UTC),
+        revision_at=_REVISION_AT,
     )
 
 
@@ -128,6 +133,31 @@ def _promotion(**overrides: object) -> PromotionDecision:
     }
     payload.update(overrides)
     return PromotionDecision.model_validate(payload)
+
+
+def _contradiction(**overrides: object) -> ContradictionVerdict:
+    payload: dict[str, object] = {
+        "is_contradiction": True,
+        "confidence": 0.91,
+    }
+    payload.update(overrides)
+    return ContradictionVerdict.model_validate(payload)
+
+
+def _existing_result(source: KnowledgeSource, content: str) -> logic.KnowledgeSearchResult:
+    document = KnowledgeDocument.objects.unscoped().filter(source_id=source.id).order_by("created_at").first()
+    return logic.KnowledgeSearchResult(
+        chunk_id=UUID("30000000-0000-4000-8000-000000000003"),
+        source_id=source.id,
+        source_name=source.name,
+        source_type=source.source_type,
+        document_id=document.id if document is not None else UUID("50000000-0000-4000-8000-000000000005"),
+        is_generated=source.is_generated,
+        document_title=source.name,
+        heading_path="",
+        ordinal=0,
+        content=content,
+    )
 
 
 def _embedding() -> EmbeddingResponse:
@@ -183,7 +213,10 @@ def test_search_context_budget_includes_titles_and_headings() -> None:
 
     rendered = _render_search_context([result])
 
-    assert sum(len(value) for value in rendered[0].values()) == LEARNING_MAX_SEARCH_CONTEXT_CHARS
+    assert rendered[0]["index"] == 0
+    assert (
+        sum(len(value) for value in rendered[0].values() if isinstance(value, str)) == LEARNING_MAX_SEARCH_CONTEXT_CHARS
+    )
 
 
 @pytest.mark.asyncio
@@ -270,6 +303,7 @@ class TestLearningAnalyzer:
         search.assert_not_called()
         publish.assert_not_called()
 
+    @pytest.mark.parametrize("analytics_client", ["ready", "uninitialized"])
     @pytest.mark.parametrize(
         "pii_result",
         [PiiVerdict(verdict="unsafe"), PiiVerdict(verdict="uncertain")],
@@ -278,23 +312,34 @@ class TestLearningAnalyzer:
         self,
         team: Team,
         pii_result: PiiVerdict,
+        analytics_client: str,
     ) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Use the standard contact process.",)))
         model = MagicMock()
         structured_model = model.with_structured_output.return_value
-        structured_model.invoke.return_value = pii_result
+        structured_model.invoke.side_effect = [
+            _extraction(
+                canonical_topic="Contact policy",
+                canonical_answer="Contact Taylor for help.",
+            ),
+            pii_result,
+        ]
+        client = MagicMock()
+        analytics = MagicMock()
+        analytics.disabled = False
+        analytics.default_client = client if analytics_client == "ready" else None
+
+        def _install_client() -> MagicMock:
+            analytics.default_client = client
+            return client
+
+        analytics.setup.side_effect = _install_client
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(
-                f"{_MODULE}._extract_candidate",
-                return_value=_extraction(
-                    canonical_topic="Contact policy",
-                    canonical_answer="Contact Taylor for help.",
-                ),
-            ),
             patch(f"{_MODULE}._build_model", return_value=model),
+            patch(f"{_MODULE}.posthoganalytics", analytics),
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -304,8 +349,30 @@ class TestLearningAnalyzer:
         run.refresh_from_db()
         assert result.rejection_code == "pii"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
-        model.with_structured_output.assert_called_once_with(PiiVerdict, method="json_schema", include_raw=False)
-        structured_model.invoke.assert_called_once()
+        assert [call.args[0] for call in model.with_structured_output.call_args_list] == [
+            ExtractedKnowledge,
+            PiiVerdict,
+        ]
+        assert model.with_structured_output.call_args_list[1].kwargs == {
+            "method": "json_schema",
+            "include_raw": False,
+        }
+        for call in structured_model.invoke.call_args_list:
+            callback = call.kwargs["config"]["callbacks"][0]
+            assert callback._trace_id == str(run.id)
+            assert callback._privacy_mode is True
+            assert callback._distinct_id == f"team-{team.id}"
+            assert callback._properties["ai_product"] == "business_knowledge"
+            assert callback._properties["learning_run_id"] == str(run.id)
+            assert callback._properties["team_id"] == team.id
+        assert [
+            call.kwargs["config"]["callbacks"][0]._properties["ai_feature"]
+            for call in structured_model.invoke.call_args_list
+        ] == ["support_learning_extraction", "support_learning_pii"]
+        if analytics_client == "ready":
+            analytics.setup.assert_not_called()
+        else:
+            analytics.setup.assert_called_once_with()
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()
@@ -355,6 +422,7 @@ class TestLearningAnalyzer:
         run.refresh_from_db()
         assert result.rejection_code == "already_known"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
+        assert invoke.call_args_list[2].kwargs["payload"]["retrieved_business_knowledge"][0]["index"] == 0
         assert invoke.call_args_list[2].kwargs["payload"]["retrieved_business_knowledge"][0]["content"] == known_content
         assert invoke.call_args_list[2].kwargs["payload"]["public_human_replies"] == [
             "Refunds are available within 30 days."
@@ -412,28 +480,41 @@ class TestLearningAnalyzer:
         search.assert_not_called()
         publish.assert_not_called()
 
-    def test_unexpected_structured_extraction_marks_run_failed(self, team: Team) -> None:
+    def test_model_error_marks_run_failed_without_capturing_sensitive_error(self, team: Team) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
         model = MagicMock()
         structured_model = model.with_structured_output.return_value
-        structured_model.invoke.return_value = None
+        client = MagicMock()
+        analytics = MagicMock(default_client=client, disabled=False)
+
+        def _raise_sensitive_error(messages: object, config: dict[str, list[CallbackHandler]]) -> None:
+            callback = config["callbacks"][0]
+            error = ValueError("sensitive model output")
+            callback.on_llm_error(error, run_id=UUID(int=1))
+            callback.on_chain_error(error, run_id=UUID(int=2))
+            raise error
+
+        structured_model.invoke.side_effect = _raise_sensitive_error
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(f"{_MODULE}._build_model", return_value=model),
-            pytest.raises(LearningAnalysisError, match="invalid_extraction_output"),
+            patch(f"{_MODULE}.posthoganalytics", analytics),
+            pytest.raises(LearningAnalysisError, match="extraction_model_failed"),
         ):
             analyze_learning_evidence(input)
 
         run.refresh_from_db()
         assert run.status == "failed"
-        assert run.error == "invalid_extraction_output"
+        assert run.error == "extraction_model_failed"
         model.with_structured_output.assert_called_once_with(
             ExtractedKnowledge,
             method="json_schema",
             include_raw=False,
         )
+        client.capture.assert_not_called()
+        client.capture_exception.assert_not_called()
 
     def test_missing_evidence_completes_as_ineligible(self, team: Team) -> None:
         run, input = _setup_sync(team)
@@ -511,6 +592,178 @@ class TestLearningAnalyzer:
         assert run.result == LearningRunResult.NO_KNOWLEDGE
         assert run.status == "completed"
         publish.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "case,confirm_contradiction,expected_result,expected_code",
+        [
+            ("newer", True, "superseded", "none"),
+            ("stale", True, "no_knowledge", "stale_candidate"),
+            ("denied", False, "no_knowledge", "already_known"),
+            ("backfilled_row", True, "superseded", "none"),
+            ("row_without_recorded_reply_time", True, "superseded", "none"),
+            ("already_superseded", True, "no_knowledge", "already_known"),
+            ("written_by_a_person", True, "no_knowledge", "already_known"),
+        ],
+    )
+    def test_confirmed_contradiction_keeps_the_newest_fact(
+        self,
+        team: Team,
+        case: str,
+        confirm_contradiction: bool,
+        expected_result: str,
+        expected_code: str,
+    ) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are now available within 7 days.",)))
+        old_content = "Refunds are available within 15 days."
+        recorded_at = _REVISION_AT + timedelta(days=30) if case == "stale" else _REVISION_AT - timedelta(days=30)
+        if case == "written_by_a_person":
+            old_source = logic.create_text_source(
+                team_id=team.id,
+                created_by_id=None,
+                name="Refund policy",
+                text=old_content,
+            )
+        else:
+            learned = logic.create_generated_knowledge_document(
+                logic.CreateGeneratedKnowledgeDocument(
+                    team_id=team.id,
+                    provider="conversations",
+                    ticket_id=_OLD_TICKET_ID,
+                    ticket_number=7,
+                    source_team_id=team.id,
+                    resolution_comment_id=_OLD_COMMENT_ID,
+                    analysis_version=ANALYSIS_VERSION,
+                    title="Refund policy",
+                    content=old_content,
+                    evidence_revision_at=recorded_at,
+                )
+            )
+            old_source = KnowledgeSource.objects.unscoped().get(id=learned.source_id)
+        old_source_id = old_source.id
+        old_document = KnowledgeDocument.objects.unscoped().get(source_id=old_source_id)
+        KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(created_at=recorded_at)
+        if case == "backfilled_row":
+            # The row was written after the incoming reply, but the answer in it is older.
+            KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(
+                created_at=_REVISION_AT + timedelta(days=30)
+            )
+        if case == "row_without_recorded_reply_time":
+            # A learned row from before the reply time was recorded falls back to the row time.
+            metadata = dict(old_document.metadata or {})
+            metadata.pop(logic.EVIDENCE_REVISION_AT_KEY, None)
+            KnowledgeDocument.objects.unscoped().filter(id=old_document.id).update(metadata=metadata)
+        if case == "already_superseded":
+            logic.supersede_knowledge_source(
+                team_id=team.id,
+                source_id=old_source_id,
+                document_id=old_document.id,
+                superseded_by_ticket_id=UUID("10000000-0000-4000-8000-000000000009"),
+                superseded_by_ticket_number=7,
+            )
+        search_result = _existing_result(old_source, old_content)
+        generated_before = KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count()
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(
+                f"{_MODULE}._invoke_structured_model",
+                side_effect=[
+                    _extraction(canonical_answer="Refunds are available within 7 days."),
+                    PiiVerdict(verdict="safe"),
+                    _promotion(contradicts_existing=True, conflicting_index=0),
+                    _contradiction(is_contradiction=confirm_contradiction),
+                ],
+            ) as invoke,
+            patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
+            patch(f"{_MODULE}.logic.search_knowledge", return_value=[search_result]),
+            patch(f"{_MODULE}._increment_counter") as increment,
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        old_source = KnowledgeSource.objects.unscoped().get(id=old_source_id)
+        assert result.result == expected_result
+        assert result.rejection_code == expected_code
+        assert invoke.call_args_list[3].kwargs["stage"] == "contradiction"
+        outcomes = [call.args[0] for call in increment.call_args_list]
+        generated_now = KnowledgeSource.objects.unscoped().filter(team_id=team.id, is_generated=True).count()
+        if expected_result == "superseded":
+            assert result.knowledge_document_id is not None
+            document = KnowledgeDocument.objects.unscoped().get(id=result.knowledge_document_id)
+            published_source = KnowledgeSource.objects.unscoped().get(id=document.source_id)
+            assert run.result == LearningRunResult.SUPERSEDED
+            assert document.content == "Refunds are available within 7 days."
+            assert old_source.status == "error"
+            assert old_source.error_message == logic.SUPERSEDED_SOURCE_MESSAGE
+            assert old_source.id != published_source.id
+            assert KnowledgeDocument.objects.unscoped().get(source_id=old_source.id).content == old_content
+            assert "superseded" in outcomes
+        elif case == "already_superseded":
+            # Another reply won the race, so this one must not leave a second answer in search.
+            assert run.result == LearningRunResult.NO_KNOWLEDGE
+            assert result.knowledge_document_id is None
+            assert generated_now == generated_before
+            assert "rejected_already_known" in outcomes
+        else:
+            assert run.result == LearningRunResult.NO_KNOWLEDGE
+            assert result.knowledge_document_id is None
+            assert old_source.status != "error"
+            assert old_source.error_message == ""
+            assert generated_now == generated_before
+            assert ("rejected_stale_candidate" if case == "stale" else "rejected_already_known") in outcomes
+
+    def test_a_conflicting_source_deleted_mid_publication_still_publishes(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are now available within 7 days.",)))
+        old_content = "Refunds are available within 15 days."
+        learned = logic.create_generated_knowledge_document(
+            logic.CreateGeneratedKnowledgeDocument(
+                team_id=team.id,
+                provider="conversations",
+                ticket_id=_OLD_TICKET_ID,
+                ticket_number=7,
+                source_team_id=team.id,
+                resolution_comment_id=_OLD_COMMENT_ID,
+                analysis_version=ANALYSIS_VERSION,
+                title="Refund policy",
+                content=old_content,
+                evidence_revision_at=_REVISION_AT - timedelta(days=30),
+            )
+        )
+        old_source = KnowledgeSource.objects.unscoped().get(id=learned.source_id)
+        search_result = _existing_result(old_source, old_content)
+
+        def delete_then_report_age(*, team_id: int, document_id: UUID) -> datetime:
+            # A person deletes the older source between the recency read and the supersession lock.
+            KnowledgeSource.objects.unscoped().filter(id=learned.source_id).delete()
+            return _REVISION_AT - timedelta(days=30)
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(
+                f"{_MODULE}._invoke_structured_model",
+                side_effect=[
+                    _extraction(canonical_answer="Refunds are available within 7 days."),
+                    PiiVerdict(verdict="safe"),
+                    _promotion(contradicts_existing=True, conflicting_index=0),
+                    _contradiction(),
+                ],
+            ),
+            patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
+            patch(f"{_MODULE}.logic.search_knowledge", return_value=[search_result]),
+            patch(f"{_MODULE}.logic.get_knowledge_fact_recorded_at", side_effect=delete_then_report_age),
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.result == "knowledge_created"
+        assert result.rejection_code == "none"
+        assert run.result == LearningRunResult.KNOWLEDGE_CREATED
+        assert result.knowledge_document_id is not None
+        document = KnowledgeDocument.objects.unscoped().get(id=result.knowledge_document_id)
+        assert document.content == "Refunds are available within 7 days."
+        assert not KnowledgeSource.objects.unscoped().filter(id=learned.source_id).exists()
 
     def test_missing_run_raises_bounded_error(self, team: Team) -> None:
         run, input = _setup_sync(team)

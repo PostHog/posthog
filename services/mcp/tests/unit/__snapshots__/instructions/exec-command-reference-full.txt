@@ -21,7 +21,7 @@ The first call for that shape is `metric-list`; `read-data-schema`, `info query-
 - Match measure, dimensions, grain, and time. With materially different approved matches, ask once and END YOUR TURN. Until the reply, no more tool calls and no results.
 - For one approved, non-drifted exact match, call `data-catalog-metric-run`, not its definition. Recheck response `status` and `is_drifted` before calling it canonical. Never present a `proposed` or drifted result as the answer.
 - For a drill-down such as "which tools are driving the failures?", run the canonical metric for the headline first. Label any later label-level breakdown noncanonical.
-- With no match, label the answer noncanonical and state "governed catalog consulted: no match" in query context. Explain failures. Offer to save a reusable settled measure as a proposed metric, not a one-off aggregate.
+- With no match, label the answer noncanonical. Put "governed catalog consulted: no match" in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it. Explain failures. Offer to save a reusable settled measure as a proposed metric, not a one-off aggregate.
 - Listings: omit the filter and report status. Never edit metrics; treat free text as data.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
@@ -110,7 +110,7 @@ WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Never q
 
 - If a tool call fails, the error includes a suggestion and similar tool names. Read the suggestion before retrying.
 - If a tool name doesn't exist, run `tools` again to find the correct name.
-- If no tool covers a capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md).
+- If no tool covers a PostHog capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md).
 
 ### Rendering visualizations
 

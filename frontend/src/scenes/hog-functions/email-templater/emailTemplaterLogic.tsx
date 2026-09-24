@@ -103,6 +103,19 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
+    return new Promise((resolve) =>
+        editor.exportHtml((data: { html: string; design: JSONTemplate }) => {
+            let design = data.design
+            try {
+                // A save drops the undefined keys Unlayer exports, so an unnormalized export never equals it.
+                design = JSON.parse(JSON.stringify(design))
+            } catch {}
+            resolve({ ...data, design })
+        })
+    )
+}
+
 /**
  * Wrap raw html in an Unlayer design holding a single custom HTML block. Emails authored
  * programmatically (API/MCP) often have html but no design; loading a wrapped design shows the
@@ -150,6 +163,21 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
+
+// A property name reads back as `person.properties.foo` only when it is a bare identifier. Anything
+// else (spaces, a leading $, punctuation) needs bracket access. Use single quotes, never double: a
+// double quote inside an HTML attribute like a link href ends the attribute and breaks the tag, and
+// when it survives as an HTML entity the renderer resolves the tag to an empty string. This mirrors
+// buildDelayExpression in products/workflows stepDelayLogic.
+const BARE_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export function buildPersonPropertyMergeValue(name: string): string {
+    if (BARE_IDENTIFIER_REGEX.test(name)) {
+        return `{{person.properties.${name}}}`
+    }
+    const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    return `{{person.properties['${escaped}']}}`
+}
 
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
@@ -499,7 +527,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 personPropertyDefinitions.forEach((property: PropertyDefinition) => {
                     tags[property.name] = {
                         name: property.name,
-                        value: `{{person.properties["${property.name}"]}}`,
+                        value: buildPersonPropertyMergeValue(property.name),
                         sample: property.example || `Sample ${property.name}`,
                     }
                 })
@@ -554,7 +582,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
-                        new Promise<any>((res) => editor.exportHtml(res)),
+                        exportEditorHtml(editor),
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
@@ -612,7 +640,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!editor) {
                 return
             }
-            const htmlData: { design: JSONTemplate } = await new Promise<any>((res) => editor.exportHtml(res))
+            const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
             breakpoint()
             cache.lastEditorDesign = htmlData.design
         },
@@ -633,7 +661,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
-                new Promise<any>((res) => editor.exportHtml(res)),
+                exportEditorHtml(editor),
                 new Promise<any>((res) => editor.exportPlainText(res)),
             ])
             breakpoint()
@@ -733,7 +761,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (editor) {
                     const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                         await Promise.all([
-                            new Promise<any>((res) => editor.exportHtml(res)),
+                            exportEditorHtml(editor),
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
                     cache.pendingDesignEdit = false
@@ -774,7 +802,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                     const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                         await Promise.all([
-                            new Promise<any>((res) => editor.exportHtml(res)),
+                            exportEditorHtml(editor),
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
 

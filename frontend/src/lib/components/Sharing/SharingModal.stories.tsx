@@ -9,11 +9,11 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { examples } from '~/queries/examples'
-import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightShortId, InsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'
 
-const fakeInsight: Partial<QueryBasedInsightModel> = {
+const fakeInsight: Partial<InsightModel> = {
     id: 123,
     short_id: 'insight123' as InsightShortId,
     query: examples.InsightTrendsQuery,

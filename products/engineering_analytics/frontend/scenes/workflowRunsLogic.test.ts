@@ -115,22 +115,65 @@ describe('workflowRunsLogic', () => {
                 buckets: [],
             },
         ])
+        mockRunnerCosts.mockResolvedValue([
+            {
+                provider: 'self_hosted',
+                runner_label: 'depot-ubuntu-16',
+                job_count: 10,
+                billable_minutes: 100,
+                estimated_cost_usd: 3.2,
+            },
+        ])
+        mockJobAggregates.mockResolvedValue([
+            {
+                job_name: 'Python tests',
+                job_count: 10,
+                shard_count: 1,
+                runs_in: 10,
+                run_share: 1,
+                queue_p50_seconds: 30,
+                p50_seconds: 600,
+                p95_seconds: 900,
+                failure_rate: 0,
+                retry_job_count: 0,
+                billable_minutes: 100,
+                estimated_cost_usd: 3.2,
+            },
+        ])
         logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowHealthSuccess',
+            'loadRunnerCostsSuccess',
+            'loadJobAggregatesSuccess',
+        ])
 
         expect(logic.values.healthSummary.totalRuns).toBe(4000)
         expect(logic.values.healthSummary.passRate).toBe(0.974)
         expect(logic.values.healthSummary.state).toBe('healthy')
+        expect(logic.values.costSummary?.estimatedCostUsd).toBe(3.2)
+        expect(logic.values.queueP50Seconds).toBe(30)
 
-        // A failed reload must not keep showing the previous window's 4000 runs under the fallback banner.
+        // A failed reload must not keep showing the previous window's figures under an error state.
         mockWorkflowHealth.mockRejectedValue(new Error('network down'))
+        mockRunnerCosts.mockRejectedValue(new Error('network down'))
+        mockJobAggregates.mockRejectedValue(new Error('network down'))
         const filters = engineeringAnalyticsFiltersLogic()
         unmountFilters = filters.mount()
         filters.actions.setDateRange('-7d', null)
-        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowHealthFailure',
+            'loadRunnerCostsFailure',
+            'loadJobAggregatesFailure',
+        ])
 
-        expect(logic.values.workflowHealthFailed).toBe(true)
+        expect(logic.values).toMatchObject({
+            workflowHealthFailed: true,
+            runnerCostsFailed: true,
+            jobAggregatesFailed: true,
+            costSummary: null,
+            queueP50Seconds: null,
+        })
         expect(logic.values.healthSummary.totalRuns).toBe(0)
         expect(logic.values.healthSummary.state).toBe('unknown')
     })

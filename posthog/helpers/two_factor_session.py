@@ -28,6 +28,8 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
+from products.security.backend.facade.api import is_email_code_exempt
+
 CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY = "code_based_verification_bypass_emails"
 
 
@@ -411,6 +413,10 @@ class CodeBasedVerifier:
 
         if is_code_based_verification_bypass(user.email):
             mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
+            return CodeBasedVerificationCheckResult(should_send=False)
+
+        if is_email_code_exempt(user.email):
+            mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
 
         suppression_result = check_esp_suppression(user.email)

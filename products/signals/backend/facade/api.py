@@ -1,6 +1,6 @@
 import uuid
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -20,9 +20,15 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.artefact_schemas import (
+    # Re-exported so the Slack mention handler can label the task it starts from a report's
+    # notification thread without naming the relationship vocabulary itself.
+    TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -161,6 +167,44 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
+    """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
+    from products.signals.backend.slack_report_threads import (
+        report_id_for_slack_thread as report_id_for_slack_thread_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return report_id_for_slack_thread_impl(
+        team_id=team_id, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def report_team_id_for_slack_thread(
+    *, team_ids: Sequence[int], slack_workspace_id: str, channel: str, thread_ts: str
+) -> int | None:
+    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 — avoids importing model layer at facade import time
+        report_team_id_for_slack_thread as report_team_id_for_slack_thread_impl,
+    )
+
+    return report_team_id_for_slack_thread_impl(
+        team_ids=team_ids, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+    from products.signals.backend.models import SignalReport, SignalReportAction
+    from products.signals.backend.task_run_artefacts import record_report_task
+
+    SignalReport.objects.get(team_id=team_id, id=report_id)
+    record_report_task(team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_DISCUSSION)
+    SignalReportAction.record(
+        team_id=team_id,
+        report_id=report_id,
+        user_id=user_id,
+        action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+    )
 
 
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
@@ -753,10 +797,9 @@ def forward_report_discussion_note(
     relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
     returns the note id, or None when nothing was forwarded.
     """
-    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
-        TASK_RUN_TYPE_DISCUSSION,
+    from products.signals.backend.discussion_notes import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        forward_discussion_note,
     )
-    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
 
     if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
         return None
@@ -780,6 +823,17 @@ class SignalSourceSliceOutcomes:
     report_count: int
     pr_count: int
     merged_pr_count: int
+    # Newest first, so a caller can link to what the counts are counting.
+    reports: "list[SignalSourceSliceReport]"
+    pull_requests: "list[SignalSourceSlicePullRequest]"
+
+
+@frozen
+class SignalSourceSlicePullRequest:
+    """One implementation PR opened on a report the slice's signals were grouped into."""
+
+    url: str
+    merged: bool
 
 
 @frozen
@@ -843,13 +897,21 @@ def get_outcomes_for_signal_source_slice(
     )
     report_ids = [report.id for report in reports]
     prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
-    pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
-    merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
+    # Reports arrive newest first, so the first sighting of a URL keeps that order; several reports can share a PR.
+    pull_requests: dict[str, SignalSourceSlicePullRequest] = {}
+    for report_id in report_ids:
+        for pr in prs.get(report_id, []):
+            known = pull_requests.get(pr.url)
+            pull_requests[pr.url] = SignalSourceSlicePullRequest(
+                url=pr.url, merged=pr.merged or bool(known and known.merged)
+            )
     return SignalSourceSliceOutcomes(
         signal_count=stats.signal_count,
         report_count=len(report_ids),
-        pr_count=len(pr_urls),
-        merged_pr_count=len(merged_pr_urls),
+        pr_count=len(pull_requests),
+        merged_pr_count=sum(1 for pr in pull_requests.values() if pr.merged),
+        reports=reports,
+        pull_requests=list(pull_requests.values()),
     )
 
 
@@ -1078,3 +1140,14 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+def repair_report_actionability_cache(
+    *, team_id: int | None, batch_size: int, after: str | None = None
+) -> Iterator[RepairedBatch]:
+    """Recompute the cached actionability of every report from its artefact log, in batches.
+
+    For the `backfill_report_actionability` command. Receivers keep the cache current on every
+    artefact write, so this only repairs rows that drifted.
+    """
+    return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)

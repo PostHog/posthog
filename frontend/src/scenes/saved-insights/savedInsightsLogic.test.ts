@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { InsightModel, SavedInsightsTabs } from '~/types'
 
 import {
     INSIGHTS_PER_PAGE,
@@ -32,7 +32,7 @@ jest.spyOn(api, 'create')
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.SavedInsights]: blankScene }
 
-const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
+const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
@@ -51,7 +51,7 @@ const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
         deleted: false,
         saved: true,
         query: {},
-    }) as any as QueryBasedInsightModel
+    }) as any as InsightModel
 const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),
@@ -321,8 +321,9 @@ describe('savedInsightsLogic', () => {
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
+        // Duplication runs through api.insights.create, which still builds the environments path.
         expect(api.create).toHaveBeenCalledWith(
-            `api/environments/${MOCK_TEAM_ID}/insights`,
+            `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: '' }),
             expect.objectContaining({})
         )
@@ -333,8 +334,9 @@ describe('savedInsightsLogic', () => {
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
+        // Duplication runs through api.insights.create, which still builds the environments path.
         expect(api.create).toHaveBeenCalledWith(
-            `api/environments/${MOCK_TEAM_ID}/insights`,
+            `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' }),
             expect.objectContaining({})
         )

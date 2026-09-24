@@ -1,4 +1,6 @@
+import { Button } from "@posthog/quill";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { CloudGithubSetupDialogContent } from "./CloudGithubSetupDialogContent";
 
 const meta = {
@@ -23,4 +25,21 @@ export const GitHubRequired: Story = {};
 
 export const WaitingForGitHub: Story = {
   args: { loading: true },
+};
+
+export const OpenFromButton: Story = {
+  render: function Render(args) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <Button onClick={() => setOpen(true)}>Open GitHub setup</Button>
+        {open && (
+          <CloudGithubSetupDialogContent
+            {...args}
+            onClose={() => setOpen(false)}
+          />
+        )}
+      </>
+    );
+  },
 };

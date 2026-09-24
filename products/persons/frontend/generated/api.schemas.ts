@@ -366,6 +366,29 @@ export interface PersonBulkDeleteResponseApi {
     deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
 }
 
+/**
+ * Minimal serializer for cohort references, read by the person cohorts endpoint.
+ */
+export interface CohortMinimalApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+}
+
+export interface PersonCohortsResponseApi {
+    /** Cohorts the person currently belongs to. */
+    results: CohortMinimalApi[]
+}
+
 export interface AsyncDeletionStatusApi {
     /** The UUID of the person whose events are queued for deletion. */
     person_uuid: string

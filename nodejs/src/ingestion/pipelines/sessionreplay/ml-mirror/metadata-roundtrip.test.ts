@@ -111,7 +111,12 @@ describe('ML metadata producer → sink round-trip', () => {
                 return Promise.resolve({})
             }),
         } as unknown as S3Client
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         const offsetStore: OffsetStore = { offsetsStore: jest.fn() }
         const batcher = new BlockMetadataBatcher(
             store,

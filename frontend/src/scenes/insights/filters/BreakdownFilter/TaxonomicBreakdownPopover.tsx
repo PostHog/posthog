@@ -10,7 +10,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
+import { hogql, isActionsNode, isInsightQueryWithSeries, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
@@ -31,17 +31,25 @@ export const TaxonomicBreakdownPopover = ({
     breakdownType,
     breakdownValue,
 }: TaxonomicBreakdownPopoverProps): JSX.Element => {
-    // allEventNames resolves action series through actionsModel, which the shared insight logic does not mount
-    useMountedLogic(actionsModel)
     const { insightProps } = useValues(insightLogic)
     const {
         allEventNames,
+        querySource,
         query,
         hasDataWarehouseSeries,
         hasOnlyDataWarehouseSeries,
         dataWarehouseSeriesTableNames,
         isTrends,
     } = useValues(insightVizDataLogic(insightProps))
+    useMountedLogic(
+        actionsModel({
+            shouldLoad:
+                open &&
+                !!querySource &&
+                isInsightQueryWithSeries(querySource) &&
+                querySource.series.some(isActionsNode),
+        })
+    )
     const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)

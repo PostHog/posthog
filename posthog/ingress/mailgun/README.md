@@ -57,6 +57,10 @@ An unsigned caller therefore buys a full multipart parse for its 403, which is a
 A forwarded delivery crosses as a rebuilt form rather than as the raw bytes, because the form read leaves none.
 [Regional forwarding](../README.md#regional-forwarding) carries the rule, and a region-split consumer declares `ownership` as it would on any other provider.
 
+All three apps answer 403 when the signing key is unset, which is `unconfigured_status`, not the package default of 500.
+That is the status the hand-rolled views answered, and it keeps an instance that never connected an email channel from turning every anonymous probe of a public URL into a server error.
+`explains_rejections` is False with it, so neither rejection names its reason: which of the two a caller hit is an operator fact about the instance.
+
 Mailgun's event webhooks (delivered, failed, opened) are a different payload shape, with the event name in the form.
 They would be a third app, added when a product needs one.
 

@@ -106,7 +106,9 @@ class GitHubClient(EgressClient):
         )
 
     def _budget_exhausted_error(self, scope: str) -> GitHubEgressBudgetExhausted:
-        return GitHubEgressBudgetExhausted(f"GitHub egress budget exhausted for installation {scope}; deferring")
+        return GitHubEgressBudgetExhausted(
+            f"GitHub egress budget exhausted for installation {scope}; deferring", scope=scope
+        )
 
 
 # Stateless — one shared instance for the whole process.

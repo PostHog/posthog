@@ -48,6 +48,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import (
+    resolve_attachment_content_type,
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
@@ -194,13 +195,17 @@ def _extract_attachments(uploaded_files: tuple[UploadedFile, ...], team: Team) -
 
         file_bytes = uploaded_file.read()
         safe_name = sanitize_attachment_filename(uploaded_file.name)
-        url = save_file_to_uploaded_media(team, safe_name, uploaded_file.content_type or "", file_bytes)
+        content_type = resolve_attachment_content_type(file_bytes, uploaded_file.content_type or "")
+        if content_type is None:
+            logger.warning("email_inbound_attachment_invalid_image", team_id=team.id, file_name=safe_name)
+            continue
+        url = save_file_to_uploaded_media(team, safe_name, content_type, file_bytes, validate_images=False)
         if url:
             attachments.append(
                 {
                     "url": url,
                     "name": safe_name,
-                    "content_type": uploaded_file.content_type or "",
+                    "content_type": content_type,
                     "size": uploaded_file.size,
                 }
             )

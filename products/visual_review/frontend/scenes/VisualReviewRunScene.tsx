@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
@@ -221,6 +221,7 @@ export function VisualReviewRunScene(): JSX.Element {
         sortedChangedSnapshots,
         toleratedHashes,
         toleratedHashesLoading,
+        recentTolerations,
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
@@ -595,6 +596,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             snapshot={selectedSnapshot}
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
+                            recentTolerations={recentTolerations}
                             onApprove={handleApproveSnapshot}
                             isApproving={isApprovingSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}

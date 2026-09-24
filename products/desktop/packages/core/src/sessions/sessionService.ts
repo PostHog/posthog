@@ -32,13 +32,13 @@ import {
   getCloudUrlFromRegion,
   getConfigOptionByCategory,
   getReasoningEffortOptions,
+  isAnthropicModelId,
   isFatalSessionError,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
-  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -55,6 +55,7 @@ import {
   type TaskRunArtifact,
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
+  TranscriptBoundaries,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
@@ -76,6 +77,10 @@ import type {
 } from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
+import {
+  harnessForModelValue,
+  isValidConfigValue,
+} from "../task-detail/configOptions";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   FAST_MODE_OPTION_CATEGORY,
@@ -102,6 +107,7 @@ import {
 import {
   addMissingCloudRuntimeConfigOptions,
   buildCloudDefaultConfigOptions,
+  buildCloudResumeConfigOptions,
   extractLatestConfigOptionsFromEntries,
 } from "./cloudSessionConfig";
 import {
@@ -1500,14 +1506,6 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
-/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
-function isTranscriptNeutralEvent(event: AcpMessage): boolean {
-  return (
-    isJsonRpcNotification(event.message) &&
-    isTranscriptNeutralNotificationMethod(event.message.method)
-  );
-}
-
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1524,9 +1522,13 @@ function discardChunksSupersededByHydratedMessages(
     messageIndex: 0,
     chunkRunActive: false,
   };
+  // Every line goes through the tracker in arrival order, the way the writer
+  // feeds it, so the two agree on which responses answer a control call.
+  const hydratedBoundaries = new TranscriptBoundaries();
   for (const event of hydratedTurn.events) {
+    const neutral = hydratedBoundaries.isNeutral(event.message);
     if (isSessionPromptEvent(event)) continue;
-    if (isTranscriptNeutralEvent(event)) continue;
+    if (neutral) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1552,6 +1554,7 @@ function discardChunksSupersededByHydratedMessages(
     chunkRunActive: false,
   };
   let discardChunkRun = false;
+  const liveBoundaries = new TranscriptBoundaries();
   const events: AcpMessage[] = [];
   const eventHashes: number[] = [];
   for (
@@ -1560,10 +1563,11 @@ function discardChunksSupersededByHydratedMessages(
     eventIndex += 1
   ) {
     const event = liveTurn.events[eventIndex];
+    const neutral = liveBoundaries.isNeutral(event.message);
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
-    } else if (isTranscriptNeutralEvent(event)) {
+    } else if (neutral) {
       // The writer's chunk buffer stays open across these, so the live
       // position must not advance either.
     } else {
@@ -4048,6 +4052,7 @@ export class SessionService {
   private handleCloudPermissionRequest(
     taskRunId: string,
     update: DerivedPermissionRequest,
+    { isLive = false }: { isLive?: boolean } = {},
   ): void {
     this.d.log.info("Cloud permission request received", {
       taskRunId,
@@ -4098,7 +4103,10 @@ export class SessionService {
     });
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
-    this.d.taskViewedApi.markActivity(session.taskId);
+    // A replayed request is history the reader just opened, not new activity.
+    if (isLive) {
+      this.d.taskViewedApi.markActivity(session.taskId);
+    }
     this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
@@ -6159,6 +6167,37 @@ export class SessionService {
       return true;
     }
 
+    if (session.isCloud && isTerminalStatus(session.cloudStatus)) {
+      if (session.isPromptPending) return false;
+      const option = configOptions[optionIndex];
+      if (!isValidConfigValue(option, value)) return false;
+      if (
+        option.category === "model" &&
+        session.claudeModelAccess === "own-subscription" &&
+        !isAnthropicModelId(value)
+      )
+        return false;
+
+      let nextOptions = configOptions.map((opt) =>
+        opt.id === configId && opt.type === "select"
+          ? { ...opt, currentValue: value }
+          : opt,
+      );
+      if (option.category === "model") {
+        nextOptions = buildCloudResumeConfigOptions(
+          nextOptions,
+          harnessForModelValue(option, value) ?? session.adapter ?? "claude",
+          value,
+        );
+      }
+      // The next prompt starts a new run. The old sandbox can no longer accept settings.
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: nextOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, nextOptions);
+      return true;
+    }
+
     // Optimistic update
     const updatedOptions = configOptions.map((opt) =>
       opt.id === configId
@@ -6494,13 +6533,18 @@ export class SessionService {
     adapter: Adapter,
     initialModel?: string,
     initialReasoningEffort?: string,
+    allHarnessModels = false,
   ): Promise<void> {
-    const cacheKey = `${apiHost}::${adapter}`;
+    const cacheKey = `${apiHost}::${adapter}::${allHarnessModels}`;
     let entry = this.previewConfigOptionsCache.get(cacheKey);
     if (!entry || Date.now() - entry.fetchedAt > 300_000) {
       if (entry) this.previewConfigOptionsCache.delete(cacheKey);
       const promise = this.d.trpc.agent.getPreviewConfigOptions
-        .query({ apiHost, adapter })
+        .query({
+          apiHost,
+          adapter,
+          ...(allHarnessModels ? { allHarnessModels: true } : {}),
+        })
         .catch((err: unknown) => {
           this.d.log.warn(
             "Failed to fetch preview config options for cloud session",
@@ -6524,6 +6568,21 @@ export class SessionService {
     const previewOptions = await entry.promise;
     const session = this.d.store.getSessions()[taskRunId];
     if (!session || session.adapter !== adapter) return;
+    if (!allHarnessModels && isTerminalStatus(session.cloudStatus)) {
+      return this.fetchAndApplyCloudPreviewOptions(
+        taskRunId,
+        apiHost,
+        adapter,
+        initialModel,
+        initialReasoningEffort,
+        true,
+      );
+    }
+    if (
+      allHarnessModels &&
+      (!isTerminalStatus(session.cloudStatus) || session.isPromptPending)
+    )
+      return;
 
     const existingOptions = session.configOptions ?? [];
     const existingModelOption = getConfigOptionByCategory(
@@ -6626,16 +6685,48 @@ export class SessionService {
     if (preferredModel && modelEffortOptions === null) {
       previewCategories.add("thought_level");
     }
-    const merged = [
+    let merged = [
       ...existingOptions.filter(
         (option) => !previewCategories.has(option.category),
       ),
       ...extras,
     ];
+    if (allHarnessModels && preferredModel) {
+      merged = buildCloudResumeConfigOptions(
+        merged,
+        harnessForModelValue(
+          getConfigOptionByCategory(merged, "model"),
+          preferredModel,
+        ) ?? adapter,
+        preferredModel,
+      );
+    }
 
     if (JSON.stringify(existingOptions) === JSON.stringify(merged)) return;
 
     this.d.store.updateSession(taskRunId, { configOptions: merged });
+  }
+
+  async prepareCloudResume(taskId: string): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || !isTerminalStatus(session.cloudStatus)) return;
+    try {
+      const auth = await this.getCloudCommandAuth();
+      if (!auth) return;
+      await this.fetchAndApplyCloudPreviewOptions(
+        session.taskRunId,
+        auth.apiHost,
+        session.adapter ?? "claude",
+        undefined,
+        undefined,
+        true,
+      );
+    } catch (error) {
+      this.d.log.warn("Failed to load models for cloud continuation", {
+        taskId,
+        error,
+      });
+    }
   }
 
   /**
@@ -8738,7 +8829,7 @@ export class SessionService {
     }
 
     if (update.kind === "permission_request") {
-      this.handleCloudPermissionRequest(taskRunId, update);
+      this.handleCloudPermissionRequest(taskRunId, update, { isLive: true });
       return;
     }
 

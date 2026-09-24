@@ -143,6 +143,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         return []
 
     @extend_schema(request=None, responses={200: DeviceCodeResponseSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="device-code")
     def device_code(self, request):
         """

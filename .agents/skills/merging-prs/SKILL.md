@@ -7,7 +7,8 @@ description: >
   Trunk's own reason for the terminal transition. Use when asked to merge a PR,
   "merge when ready", "land it", "ship it", to merge a whole stack (comment on
   the top PR — the queue merges it and every layer below atomically), to get a
-  PR approved via the `stamphog` label, or to babysit/watch a PR through the
+  PR approved by stamphog (MCP review request first, `stamphog` label as the
+  fallback), or to babysit/watch a PR through the
   queue. Never use `gh pr merge` in this repo — the queue is the only path into
   master.
 ---
@@ -20,7 +21,7 @@ To merge, you enqueue the PR with a comment, then watch it until Trunk lands it.
 
 ## Required user approval
 
-Before posting `/trunk merge`, invoking `trunk merge`, or re-enqueueing, obtain explicit user approval in the current conversation for the identified PR or stack. These actions can cause a PR to land. Never infer approval from a request to prepare a PR, move it toward merge, make it ready, resolve blockers, monitor it, or babysit it. You may inspect status, address reviews and CI, apply `stamphog` when approval is missing, and report that the PR is ready; then wait for a direct instruction to merge or enqueue it.
+Before posting `/trunk merge`, invoking `trunk merge`, or re-enqueueing, obtain explicit user approval in the current conversation for the identified PR or stack. These actions can cause a PR to land. Never infer approval from a request to prepare a PR, move it toward merge, make it ready, resolve blockers, monitor it, or babysit it. You may inspect status, address reviews and CI, request a stamphog review when approval is missing, and report that the PR is ready; then wait for a direct instruction to merge or enqueue it.
 
 `<n>` below is the PR number.
 Resolve the repo slug once if you need it: `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)`.
@@ -36,7 +37,11 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
 - **Head is on a fork** (`isCrossRepository == true`) → backend CI ran on GitHub Actions, so the required check is on the head as usual. Depot's optional checks are absent; that is expected and needs no action.
-- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → apply the `stamphog` label yourself: `gh pr edit <n> --add-label stamphog`. That triggers the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)); on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Re-applying the label is always safe and is the intended retry path — it gets stripped on a `REFUSED`/`ESCALATE` verdict, and after addressing that feedback you re-apply it to request a fresh review. Read the reason first: every verdict is its own review from the Stamphog app, opening with whether it approved. Re-applying the label without changing anything just repeats the same verdict. It stays sticky across ordinary pushes (non-trivial deltas re-review automatically), and it never works on bot-authored PRs.
+- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → ask stamphog for a review. Stamphog is the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)): on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Use the MCP route first, and the label only when MCP is not available.
+  - **MCP (first choice).** Call the PostHog MCP tool `stamphog-review-runs-create` with `repository` (the `$REPO` slug) and `pr_number`. It returns the run at once, with status `queued`. Poll `stamphog-review-runs-get` with the run `id` until `status` is `completed`, `gated`, `failed`, or `superseded`. Read `verdict` and `reasoning` there, not on GitHub. `created: false` means a run already covers the current head, so do not request again until the head moves. A request covers one head: after you push, request again.
+  - **Refusals.** A `409 not_reviewable` means stamphog does not review this PR at all (a draft, closed, bot-authored, from outside the repo, or an author without write access). The message says which. The label cannot help there, so report it.
+  - **Label (fallback).** Use `gh pr edit <n> --add-label stamphog` when the MCP tool is not in your tool list, when the call fails on auth, or when it returns `404 not_found` (the repo is not connected in that PostHog project) or `503`. The label is sticky across ordinary pushes (non-trivial deltas re-review automatically), and it gets stripped on a `REFUSED`/`ESCALATE` verdict. Each verdict is its own review from the Stamphog app, opening with whether it approved.
+  - **Either route:** read the reason before you retry. A retry without a change repeats the same verdict. Stamphog never approves bot-authored PRs.
 - **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. After explicit user approval, comment `/trunk merge` on the **top** PR to merge the whole stack, or on the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you comment on. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
 
 ## 2. Enqueue

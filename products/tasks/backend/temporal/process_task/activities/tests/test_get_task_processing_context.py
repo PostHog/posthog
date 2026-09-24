@@ -46,6 +46,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _require_template_compatible_with_custom_image,
     _resolve_claude_model_access,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
@@ -1343,6 +1344,27 @@ class TestGetTaskProcessingContextActivity:
 
         assert decision.use_vm_sandbox is True
 
+    def test_modal_vm_sandbox_custom_template_forces_gvisor_over_default_base(self):
+        # A rollout that names the run's origin cannot move a custom-template run onto the VM
+        # image, which carries none of the template's tooling; the flag is not consulted.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["autoresearch"]}',
+        ) as payload_mock:
+            assert (
+                _resolve_modal_vm_sandbox(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="autoresearch",
+                    allowed_domains=None,
+                    state={"sandbox_template": "autoresearch_base"},
+                ).use_vm_sandbox
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
     def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
         # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
         # would place this origin on the VM base; the bool override also skips the flag fetch.
@@ -1663,6 +1685,24 @@ class TestGetTaskProcessingContextActivity:
         assert result.initial_permission_mode is None
 
 
+@pytest.mark.parametrize(
+    "state, custom_image_name, compatible",
+    [
+        ({"sandbox_template": "autoresearch_base"}, "org-image", False),
+        ({"sandbox_template": "autoresearch_base"}, None, True),
+        ({"sandbox_template": "default_base"}, "org-image", True),
+        ({}, "org-image", True),
+    ],
+    ids=["template_and_image", "template_only", "default_template_and_image", "image_only"],
+)
+def test_a_custom_template_cannot_compose_with_a_custom_image(state, custom_image_name, compatible):
+    if compatible:
+        _require_template_compatible_with_custom_image(state, custom_image_name, run_id="run-1")
+    else:
+        with pytest.raises(TaskInvalidStateError):
+            _require_template_compatible_with_custom_image(state, custom_image_name, run_id="run-1")
+
+
 _HOGLAND_SETTINGS = {"HOGLAND_API_URL": "https://hogland.example", "HOGLAND_API_TOKEN": "hog-tok"}
 
 
@@ -1696,13 +1736,14 @@ class TestResolveSandboxBackend:
         [
             {"has_user_custom_image": True},
             {"task_runtime": "pi"},
+            {"state": {"sandbox_template": "autoresearch_base"}},
         ],
-        ids=["user_custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime", "custom_sandbox_template"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hard_incapabilities_fall_back_to_modal_even_with_the_flag_on(self, overrides):
-        # A real user/environment custom image or the Pi runtime cannot run on hogland's
-        # golden, so they force Modal even with the flag on. The Modal VM-sandbox /
+        # A real user/environment custom image, the Pi runtime or a non-default sandbox template
+        # cannot run on hogland's golden, so they force Modal even with the flag on. The Modal VM-sandbox /
         # network-allowlist preferences and the org default image are deliberately not
         # gated here — a flagged run wins hogland over them (covered by the caller
         # force-off test).
@@ -1759,14 +1800,17 @@ class TestResolveSandboxBackend:
         [
             {"has_user_custom_image": True},
             {"task_runtime": "pi"},
+            {"state": {"sandbox_template": "autoresearch_base"}},
         ],
-        ids=["user_custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime", "custom_sandbox_template"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hogland_override_cannot_defeat_hard_incapabilities(self, overrides):
         # A stale or forged hogland override surviving a cloud resume must not route a
-        # user-custom-image or Pi run to hogland — the capability gates sit ahead of the override.
-        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
+        # user-custom-image, Pi or custom-template run to hogland — the capability gates sit
+        # ahead of the override.
+        state = {"sandbox_backend": "hogland", **overrides.pop("state", {})}
+        assert self._resolve_with_flag(True, state=state, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS)
     def test_modal_override_still_wins_even_when_hogland_is_available(self):

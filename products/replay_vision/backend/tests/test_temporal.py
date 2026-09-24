@@ -79,6 +79,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_event i
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
     SIGNAL_WEIGHT,
     emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
     emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
@@ -132,6 +133,7 @@ from products.replay_vision.backend.temporal.types import (
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EmitObservationSignalInputs,
+    EmittedSignal,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     EventTable,
@@ -3758,6 +3760,7 @@ class TestEmitObservationSignalActivity:
     def _signal(self, confidence: float = 0.8, **overrides) -> SignalFinding:
         defaults: dict = {
             "problem_type": "bug",
+            "headline": "Checkout CTA does nothing",
             "start_time": 72,
             "end_time": 78,
             "url": "https://app.example.com/cart",
@@ -3980,6 +3983,7 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
                 signals=[
                     SignalFinding(
                         problem_type="bug",
+                        headline="Checkout CTA does nothing",
                         start_time=30,
                         end_time=35,
                         url="https://app.example.com/cart",
@@ -3988,17 +3992,19 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
                     )
                 ],
             ),
-            emit_observation_signals_activity: ["bug"],
+            emit_observation_signal_summaries_activity: [
+                EmittedSignal(problem_type="bug", headline="Checkout CTA does nothing", confidence=0.8)
+            ],
         },
     )
 
     await _run_workflow(_build_inputs(session_id="sess-sig", team_id=99), mocks)
 
     order = [fn for fn, _ in mocks.activity_calls]
-    assert order.index(call_scanner_provider_activity) < order.index(emit_observation_signals_activity)
-    assert order.index(emit_observation_signals_activity) < order.index(emit_observation_event_activity)
+    assert order.index(call_scanner_provider_activity) < order.index(emit_observation_signal_summaries_activity)
+    assert order.index(emit_observation_signal_summaries_activity) < order.index(emit_observation_event_activity)
 
-    signal_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_signals_activity)
+    signal_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_signal_summaries_activity)
     assert signal_input.observation_id == new_observation_id
     assert signal_input.exported_asset_id == 42  # threaded from ensure_session_asset_activity
     assert signal_input.signals[0].description == "Checkout CTA is broken on /cart"
@@ -4008,6 +4014,10 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
     assert succeeded.scanner_result.signals_count == 1
     # The distinct problem types ride the row so the watch feed can name the kind of issue.
     assert succeeded.scanner_result.signal_problem_types == ["bug"]
+    # And the headline rides it too, so the card names the finding rather than counting it.
+    assert [(s.problem_type, s.headline) for s in succeeded.scanner_result.signal_summaries] == [
+        ("bug", "Checkout CTA does nothing")
+    ]
 
 
 @pytest.mark.asyncio
@@ -4028,6 +4038,7 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
                 signals=[
                     SignalFinding(
                         problem_type="bug",
+                        headline="Checkout CTA does nothing",
                         start_time=30,
                         end_time=35,
                         url="https://app.example.com/cart",
@@ -4037,7 +4048,7 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
                 ],
             ),
         },
-        activity_errors={emit_observation_signals_activity: TimeoutError("start-to-close exceeded")},
+        activity_errors={emit_observation_signal_summaries_activity: TimeoutError("start-to-close exceeded")},
     )
 
     await _run_workflow(_build_inputs(session_id="sess-sig-fail", team_id=99), mocks)
@@ -4047,6 +4058,7 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
     assert succeeded.scanner_result.signal_problem_types == []
+    assert succeeded.scanner_result.signal_summaries == []
 
 
 @pytest.mark.asyncio
@@ -4070,6 +4082,7 @@ async def test_apply_scanner_workflow_counts_signals_for_pre_patch_histories() -
                 signals=[
                     SignalFinding(
                         problem_type="bug",
+                        headline="Checkout CTA does nothing",
                         start_time=30,
                         end_time=35,
                         url="https://app.example.com/cart",
@@ -4087,6 +4100,8 @@ async def test_apply_scanner_workflow_counts_signals_for_pre_patch_histories() -
     called = [fn for fn, _ in mocks.activity_calls]
     assert emit_observation_signal_activity in called
     assert emit_observation_signals_activity not in called
+    assert emit_observation_signal_summaries_activity not in called
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 2
     assert succeeded.scanner_result.signal_problem_types == []
+    assert succeeded.scanner_result.signal_summaries == []

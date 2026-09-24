@@ -88,30 +88,3 @@ export function selectOptionHarness(
   const harness = meta?.[MODEL_HARNESS_META_KEY];
   return harness === "claude" || harness === "codex" ? harness : undefined;
 }
-
-/**
- * Gateway models the Pi harness can still run, but that no picker offers:
- * retired or superseded ids. The provider keeps them runnable so a session
- * pinned to one still starts, which means every list a person picks from must
- * filter them out here.
- */
-const HIDDEN_PI_MODEL_IDS = new Set([
-  "claude-sonnet-4-5",
-  "claude-sonnet-4-6",
-  "claude-sonnet-4-7",
-  "claude-sonnet-4-8",
-  "claude-opus-4-5",
-  "claude-opus-4-6",
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "gpt-5.2",
-  "gpt-5.3-codex",
-  "gpt-5.4",
-  "gpt-5.5",
-  "gpt-5-mini",
-  "@cf/zai-org/glm-5.2",
-]);
-
-export function isHiddenPiModelId(modelId: string): boolean {
-  return HIDDEN_PI_MODEL_IDS.has(modelId);
-}

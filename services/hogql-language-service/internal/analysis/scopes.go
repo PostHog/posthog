@@ -37,10 +37,11 @@ type projectedField struct {
 }
 
 type projectionBudget struct {
-	remaining       int
-	exceeded        bool
-	lookupRemaining int
-	lookupExceeded  bool
+	remaining        int
+	exceeded         bool
+	lookupRemaining  int
+	lookupExceeded   bool
+	relationExceeded bool
 }
 
 type queryScope struct {
@@ -411,6 +412,9 @@ func bindingPropertyNamespace(binding Relation, name string) (string, bool) {
 	if binding.table != nil {
 		if _, ok := binding.table.Fields.Exact(name); !ok {
 			return "", false
+		}
+		if traversal, ok := binding.table.Fields.Traversal(name); ok {
+			return traversal.PropertyNamespace, traversal.PropertyNamespace != ""
 		}
 		return propertyresolver.Resolve([]string{binding.table.Name, name, "property"}, nil)
 	}

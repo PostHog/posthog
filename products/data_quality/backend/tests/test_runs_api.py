@@ -951,17 +951,28 @@ class TestDataQualityRunAPI(APIBaseTest):
     def test_the_overview_says_where_each_subject_can_be_opened(self) -> None:
         # The row links to the subject's own page, which lives on a DAG node for a view and on a
         # source schema for a synced table -- neither of which the check row itself carries.
-        node = Node.objects.create(team=self.team, dag=DAG.get_or_create_default(self.team), saved_query=self.orders)
+        dag = DAG.get_or_create_default(self.team)
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=self.orders)
+        events_node = Node.objects.create(team=self.team, dag=dag, name="events", properties={"origin": "posthog"})
         table, schema = self._synced_table("stripe_charges")
         self._check(self.orders)
         self._check(self.customers)
         self._check(
             self.orders, subject_type=SubjectType.TABLE, saved_query_id=None, table_id=table.id, subject_name=table.name
         )
+        self._check(
+            self.orders,
+            subject_type=SubjectType.POSTHOG_TABLE,
+            saved_query_id=None,
+            posthog_table="events",
+            subject_name="events",
+            column_name="distinct_id",
+        )
 
         rows = {row["subject_name"]: row for row in self.client.get(self.checks_url).json()["results"]}
 
         assert rows["orders"]["subject_node_id"] == str(node.id)
+        assert rows["events"]["subject_node_id"] == str(events_node.id)
         assert rows["orders"]["subject_source_id"] is None
         assert rows["stripe_charges"]["subject_source_id"] == str(schema.source_id)
         assert rows["stripe_charges"]["subject_schema_id"] == str(schema.id)

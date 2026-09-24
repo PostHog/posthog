@@ -16,8 +16,10 @@ import type {
     DataQualityCheckRunApi,
     DataQualityOverviewCheckApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
+import { SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { openFailingRowsInSqlEditor } from 'products/data_quality/frontend/openFailingRows'
 import {
     isTerminalSuiteRun,
@@ -29,6 +31,8 @@ import {
 const CHECKS_LIMIT = 500
 
 export type OverviewStatusFilter = 'all' | 'failing' | 'never_run'
+
+export type OverviewChecksStatus = 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
 
 export interface OverviewFilters {
     search: string
@@ -50,7 +54,7 @@ export type OverviewRunTarget = { kind: 'all' } | { kind: 'subject'; subjectKey:
 export interface SubjectGroup {
     /** Composite: a table and a view can hold the same uuid, and do collide in practice. */
     subjectKey: string
-    subjectType: string
+    subjectType: SubjectTypeEnumApi
     subjectUuid: string
     subjectName: string
     detailUrl: string | null
@@ -73,6 +77,9 @@ export function subjectKeyOf(subjectType: string, subjectUuid: string | null | u
 
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
+    if (check.subject_type === 'posthog_table') {
+        return check.subject_node_id ? urls.nodeDetail(check.subject_node_id) : null
+    }
     if (check.subject_type === 'metric') {
         // The catalog addresses a metric by name, so a row that came without one has no route.
         return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name, 'tests') : null
@@ -134,6 +141,7 @@ export interface dataQualityOverviewLogicValues {
     allSubjectKeys: string[]
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityOverviewCheckApi[]
+    checksStatus: OverviewChecksStatus
     deletingCheckIds: Record<string, boolean>
     expandedSubjectKeys: string[]
     expansionInitialized: boolean
@@ -156,10 +164,13 @@ export interface dataQualityOverviewLogicValues {
     runTarget: OverviewRunTarget | null
     runningSubjectKey: string | null
     runsLoadingByCheckId: Record<string, boolean>
+    scheduleBySubjectKey: Record<string, DataQualitySubjectScheduleApi>
     snapshotLoaded: boolean
     startingRun: boolean
     subjectGroups: SubjectGroup[]
     subjectHealth: DataQualitySubjectHealthApi[]
+    subjectSchedules: DataQualitySubjectScheduleApi[]
+    subjectSchedulesLoading: boolean
     unhealthySubjectKeys: string[]
 }
 
@@ -193,6 +204,21 @@ export interface dataQualityOverviewLogicActions {
             checks: DataQualityOverviewCheckApi[]
             health: DataQualitySubjectHealthApi[]
         }
+        payload?: any
+    }
+    loadSubjectSchedules: () => any
+    loadSubjectSchedulesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSubjectSchedulesSuccess: (
+        subjectSchedules: DataQualitySubjectScheduleApi[],
+        payload?: any
+    ) => {
+        subjectSchedules: DataQualitySubjectScheduleApi[]
         payload?: any
     }
     openFailingRows: (check: DataQualityOverviewCheckApi) => {
@@ -266,6 +292,10 @@ export interface dataQualityOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         checks: (overview: OverviewSnapshot | null) => DataQualityOverviewCheckApi[]
         subjectHealth: (overview: OverviewSnapshot | null) => DataQualitySubjectHealthApi[]
+        checksStatus: (checks: DataQualityOverviewCheckApi[]) => OverviewChecksStatus
+        scheduleBySubjectKey: (
+            subjectSchedules: DataQualitySubjectScheduleApi[]
+        ) => Record<string, DataQualitySubjectScheduleApi>
         healthBySubjectKey: (subjectHealth: DataQualitySubjectHealthApi[]) => {
             [k: string]: DataQualitySubjectHealthApi
         }
@@ -341,6 +371,12 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     ])
                     return { checks: checks.results, health }
                 },
+            },
+        ],
+        subjectSchedules: [
+            [] as DataQualitySubjectScheduleApi[],
+            {
+                loadSubjectSchedules: async () => checksApi.schedules(),
             },
         ],
     })),
@@ -446,6 +482,28 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
     selectors({
         checks: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.checks ?? []],
         subjectHealth: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.health ?? []],
+        checksStatus: [
+            (s) => [s.checks],
+            (checks: DataQualityOverviewCheckApi[]): OverviewChecksStatus => {
+                if (checks.length === 0) {
+                    return 'none'
+                }
+                if (!checks.every((check) => check.last_status === 'passed')) {
+                    return 'some-not-passed'
+                }
+                return checks.length < CHECKS_LIMIT ? 'all-passed' : 'unknown'
+            },
+        ],
+        scheduleBySubjectKey: [
+            (s) => [s.subjectSchedules],
+            (subjectSchedules: DataQualitySubjectScheduleApi[]): Record<string, DataQualitySubjectScheduleApi> =>
+                Object.fromEntries(
+                    subjectSchedules.map((schedule) => [
+                        subjectKeyOf(schedule.subject_type, schedule.subject_uuid),
+                        schedule,
+                    ])
+                ),
+        ],
         healthBySubjectKey: [
             (s) => [s.subjectHealth],
             (subjectHealth: DataQualitySubjectHealthApi[]) =>
@@ -587,6 +645,9 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             setActiveSuiteRun: poll.setActiveSuiteRun,
             scheduleSuiteRunPoll: poll.scheduleSuiteRunPoll,
             pollActiveSuiteRun: poll.pollActiveSuiteRun,
+            loadOverview: () => {
+                actions.loadSubjectSchedules()
+            },
             loadOverviewSuccess: () => {
                 if (!values.expansionInitialized) {
                     actions.setExpandedSubjects(values.unhealthySubjectKeys)

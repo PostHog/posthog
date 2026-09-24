@@ -964,15 +964,23 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 </div>
 
                 <AnimatedCollapsible collapsed={collapsed}>
-                    <LemonTextArea
-                        className="text-sm w-full"
-                        placeholder="System instructions for the AI assistant..."
-                        value={prompt.systemPrompt}
-                        onChange={(value) => setSystemPrompt(value, promptId)}
-                        minRows={2}
-                        maxRows={undefined}
-                        onPressCmdEnter={() => submitPrompt()}
-                    />
+                    <div>
+                        {prompt.sourceType === 'evaluation' && (
+                            <p className="text-xs text-muted">
+                                Playground runs test your prompt without applying evaluation output rules. Saved
+                                evaluations apply those rules when they run.
+                            </p>
+                        )}
+                        <LemonTextArea
+                            className="text-sm w-full"
+                            placeholder="System instructions for the AI assistant..."
+                            value={prompt.systemPrompt}
+                            onChange={(value) => setSystemPrompt(value, promptId)}
+                            minRows={2}
+                            maxRows={undefined}
+                            onPressCmdEnter={() => submitPrompt()}
+                        />
+                    </div>
                 </AnimatedCollapsible>
             </div>
 

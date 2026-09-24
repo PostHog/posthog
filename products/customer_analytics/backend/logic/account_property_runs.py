@@ -6,6 +6,10 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
+from products.customer_analytics.backend.logic.custom_property_source_health import (
+    record_sync_failure,
+    record_sync_success,
+)
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
 from products.customer_analytics.backend.models.custom_property_sync_run import (
     CustomPropertySyncRun,
@@ -34,7 +38,6 @@ class AccountPropertySyncRunOutcome:
 
 
 _ACCOUNT_SEGMENTS = {segment.value for segment in SyncSegment}
-_MAX_CONSECUTIVE_SYNC_FAILURES = 5
 
 
 def start_account_property_sync_runs(
@@ -176,27 +179,17 @@ def _update_source_status_for_terminal_runs(
 
         failed_runs = [run for run in runs if run.status == SyncStatus.FAILED.value]
         if failed_runs:
-            source.consecutive_failures = (source.consecutive_failures or 0) + 1
-            source.last_sync_error = next((run.error for run in failed_runs if run.error), None)
-            if source.consecutive_failures >= _MAX_CONSECUTIVE_SYNC_FAILURES:
-                source.is_enabled = False
-            source.save(
-                update_fields=[
-                    "consecutive_failures",
-                    "last_sync_error",
-                    "is_enabled",
-                    "updated_at",
-                ]
+            record_sync_failure(
+                source,
+                error=next((run.error for run in failed_runs if run.error), None),
+                disable_event_id=job_id,
             )
             continue
 
         finished_at = max((run.finished_at for run in runs if run.finished_at is not None), default=None)
         if finished_at is None:
             continue
-        source.last_synced_at = finished_at
-        source.last_sync_error = None
-        source.consecutive_failures = 0
-        source.save(update_fields=["last_synced_at", "last_sync_error", "consecutive_failures", "updated_at"])
+        record_sync_success(source, finished_at=finished_at)
 
 
 def finalize_account_property_sync_runs(

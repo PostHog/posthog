@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 from parameterized import parameterized
 
+from posthog.ingress.verify.errors import VerifierUnavailable
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS, SIGNING_KEY_FACT, BearerJwt, _jwks_client
 from posthog.ingress.verify.schemes import HmacSha256, HmacSignature, SnsSignature, Verification, VerificationOutcome
 
@@ -231,11 +232,12 @@ class TestSnsSignature(SimpleTestCase):
     def setUp(self) -> None:
         self.allowed = frozenset({"arn:aws:sns:eu-west-1:1:ses-events"})
 
-    def _scheme(self, *, verified: bool = True, allowed: frozenset[str] | None = None) -> SnsSignature:
-        return SnsSignature(
-            verify_message=lambda message: verified,
-            allowed_topic_arns=lambda: self.allowed if allowed is None else allowed,
-        )
+    def _scheme(self, *, allowed: frozenset[str] | None = None) -> SnsSignature:
+        return SnsSignature(allowed_topic_arns=lambda: self.allowed if allowed is None else allowed)
+
+    def _verify(self, scheme: SnsSignature, *, body: bytes, verified: bool = True) -> VerificationOutcome:
+        with patch("posthog.ingress.verify.schemes.verify_sns_message", return_value=verified):
+            return scheme.verify(body=body, headers={}).outcome
 
     @parameterized.expand(
         [
@@ -248,19 +250,27 @@ class TestSnsSignature(SimpleTestCase):
         self, _name: str, topic_arn: str, verified: bool, expected: str
     ) -> None:
         body = f'{{"TopicArn": "{topic_arn}", "MessageId": "m1"}}'.encode()
-        self.assertEqual(
-            self._scheme(verified=verified).verify(body=body, headers={}).outcome, VerificationOutcome(expected)
-        )
+        self.assertEqual(self._verify(self._scheme(), body=body, verified=verified), VerificationOutcome(expected))
 
     def test_empty_allowlist_is_not_configured(self) -> None:
         body = b'{"TopicArn": "arn:aws:sns:eu-west-1:1:ses-events"}'
         self.assertEqual(
-            self._scheme(allowed=frozenset()).verify(body=body, headers={}).outcome,
+            self._verify(self._scheme(allowed=frozenset()), body=body),
             VerificationOutcome.NOT_CONFIGURED,
         )
 
     def test_unparseable_body_is_invalid_rather_than_raising(self) -> None:
-        self.assertEqual(self._scheme().verify(body=b"not json", headers={}).outcome, VerificationOutcome.INVALID)
+        self.assertEqual(self._verify(self._scheme(), body=b"not json"), VerificationOutcome.INVALID)
+
+    def test_a_verifier_that_could_not_fetch_the_certificate_is_unavailable(self) -> None:
+        body = b'{"TopicArn": "arn:aws:sns:eu-west-1:1:ses-events", "MessageId": "m1"}'
+
+        with patch(
+            "posthog.ingress.verify.schemes.verify_sns_message", side_effect=VerifierUnavailable("no certificate")
+        ):
+            outcome = self._scheme().verify(body=body, headers={}).outcome
+
+        self.assertEqual(outcome, VerificationOutcome.UNAVAILABLE)
 
 
 JWKS_URI = "https://login.example.com/v1/.well-known/keys"
@@ -397,7 +407,6 @@ class TestBearerJwt(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_jwks_uri", None, AUDIENCE, frozenset({ISSUER})),
             ("no_audience", JWKS_URI, None, frozenset({ISSUER})),
             ("no_issuers", JWKS_URI, AUDIENCE, frozenset()),
         ]
@@ -409,6 +418,33 @@ class TestBearerJwt(SimpleTestCase):
 
         headers = {"Authorization": "Bearer " + self._token()}
         self.assertEqual(self._verify(scheme, headers).outcome, VerificationOutcome.NOT_CONFIGURED)
+
+    def test_a_signing_key_uri_the_getter_could_not_discover_is_unavailable(self) -> None:
+        # The getter fetches the URI from the issuer's metadata document and answers None when
+        # that fetch fails. Reading it as unconfigured gives a provider whose unconfigured status
+        # is a 4xx, which the issuer does not retry, and the outage then loses every delivery.
+        scheme = self._scheme(jwks_uri=None, audience=AUDIENCE, issuers=frozenset({ISSUER}))
+
+        headers = {"Authorization": "Bearer " + self._token()}
+        self.assertEqual(self._verify(scheme, headers).outcome, VerificationOutcome.UNAVAILABLE)
+
+    def test_an_unconfigured_instance_buys_no_signing_key_discovery(self) -> None:
+        # The getter reaches the issuer over the network, and this endpoint is public.
+        calls = 0
+
+        def jwks_uri_getter() -> str:
+            nonlocal calls
+            calls += 1
+            return JWKS_URI
+
+        scheme = BearerJwt(
+            jwks_uri_getter=jwks_uri_getter,
+            audience_getter=lambda: None,
+            issuers_getter=lambda: frozenset({ISSUER}),
+        )
+
+        self._verify(scheme, {"Authorization": "Bearer " + self._token()})
+        self.assertEqual(calls, 0)
 
     def test_reuses_one_jwks_client_per_uri(self) -> None:
         # The client holds the key cache, so a client per delivery is a JWKS fetch per delivery.

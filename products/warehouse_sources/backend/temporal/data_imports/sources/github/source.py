@@ -375,8 +375,14 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
         # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
         # equivalent classification of the same urllib3/OpenSSL wording.
+        #
+        # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
+        # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
+        # least surprising failure the source has; tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
         return {
             "GitHub API rate limit exceeded",
+            "GitHub egress budget exhausted",
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",

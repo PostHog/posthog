@@ -18,7 +18,6 @@ then delegates to the read layer: source selection and access control live in th
 not in the query builders below it.
 """
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
@@ -37,9 +36,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     DoraOverview,
     FlakyTestList,
     GitHubSource,
+    GitHubTeamRoster,
     MasterFailureGroup,
     MergedPullRequest,
-    PathOwnership,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -74,6 +73,8 @@ def _authorized_source(
     source_id: str | None,
     user_access_control: "UserAccessControl | None",
     repo: str | None = None,
+    *,
+    query_limit: int | None = None,
 ) -> "CuratedGitHubSource":
     """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
@@ -83,7 +84,7 @@ def _authorized_source(
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(
-        team, source_id=source_id, repo=repo, user_access_control=user_access_control
+        team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )
 
 
@@ -345,7 +346,8 @@ def get_pull_request_timelines(
     # Validate the scope before resolving the source, so a bad request reads as a bad scope.
     scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=pr_number, repo=repo)
     return logic.build_pull_request_timelines(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        # One budget covers the PR batches and their evidence pages; exhaustion must not return partial totals.
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo, query_limit=100),
         scope=scope,
         date_from=date_from,
         date_to=date_to,
@@ -691,7 +693,11 @@ def list_job_aggregates(
     )
 
 
-def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
-    """Name the team that owns each repository path, from the ownership files on the repository's
-    default branch. It takes no team, because nothing PostHog stores feeds the answer."""
-    return logic.resolve_path_owners(repository, paths)
+def get_github_team_roster(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> GitHubTeamRoster:
+    """Who is on which GitHub org team, from the team's synced membership snapshot.
+
+    Narrower than every read above: it resolves the membership table alone, so a caller routing work
+    at a team slug does not need the ``pull_requests`` / ``workflow_runs`` pair the curated handle
+    insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
+    """
+    return logic.build_github_team_roster(team=team, user_access_control=user_access_control)

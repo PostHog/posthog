@@ -45,6 +45,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -472,10 +473,12 @@ class EventDefinitionViewSet(
                 search_query
                 + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
                 + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
-                + " WHERE posthog_taggeditem.event_definition_id = posthog_eventdefinition.id"
+                + " WHERE posthog_taggeditem.content_type_id = %(tagged_content_type_id)s"
+                + " AND posthog_taggeditem.object_uuid = posthog_eventdefinition.id"
                 + " AND posthog_tag.name = ANY(%(tags)s))"
             )
             params["tags"] = tags_list
+            params["tagged_content_type_id"] = content_type_for(EventDefinition).id
 
         sql = create_event_definitions_sql(
             event_type,

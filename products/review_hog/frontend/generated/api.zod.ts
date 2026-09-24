@@ -98,6 +98,19 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing."
         ),
+    review_authored_prs: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Automatically review pull requests authored by this user in PostHog\/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments.'
+        ),
+    flash_reasoning_effort: zod
+        .enum(['medium', 'xhigh'])
+        .describe('\* `medium` - Medium\n\* `xhigh` - Extra high')
+        .optional()
+        .describe(
+            "Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.\n\n\* `medium` - Medium\n\* `xhigh` - Extra high"
+        ),
     urgency_threshold: zod
         .enum(['consider', 'should_fix', 'must_fix'])
         .describe('\* `consider` - Consider\n\* `should_fix` - Should Fix\n\* `must_fix` - Must Fix')

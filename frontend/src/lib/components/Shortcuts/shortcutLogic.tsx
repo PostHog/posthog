@@ -169,6 +169,23 @@ export const shortcutLogic = kea<shortcutLogicType>([
         cache.sequenceLastKeyTime = 0
 
         cache.onKeyDown = (event: KeyboardEvent) => {
+            const target = event.composedPath()[0]
+            if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+                return
+            }
+            const controlKeyCapture =
+                target instanceof HTMLElement ? target.closest<HTMLElement>('[data-shortcuts-ignore="ctrl"]') : null
+            if (
+                event.ctrlKey &&
+                !event.metaKey &&
+                controlKeyCapture &&
+                !controlKeyCapture.dataset.shortcutsAllowKeys?.split(' ').includes(event.key)
+            ) {
+                // Terminal editors need control keys before application shortcuts capture them.
+                return
+            }
             const commandKey = event.metaKey || event.ctrlKey
 
             // Handle modifier-based shortcuts (Cmd+K, etc.)

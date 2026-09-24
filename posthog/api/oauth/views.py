@@ -99,10 +99,13 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
-from posthog.utils import absolute_uri, get_instance_region, render_template
+from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -348,6 +351,19 @@ def _gateway_blocklist_block(
     if not GATEWAY_BEARING_SCOPES & requested:
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
+    try:
+        security_shadow_check(
+            SecuritySubject(
+                email=request.user.email,
+                user_uuid=str(request.user.uuid),
+                organization_ids=tuple(str(organization_id) for organization_id in organization_ids),
+                ip=get_trusted_client_ip(getattr(request, "_request", request)),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="oauth_authorize",
+        )
+    except Exception:
+        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
     if not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
         email=request.user.email,
@@ -376,7 +392,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     code_challenge_method = serializers.CharField(required=False, allow_null=True, default=None)
     nonce = serializers.CharField(required=False, allow_null=True, default=None)
     claims = serializers.CharField(required=False, allow_null=True, default=None)
-    scope = serializers.CharField()
+    scope = serializers.CharField(allow_blank=True)
     allow = serializers.BooleanField()
     prompt = serializers.CharField(required=False, allow_null=True, default=None)
     approval_prompt = serializers.CharField(required=False, allow_null=True, default=None)
@@ -392,7 +408,28 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             raise ValueError("OAuthAuthorizationSerializer requires 'user' in context")
         super().__init__(*args, **kwargs)
 
+    def validate(self, attrs: dict) -> dict:
+        # A denial needs no scope, so the field accepts a blank one. A grant still does.
+        if attrs.get("allow") and not attrs.get("scope", "").strip():
+            raise serializers.ValidationError({"scope": "This field may not be blank."})
+        return attrs
+
+    def _is_denial(self) -> bool:
+        """Whether the request refuses the grant rather than making one.
+
+        A denial mints nothing, so the scoping controls it carries are irrelevant. Without
+        this the consent screen can reach a state it cannot leave: pick "Organizations",
+        select none, and both Authorize and Cancel fail the same validator, so the person
+        cannot even refuse.
+        """
+        try:
+            return not self.fields["allow"].to_internal_value(self.initial_data.get("allow"))
+        except (serializers.ValidationError, TypeError):
+            return False
+
     def validate_scoped_organizations(self, scoped_organization_ids: list[str]) -> list[str]:
+        if self._is_denial():
+            return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
@@ -416,6 +453,8 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
         return []
 
     def validate_scoped_teams(self, scoped_team_ids: list[int]) -> list[int]:
+        if self._is_denial():
+            return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
         user_permissions = UserPermissions(requesting_user)
@@ -924,6 +963,13 @@ class OAuthValidator(OAuth2Validator):
         original ``authorization_code``-issued AT keeps the back-reference;
         refresh-issued rows pass ``source_refresh_token=None`` and stay
         addressable by token / token_checksum.
+
+        The RT's own ``access_token`` link moves to the new row. The daily
+        cleanup job deletes an RT by the expiry of its linked AT, and DOT reads
+        the next refresh's scopes from that AT, so a link left on the
+        authorization-code AT would delete a refresh token that is still in use.
+        The previous AT stays valid until it expires, and the cleanup job then
+        deletes it as a standalone token.
         """
         refresh_token_code = token.get("refresh_token")
         refresh_token_instance = getattr(request, "refresh_token_instance", None)
@@ -945,13 +991,14 @@ class OAuthValidator(OAuth2Validator):
             seconds=token.get("expires_in", oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
         )
 
-        self._create_access_token(
+        access_token = self._create_access_token(
             expires,
             request,
             token,
             source_refresh_token=None,
             scope_source_refresh_token=refresh_token_instance,
         )
+        OAuthRefreshToken.objects.filter(pk=refresh_token_instance.pk).update(access_token=access_token)
         logger.info(
             "oauth_non_rotating_refresh_inserted",
             client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
@@ -1025,15 +1072,25 @@ class OAuthValidator(OAuth2Validator):
         alike; a single indexed lookup is cheap and the cost of getting this
         wrong is leaving compromised tokens valid.
 
-        The sweep only fires when the presented token belongs to the
-        authenticated client (RFC 7009 §2.1: the server verifies the token was
-        issued to the requesting client). Without that binding, any dynamic
-        client that learned another app's refresh token could revoke that
-        app's entire ``(user, application)`` session instead of just the one
-        token upstream would revoke.
+        A token issued to a different application is left untouched, for every
+        client and both token types (RFC 7009 §2.1: the server verifies the
+        token was issued to the requesting client). Upstream revokes any token
+        it finds by value, so without this check a client that learned another
+        app's token could end that app's session. The request still gets a 200,
+        the same response as an unknown token, so the endpoint does not tell a
+        caller whether a token value is live for some other client.
         """
-        rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
-        if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
+        rt = OAuthRefreshToken.objects.filter(token=token).first()
+        presented = rt or OAuthAccessToken.objects.filter(token=token).first()
+        requesting_application_id = getattr(request.client, "pk", None)
+        if presented is not None and presented.application_id != requesting_application_id:
+            logger.warning(
+                "oauth_revoke_token_client_mismatch",
+                client_id_prefix=str(getattr(request.client, "client_id", ""))[:8],
+                token_type="refresh_token" if rt else "access_token",
+            )
+            return
+        if rt and rt.revoked is None and self._is_dynamic_client(request):
             revoke_oauth_session(refresh_token=rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
@@ -1486,7 +1543,19 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         requested_scope_tokens = (request.query_params.get("scope") or "").split()
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
-        scopes_were_defaulted = not requested_scope_tokens or scope_was_truncated
+
+        # `validate_scopes` clamps a request whose every resource token is unknown down to
+        # nothing. That is a valid outcome for a token, but not for a consent screen: the
+        # screen shows no permissions, and its Authorize button posts a blank scope the
+        # POST rejects. Resolve such a request the way an omitted scope resolves instead.
+        # A client sends one by accident when it builds the URL from an unsubstituted
+        # scope placeholder, so every token arrives as junk.
+        requested_resource_tokens = set(requested_scope_tokens) - ALWAYS_ALLOWED_SCOPES
+        nothing_grantable = bool(requested_resource_tokens) and not (set(scopes) - ALWAYS_ALLOWED_SCOPES)
+        if nothing_grantable:
+            scopes = sorted(effective_ceiling(application.ceiling_scopes) | ALWAYS_ALLOWED_SCOPES)
+
+        scopes_were_defaulted = not requested_scope_tokens or scope_was_truncated or nothing_grantable
 
         # Track OAuth authorization attempts with the authenticated user
         registration_type = self._registration_type(application)
@@ -1498,6 +1567,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "requested_scope_count": len(requested_scope_tokens),
                 "has_resource": bool(request.query_params.get("resource")),
                 "scope_was_truncated": scope_was_truncated,
+                "nothing_grantable": nothing_grantable,
             },
         )
 
@@ -2377,6 +2447,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 "active": True,
                 "token_type": "access_token",
                 "scope": access_token.scope,
+                "is_impersonated": access_token.impersonated_by_id is not None,
                 "scoped_teams": access_token.scoped_teams or [],
                 "scoped_organizations": access_token.scoped_organizations or [],
                 "exp": int(calendar.timegm(access_token.expires.timetuple())),

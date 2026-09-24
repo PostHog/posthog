@@ -27,6 +27,9 @@ Poll `/tmp/posthog-preview/status.json` until `state` is `ready` or `failed`:
 `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled.
 Product and Storybook builds still run from source.
 
+In `products/desktop`, the backend starts `pnpm bootstrap:cloud-task` in the background while the agent boots.
+Run `pnpm bootstrap:cloud-task:wait` there before any other `pnpm` command, so a second install does not race it.
+
 ## Tests
 
 Scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code.

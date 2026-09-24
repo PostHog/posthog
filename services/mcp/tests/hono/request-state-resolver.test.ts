@@ -4,7 +4,7 @@ const { mockSessionStore, mockTokenStore, mockApiKey, mockSessionScopedStores, m
     () => ({
         mockSessionStore: new Map<string, unknown>(),
         mockTokenStore: new Map<string, unknown>(),
-        mockApiKey: { scopes: ['*'], scoped_teams: [] },
+        mockApiKey: { scopes: ['*'], scoped_teams: [], is_impersonated: undefined as boolean | undefined },
         mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
         // Records the keys passed to every session-scoped refreshTtl call (only the
         // session cache refreshes, so any recorded call is a session refresh).
@@ -149,6 +149,15 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockSessionScopedStores.clear()
         mockRefreshTtlCalls.length = 0
         mockApiKey.scopes = ['*']
+        mockApiKey.is_impersonated = undefined
+    })
+
+    it.each([true, false, undefined])('passes token impersonation=%s to analytics', async (impersonated) => {
+        mockApiKey.is_impersonated = impersonated
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(result.isImpersonated).toBe(impersonated === true)
     })
 
     it.each([

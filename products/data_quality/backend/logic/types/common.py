@@ -47,6 +47,29 @@ def subject_source(subject: SubjectRef) -> ast.JoinExpr:
     return ast.JoinExpr(table=ast.Field(chain=list(subject.queryable_name.split("."))))
 
 
+def window_expr(time_column: str | None, lookback_hours: int | None) -> ast.Expr | None:
+    """Rows newer than the lookback, or None when either half of the window is missing."""
+    if not time_column or not lookback_hours:
+        return None
+    return ast.CompareOperation(
+        left=column(time_column),
+        op=ast.CompareOperationOp.GtEq,
+        right=ast.ArithmeticOperation(
+            left=ast.Call(name="now", args=[]),
+            op=ast.ArithmeticOperationOp.Sub,
+            right=ast.Call(name="toIntervalHour", args=[ast.Constant(value=lookback_hours)]),
+        ),
+    )
+
+
+def narrowed_to(query: ast.SelectQuery, window: ast.Expr | None) -> ast.SelectQuery:
+    """The same query, bounded by the window. The table stays bare in FROM so lazy joins still compile."""
+    if window is None:
+        return query
+    query.where = ast.And(exprs=[query.where, window]) if query.where else window
+    return query
+
+
 def column(column_name: str) -> ast.Field:
     return ast.Field(chain=list(column_name.split(".")))
 

@@ -83,12 +83,18 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_authenticated_requests_increment_the_legacy_auth_counter(self):
-        labels = {"auth_method": "secret_api_token", "http_method": "get"}
-        before = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels) or 0
+    def test_authenticated_requests_increment_the_legacy_auth_counters(self):
+        auth_labels = {"auth_method": "secret_api_token", "http_method": "get"}
+        team_labels = {"team_id": str(self.team.id)}
+        auth_before = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", auth_labels) or 0
+        team_before = (
+            REGISTRY.get_sample_value("posthog_conversations_external_ticket_legacy_team_total", team_labels) or 0
+        )
         self.client.get(self.url, **self._auth_headers())
-        after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels)
-        self.assertEqual(after, before + 1)
+        auth_after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", auth_labels)
+        team_after = REGISTRY.get_sample_value("posthog_conversations_external_ticket_legacy_team_total", team_labels)
+        self.assertEqual(auth_after, auth_before + 1)
+        self.assertEqual(team_after, team_before + 1)
 
     # -- GET ticket -------------------------------------------------------
 

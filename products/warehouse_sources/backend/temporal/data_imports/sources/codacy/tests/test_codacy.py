@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.cod
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import (
     CODACY_ENDPOINTS,
+    COMMIT_STATISTICS_DAYS,
     ENDPOINTS,
     METRICS_LOOKBACK_DAYS,
     METRICS_PERIOD,
@@ -319,7 +320,7 @@ class TestSourceResponse:
         # A fan-out child keyed without the repository would multi-match on merge once two
         # repositories share an id (e.g. the same file path), degrading every subsequent sync.
         for endpoint, config in CODACY_ENDPOINTS.items():
-            if config.fan_out in ("repository", "commit"):
+            if config.fan_out in ("repository", "commit", "pull_request"):
                 assert config.primary_keys[0] == "repository", endpoint
 
     def test_commits_partition_on_stable_commit_timestamp(self) -> None:
@@ -549,3 +550,264 @@ class TestMetricsFanOut:
                         logger=MagicMock(),
                     )
                 )
+
+
+class TestSingleResponseEndpoints:
+    """Endpoints that answer with one complete payload and declare no `cursor` or `limit`."""
+
+    def _urls(self, monkeypatch: Any, endpoint: str, pages: dict[str, Any]) -> tuple[list[dict], list[str]]:
+        requested: list[str] = []
+
+        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None):
+            requested.append(url)
+            return pages[url]
+
+        monkeypatch.setattr(codacy, "_fetch_page", fake_fetch)
+        rows: list[dict] = []
+        for batch in get_rows(
+            api_token="token", provider="gh", organization="acme", endpoint=endpoint, logger=MagicMock()
+        ):
+            rows.extend(batch)
+        return rows, requested
+
+    def test_commit_statistics_requests_the_day_range_without_pagination_params(self, monkeypatch: Any) -> None:
+        # The endpoint declares only `days`; sending the `limit` every paginated endpoint carries
+        # makes Codacy reject the request, so the whole table would fail to sync.
+        stats_url = (
+            f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/commit-statistics?days={COMMIT_STATISTICS_DAYS}"
+        )
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            stats_url: {"data": [{"commitId": 1, "commitTimestamp": "2026-04-01T09:00:00Z", "numberIssues": 4}]},
+        }
+        rows, requested = self._urls(monkeypatch, "commit_statistics", pages)
+        assert stats_url in requested
+        assert rows == [
+            {"repository": "repo-a", "commitId": 1, "commitTimestamp": "2026-04-01T09:00:00Z", "numberIssues": 4}
+        ]
+
+    def test_category_overviews_flatten_the_nested_category(self, monkeypatch: Any) -> None:
+        # categoryName is half of the primary key, so it has to be a plain top-level column.
+        overviews_url = f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/category-overviews"
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            overviews_url: {
+                "data": [
+                    {
+                        "commitId": 9,
+                        "category": {"name": "Security", "categoryType": "Security", "description": "Security issues"},
+                        "percentage": 1.6,
+                        "totalResults": 3,
+                    }
+                ]
+            },
+        }
+        rows, _ = self._urls(monkeypatch, "category_overviews", pages)
+        assert rows == [
+            {
+                "repository": "repo-a",
+                "categoryName": "Security",
+                "categoryType": "Security",
+                "categoryDescription": "Security issues",
+                "commitId": 9,
+                "percentage": 1.6,
+                "totalResults": 3,
+            }
+        ]
+
+    def test_issues_overview_unnests_every_count_breakdown(self, monkeypatch: Any) -> None:
+        # The response is one object of parallel count arrays; left nested the table could not be
+        # grouped by dimension, which is the only thing these counts are for.
+        overview_url = f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/issues/overview"
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            overview_url: {
+                "data": {
+                    "counts": {
+                        "categories": [{"name": "Security", "total": 3}],
+                        "levels": [{"name": "Error", "total": 2}, {"name": "Warning", "total": 1}],
+                        "patterns": [{"id": "ESLint_no-unused-vars", "title": "No unused vars", "total": 5}],
+                    }
+                }
+            },
+        }
+        rows, _ = self._urls(monkeypatch, "issues_overview", pages)
+        assert rows == [
+            {"repository": "repo-a", "dimension": "categories", "name": "Security", "total": 3, "title": None},
+            {"repository": "repo-a", "dimension": "levels", "name": "Error", "total": 2, "title": None},
+            {"repository": "repo-a", "dimension": "levels", "name": "Warning", "total": 1, "title": None},
+            {
+                "repository": "repo-a",
+                "dimension": "patterns",
+                # The patterns breakdown has no `name`; the pattern id is what identifies the row.
+                "name": "ESLint_no-unused-vars",
+                "total": 5,
+                "title": "No unused vars",
+            },
+        ]
+
+    def test_repository_without_issues_yields_no_overview_rows(self, monkeypatch: Any) -> None:
+        overview_url = f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/issues/overview"
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            overview_url: {"data": {"counts": {"categories": [], "levels": []}}},
+        }
+        rows, _ = self._urls(monkeypatch, "issues_overview", pages)
+        assert rows == []
+
+
+class TestSecurityItems:
+    def test_paginates_in_detection_order(self, monkeypatch: Any) -> None:
+        # The endpoint defaults to due date descending, which reshuffles as items are triaged and
+        # can skip or repeat rows across page boundaries.
+        search = f"{BASE}/organizations/gh/acme/security/items/search"
+        pages = {
+            f"{search}?limit=100&sort=DetectedAt&direction=asc": {
+                "data": [{"id": "item-1", "openedAt": "2026-01-02T00:00:00Z", "priority": "Critical"}],
+                "pagination": {"cursor": "c2"},
+            },
+            f"{search}?limit=100&sort=DetectedAt&direction=asc&cursor=c2": {
+                "data": [{"id": "item-2", "openedAt": "2026-01-03T00:00:00Z", "priority": "Low"}],
+                "pagination": {},
+            },
+        }
+        rows = _collect(monkeypatch, "security_items", pages)
+        assert [row["id"] for row in rows] == ["item-1", "item-2"]
+
+    @parameterized.expand([("security_items", False), ("organizations", True)])
+    def test_sample_capture_is_off_for_security_findings(self, endpoint: str, expected: bool) -> None:
+        # Security rows carry free-text finding bodies and secret-scan detail that the capture
+        # pipeline's name-based scrubber cannot recognise, so they must stay out of the samples.
+        with patch.object(codacy, "make_tracked_session") as make_session:
+            with patch.object(codacy, "_fetch_page", return_value={"data": []}):
+                list(
+                    get_rows(
+                        api_token="token",
+                        provider="gh",
+                        organization="acme",
+                        endpoint=endpoint,
+                        logger=MagicMock(),
+                    )
+                )
+        assert make_session.call_args.kwargs["capture"] is expected
+
+    def test_partitions_on_the_stable_detection_timestamp(self) -> None:
+        # dueAt and closedAt both move as an item is triaged, so partitioning on either would
+        # rewrite partitions on every sync.
+        response = codacy_source(
+            api_token="token", provider="gh", organization="acme", endpoint="security_items", logger=MagicMock()
+        )
+        assert response.partition_keys == ["openedAt"]
+
+
+class TestPullRequestFanOut:
+    COVERAGE_BASE = f"{BASE}/coverage/organizations/gh/acme/repositories/repo-a/pull-requests"
+    # No includeNotAnalyzed: coverage only exists for pull requests Codacy analysed.
+    PRS_URL = f"{BASE}/analysis/organizations/gh/acme/repositories/repo-a/pull-requests?limit=100"
+
+    def _run(self, monkeypatch: Any, endpoint: str, pages: dict[str, Any], logger: Any = None) -> list[dict]:
+        def fake_fetch(session: Any, method: str, url: str, headers: dict[str, str], logger_: Any, body: Any = None):
+            result = pages[url]
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        monkeypatch.setattr(codacy, "_fetch_page", fake_fetch)
+        rows: list[dict] = []
+        for batch in get_rows(
+            api_token="token",
+            provider="gh",
+            organization="acme",
+            endpoint=endpoint,
+            logger=logger or MagicMock(),
+        ):
+            rows.extend(batch)
+        return rows
+
+    def test_coverage_row_merges_the_pull_request_and_its_coverage(self, monkeypatch: Any) -> None:
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            self.PRS_URL: {"data": [{"pullRequest": {"number": 7}}], "pagination": {}},
+            f"{self.COVERAGE_BASE}/7": {
+                "data": {
+                    "pullRequest": {"id": 1, "number": 7, "status": "open", "targetBranch": "master"},
+                    "coverage": {"deltaCoverage": -1.5, "isUpToStandards": False},
+                }
+            },
+        }
+        rows = self._run(monkeypatch, "pull_request_coverage", pages)
+        assert rows == [
+            {
+                "repository": "repo-a",
+                "pullRequestNumber": 7,
+                "id": 1,
+                "number": 7,
+                "status": "open",
+                "targetBranch": "master",
+                "deltaCoverage": -1.5,
+                "isUpToStandards": False,
+            }
+        ]
+
+    def test_file_coverage_rows_carry_both_parents(self, monkeypatch: Any) -> None:
+        # A file path repeats across pull requests and repositories, so neither parent can be
+        # dropped from the ["repository", "pullRequestNumber", "fileName"] key.
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            self.PRS_URL: {"data": [{"pullRequest": {"number": 7}}], "pagination": {}},
+            f"{self.COVERAGE_BASE}/7/files": {
+                "data": [{"fileName": "src/main.py", "coverage": 82.0, "variation": -3.0}]
+            },
+        }
+        rows = self._run(monkeypatch, "pull_request_file_coverage", pages)
+        assert rows == [
+            {
+                "repository": "repo-a",
+                "pullRequestNumber": 7,
+                "fileName": "src/main.py",
+                "coverage": 82.0,
+                "variation": -3.0,
+            }
+        ]
+
+    def test_pull_request_cap_bounds_the_per_pull_request_request_fan_out(self, monkeypatch: Any) -> None:
+        # Coverage costs a request per pull request, so an uncapped walk over a busy repository
+        # would never finish inside Codacy's rate limit.
+        endpoint = CODACY_ENDPOINTS["pull_request_coverage"]
+        monkeypatch.setitem(
+            CODACY_ENDPOINTS,
+            "pull_request_coverage",
+            replace(endpoint, max_pull_requests_per_repository=2),
+        )
+
+        pages: dict[str, Any] = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            self.PRS_URL: {"data": [{"pullRequest": {"number": n}} for n in (7, 8, 9)], "pagination": {}},
+        }
+        for number in (7, 8, 9):
+            pages[f"{self.COVERAGE_BASE}/{number}"] = {"data": {"pullRequest": {"number": number}, "coverage": {}}}
+
+        logger = MagicMock()
+        rows = self._run(monkeypatch, "pull_request_coverage", pages, logger)
+        assert [row["pullRequestNumber"] for row in rows] == [7, 8]
+        logger.warning.assert_called_once()
+
+    def test_pull_request_without_coverage_is_skipped(self, monkeypatch: Any) -> None:
+        # A pull request analysed with no coverage report uploaded answers 404; it must not fail
+        # the whole repository sweep.
+        pages: dict[str, Any] = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            self.PRS_URL: {"data": [{"pullRequest": {"number": n}} for n in (7, 8)], "pagination": {}},
+            f"{self.COVERAGE_BASE}/7": requests.HTTPError(response=_response_with_status(404)),
+            f"{self.COVERAGE_BASE}/8": {"data": {"pullRequest": {"number": 8}, "coverage": {"deltaCoverage": 0.0}}},
+        }
+        rows = self._run(monkeypatch, "pull_request_coverage", pages)
+        assert [row["pullRequestNumber"] for row in rows] == [8]
+
+    def test_pull_request_without_a_number_is_not_fanned_out(self, monkeypatch: Any) -> None:
+        # A number-less entry would format into /pull-requests/None and 404 the whole sweep.
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            self.PRS_URL: {"data": [{"pullRequest": {}}], "pagination": {}},
+        }
+        assert self._run(monkeypatch, "pull_request_coverage", pages) == []

@@ -25,6 +25,7 @@ import type {
     DataQualityRunsListParams,
     DataQualitySubjectApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
     PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
@@ -372,6 +373,23 @@ export const dataQualityChecksSchedulePartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDataQualityCheckScheduleUpdateApi),
+    })
+}
+
+export const getDataQualityChecksSchedulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/schedules/`
+}
+
+/**
+ * The schedule of every subject in the project whose checks run on one, for the checks the caller may read. One request for the overview instead of one per subject.
+ */
+export const dataQualityChecksSchedulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualitySubjectScheduleApi[]> => {
+    return apiMutator<DataQualitySubjectScheduleApi[]>(getDataQualityChecksSchedulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

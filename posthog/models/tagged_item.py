@@ -9,11 +9,11 @@ from django.db.models.functions import Cast
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin, get_current_user, get_was_impersonated
 from posthog.models.tag import Tag
-from posthog.models.tagged_item_reads import generic_reads_enabled, tag_read_pointer
 from posthog.models.tagged_item_registry import (
-    OBJECT_ID,
     TaggableModel,
+    content_type_for,
     content_type_for_entry,
+    object_column_for,
     require_taggable,
     taggable_for_content_type_id,
     taggable_for_legacy_field,
@@ -44,24 +44,21 @@ class TaggedItemQuerySet(models.QuerySet):
 
     def for_model(self, model: type[models.Model]) -> "TaggedItemQuerySet":
         """Rows tagging any instance of this model."""
-        return self.filter(tag_read_pointer(model).for_model())
+        return self.filter(content_type=content_type_for(model))
 
     def for_object(self, obj: models.Model) -> "TaggedItemQuerySet":
         """Rows tagging this exact instance."""
         return self.for_objects(type(obj), [obj.pk])
 
     def for_objects(self, model: type[models.Model], pks: Iterable[Any]) -> "TaggedItemQuerySet":
-        """Rows tagging any of these instances of one model, with the tagged key as `object_key`."""
-        pointer = tag_read_pointer(model)
-        return self.filter(pointer.matching(pks, "in")).annotate(object_key=F(pointer.object_column))
+        """Rows tagging any of these instances of one model."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
+        return self.for_model(model).filter(**{f"{object_column_for(model)}__in": pks})
 
     def matching_outer(self, model: type[models.Model], outer_field: str = "pk") -> "TaggedItemQuerySet":
-        """Rows whose tagged object is the outer query's row, for use inside Exists or Subquery.
-
-        The tagged key is available as `object_key`.
-        """
-        pointer = tag_read_pointer(model)
-        return self.filter(pointer.matching(OuterRef(outer_field))).annotate(object_key=F(pointer.object_column))
+        """Rows whose tagged object is the outer query's row, for use inside Exists or Subquery."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
+        return self.for_model(model).filter(**{object_column_for(model): OuterRef(outer_field)})
 
     def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:
         """Fill the generic pointer on each row, because bulk_create never calls save()."""
@@ -281,11 +278,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
 
     @property
     def _taggable_entry(self) -> TaggableModel | None:
-        """The registry entry for what this row tags, read from the pointer the flag picks."""
-        if generic_reads_enabled():
-            return taggable_for_content_type_id(self.content_type_id) if self.content_type_id is not None else None
-        legacy_field = next((f for f in RELATED_OBJECTS if getattr(self, f"{f}_id", None) is not None), None)
-        return taggable_for_legacy_field(legacy_field) if legacy_field is not None else None
+        return taggable_for_content_type_id(self.content_type_id) if self.content_type_id is not None else None
 
     @property
     def related_object_type(self) -> str | None:
@@ -300,17 +293,16 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     @property
     def content_object(self) -> models.Model | None:
         """The object this row tags."""
-        entry = self._taggable_entry
-        if entry is None:
-            return None
-        if not generic_reads_enabled():
-            return getattr(self, entry.legacy_field)
-        return self.integer_object if entry.object_field == OBJECT_ID else self.uuid_object
+        if self.object_id is not None:
+            return self.integer_object
+        if self.object_uuid is not None:
+            return self.uuid_object
+        return None
 
     def sync_legacy_foreign_key(self) -> None:
         """Point the per-model foreign key at the object the generic pointer names."""
-        entry = taggable_for_content_type_id(self.content_type_id) if self.content_type_id is not None else None
-        # The relation manager on the legacy pointer sets the content type and the legacy key only.
+        entry = self._taggable_entry
+        # A row built with a content type and only a legacy key keeps that key.
         if entry is None or getattr(self, entry.object_field) is None:
             return
         for legacy_field in RELATED_OBJECTS:

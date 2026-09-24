@@ -2,11 +2,14 @@ from collections.abc import Collection
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
+from posthog.hogql.database.database import Database
+
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import SubjectType
-from .subject_access import DenialContext, ReadableSubjects
+from . import posthog_tables
+from .subject_access import DenialContext, ReadableSubjects, denial_context
 
 if TYPE_CHECKING:
     from posthog.scopes import APIScopeObject
@@ -17,6 +20,7 @@ _SUBJECT_RESOURCES: dict[SubjectType, "APIScopeObject"] = {
     SubjectType.TABLE: "warehouse_table",
     SubjectType.VIEW: "warehouse_view",
     SubjectType.METRIC: "data_catalog",
+    SubjectType.POSTHOG_TABLE: posthog_tables.RESOURCE,
 }
 _WAREHOUSE_FAMILY_SCOPE = "warehouse_objects"
 
@@ -44,7 +48,7 @@ def _scope_reaches(scopes: Collection[str] | None, kind: SubjectType, resource: 
 def _has_subject_access(access: "UserAccessControl", kind: SubjectType, level: Literal["editor", "viewer"]) -> bool:
     if access.check_access_level_for_resource(_SUBJECT_RESOURCES[kind], level):
         return True
-    if access.team is None or kind == SubjectType.METRIC:
+    if access.team is None or kind in (SubjectType.METRIC, SubjectType.POSTHOG_TABLE):
         return False
     if kind == SubjectType.TABLE:
         return bool(warehouse_facade.allowed_table_ids(access.team.id, access, required_level=level))
@@ -71,7 +75,18 @@ def writable_subjects(
         metric_ids=context.readable.metric_ids
         if access.check_access_level_for_resource("data_catalog", "editor")
         else frozenset(),
+        posthog_table_ids=context.readable.posthog_table_ids
+        if access.check_access_level_for_resource(posthog_tables.RESOURCE, "editor")
+        else frozenset(),
     )
+
+
+def sql_denial_context(team_id: int, database: Database) -> DenialContext:
+    """The denial state a HogQL query runs under, narrowed to the subject kinds its caller may read."""
+    context = denial_context(team_id, database)
+    access = database.user_access_control
+    allowed = authorized_subject_types(access, None) if access is not None else frozenset()
+    return restrict_subject_types(context, allowed)
 
 
 def _scope_allows(scopes: Collection[str] | None, resource: str, write: bool) -> bool:
@@ -95,5 +110,8 @@ def restrict_subject_types(context: DenialContext, allowed: Collection[SubjectTy
             table_ids=context.readable.table_ids if SubjectType.TABLE in allowed else frozenset(),
             view_ids=context.readable.view_ids if SubjectType.VIEW in allowed else frozenset(),
             metric_ids=context.readable.metric_ids if SubjectType.METRIC in allowed else frozenset(),
+            posthog_table_ids=context.readable.posthog_table_ids
+            if SubjectType.POSTHOG_TABLE in allowed
+            else frozenset(),
         ),
     )

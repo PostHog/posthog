@@ -50,8 +50,8 @@ SOURCE_TYPE = SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value
 # circuit breaker.
 MAX_EVIDENCE_ENTRIES = 20
 
-# Scouts don't reason about weight. Every finding that clears the confidence emit-gate
-# promotes on its first signal — weight is the pipeline's promotion knob, not a scout
+# Scouts don't reason about weight. Every finding a scout chooses to emit promotes on
+# its first signal — weight is the pipeline's promotion knob, not a scout
 # judgment. Pinned to 1.0 so a fresh report's `total_weight` meets `WEIGHT_THRESHOLD`
 # (default 1.0) immediately. See products/signals/backend/scout_harness/AGENTS.md.
 SCOUT_SIGNAL_WEIGHT = 1.0
@@ -74,7 +74,7 @@ MAX_FINDING_ID_LENGTH = 100
 
 
 class InvalidEmitError(ValueError):
-    """The agent tried to emit with an invalid shape (empty description, bad confidence, etc)."""
+    """The agent tried to emit with an invalid shape (empty description, too much evidence, etc)."""
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,6 @@ async def emit_finding(
     team: Team,
     run: SignalScoutRun,
     description: str,
-    confidence: float,
     evidence: list[EvidenceEntry],
     hypothesis: str | None = None,
     severity: str | None = None,
@@ -134,7 +133,7 @@ async def emit_finding(
     Same (non-idempotent) emit behavior as `emit_finding_sync`.
     """
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, confidence, evidence, finding_id)
+    _validate_inputs(description, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     tags = normalize_tags(tags)
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
@@ -145,7 +144,6 @@ async def emit_finding(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        confidence=confidence,
         evidence=evidence,
         hypothesis=hypothesis,
         severity=severity,
@@ -160,7 +158,6 @@ async def emit_finding(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        confidence=confidence,
         severity=severity,
         evidence_count=len(evidence),
     )
@@ -194,8 +191,6 @@ async def emit_finding(
         run_id=run.id,
         finding_id=finding_id,
         description=description,
-        weight=SCOUT_SIGNAL_WEIGHT,
-        confidence=confidence,
         severity=severity,
         source_id=source_id,
         tags=tags,
@@ -212,7 +207,6 @@ def emit_finding_sync(
     team: Team,
     run: SignalScoutRun,
     description: str,
-    confidence: float,
     evidence: list[EvidenceEntry],
     hypothesis: str | None = None,
     severity: str | None = None,
@@ -230,7 +224,7 @@ def emit_finding_sync(
     from asgiref.sync import async_to_sync
 
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, confidence, evidence, finding_id)
+    _validate_inputs(description, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     tags = normalize_tags(tags)
     task_id = _resolve_task_id(run)
@@ -241,7 +235,6 @@ def emit_finding_sync(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        confidence=confidence,
         evidence=evidence,
         hypothesis=hypothesis,
         severity=severity,
@@ -256,7 +249,6 @@ def emit_finding_sync(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        confidence=confidence,
         severity=severity,
         evidence_count=len(evidence),
     )
@@ -289,8 +281,6 @@ def emit_finding_sync(
         run_id=run.id,
         finding_id=finding_id,
         description=description,
-        weight=SCOUT_SIGNAL_WEIGHT,
-        confidence=confidence,
         severity=severity,
         source_id=source_id,
         tags=tags,
@@ -347,14 +337,11 @@ def normalize_tags(tags: list[str] | None) -> list[str] | None:
 
 def _validate_inputs(
     description: str,
-    confidence: float,
     evidence: list[EvidenceEntry],
     finding_id: str | None,
 ) -> None:
     if not description or not description.strip():
         raise InvalidEmitError("description must not be empty")
-    if not 0.0 <= confidence <= 1.0:
-        raise InvalidEmitError(f"confidence must be in [0.0, 1.0], got {confidence}")
     if len(evidence) > MAX_EVIDENCE_ENTRIES:
         raise InvalidEmitError(f"evidence has {len(evidence)} entries, max is {MAX_EVIDENCE_ENTRIES}")
     # Reject before defaulting — a generated id is a safe 36-char uuid; only a caller-supplied
@@ -382,7 +369,6 @@ def _build_extra(
     finding_id: str,
     skill_name: str,
     skill_version: int,
-    confidence: float,
     evidence: list[EvidenceEntry],
     hypothesis: str | None,
     severity: str | None,
@@ -400,7 +386,6 @@ def _build_extra(
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": float(skill_version),
-        "confidence": confidence,
         "evidence": [asdict(e) for e in evidence],
     }
     if task_id is not None:
@@ -429,8 +414,6 @@ def _record_emit(
     run_id: Any,
     finding_id: str,
     description: str,
-    weight: float,
-    confidence: float,
     severity: str | None,
     source_id: str,
     tags: list[str] | None,
@@ -464,8 +447,6 @@ def _record_emit(
                 scout_run=run,
                 finding_id=finding_id,
                 description=description,
-                weight=weight,
-                confidence=confidence,
                 severity=severity,
                 source_id=source_id,
                 tags=tags or [],
@@ -489,7 +470,6 @@ def _log_extra(
     finding_id: str,
     skill_name: str,
     skill_version: int,
-    confidence: float,
     severity: str | None,
     evidence_count: int,
 ) -> dict[str, Any]:
@@ -501,7 +481,6 @@ def _log_extra(
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": skill_version,
-        "confidence": confidence,
         "severity": severity,
         "evidence_count": evidence_count,
     }

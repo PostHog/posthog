@@ -196,6 +196,21 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             META_RATE_LIMIT_ERROR_MESSAGE,
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Both markers above are raised with Meta's raw response appended for debugging
+        # (`_raise_meta_api_error`), so a failure that also outlives Temporal's retries stores that
+        # JSON blob, HTTP status and trace id included, as the error the customer reads.
+        return {
+            "Meta API request failed (retryable)": (
+                "Meta kept returning temporary errors, so this sync run did not finish. This usually "
+                "clears on its own and the next sync runs on schedule."
+            ),
+            META_RATE_LIMIT_ERROR_MESSAGE: (
+                "Meta is rate limiting requests for this connection, so this sync run did not finish. "
+                "The next sync runs on schedule."
+            ),
+        }
+
     def get_schemas(
         self,
         config: MetaAdsSourceConfig,

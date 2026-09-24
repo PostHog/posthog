@@ -272,7 +272,8 @@ async def _aload_messages(conversation: Conversation, team: Team, user: User) ->
     enriched = await ArtifactManager(team, user).aenrich_messages(list(state_result.state.messages))
     # Context messages are model-only; the thread never shows them, but the resumed agent needs them.
     messages = [
-        message.model_dump()
+        # JSON mode: the frames are written as JSON lines, and a plain Enum member cannot encode.
+        message.model_dump(mode="json")
         for message in enriched
         if isinstance(message, ContextMessage) or should_output_assistant_message(message)
     ]

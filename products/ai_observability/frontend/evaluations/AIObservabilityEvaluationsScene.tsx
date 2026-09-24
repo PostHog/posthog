@@ -61,6 +61,7 @@ import {
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
+import { formatNumericEvaluationScore } from './constants'
 import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
@@ -369,6 +370,17 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
+                if (evaluation.output_type === 'numeric') {
+                    return (
+                        <div className="text-sm">
+                            <div>{`${stats.runs_count} runs`}</div>
+                            <div>{`Mean score: ${stats.score_mean == null ? '–' : formatNumericEvaluationScore(stats.score_mean)}`}</div>
+                            {evaluation.output_config.passing_rule && (
+                                <div>{`Pass rate: ${stats.pass_rate == null ? '–' : `${stats.pass_rate.toFixed(1)}%`}`}</div>
+                            )}
+                        </div>
+                    )
+                }
                 // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
                 if (evaluation.evaluation_type === 'sentiment') {
                     return (
@@ -379,11 +391,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 }
 
                 const passRateColor =
-                    stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
-                        ? 'text-success'
-                        : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                          ? 'text-warning'
-                          : 'text-danger'
+                    stats.pass_rate == null
+                        ? 'text-muted'
+                        : stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
+                          ? 'text-success'
+                          : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
+                            ? 'text-warning'
+                            : 'text-danger'
 
                 return (
                     <div className="flex flex-col items-center">
@@ -391,7 +405,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
                         <div className={`font-semibold ${passRateColor}`}>
-                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                            {stats.pass_rate == null ? '–' : `${parseFloat(stats.pass_rate.toFixed(2))}%`}
                         </div>
                     </div>
                 )

@@ -1,3 +1,4 @@
+import type { IconProps } from "@phosphor-icons/react";
 import {
   Binoculars,
   Broadcast,
@@ -14,7 +15,6 @@ import {
   MagnifyingGlass,
   Pause,
   PushPin,
-  SlackLogo,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
@@ -24,8 +24,10 @@ import {
   isTerminalStatus,
   type TaskRunStatus,
 } from "@posthog/shared/domain-types";
+import type { ComponentType } from "react";
 import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
 import { NestedButton } from "../../../../primitives/NestedButton";
+import { SlackMarkIcon } from "../../../../primitives/SlackMarkIcon";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import { openExternalUrl } from "../../../../shell/openExternal";
 import type { SidebarPrState } from "../../useTaskPrStatus";
@@ -42,9 +44,14 @@ export const ICON_SIZE = 12;
 // status icon, so every non-`user_created` origin is distinguishable at a
 // glance in the list. `user_created` is intentionally absent — those tasks get
 // the default status icon. Extend this when a new origin needs its own badge.
-type OriginProductMeta = { Icon: typeof SlackLogo; label: string };
+type OriginProductMeta = {
+  Icon: ComponentType<IconProps>;
+  label: string;
+  color?: string;
+  brandMark?: boolean;
+};
 const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
-  slack: { Icon: SlackLogo, label: "Slack" },
+  slack: { Icon: SlackMarkIcon, label: "Slack", brandMark: true },
   signal_report: { Icon: Broadcast, label: "Signals" },
   signals_scout: { Icon: Binoculars, label: "Signals scout" },
   support_queue: { Icon: Lifebuoy, label: "Support" },
@@ -114,6 +121,9 @@ function CloudStatusIcon({
   const meta = getOriginProductMeta(originProduct);
   const Icon = meta?.Icon ?? CloudIcon;
   const sourceLabel = meta?.label ?? "Cloud";
+  const brand = meta?.brandMark ?? false;
+  const settledColor = brand ? undefined : "var(--green-11)";
+  const runningColor = brand ? undefined : "var(--accent-11)";
   const link = meta && threadUrl ? threadUrl : undefined;
   const ariaLabel = link ? `Open ${sourceLabel} thread` : undefined;
 
@@ -142,7 +152,7 @@ function CloudStatusIcon({
         side="right"
       >
         <IconSpan
-          icon={<Icon size={size} weight="fill" color="var(--accent-11)" />}
+          icon={<Icon size={size} weight="fill" color={runningColor} />}
           link={link}
           ariaLabel={ariaLabel}
         />
@@ -158,7 +168,7 @@ function CloudStatusIcon({
         side="right"
       >
         <IconSpan
-          icon={<Icon size={size} weight="fill" color="var(--green-11)" />}
+          icon={<Icon size={size} weight="fill" color={settledColor} />}
           link={link}
           ariaLabel={ariaLabel}
         />
@@ -174,7 +184,7 @@ function CloudStatusIcon({
         side="right"
       >
         <IconSpan
-          icon={<Icon size={size} weight="fill" color="var(--green-11)" />}
+          icon={<Icon size={size} weight="fill" color={settledColor} />}
           link={link}
           ariaLabel={
             link
@@ -194,7 +204,13 @@ function CloudStatusIcon({
         side="right"
       >
         <IconSpan
-          icon={<Icon size={size} weight="fill" color="var(--red-11)" />}
+          icon={
+            <Icon
+              size={size}
+              weight="fill"
+              color={brand ? undefined : "var(--red-11)"}
+            />
+          }
           link={link}
           ariaLabel={ariaLabel}
         />
@@ -389,7 +405,7 @@ export function TaskIcon({
     );
   }
   if (originProductMeta) {
-    const { Icon, label } = originProductMeta;
+    const { Icon, label, brandMark } = originProductMeta;
     const link = slackThreadUrl;
     return (
       <Tooltip
@@ -397,7 +413,12 @@ export function TaskIcon({
         side="right"
       >
         <IconSpan
-          icon={<Icon size={size} color="var(--gray-10)" />}
+          icon={
+            <Icon
+              size={size}
+              color={brandMark ? undefined : "var(--gray-10)"}
+            />
+          }
           link={link}
           ariaLabel={`Open ${label} thread`}
         />

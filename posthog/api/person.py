@@ -514,6 +514,20 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     )
 
 
+# Not in `posthog/api/cohort.py` because that module cannot be imported here at module level: it
+# reaches back into this one through `posthog/hogql_queries/actors_query_runner.py`.
+class CohortMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for cohort references, read by the person cohorts endpoint."""
+
+    class Meta:
+        model = Cohort
+        fields = ["id", "name", "count"]
+
+
+class PersonCohortsResponseSerializer(serializers.Serializer):
+    results = CohortMinimalSerializer(many=True, help_text="Cohorts the person currently belongs to.")
+
+
 _PERSON_ID_PARAMETER = OpenApiParameter(
     "id",
     OpenApiTypes.STR,
@@ -1463,28 +1477,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="The person ID or UUID to get cohorts for.",
                 required=True,
             ),
-        ]
+        ],
+        responses={200: PersonCohortsResponseSerializer},
     )
     @action(methods=["GET"], detail=False, required_scopes=["person:read", "cohort:read"])
     def cohorts(self, request: request.Request, **kwargs) -> response.Response:
-        from posthog.api.cohort import CohortMinimalSerializer
-
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-
         # Only person.uuid is used below, so skip the distinct-id fetch entirely.
         with personhog_caller_tag("persons/cohorts"):
             person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"], distinct_id_limit=0)
         if person is None:
             raise NotFound()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), self.team)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)

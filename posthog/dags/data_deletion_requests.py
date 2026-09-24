@@ -30,6 +30,7 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
@@ -164,11 +165,16 @@ def _property_filter_clause(props: list[str], prefix: str = "fp_", column: str =
 
 
 def _json_property_filter_clause(props: list[str], column: str = "properties") -> str:
-    """Presence clause for the native-JSON events tables, where JSONHas over the JSON column does
-    not see typed paths or nested objects — subcolumn reads are the reliable form."""
+    """Find retained copies in native properties, mutation instructions, and quarantine."""
     exprs = [json_property_presence_expr(column, prop) for prop in props]
-    if len(exprs) == 1:
-        return exprs[0]
+    # Malformed quarantine can contain any requested value, so its presence prevents verifying removal.
+    exprs.append(json_property_presence_expr(column, UNPARSEABLE_PROPERTIES_KEY))
+    temporary_props = (
+        props
+        if column == "properties"
+        else [f"{instruction}.{prop}" for instruction in ("$set", "$set_once") for prop in props]
+    )
+    exprs.extend(json_property_presence_expr("temporary_properties", prop) for prop in temporary_props)
     return f"({' OR '.join(exprs)})"
 
 
@@ -261,6 +267,8 @@ def _property_removal_where(
             if json_schema
             else _property_filter_clause(ctx.properties)
         )
+    elif json_schema and ctx.person_properties:
+        presence_clauses.append(json_property_presence_expr("properties", UNPARSEABLE_PROPERTIES_KEY))
     if mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(mat_cols))
     if ctx.person_properties:
@@ -622,7 +630,7 @@ def _refuse_property_removal_unsweepable(
         )
         if not request.properties and not request.person_properties:
             return None
-        return _property_removal_where(request, inserted_at_max=marker_str)
+        return _property_removal_where(request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema)
 
     _refuse_unsweepable(
         cluster, unsweepable, deletion_request, predicate_for, reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON

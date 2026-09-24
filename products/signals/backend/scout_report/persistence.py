@@ -136,7 +136,7 @@ class ScoutReportSignal:
 
     description: str
     source_id: str
-    weight: float = SCOUT_SIGNAL_WEIGHT
+    weight: float
     timestamp: datetime | None = None
     extra: dict = field(default_factory=dict)
     document_id: str | None = None

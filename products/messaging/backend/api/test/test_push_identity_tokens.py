@@ -10,6 +10,7 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.team.team import Team
 
@@ -60,9 +61,14 @@ class TestPushIdentityTokens(SimpleTestCase):
     def _team(self, secret: str | None = CURRENT_SECRET, backup: str | None = None) -> Team:
         return Team(secret_api_token=secret, secret_api_token_backup=backup)
 
+    def _fallback_count(self) -> float:
+        return REGISTRY.get_sample_value("push_subscription_identity_hmac_fallback_total") or 0.0
+
     def test_verifies_a_token_signed_with_the_current_secret(self):
         token = sign_push_identity_token(CURRENT_SECRET, DISTINCT_ID, APP_ID)
+        before = self._fallback_count()
         assert verify_push_identity_token(token, self._team(), DISTINCT_ID, APP_ID) is True
+        assert self._fallback_count() == before + 1
 
     def test_verifies_a_token_signed_with_the_backup_secret_after_rotation(self):
         token = sign_push_identity_token(BACKUP_SECRET, DISTINCT_ID, APP_ID)
@@ -112,6 +118,17 @@ class TestPushIdentityTokens(SimpleTestCase):
         token = sign_push_identity_token_es256(private_pem, DISTINCT_ID, APP_ID)
         team = self._team(secret=None)  # no shared secret: only the public-key path can accept it
         assert verify_push_identity_token(token, team, DISTINCT_ID, APP_ID, public_keys=[public_pem]) is True
+
+    def test_an_es256_token_does_not_count_as_using_the_shared_secret(self):
+        # A channel can register a public key while its team still holds a shared secret. Counting
+        # that as a fallback use would keep the scheme alive for a customer who never signs with it.
+        private_pem, public_pem = _es256_keypair()
+        token = sign_push_identity_token_es256(private_pem, DISTINCT_ID, APP_ID)
+        team = self._team(secret=CURRENT_SECRET)
+        before = self._fallback_count()
+
+        assert verify_push_identity_token(token, team, DISTINCT_ID, APP_ID, public_keys=[public_pem]) is True
+        assert self._fallback_count() == before
 
     def test_rejects_an_es256_token_when_a_different_public_key_is_registered(self):
         signer_private, _ = _es256_keypair()

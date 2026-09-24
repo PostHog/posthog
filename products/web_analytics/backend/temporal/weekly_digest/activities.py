@@ -24,12 +24,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
+from posthog.temporal.common.digest import OrgBatchPageResult, paginate_index, paginate_keyset
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.user_permissions import UserPermissions
 
 from products.web_analytics.backend import weekly_digest
 from products.web_analytics.backend.recap import recap_url_for_team
-from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DigestBatchInput,

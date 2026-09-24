@@ -496,6 +496,25 @@ class TestValidateCredentials:
         assert "216.239.36.223" not in (message or "")
         assert "StatusCode" not in (message or "")
 
+    def test_insufficient_scope_tells_the_user_to_reconnect(self):
+        # Google raises this when the stored OAuth token was granted without the adwords scope.
+        # A user cannot act on "the required scopes" because they never choose scopes, so the
+        # wizard has to ask for the same reconnect the sync path asks for.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "Reconnect your Google Ads account" in (message or "")
+        assert "scopes" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.

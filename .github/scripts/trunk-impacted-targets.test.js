@@ -210,13 +210,21 @@ test('a proto claims the consumers that generate from it rather than every lane'
         assert.equal(targets.includes(target), false, target)
     }
 
+    // A stub tree claims its consumer's lane whichever top-level directory
+    // holds it: packages/ reads as frontend unless a rule says otherwise.
     const generatedDirs = [
-        'posthog/personhog_client/proto/generated',
-        'nodejs/src/common/generated/personhog',
-        'rust/personhog-proto',
+        ['packages/personhog-proto', 'py:core'],
+        ['nodejs/src/common/generated/personhog', 'node:ingestion'],
+        ['rust/personhog-proto', 'rust:crate:personhog-proto'],
     ]
-    for (const dir of generatedDirs) {
+    for (const [dir, lane] of generatedDirs) {
         assert.equal(fs.existsSync(path.join(REPO_ROOT, dir)), true, `${dir} is the stub tree its lane stands for`)
+        const stubTargets = computeTargets([`${dir}/stub`], {
+            ...PROTO_CONTEXT,
+            rustAffectedCrates: ['personhog-proto'],
+        })
+        assert.equal(stubTargets.includes(lane), true, `${dir} claims ${lane}`)
+        assert.equal(stubTargets.includes('fe:core'), false, `${dir} claims no frontend lane`)
     }
 })
 
@@ -337,7 +345,7 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
-        ['posthog/personhog_client/proto/generated', PYTHON],
+        ['packages/personhog-proto', PYTHON],
         ['nodejs/src/common/generated', NODE],
     ]
     for (const [root, domain] of stubRoots) {

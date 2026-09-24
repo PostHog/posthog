@@ -172,3 +172,35 @@ class TestTeamsProvider(SimpleTestCase):
         self.assertEqual(response.status_code, 429)
         # The getter is what discovers the signing keys, so an unsigned flood must not reach it.
         self.assertEqual(self.jwks_uri_calls, 0)
+
+    def _unconfigured_view_response(self, *, jwks_uri: str | None, audience: str | None) -> Any:
+        provider = build_teams_provider(
+            jwks_uri_getter=lambda: jwks_uri,
+            audience_getter=lambda: audience,
+            issuers_getter=lambda: frozenset({ISSUER}),
+        )
+        throttle_class = provider.throttle_class
+        assert throttle_class is not None
+
+        # The throttle keys on the caller and its cache is shared with every other test in this
+        # process, so the cap is held open rather than left to test order.
+        with patch.object(throttle_class, "allow_request", return_value=True):
+            return build_webhook_view(provider)(self._request(ACTIVITY, self._token()))
+
+    def test_an_unset_app_id_answers_403_with_no_reason(self) -> None:
+        # The package default is 500, which would turn every anonymous probe of this public URL
+        # into a server error on an instance that never registered a bot. The endpoint answered
+        # 403 before it moved into this package.
+        response = self._unconfigured_view_response(jwks_uri=JWKS_URI, audience=None)
+
+        self.assertEqual(response.status_code, 403)
+        # And the body must not tell that caller whether the instance is merely unconfigured.
+        self.assertEqual(response.content, b"")
+
+    def test_a_signing_key_uri_that_could_not_be_discovered_answers_503(self) -> None:
+        # The getter fetches Microsoft's OpenID metadata and answers None when that fetch fails.
+        # Reading that as unconfigured would answer 403, which Bot Framework does not retry, and
+        # a metadata outage would then lose every activity in it.
+        response = self._unconfigured_view_response(jwks_uri=None, audience=APP_ID)
+
+        self.assertEqual(response.status_code, 503)

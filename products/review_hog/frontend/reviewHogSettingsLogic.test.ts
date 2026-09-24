@@ -229,7 +229,6 @@ describe('reviewHogSettingsLogic', () => {
         ])
         logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
 
-        // Arming the watch here would poll for two minutes waiting for a run that never starts.
         await expectLogic(logic, () => logic.actions.submitTriggerReview())
             .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
             .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])

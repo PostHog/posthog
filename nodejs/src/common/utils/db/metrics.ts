@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 export const personUpdateVersionMismatchCounter = new Counter({
     name: 'person_update_version_mismatch',
@@ -35,4 +35,23 @@ export const postgresErrorCounter = new Counter({
     name: 'plugin_server_postgres_errors',
     help: 'Count of Postgres errors by type',
     labelNames: ['error_type', 'database_use'],
+})
+
+export const postgresPoolAcquireDurationHistogram = new Histogram({
+    name: 'postgres_pool_acquire_duration_seconds',
+    help: 'Time a transaction waits for a pooled client, which rises when the pool is saturated',
+    labelNames: ['pool'],
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60],
+})
+
+export const postgresClientErrorCounter = new Counter({
+    name: 'postgres_client_errors',
+    help: 'Errors raised on a client while a transaction held it',
+    labelNames: ['pool'],
+})
+
+export const postgresOpenTransactionsGauge = new Gauge({
+    name: 'postgres_open_transactions',
+    help: 'Transactions currently holding a client',
+    labelNames: ['pool', 'tag'],
 })

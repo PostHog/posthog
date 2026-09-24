@@ -3,11 +3,13 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
@@ -38,6 +40,9 @@ _FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
 }
 
 
+_AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
+
+
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
     """The event property a typed column copies verbatim, or None when the column copies nothing.
 
@@ -56,6 +61,8 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
         logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
         return None
 
+    if isinstance(table, AiEventsTable):
+        return _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
     if isinstance(table, FlagEvaluationsTable):
         return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
     return None
@@ -97,7 +104,7 @@ def restricted_property_keys_for_table_type(
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable | FlagEvaluationsTable):
+    elif isinstance(table, EventsTable | FlagEvaluationsTable | AiEventsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
@@ -112,7 +119,7 @@ def restricted_property_keys_for_table_type(
         # blob-key drop.
         return set()
 
-    return {
+    restricted_keys = {
         restriction.name
         for restriction in context.restricted_properties
         if restriction.property_type == prop_def_type
@@ -122,3 +129,16 @@ def restricted_property_keys_for_table_type(
             or restriction.group_type_index == group_type_index
         )
     }
+    if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+        # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
+        restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
+    return restricted_keys
+
+
+def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
+    if not context.restricted_properties or not context.uses_new_events_schema():
+        return False
+    return any(
+        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
+        for key in restricted_property_keys_for_table_type(table_type, context)
+    )
