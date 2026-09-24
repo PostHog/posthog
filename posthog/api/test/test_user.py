@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 import datetime
 from datetime import timedelta
@@ -11,6 +12,7 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
@@ -914,7 +916,6 @@ class TestUserAPI(APIBaseTest):
             "/api/users/@me/",
             {
                 "email": "beta@example.com",
-                "current_password": self.CONFIG_PASSWORD,
             },
         )
         response_data = response.json()
@@ -945,7 +946,6 @@ class TestUserAPI(APIBaseTest):
                     "/api/users/@me/",
                     {
                         "email": "beta@example.com",
-                        "current_password": self.CONFIG_PASSWORD,
                     },
                 )
             response_data = response.json()
@@ -1013,18 +1013,19 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("missing_password", True, {}, 400),
-            ("wrong_password", True, {"current_password": "not-my-password"}, 400),
-            ("no_usable_password", False, {}, 200),
+            ("fresh_reauth", True, False, 200),
+            ("stale_reauth", True, True, 403),
+            ("passwordless_fresh_reauth", False, False, 200),
+            ("passwordless_stale_reauth", False, True, 403),
         ]
     )
     @patch("posthog.api.email_verification.send_email_verification_code")
     @patch("posthog.api.user.is_email_available", return_value=True)
-    def test_email_change_requires_current_password_when_user_has_one(
+    def test_email_change_requires_a_fresh_reauth(
         self,
         _name: str,
         has_password: bool,
-        extra: dict,
+        stale: bool,
         expected_status: int,
         _mock_is_email_available,
         mock_send_code,
@@ -1034,8 +1035,12 @@ class TestUserAPI(APIBaseTest):
             self.user.set_unusable_password()
         self.user.save()
         self.client.force_login(self.user)
+        if stale:
+            session = self.client.session
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time() - settings.SESSION_FRESH_REAUTH_AGE - 1
+            session.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com", **extra})
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
 
         assert response.status_code == expected_status, response.content
         self.user.refresh_from_db()
@@ -1043,7 +1048,7 @@ class TestUserAPI(APIBaseTest):
             assert self.user.pending_email == "beta@example.com"
             mock_send_code.assert_called_once()
         else:
-            assert response.json()["attr"] == "current_password"
+            assert response.json()["code"] == "sensitive_action_required_reauth"
             assert self.user.pending_email is None
             mock_send_code.assert_not_called()
 
@@ -1090,9 +1095,7 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch(
-            "/api/users/@me/", {"email": "Beta.Gamma@Example.COM", "current_password": self.CONFIG_PASSWORD}
-        )
+        response = self.client.patch("/api/users/@me/", {"email": "Beta.Gamma@Example.COM"})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1104,9 +1107,7 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch(
-            "/api/users/@me/", {"email": "Beta@Example.com", "current_password": self.CONFIG_PASSWORD}
-        )
+        response = self.client.patch("/api/users/@me/", {"email": "Beta@Example.com"})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1122,9 +1123,7 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "bill@josé.example"
         self.user.save()
 
-        response = self.client.patch(
-            "/api/users/@me/", {"email": "bill@JOSÉ.example", "current_password": self.CONFIG_PASSWORD}
-        )
+        response = self.client.patch("/api/users/@me/", {"email": "bill@JOSÉ.example"})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1153,9 +1152,7 @@ class TestUserAPI(APIBaseTest):
         self.user.email = "alpha+legacy@example.com"
         self.user.save()
 
-        response = self.client.patch(
-            "/api/users/@me/", {"email": "alpha@example.com", "current_password": self.CONFIG_PASSWORD}
-        )
+        response = self.client.patch("/api/users/@me/", {"email": "alpha@example.com"})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1199,7 +1196,6 @@ class TestUserAPI(APIBaseTest):
                     "/api/users/@me/",
                     {
                         "email": "beta@example.com",
-                        "current_password": self.CONFIG_PASSWORD,
                     },
                 )
 
@@ -1250,9 +1246,7 @@ class TestUserAPI(APIBaseTest):
             side_effect=lambda email, organization=None: "google-oauth2" if email == enforced_email else None,
         ):
             with self.is_cloud(True):
-                response = self.client.patch(
-                    "/api/users/@me/", {"email": "beta@example.com", "current_password": self.CONFIG_PASSWORD}
-                )
+                response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == expected_code
@@ -1285,9 +1279,7 @@ class TestUserAPI(APIBaseTest):
             ),
         ):
             with self.is_cloud(True):
-                response = self.client.patch(
-                    "/api/users/@me/", {"email": "alice@example.org", "current_password": self.CONFIG_PASSWORD}
-                )
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.org"})
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
@@ -1324,9 +1316,7 @@ class TestUserAPI(APIBaseTest):
             ),
         ):
             with self.is_cloud(True):
-                response = self.client.patch(
-                    "/api/users/@me/", {"email": "alice@example.net", "current_password": self.CONFIG_PASSWORD}
-                )
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.net"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "sso_enforced_current_email"

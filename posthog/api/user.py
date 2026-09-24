@@ -135,7 +135,12 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
-from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.session.reauth import (
+    fresh_reauth_expires_at,
+    reauth_is_fresh,
+    sensitive_action_reference,
+    step_up_required,
+)
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -233,6 +238,12 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
     )
     sensitive_session_expires_at = serializers.SerializerMethodField()
+    fresh_reauth_expires_at = serializers.SerializerMethodField(
+        help_text=(
+            "When the last re-authentication stops counting as fresh. Changing `email` after this needs a new "
+            "re-authentication. Null when the session has none on record."
+        )
+    )
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
@@ -246,8 +257,7 @@ class UserSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
         help_text=(
-            "The user's current password. Required when changing `password` or `email` if the user already has a "
-            "usable password set."
+            "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     )
     notification_settings = serializers.DictField(
@@ -333,6 +343,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated_read_only",
             "is_impersonated_reason",
             "sensitive_session_expires_at",
+            "fresh_reauth_expires_at",
             "team",
             "organization",
             "organizations",
@@ -380,6 +391,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated_read_only",
             "is_impersonated_reason",
             "sensitive_session_expires_at",
+            "fresh_reauth_expires_at",
             "team",
             "organization",
             "organizations",
@@ -480,6 +492,16 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
+
+    def get_fresh_reauth_expires_at(self, instance: User) -> Optional[str]:
+        if "request" not in self.context:
+            return None
+
+        expires_at = fresh_reauth_expires_at(self.context["request"].session)
+        if expires_at is None:
+            return None
+
+        return datetime.fromtimestamp(expires_at, tz=UTC).isoformat()
 
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
@@ -649,26 +671,24 @@ class UserSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def check_current_password(self, instance: User, current_password: Optional[str], required_message: str) -> None:
-        # A user without a usable password (social login or SSO only) has no password to give, so the
-        # recent-login check in TimeSensitiveActionPermission is the only proof we can ask for.
-        if not (instance.password and instance.has_usable_password()):
-            return
-        if not current_password:
-            raise serializers.ValidationError({"current_password": [required_message]}, code="required")
-        if not instance.check_password(current_password):
-            raise serializers.ValidationError(
-                {"current_password": ["Your current password is incorrect."]},
-                code="incorrect_password",
-            )
-
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
     ) -> Optional[str]:
         if password:
-            self.check_current_password(
-                instance, current_password, "This field is required when updating your password."
-            )
+            if instance.password and instance.has_usable_password():
+                # If user has a password set, we check it's provided to allow updating it. We need to check that is both
+                # usable (properly hashed) and that a password actually exists.
+                if not current_password:
+                    raise serializers.ValidationError(
+                        {"current_password": ["This field is required when updating your password."]},
+                        code="required",
+                    )
+
+                if not instance.check_password(current_password):
+                    raise serializers.ValidationError(
+                        {"current_password": ["Your current password is incorrect."]},
+                        code="incorrect_password",
+                    )
             try:
                 validate_password(password, instance)
             except ValidationError as e:
@@ -720,13 +740,6 @@ class UserSerializer(serializers.ModelSerializer):
         changes_email = "email" in validated_data and EmailNormalizer.normalize(
             validated_data["email"]
         ) != EmailNormalizer.normalize(instance.email)
-
-        if changes_email:
-            self.check_current_password(
-                instance,
-                validated_data.get("current_password"),
-                "Enter your current password to change your email.",
-            )
 
         if changes_email and is_email_available():
             new_email = validated_data["email"]
@@ -1059,25 +1072,41 @@ class UserViewSet(
         }
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self.refuse_identity_change_over_token(request)
+        self.guard_identity_change(request)
         return super().update(request, *args, **kwargs)
 
-    def refuse_identity_change_over_token(self, request: Request) -> None:
-        # The login email and the password decide who can sign in to the account, so a leaked personal
-        # API key or OAuth token must not reset either of them. This check runs before serializer
-        # validation, because an email validation error would tell a token holder which addresses have
-        # an account.
+    def guard_identity_change(self, request: Request) -> None:
+        """Refuse an email or password change that the request cannot prove the account holder wants.
+
+        This runs before serializer validation, because an email validation error would tell the
+        caller which addresses already have an account.
+        """
         # A body that is not an object cannot carry either field, and the serializer rejects it with a 400.
-        if isinstance(request.successful_authenticator, SessionAuthentication) or not isinstance(request.data, Mapping):
+        if not isinstance(request.data, Mapping):
             return
+
         email = request.data.get("email")
-        keeps_email = "email" not in request.data or (
+        changes_email = "email" in request.data and not (
             isinstance(email, str)
             and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(self.get_object().email)
         )
-        if "password" in request.data or not keeps_email:
+
+        # The login email and the password decide who can sign in, so a leaked personal API key or
+        # OAuth token must not reset either of them.
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            if changes_email or "password" in request.data:
+                raise exceptions.PermissionDenied(
+                    "You can only change your email or password from the PostHog app, not with an API key or token."
+                )
+            return
+
+        # A session alone is not enough for the email, because the freshness window of
+        # TimeSensitiveActionPermission is hours wide. The account holder re-authenticates first, which
+        # for an account without a password means a passkey or an SSO round trip.
+        if changes_email and not reauth_is_fresh(request.session):
             raise exceptions.PermissionDenied(
-                "You can only change your email or password from the PostHog app, not with an API key or token."
+                "Confirm it's you before changing your email.",
+                code="sensitive_action_required_reauth",
             )
 
     def perform_destroy(self, user: User) -> None:
