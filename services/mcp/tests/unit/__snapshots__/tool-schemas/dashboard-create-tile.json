@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "agent_context": {
+            "anyOf": [
+                {
+                    "maxLength": 10000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer and user-facing explanations in body."
+        },
         "body": {
             "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.",
             "maxLength": 4000,
