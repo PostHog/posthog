@@ -5937,9 +5937,9 @@ snapshots:
     products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.6c001db5555f48832f11ae8d9dcc535dff4e22044bb6dfce15db3a2a522f1fa9.GQCxp64JkEqDCNEeSD6gPtc5rwlzjHFJ-QnZu4lRips
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.0dc6c93831aac8ced60c1755761d80daa5e2460eeeb25ba032715b2ffbe8389f.VUPR5i-Wv-uSknUcmvpTwR_HfEBhII6D7BiO4IfoPkI
+        hash: v1.k794b7964.c8ccf56e7a97ed764ef1b9feff1fbefb1e3b8677fbf34e950adb91fb8ad0c65a.SP6nwmHbLhfX64P11e8X6ceeDvQynhdRrSCHXsblts8
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.ff282a9973ca858d711068f40c38476ca61718c14dc0192b04302179ba90e620.VxNKePplQsPhDiq_0V-OpyhiEQmqEJ6xpgddoddLkUY
+        hash: v1.k794b7964.76d3914773ce95c73661a095c09cd13d3886fc71ed8619b405b52d03af75309e.7h4Yavt5bAp86IDjoyzG4duYQRyU4pDb5kMndOnOut0
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.c69d28ef03335511de9b7dd75d5ad1c0458272d5d8f340083cdb86acc3b3c888.KB3MNhE9xEjVSl9hmVpz2jLC0IAmOTvaVZBmrl3pNKs
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -6476,6 +6476,26 @@ snapshots:
         hash: v1.k794b7964.0c4ff880090d289792e07ce7cb7359a1b6ebc7f22018412f5e69b76d39b06c1c.5jO-D_nxXdrKXxqLu2eyHsS3a_h_Szw2YhyhYhVl4j4
     products-mcp-analytics-shared-filters--narrow--light:
         hash: v1.k794b7964.562db8df12c68befe57f8919f809de1df19a1ce38ac4df71182b1ef4dd992e60.gfWAYEniMvycz6kgaG9x41uOeVArlCV8Kr0Qoe09bfk
+    products-notebooks-dashboard-widget--access-denied--dark:
+        hash: v1.k794b7964.f93f5836e1334a281785def757008dc8ffa21aa628abdad3699de6be7dfc57da.7iLBmN3IxFb-xnmud9sGvyawwuRnGQQ9NcMP5NXo6Os
+    products-notebooks-dashboard-widget--access-denied--light:
+        hash: v1.k794b7964.f12c96e51ba15ba72a9e624e28c236e2117b2b1702aa983d7a0ad522c3d1e75e.YItBs3XBt1hkittNdQn6r9NQeXD--YdOXRkOMzg8qs0
+    products-notebooks-dashboard-widget--add-to-dashboard--dark:
+        hash: v1.k794b7964.844a153c1d7d1b06b48367d4adf6668d3e8ef3e56ed5568b5952381efc64a184._CUmLNH3L2iQ0i8D4aztJBWbZ1t2RZz1wGseuQg-1Fs
+    products-notebooks-dashboard-widget--add-to-dashboard--light:
+        hash: v1.k794b7964.3024152d6b954ce8d4f622b473bfbdd097cf33879c41f92089237c0c612e90f6.Sqi5WDWpiccNT_xzbnlo4DfcaWH0KIER6kjG5MjsP38
+    products-notebooks-dashboard-widget--empty--dark:
+        hash: v1.k794b7964.0dea0b55f93423d05eadf5d965f98c95171d4cd5b6ba6be4cd0d265d853d1aa7.i7496pxyxpeOzZ8QDSw1qmagFet5LEI8LDAi9WN6Jng
+    products-notebooks-dashboard-widget--empty--light:
+        hash: v1.k794b7964.ce20c9c0ca821377cafb8ceaf4fa05f35cbf81c8cbc52eca3102931da8964707.SCZnaWqvLA4G_OlXL6t59CdqUZ7HsuVPpySBjv5ggmI
+    products-notebooks-dashboard-widget--read-only--dark:
+        hash: v1.k794b7964.f93f5836e1334a281785def757008dc8ffa21aa628abdad3699de6be7dfc57da.2AA9ygi_gqL8QHhUkw5mj0PC7s_AN4chVGHNQCE-Uwg
+    products-notebooks-dashboard-widget--read-only--light:
+        hash: v1.k794b7964.f12c96e51ba15ba72a9e624e28c236e2117b2b1702aa983d7a0ad522c3d1e75e.YcRdcnzh482NfnqgUYORV1OuHO8cnTPSZWL8kBEU0y4
+    products-notebooks-dashboard-widget--saved-results--dark:
+        hash: v1.k794b7964.f93f5836e1334a281785def757008dc8ffa21aa628abdad3699de6be7dfc57da.3fn8SNwLnaHNnbN_MopoEAmij74NXlwTFqZ_0EvbX5I
+    products-notebooks-dashboard-widget--saved-results--light:
+        hash: v1.k794b7964.f12c96e51ba15ba72a9e624e28c236e2117b2b1702aa983d7a0ad522c3d1e75e.ZrLMAxC9Z4gZ5qqJz7qFUUC7ykih0WvLmTJxitYD9Mg
     products-notebooks-notebook-widget-trust-controls--gate--dark:
         hash: v1.k794b7964.97a5e7b5f92071f677d09773a3dea88ead3c9a71e85dbd6f6de8875ffc7a3036.9u2VOZ-O_aSU002VK8iAydGcjIYBXzRIacAelaDLJ6Y
     products-notebooks-notebook-widget-trust-controls--gate--light:
