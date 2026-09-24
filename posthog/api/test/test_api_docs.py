@@ -1,6 +1,8 @@
+import os
 import re
 
 from posthog.test.base import APIBaseTest
+from unittest import mock
 
 
 class TestAPIDocsSchema(APIBaseTest):
@@ -18,6 +20,18 @@ class TestAPIDocsSchema(APIBaseTest):
         assert not [p for p in paths if re.match(r"^/api/projects/[^/]+/environments/", p)]
         # The same action survives under the live project route
         assert any(p.endswith("/tracing_config/") for p in paths)
+
+    def test_x_internal_operations_are_only_in_the_codegen_schema(self) -> None:
+        self.client.logout()
+        internal_suffix = "/access_control_member_rules/"
+
+        served_paths = self.client.get("/api/schema/").data["paths"]
+        assert not [p for p in served_paths if p.endswith(internal_suffix)]
+
+        codegen_env = {"OPENAPI_INCLUDE_INTERNAL": "1", "OPENAPI_MOCK_INTERNAL_API_SECRET": "1"}
+        with mock.patch.dict(os.environ, codegen_env):
+            codegen_paths = self.client.get("/api/schema/").data["paths"]
+        assert [p for p in codegen_paths if p.endswith(internal_suffix)]
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()

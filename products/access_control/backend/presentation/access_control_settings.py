@@ -68,7 +68,9 @@ else:
 
 # These actions sit on the core project viewset, so the product has to be named for the
 # generated types and MCP tools to land in access_control rather than core
-_SCHEMA_EXTENSIONS = {"x-product": "access_control"}
+# `x-internal` keeps these actions out of the public API docs until access control v2 replaces
+# them. MCP tools and frontend types are still generated from them.
+_SCHEMA_EXTENSIONS = {"x-product": "access_control", "x-internal": True}
 
 _MEMBER_ID_PARAM = OpenApiParameter(
     name="member_id",
