@@ -233,6 +233,7 @@ describe('hogFlowEditorLogic', () => {
             updated_at: 0,
             config: { delay_duration: '1d' },
         }
+        const firstDelay: HogFlowAction = { ...delay, id: 'first-delay', name: 'First delay' }
         const node = (action: HogFlowAction): HogFlowActionNode => ({
             id: action.id,
             type: 'action',
@@ -246,31 +247,55 @@ describe('hogFlowEditorLogic', () => {
         })
 
         it.each([
-            { name: 'a branching step', deleted: [node(branch)] },
-            { name: 'a selection with a branching step', deleted: [node(delay), node(branch)] },
-        ])('refuses to delete $name without changing the workflow', ({ deleted }) => {
-            const toast = jest.spyOn(lemonToast, 'error')
-            workflowLogic().actions.setWorkflowInfo({
-                actions: [NEW_WORKFLOW.actions[0], branch, delay, NEW_WORKFLOW.actions[1]],
-                edges: [
-                    edge(TRIGGER_NODE_ID, branch.id, 'continue'),
-                    edge(branch.id, delay.id, 'branch', 0),
-                    edge(branch.id, EXIT_NODE_ID, 'continue'),
-                    edge(delay.id, EXIT_NODE_ID, 'continue'),
-                ],
-            })
-            logic.actions.setNodesRaw([node(branch), node(NEW_WORKFLOW.actions[1])])
-            logic.actions.setSelectedNodeId(branch.id)
-            const workflow = logic.values.workflow
+            {
+                name: 'a branching step',
+                firstAction: branch,
+                deleted: [node(branch)],
+                canDeleteIndividually: false,
+                reason: 'Clean up branching steps first',
+            },
+            {
+                name: 'a selection with a branching step',
+                firstAction: branch,
+                deleted: [node(delay), node(branch)],
+                canDeleteIndividually: false,
+                reason: 'Clean up branching steps first',
+            },
+            {
+                name: 'adjacent linear steps',
+                firstAction: firstDelay,
+                deleted: [node(firstDelay), node(delay)],
+                canDeleteIndividually: true,
+                reason: 'Delete these steps one at a time',
+            },
+        ])(
+            'refuses to delete $name without changing the workflow',
+            ({ firstAction, deleted, canDeleteIndividually, reason }) => {
+                const toast = jest.spyOn(lemonToast, 'error')
+                workflowLogic().actions.setWorkflowInfo({
+                    actions: [NEW_WORKFLOW.actions[0], firstAction, delay, NEW_WORKFLOW.actions[1]],
+                    edges: [
+                        edge(TRIGGER_NODE_ID, firstAction.id, 'continue'),
+                        edge(firstAction.id, delay.id, 'continue'),
+                        ...(firstAction.type === 'conditional_branch'
+                            ? [edge(firstAction.id, EXIT_NODE_ID, 'branch', 0)]
+                            : []),
+                        edge(delay.id, EXIT_NODE_ID, 'continue'),
+                    ],
+                })
+                logic.actions.setNodesRaw([node(firstAction), node(NEW_WORKFLOW.actions[1])])
+                logic.actions.setSelectedNodeId(firstAction.id)
+                const workflow = logic.values.workflow
 
-            expect(logic.values.selectedNodeCanBeDeleted).toBe(false)
+                expect(logic.values.selectedNodeCanBeDeleted).toBe(canDeleteIndividually)
 
-            logic.actions.onNodesDelete(deleted)
+                logic.actions.onNodesDelete(deleted)
 
-            expect(logic.values.workflow).toEqual(workflow)
-            expect(logic.values.selectedNodeId).toBe(branch.id)
-            expect(toast).toHaveBeenCalledWith('Clean up branching steps first')
-        })
+                expect(logic.values.workflow).toEqual(workflow)
+                expect(logic.values.selectedNodeId).toBe(firstAction.id)
+                expect(toast).toHaveBeenCalledWith(reason)
+            }
+        )
 
         it.each([
             { name: 'a linear step', action: delay, outgoing: [edge(delay.id, EXIT_NODE_ID, 'continue')] },

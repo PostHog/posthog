@@ -2131,11 +2131,7 @@ export interface hogFlowEditorLogicMeta {
             selectedNodeId: string | null,
             workflow: HogFlow
         ) => HogFlowActionNode | null
-        selectedNodeCanBeDeleted: (
-            selectedNode: HogFlowActionNode | null,
-            nodes: HogFlowActionNode[],
-            edges: HogFlowActionEdge[]
-        ) => boolean
+        selectedNodeCanBeDeleted: (selectedNode: HogFlowActionNode | null, workflow: HogFlow) => boolean
         selectedNodeCanBeCopiedOrMoved: (
             selectedNode: HogFlowActionNode | null,
             selectedNodeCanBeDeleted: boolean

@@ -7,6 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { expect, userEvent, waitFor, within } from 'storybook/test'
+
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowEditor } from '../../HogFlowEditor'
 import {
@@ -72,4 +74,27 @@ WithNavigation.parameters = {
         viewport: { width: 1280, height: 900 },
         includeNavigationInSnapshot: true,
     },
+}
+
+export const BranchDeletionBlocked: StoryFn = WithNavigation.bind({})
+BranchDeletionBlocked.parameters = WithNavigation.parameters
+BranchDeletionBlocked.play = async ({ canvasElement }) => {
+    const branchSelector = '.react-flow__node[data-id="route-by-stage"]'
+    await waitFor(() => expect(canvasElement.querySelector(branchSelector)).not.toBeNull())
+    const branch = canvasElement.querySelector<HTMLElement>(branchSelector)!
+    await userEvent.click(branch)
+    await waitFor(() => expect(branch.classList.contains('selected')).toBe(true))
+
+    const logic = workflowLogic({ id: CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID })
+    const { actions, edges } = logic.values.workflow
+    const nodeCount = canvasElement.querySelectorAll('.react-flow__node').length
+    const edgeCount = canvasElement.querySelectorAll('.react-flow__edge').length
+
+    await userEvent.keyboard('{Backspace}')
+    await within(canvasElement.ownerDocument.body).findByText('Clean up branching steps first')
+
+    expect(canvasElement.querySelectorAll('.react-flow__node')).toHaveLength(nodeCount)
+    expect(canvasElement.querySelectorAll('.react-flow__edge')).toHaveLength(edgeCount)
+    expect(logic.values.workflow.actions).toEqual(actions)
+    expect(logic.values.workflow.edges).toEqual(edges)
 }
