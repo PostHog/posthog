@@ -89,22 +89,11 @@ function buildBaseProperties(
     return { properties, groups }
 }
 
-/**
- * The identity fields of an SDK capture envelope, omitted rather than set to `undefined`:
- * the SDK applies caller properties last, so an explicit `undefined` erases its own mapping.
- */
-async function buildEventIdentity(state: ResolvedState): Promise<{ sessionId?: string; conversationId?: string }> {
-    const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
-    return {
-        ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-        ...(state.requestContext.mcpConversationId ? { conversationId: state.requestContext.mcpConversationId } : {}),
-    }
-}
-
 export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
@@ -117,7 +106,10 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             distinctId: state.distinctId,
             groups,
             durationMs: initDurationMs ?? 0,
-            ...(await buildEventIdentity(state)),
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 $mcp_is_error: false,
@@ -171,6 +163,8 @@ export async function trackToolCall(
 ): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -203,7 +197,10 @@ export async function trackToolCall(
             isError,
             distinctId: state.distinctId,
             groups,
-            ...(await buildEventIdentity(state)),
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
@@ -523,6 +520,9 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
 
+        const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
+
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
         // The SDK maps `toolNames` → `$mcp_listed_tool_names`, which powers
@@ -531,7 +531,10 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             toolNames,
             distinctId: state.distinctId,
             groups,
-            ...(await buildEventIdentity(state)),
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
