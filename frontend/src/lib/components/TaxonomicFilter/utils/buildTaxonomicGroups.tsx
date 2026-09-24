@@ -911,6 +911,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             ...eventTaxonomicGroupProps,
         },
         {
+            name: 'Performed event',
+            searchPlaceholder: 'events',
+            type: TaxonomicFilterGroupType.BehavioralEvents,
+            endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
+                event_type: EventDefinitionType.Event,
+                exclude_hidden: true,
+            }).url,
+            excludedProperties: hiddenEventNames(featureFlags, includeHiddenEvents),
+            getName: (eventDefinition: EventDefinition) => eventDefinition.name,
+            getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+            ...eventTaxonomicGroupProps,
+        },
+        {
             name: 'Wildcards',
             searchPlaceholder: 'wildcards',
             type: TaxonomicFilterGroupType.Wildcards,

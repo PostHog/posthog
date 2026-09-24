@@ -334,6 +334,7 @@ export enum TaxonomicFilterGroupType {
     EmailAddresses = 'email_addresses',
     AutocaptureEvents = 'autocapture_events',
     CustomEvents = 'custom_events',
+    BehavioralEvents = 'behavioral_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
     // Types for searching

@@ -39,11 +39,6 @@
                     min-width: 0;
                 }
 
-                // ...but a row with a sibling entry point keeps the two buttons adjacent
-                .property-filter-row--with-suffix .TaxonomicPropertyFilter {
-                    flex: 0 0 auto;
-                }
-
                 // Propagate min-width:0 through the filter chain
                 .ActionFilterRow,
                 .ActionFilterRow-filters,
@@ -66,17 +61,6 @@
                     .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row-items {
                         flex-basis: 100%;
                     }
-
-                    // The empty row keeps "where + Filter" as one unit so the suffix button wraps below it
-                    .ActionFilterGroup--events-list .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
-                        flex-wrap: nowrap;
-                    }
-
-                    .ActionFilterGroup--events-list
-                        .property-filter-row--with-suffix
-                        .TaxonomicPropertyFilter__row-items {
-                        flex-basis: auto;
-                    }
                 }
 
                 @container editor-panel (max-width: 400px) {
@@ -96,14 +80,6 @@
 
                     .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
                         display: none;
-                    }
-
-                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
-                        flex-wrap: nowrap;
-                    }
-
-                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row-items {
-                        flex-basis: auto;
                     }
                 }
             }

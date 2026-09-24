@@ -11,7 +11,7 @@ import { useCallback, useEffect } from 'react'
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
+import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -737,7 +737,12 @@ export function ActionFilterRow({
                                       TaxonomicFilterGroupType.DataWarehouseProperties,
                                       TaxonomicFilterGroupType.HogQLExpression,
                                   ]
-                                : propertiesTaxonomicGroupTypes
+                                : behavioralFiltersEnabled
+                                  ? [
+                                        ...(propertiesTaxonomicGroupTypes ?? DEFAULT_TAXONOMIC_GROUP_TYPES),
+                                        TaxonomicFilterGroupType.BehavioralEvents,
+                                    ]
+                                  : propertiesTaxonomicGroupTypes
                         }
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
@@ -759,16 +764,6 @@ export function ActionFilterRow({
                         triggerVariant="input"
                         framedRows={behavioralFiltersEnabled}
                         addText={behavioralFiltersEnabled ? 'Filter' : undefined}
-                        addFilterSuffix={
-                            behavioralFiltersEnabled
-                                ? (addFilter) => (
-                                      <AddBehavioralFilterButton
-                                          data-attr={`${index}-${value}-${typeKey}-add-behavioral-filter`}
-                                          onAdd={addFilter}
-                                      />
-                                  )
-                                : null
-                        }
                     />
                     <SaveAsActionBanner filter={filter} />
                 </div>

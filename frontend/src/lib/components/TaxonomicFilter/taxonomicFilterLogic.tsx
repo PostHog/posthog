@@ -270,6 +270,7 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
     TaxonomicFilterGroupType.ScreenEvents,
     TaxonomicFilterGroupType.EmailAddresses,
     TaxonomicFilterGroupType.AutocaptureEvents,
+    TaxonomicFilterGroupType.BehavioralEvents,
 ])
 
 export const DEFAULT_SLOTS_PER_GROUP = 5
@@ -1936,6 +1937,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             event_type: EventDefinitionType.EventCustom,
                             exclude_hidden: true,
                         }).url,
+                        getName: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Performed event',
+                        searchPlaceholder: 'events',
+                        type: TaxonomicFilterGroupType.BehavioralEvents,
+                        endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
+                            event_type: EventDefinitionType.Event,
+                            exclude_hidden: true,
+                        }).url,
+                        excludedProperties: hiddenEventNames(featureFlags, includeHiddenEvents),
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                         ...eventTaxonomicGroupProps,
