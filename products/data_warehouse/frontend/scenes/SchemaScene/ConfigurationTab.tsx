@@ -875,6 +875,28 @@ function ColumnsAndRowFiltersSection({
 
 const SCHEDULED_FULL_REFRESH_SYNC_TYPES: ExternalDataSourceSchema['sync_type'][] = ['incremental', 'append', 'xmin']
 const MAX_FULL_REFRESH_INTERVAL_DAYS = 90
+// A full refresh runs on a scheduled sync, so it cannot come around more often than the table syncs.
+const MIN_FULL_REFRESH_DAYS_BY_FREQUENCY: Partial<Record<DataWarehouseSyncInterval, number>> = {
+    '7day': 7,
+    '30day': 30,
+}
+
+type ScheduleSectionSchema = ExternalDataSourceSchema &
+    Partial<Pick<ExternalDataSchemaApi, 'full_refresh_interval_days' | 'next_full_refresh_at'>>
+
+function fullRefreshDaysError(days: number | null, frequency: DataWarehouseSyncInterval): string | null {
+    if (days === null) {
+        return null
+    }
+    if (!Number.isInteger(days) || days < 1 || days > MAX_FULL_REFRESH_INTERVAL_DAYS) {
+        return `Enter a whole number of days from 1 to ${MAX_FULL_REFRESH_INTERVAL_DAYS}, or leave it empty`
+    }
+    const minDays = MIN_FULL_REFRESH_DAYS_BY_FREQUENCY[frequency]
+    if (minDays !== undefined && days < minDays) {
+        return `A full refresh runs on a scheduled sync, so enter at least ${minDays} days, or sync more often`
+    }
+    return null
+}
 
 function ScheduleSection({
     sourceId,
@@ -883,8 +905,7 @@ function ScheduleSection({
     setIsProjectTime,
 }: {
     sourceId: string
-    schema: ExternalDataSourceSchema &
-        Partial<Pick<ExternalDataSchemaApi, 'full_refresh_interval_days' | 'next_full_refresh_at'>>
+    schema: ScheduleSectionSchema
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
 }): JSX.Element {
@@ -923,11 +944,9 @@ function ScheduleSection({
         draftFrequency !== serverFrequency ||
         draftSyncTimeOfDay !== serverSyncTimeOfDay ||
         draftFullRefreshDays !== serverFullRefreshDays
-    const fullRefreshDaysInvalid =
-        draftFullRefreshDays !== null &&
-        (!Number.isInteger(draftFullRefreshDays) ||
-            draftFullRefreshDays < 1 ||
-            draftFullRefreshDays > MAX_FULL_REFRESH_INTERVAL_DAYS)
+    const fullRefreshError = supportsScheduledFullRefresh
+        ? fullRefreshDaysError(draftFullRefreshDays, draftFrequency)
+        : null
 
     const handleSave = async (): Promise<void> => {
         setSaving(true)
@@ -987,47 +1006,12 @@ function ScheduleSection({
                     setIsProjectTime={setIsProjectTime}
                 />
                 {supportsScheduledFullRefresh && (
-                    <div className="flex flex-col gap-1">
-                        <span>Scheduled full refresh</span>
-                        <span className="text-xs text-muted max-w-md">
-                            Re-import every row of the table on this cadence, so rows deleted at the source are removed.
-                            The refresh runs on a scheduled sync, and the table is empty until it finishes. Re-imported
-                            rows count toward your usage. Leave it empty to turn it off.
-                            {schema.sync_type === 'append' && (
-                                <span>
-                                    {' '}
-                                    For append only tables, a refresh replaces the rows collected so far with the rows
-                                    the source has now.
-                                </span>
-                            )}
-                        </span>
-                        <div className="flex items-center gap-2">
-                            <LemonInput
-                                type="number"
-                                min={1}
-                                max={MAX_FULL_REFRESH_INTERVAL_DAYS}
-                                value={draftFullRefreshDays ?? NaN}
-                                onChange={(value) =>
-                                    setDraftFullRefreshDays(value === undefined || Number.isNaN(value) ? null : value)
-                                }
-                                placeholder="Off"
-                                className="w-24"
-                                disabledReason={accessDisabledReason}
-                                data-attr="schema-full-refresh-interval-days"
-                            />
-                            <span>days</span>
-                        </div>
-                        {schema.next_full_refresh_at && draftFullRefreshDays === serverFullRefreshDays && (
-                            <span className="text-xs text-muted">
-                                Next full refresh:{' '}
-                                <TZLabel
-                                    time={schema.next_full_refresh_at}
-                                    formatDate="MMM DD, YYYY"
-                                    formatTime="HH:mm"
-                                />
-                            </span>
-                        )}
-                    </div>
+                    <FullRefreshIntervalField
+                        schema={schema}
+                        draftFullRefreshDays={draftFullRefreshDays}
+                        setDraftFullRefreshDays={setDraftFullRefreshDays}
+                        isDraftSaved={draftFullRefreshDays === serverFullRefreshDays}
+                    />
                 )}
             </div>
             <div className="mt-4 flex justify-end">
@@ -1035,18 +1019,65 @@ function ScheduleSection({
                     type="primary"
                     loading={saving}
                     onClick={handleSave}
-                    disabledReason={
-                        accessDisabledReason ??
-                        (!isDirty
-                            ? 'No changes to save'
-                            : fullRefreshDaysInvalid
-                              ? `Enter a whole number of days from 1 to ${MAX_FULL_REFRESH_INTERVAL_DAYS}, or leave it empty`
-                              : undefined)
-                    }
+                    disabledReason={accessDisabledReason ?? (!isDirty ? 'No changes to save' : fullRefreshError)}
                 >
                     Save
                 </LemonButton>
             </div>
+        </div>
+    )
+}
+
+function FullRefreshIntervalField({
+    schema,
+    draftFullRefreshDays,
+    setDraftFullRefreshDays,
+    isDraftSaved,
+}: {
+    schema: ScheduleSectionSchema
+    draftFullRefreshDays: number | null
+    setDraftFullRefreshDays: (value: number | null) => void
+    isDraftSaved: boolean
+}): JSX.Element {
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
+
+    return (
+        <div className="flex flex-col gap-1">
+            <span>Scheduled full refresh</span>
+            <span className="text-xs text-muted max-w-md">
+                Re-import every row of the table on this cadence, so rows deleted at the source are removed. The refresh
+                runs on a scheduled sync, and the table is empty until it finishes. Re-imported rows count toward your
+                usage. Leave it empty to turn it off.
+                {schema.sync_type === 'append' && (
+                    <span>
+                        {' '}
+                        For append only tables, a refresh replaces the rows collected so far with the rows the source
+                        has now.
+                    </span>
+                )}
+            </span>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="number"
+                    min={1}
+                    max={MAX_FULL_REFRESH_INTERVAL_DAYS}
+                    value={draftFullRefreshDays ?? NaN}
+                    onChange={(value) =>
+                        setDraftFullRefreshDays(value === undefined || Number.isNaN(value) ? null : value)
+                    }
+                    placeholder="Off"
+                    className="w-24"
+                    disabledReason={accessDisabledReason}
+                    data-attr="schema-full-refresh-interval-days"
+                />
+                <span>days</span>
+            </div>
+            {schema.next_full_refresh_at && isDraftSaved && (
+                <span className="text-xs text-muted">
+                    Next full refresh:{' '}
+                    <TZLabel time={schema.next_full_refresh_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                </span>
+            )}
         </div>
     )
 }

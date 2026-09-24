@@ -1059,16 +1059,29 @@ def test_reset_pipeline_preserves_partition_mode_override() -> None:
     assert schema.partition_format == "month"
 
 
-def test_reset_pipeline_restarts_the_scheduled_full_refresh_clock() -> None:
-    schema = ExternalDataSchema(
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-        sync_type_config={"reset_pipeline": True},
-        full_refresh_interval_days=7,
-        next_full_refresh_at=datetime(2026, 9, 22, 3, 0, tzinfo=UTC),
-    )
-    with time_machine.travel(datetime(2026, 9, 22, 3, 10, tzinfo=UTC), tick=False), patch.object(schema, "save"):
-        schema.update_sync_type_config_for_reset_pipeline()
-    assert schema.next_full_refresh_at == datetime(2026, 9, 29, 3, 10, tzinfo=UTC)
+class TestResetRestartsTheFullRefreshClock(BaseTest):
+    def test_the_clock_restarts_from_the_interval_saved_during_the_run(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        created = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"reset_pipeline": True},
+            full_refresh_interval_days=7,
+            next_full_refresh_at=datetime(2026, 9, 22, 3, 0, tzinfo=UTC),
+        )
+        run_copy = ExternalDataSchema.objects.get(pk=created.pk)
+        ExternalDataSchema.objects.filter(pk=created.pk).update(full_refresh_interval_days=3)
+
+        with time_machine.travel(datetime(2026, 9, 22, 3, 10, tzinfo=UTC), tick=False):
+            run_copy.update_sync_type_config_for_reset_pipeline()
+
+        created.refresh_from_db()
+        assert (created.full_refresh_interval_days, created.next_full_refresh_at) == (
+            3,
+            datetime(2026, 9, 25, 3, 10, tzinfo=UTC),
+        )
 
 
 class TestScheduledFullRefreshDue:

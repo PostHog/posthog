@@ -1112,6 +1112,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
 
+        # A run loads this schema well before its wipe, so the full save below would put back an interval
+        # the user changed in the meantime. Take the interval from the row right before saving.
+        if not self._state.adding:
+            self.refresh_from_db(fields=["full_refresh_interval_days"])
         self.restart_full_refresh_clock()
 
         self.save(skip_activity_log=True)

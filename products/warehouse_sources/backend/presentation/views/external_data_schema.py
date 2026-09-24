@@ -212,6 +212,11 @@ SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR = (
     "Change the sync method first."
 )
 
+SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR = (
+    "A full refresh runs on a scheduled sync, so the interval must be at least {days} days. "
+    "Choose a longer interval, or sync more often."
+)
+
 
 def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
     """Trigger the schema's sync, creating its Temporal schedule first if it has none.
@@ -407,7 +412,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table and re-imports every row, so rows deleted at the source are removed. The first one runs on "
             "the scheduled sync that falls when this many days have passed since the interval was saved, and "
             "every full resync starts the wait again. The table is empty while a full refresh runs. Available "
-            "for incremental, append, and xmin syncs only."
+            "for incremental, append, and xmin syncs only, and never shorter than the sync frequency."
         ),
     )
     primary_key_columns = serializers.ListField(
@@ -1150,6 +1155,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if validated_data.get("full_refresh_interval_days") is not None:
                 raise ValidationError({"full_refresh_interval_days": SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR})
             full_refresh_interval_days = None
+        if (
+            full_refresh_interval_days is not None
+            and ("full_refresh_interval_days" in validated_data or was_sync_frequency_updated)
+            and instance.sync_frequency_interval is not None
+            and dt.timedelta(days=full_refresh_interval_days) < instance.sync_frequency_interval
+        ):
+            raise ValidationError(
+                {
+                    "full_refresh_interval_days": SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR.format(
+                        days=instance.sync_frequency_interval.days
+                    )
+                }
+            )
         if full_refresh_interval_days != instance.full_refresh_interval_days:
             instance.full_refresh_interval_days = full_refresh_interval_days
             instance.restart_full_refresh_clock()
@@ -2083,6 +2101,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()

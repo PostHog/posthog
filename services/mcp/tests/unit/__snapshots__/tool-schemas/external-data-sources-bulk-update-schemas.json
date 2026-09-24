@@ -51,7 +51,7 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only."
+                        "description": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency."
                     },
                     "id": {
                         "description": "Schema identifier to update.",

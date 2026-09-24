@@ -340,7 +340,7 @@ export interface ExternalDataSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable
@@ -520,7 +520,7 @@ export interface PatchedExternalDataSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. The first one runs on the scheduled sync that falls when this many days have passed since the interval was saved, and every full resync starts the wait again. The table is empty while a full refresh runs. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable
@@ -4985,7 +4985,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable

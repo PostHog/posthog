@@ -1708,6 +1708,22 @@ class TestExternalDataSchema(APIBaseTest):
                 400,
                 (None, None),
             ),
+            (
+                "an_interval_shorter_than_the_sync_frequency_is_rejected",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_interval_days": 3, "sync_frequency": "7day"},
+                400,
+                (None, None),
+            ),
+            (
+                "a_sync_frequency_longer_than_the_interval_is_rejected",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                3,
+                {"sync_frequency": "7day"},
+                400,
+                (3, datetime(2026, 9, 26, tzinfo=UTC)),
+            ),
         ]
     )
     def test_full_refresh_interval_schedules_the_next_full_refresh(
