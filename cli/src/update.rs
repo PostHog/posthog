@@ -65,9 +65,12 @@ impl InstallMethod {
                  Update it through npm rather than here.",
                 path.display()
             ))),
-            InstallMethod::Unknown => Some(Guidance::Command(
-                "curl -LsSf https://releases.posthog.com/posthog-cli/install.sh | sh".into(),
-            )),
+            // Hardened the way the docs write it. --proto '=https' survives
+            // redirects, so nothing can downgrade the bytes on their way into
+            // a shell, and curl's default redirect allowlist still permits FTP.
+            InstallMethod::Unknown => Some(Guidance::Command(format!(
+                "curl --proto '=https' --tlsv1.2 -LsSf {INSTALL_SH_URL} | sh"
+            ))),
         }
     }
 }
