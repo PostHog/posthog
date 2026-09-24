@@ -166,6 +166,7 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         area_map = selection.load_map(selection.MAP_PATH)
         all_specs = selection.discover_specs(selection.REPO_ROOT)
         self.assertTrue(all_specs, "no Playwright specs discovered — wrong REPO_ROOT?")
+        self.assertFalse(any(spec.endswith(".ai.spec.ts") for spec in all_specs))
 
         targets: list[str] = list(area_map.get("smoke_subset", []))
         for spec_globs in area_map.get("products", {}).values():

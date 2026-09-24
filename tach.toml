@@ -8,10 +8,11 @@ exclude = [
     # Test directories stay in the graph so that a test outside a product that imports the
     # product's internals is an interface violation. They are not dependency edges: `hogli
     # lint:tach` (what CI runs) excludes test code from the dependency pass only.
-    # Eval trees are dev/CI-only tooling: the harness orchestrates many products by
-    # design, and product-owned suites under products/*/evals import the harness
-    # contracts, so neither fits the production dependency graph.
+    # Eval and e2e harness trees are dev/CI-only tooling: they orchestrate many
+    # products by design, and product-owned suites under products/*/evals import
+    # the harness contracts, so none of them fits the production dependency graph.
     "products/posthog_ai/eval_harness",
+    "products/posthog_ai/e2e_harness",
     "products/*/evals",
 ]
 source_roots = [

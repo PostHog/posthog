@@ -354,7 +354,7 @@ class DockerSandbox(AgentServerLaunchMixin):
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),
-                    ignore=shutil.ignore_patterns("node_modules", ".turbo"),
+                    ignore=shutil.ignore_patterns("node_modules", ".turbo", "dist"),
                 )
 
             DockerSandbox._run(

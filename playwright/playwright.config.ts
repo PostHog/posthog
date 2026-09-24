@@ -17,6 +17,7 @@ export default defineConfig({
     // pick up unrelated *.spec.ts files (e.g. Jest unit tests under products/).
     testDir: '..',
     testMatch: ['playwright/e2e/**/*.spec.ts', 'products/*/frontend/e2e/**/*.spec.ts'],
+    testIgnore: ['**/*.ai.spec.ts'],
     /*
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
@@ -82,6 +83,26 @@ export default defineConfig({
             name: 'chromium',
             use: { ...devices['Desktop Chrome'] },
         },
+        // A plain `playwright test` runs every project, and this one needs the stack that
+        // products/posthog_ai/e2e_harness/launcher.py boots, so it exists only inside a launcher run.
+        ...(process.env.AI_E2E_OUTPUT
+            ? [
+                  {
+                      name: 'ai',
+                      testMatch: 'products/*/frontend/e2e/**/*.ai.spec.ts',
+                      testIgnore: [],
+                      fullyParallel: false,
+                      timeout: 180 * 1000,
+                      expect: { timeout: 60 * 1000 },
+                      outputDir: `${process.env.AI_E2E_OUTPUT}/browser`,
+                      use: {
+                          ...devices['Desktop Chrome'],
+                          baseURL: process.env.AI_E2E_BASE_URL,
+                          trace: 'on' as const,
+                      },
+                  },
+              ]
+            : []),
         // {
         //     name: 'chromium',
         //     use: {
