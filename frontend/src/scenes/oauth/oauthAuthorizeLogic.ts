@@ -911,6 +911,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
             const scopeResolution = getAppContext()?.oauth_scope_resolution
+            // The screen needs a set it can submit, because an empty one renders no
+            // permissions and posts a blank scope the API rejects. An empty server
+            // resolution therefore falls back to the identity-only DEFAULT_OAUTH_SCOPES,
+            // which is safe: it grants no resource access, so the person consents to
+            // nothing they did not see. The URL's own tokens are deliberately not reused,
+            // since those are what the server resolved to nothing.
+            const fallbackScopes = scopeResolution || !requestedScopes.length ? DEFAULT_OAUTH_SCOPES : requestedScopes
 
             const scopesWereDefaulted = scopeResolution?.was_defaulted ?? requestedScopes.length === 0
 
@@ -936,9 +943,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
             } else {
                 actions.setIsMcpResource(false)
-                actions.setScopes(
-                    scopeResolution?.scopes ?? (requestedScopes.length ? requestedScopes : DEFAULT_OAUTH_SCOPES)
-                )
+                // `??` keeps an empty array, so the length is what to test here.
+                actions.setScopes(scopeResolution?.scopes.length ? scopeResolution.scopes : fallbackScopes)
             }
         }
 

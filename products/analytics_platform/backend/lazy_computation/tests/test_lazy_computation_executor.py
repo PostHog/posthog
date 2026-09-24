@@ -1954,12 +1954,14 @@ class TestComputationExecutorExecute(BaseTest):
     def test_returns_immediately_when_all_ranges_ready(self):
         query_info, query_hash = self._make_query_info()
 
+        computed_at = django_timezone.now() - timedelta(minutes=30)
         ready_job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash=query_hash,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.READY,
+            computed_at=computed_at,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
@@ -1974,6 +1976,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
+        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
+        assert result.computed_at == computed_at
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
@@ -2232,6 +2236,32 @@ class TestComputationExecutorExecute(BaseTest):
         else:
             assert job.id not in result.job_ids
             assert insert_count[0] == 1
+
+    @parameterized.expand(
+        [
+            ("default_policy", False, None, True),
+            ("invalidated", True, None, False),
+            ("invalidated_with_grace", True, 6 * 60 * 60, False),
+        ]
+    )
+    def test_future_job_invalidation_is_opt_in(
+        self, _name: str, invalidate: bool, grace: int | None, expected_ready: bool
+    ) -> None:
+        query_info, _ = self._make_query_info()
+        start = datetime(2026, 9, 11, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        schedule = parse_ttl_schedule(2 * 60 * 60, invalidate_at_window_start=invalidate)
+        with time_machine.travel(start - timedelta(minutes=25), tick=False) as clock:
+            warmed = LazyComputationExecutor(ttl_schedule=schedule).execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0
+            )
+            assert warmed.ready
+            clock.shift(timedelta(minutes=25))
+            cached = LazyComputationExecutor(
+                ttl_schedule=schedule, run_inserts=False, stale_while_revalidate_seconds=grace
+            ).execute(team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0)
+            assert cached.ready is expected_ready
+            assert cached.job_ids == (warmed.job_ids if expected_ready else [])
 
     @parameterized.expand(
         [

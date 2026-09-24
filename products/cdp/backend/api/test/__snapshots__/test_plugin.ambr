@@ -73,7 +73,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -126,7 +125,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -174,7 +172,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -227,7 +224,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -314,7 +310,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -337,6 +332,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
 # ---
@@ -414,7 +410,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -460,7 +455,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -513,7 +507,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -561,7 +554,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -607,7 +599,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -660,7 +651,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -747,7 +737,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -770,6 +759,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
 # ---
@@ -847,7 +837,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -893,7 +882,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -946,7 +934,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -994,7 +981,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1047,7 +1033,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1116,7 +1101,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1189,7 +1173,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1212,6 +1195,7 @@
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
                    AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+  ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
 # ---
@@ -1243,7 +1227,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1296,7 +1279,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1404,7 +1386,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -1450,7 +1431,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",

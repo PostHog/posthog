@@ -52,6 +52,7 @@ import { calculateMovePath } from './utils'
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
     beforeTree?: ReactNode
+    renderTree?: (tree: JSX.Element) => ReactNode
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
@@ -126,7 +127,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         root,
         shortcutScope,
         onlyTree = false,
-        disableScroll = onlyTree || !!props.beforeTree,
+        disableScroll = onlyTree || !!props.beforeTree || !!props.renderTree,
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
@@ -170,7 +171,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         setEditingItemId,
         setSortMethod,
         setSelectMode,
-        setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
     const selectMode = selectModeOverride ?? projectTreeSelectMode
@@ -659,11 +659,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     />
                 </BindLogic>
             }
-            filterDropdown={
-                showFilterDropdown ? (
-                    <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
-                ) : null
-            }
+            filterDropdown={showFilterDropdown ? <TreeFiltersDropdownMenu logicProps={projectTreeLogicProps} /> : null}
             panelMenuItems={
                 showSortMenuItems ? <TreeSortMenuItems sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
@@ -737,10 +733,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 </>
             )}
 
-            {props.beforeTree ? (
+            {props.beforeTree || props.renderTree ? (
                 <ScrollableShadows direction="vertical" className="flex-1 min-h-0" styledScrollbars>
                     {props.beforeTree}
-                    {tree}
+                    {props.renderTree ? props.renderTree(tree) : tree}
                 </ScrollableShadows>
             ) : (
                 tree

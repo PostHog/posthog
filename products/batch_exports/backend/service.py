@@ -153,12 +153,14 @@ class BatchExportEventPropertyFilter:
 SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
 
 
-@dataclass
+@dataclass(frozen=False)
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str] | None]] | None = None
     hogql_query: str | None = None
+    # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
+    user_id: int | None = None
 
 
 @dataclass
@@ -1210,6 +1212,9 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                         schema=batch_export.schema,
                         filters=batch_export.filters,
                         hogql_query=batch_export.hogql_query,
+                        user_id=batch_export.last_modified_by_id
+                        if batch_export.model == BatchExport.Model.HOGQL
+                        else None,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing

@@ -1,9 +1,13 @@
 {% extends "email/base.html" %}
 {% block heading %}{{ alert_name }}{% endblock %} {% block section %}
-<p>
-    PostHog could not evaluate this alert. This can happen when the insight or alert settings need attention, or
-    when PostHog has a temporary problem.
-</p>
+{% if detector_unavailable %}
+    <p>PostHog could not run the AI detector for this alert, so this check did not run.</p>
+{% else %}
+    <p>
+        PostHog could not evaluate this alert. This can happen when the insight or alert settings need attention, or
+        when PostHog has a temporary problem.
+    </p>
+{% endif %}
 <p>
     <strong>Insight</strong>
     <br />
@@ -15,7 +19,7 @@
     <i>{{ alert_error }}</i>
 </p>
 <p>
-    Review the alert settings.
+    {% if not detector_unavailable %}Review the alert settings.{% endif %}
     {% if next_check_at %}
         PostHog will try again on {{ next_check_at|date:"F j, Y, g:i A T" }}.
     {% else %}
@@ -24,6 +28,8 @@
     If it fails again, contact support.
 </p>
 <div class="mb mt text-center">
-    <a class="button" href="{% absolute_uri alert_url %}">Review alert</a>
+    <a class="button" href="{% absolute_uri alert_url %}">
+        {% if detector_unavailable %}View alert{% else %}Review alert{% endif %}
+    </a>
 </div>
 {% endblock %}

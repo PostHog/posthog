@@ -54,12 +54,15 @@ class QueryStats:
     # scope without being the query the person wrote, so a reader can judge the run without them.
     lookup_rows_read: int = 0
     lookup_duration_ms: float = 0.0
+    # Only a scan-flagged run keeps the AST and context, which hold memory for the length of the run.
+    retain_ast: bool = False
     # Runners that record from several threads share one QueryStats.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     # References only, filled by the executor, so the job can explain each execution without rerunning it.
     executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
+    workloads: set[str] = field(default_factory=set, repr=False, compare=False)
 
-    def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False) -> None:
+    def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
         with self.lock:
             self.rows_read += rows_read
             self.duration_ms += duration_ms
@@ -67,6 +70,8 @@ class QueryStats:
             if lookup:
                 self.lookup_rows_read += rows_read
                 self.lookup_duration_ms += duration_ms
+            if workload is not None:
+                self.workloads.add(workload)
 
     def record_execution(
         self,
@@ -77,10 +82,23 @@ class QueryStats:
         lookup: str | None = None,
         settings: HogQLGlobalSettings | None = None,
     ) -> None:
+        if not self.retain_ast:
+            return
         with self.lock:
             self.executions.append(
                 RecordedExecution(tree=tree, context=context, rows_read=rows_read, lookup=lookup, settings=settings)
             )
+
+    def workload(self) -> str | None:
+        """The one cluster the request ran on, "mixed" when its queries went to more than one, or None
+        when none reached ClickHouse."""
+        with self.lock:
+            workloads = set(self.workloads)
+        if not workloads:
+            return None
+        if len(workloads) > 1:
+            return "mixed"
+        return workloads.pop()
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
@@ -93,13 +111,16 @@ _last_rows_read: ContextVar[int] = ContextVar("query_stats_last_rows_read", defa
 
 
 @contextlib.contextmanager
-def query_stats_scope() -> Iterator[QueryStats]:
-    """Add up every ClickHouse query run inside this block. Nested in another scope, it adds to that one."""
+def query_stats_scope(*, retain_ast: bool = False) -> Iterator[QueryStats]:
+    """Add up every ClickHouse query run inside this block. Nested in another scope, it adds to that
+    one, and a retaining scope turns retention on for the shared totals from then on."""
     outer = _accumulator.get()
     if outer is not None:
+        if retain_ast:
+            outer.retain_ast = True
         yield outer
         return
-    stats = QueryStats()
+    stats = QueryStats(retain_ast=retain_ast)
     token = _accumulator.set(stats)
     try:
         yield stats
@@ -126,13 +147,13 @@ def use(stats: QueryStats | None) -> Iterator[None]:
         _accumulator.reset(token)
 
 
-def record(*, rows_read: int, duration_ms: float, lookup: bool = False) -> None:
+def record(*, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
     """Add one ClickHouse query to the open scope. Does nothing without one."""
     _last_rows_read.set(rows_read)
     stats = _accumulator.get()
     if stats is None:
         return
-    stats.add(rows_read=rows_read, duration_ms=duration_ms, lookup=lookup)
+    stats.add(rows_read=rows_read, duration_ms=duration_ms, lookup=lookup, workload=workload)
 
 
 def reset_last_rows_read() -> None:

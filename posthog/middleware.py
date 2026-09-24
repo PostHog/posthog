@@ -35,6 +35,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -1206,8 +1207,8 @@ class OAuthCoopMiddleware:
     window.opener when a cross-origin popup navigates to our pages — breaking
     popup-based OAuth flows that rely on the opener reference to detect completion.
 
-    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
-    reference is preserved.
+    We set COOP to "unsafe-none" on OAuth paths, and on the social-auth and signup
+    pages that an OAuth flow passes through, so the opener reference is preserved.
     """
 
     OAUTH_PATH_PREFIXES = (
@@ -1229,15 +1230,37 @@ class OAuthCoopMiddleware:
                 return True
         return False
 
+    @staticmethod
+    def _is_social_auth_path(path: str) -> bool:
+        parts = path.strip("/").split("/")
+        if len(parts) != 2 or parts[0] not in ("login", "complete"):
+            return False
+        return parts[1] in load_backends(settings.AUTHENTICATION_BACKENDS)
+
+    def _targets_oauth_flow(self, next_url: str) -> bool:
+        if not next_url:
+            return False
+        normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+        return self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES)
+
+    def _needs_opener_reference(self, request) -> bool:
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES):
+            return True
+        if self._is_social_auth_path(path):
+            # The provider redirects back to /complete/ without a next parameter, so read the destination
+            # that social-auth stored in the session at /login/.
+            session = getattr(request, "session", None)
+            session_next = session.get("next", "") if session is not None else ""
+            return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
+        if path in ("/login", "/login/", "/signup", "/signup/"):
+            return self._targets_oauth_flow(request.GET.get("next", ""))
+        return False
+
     def __call__(self, request):
         response = self.get_response(request)
-        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+        if self._needs_opener_reference(request):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
-            next_url = request.GET.get("next", "")
-            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
-            if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):
-                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
 
@@ -1906,6 +1929,9 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: counts the persons a workflow audience matches. The action is named
+    # exactly, because the same `hog_flows/` prefix hosts the writing actions (publish, run).
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/hog_flows/user_blast_radius/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload
     # is too large for a query string. Action names are enumerated rather than allowing the whole
     # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,

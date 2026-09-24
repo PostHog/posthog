@@ -890,6 +890,31 @@ mod tests {
         assert!(msg.contains("1000"), "message should cite the IDs: {msg}");
     }
 
+    #[tokio::test]
+    async fn warm_team_persists_the_team_without_its_unsupported_flags() {
+        use common_redis::MockRedisClient;
+        use feature_flags::flags::cache_writer::make_cache_config;
+        use feature_flags::utils::test_utils::{
+            dummy_s3_client, insert_v1_and_v2_flags, published_flag_keys, TestContext,
+        };
+
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        insert_v1_and_v2_flags(&context, team.id).await;
+        let redis = Arc::new(MockRedisClient::new());
+        let writer = HyperCacheWriter::new(
+            redis.clone(),
+            dummy_s3_client(),
+            make_cache_config("us-east-1", "test-bucket", None),
+        );
+
+        warm_team(context.non_persons_reader.clone(), &writer, team.id, 60)
+            .await
+            .expect("warm_team should succeed");
+
+        assert_eq!(published_flag_keys(&redis), ["v1-flag"]);
+    }
+
     /// Regression for the warmer overwriting Django's etag. set() unconditionally
     /// DELs `<key>:etag`, which silently re-arms the FlagDefinitionsCache slow
     /// path for every team the warmer touches. Lock down that persist_flags_cache

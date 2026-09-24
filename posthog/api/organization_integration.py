@@ -135,6 +135,7 @@ class OrganizationIntegrationViewSet(
         )
         instance.delete()
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["patch"], url_path="environment-mapping")
     def environment_mapping(self, request: Request, **kwargs) -> Response:
         integration = self.get_object()
