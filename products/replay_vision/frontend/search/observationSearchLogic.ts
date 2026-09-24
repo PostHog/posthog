@@ -202,7 +202,12 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
     actions({
         setQuery: (query: string) => ({ query }),
         setScannerId: (scannerId: string | null) => ({ scannerId }),
-        setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        // The DateFilter's "All time" preset emits the `all` sentinel, which the search API rejects;
+        // it expresses an unbounded range by omitting the bound.
+        setDateRange: (dateFrom: string | null, dateTo: string | null) => ({
+            dateFrom: dateFrom === 'all' ? null : dateFrom,
+            dateTo: dateTo === 'all' ? null : dateTo,
+        }),
         setPage: (page: number) => ({ page }),
         setView: (view: ResultsView) => ({ view }),
         search: true,

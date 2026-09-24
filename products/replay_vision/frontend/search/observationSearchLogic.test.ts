@@ -98,6 +98,12 @@ describe('observationSearchLogic', () => {
         const secondRequest = new URL(searchSpy.mock.calls[1][0].request.url).searchParams
         expect([secondRequest.get('date_from'), secondRequest.get('date_to')]).toEqual(['-7d', '-1d'])
 
+        // "All time" arrives as the DateFilter's `all` sentinel, which the search API rejects as a bound.
+        await expectLogic(logic, () => logic.actions.setDateRange('all', null)).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(3)
+        expect(new URL(searchSpy.mock.calls[2][0].request.url).searchParams.get('date_from')).toBeNull()
+        expect(logic.values.dateFrom).toBeNull()
+
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'confused users', date_from: '-90d' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.dateFrom).toBe('-90d')
