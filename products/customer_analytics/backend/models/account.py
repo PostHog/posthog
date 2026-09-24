@@ -1,7 +1,9 @@
 from django.apps import apps
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import JSONField, Q
+from django.db.models.functions import Upper
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
@@ -90,6 +92,25 @@ class Account(Taggable, TeamScopedRootMixin, UUIDModel, CreatedMetaFields, Updat
                 name="unique_account_external_id_per_team",
                 condition=Q(external_id__isnull=False),
             ),
+        ]
+        indexes = [
+            # Keyset paging over a team's active accounts: the batch runners filter on
+            # churned_at and page on id.
+            models.Index(
+                fields=["team", "id"],
+                name="ca_account_active_team_id",
+                condition=Q(churned_at__isnull=True),
+            ),
+            # `external_id__iexact` compiles to UPPER(external_id::text), which the
+            # case-sensitive unique constraint cannot serve.
+            models.Index(
+                models.F("team"),
+                Upper("external_id"),
+                name="ca_account_external_id_upper",
+            ),
+            # Serves `_properties__contains` only. A `properties -> 'key'` lookup is a
+            # different expression and stays unindexed, so property filters use containment.
+            GinIndex(fields=["_properties"], name="ca_account_properties_gin"),
         ]
 
     @property

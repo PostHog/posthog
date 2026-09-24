@@ -42,11 +42,11 @@ def normalize_emails(emails: list[str]) -> set[str]:
 
 
 def _find_accounts_by_known_email(team: Team, email: str) -> QuerySet[Account]:
-    return Account.objects.for_team(team.id).filter(_properties__known_emails__contains=[email])
+    return Account.objects.for_team(team.id).filter(_properties__contains={"known_emails": [email]})
 
 
 def _find_accounts_by_email_domain(team: Team, domain: str) -> QuerySet[Account]:
-    return Account.objects.for_team(team.id).filter(_properties__email_domains__contains=[domain])
+    return Account.objects.for_team(team.id).filter(_properties__contains={"email_domains": [domain]})
 
 
 def _match_accounts_by_account_property(
