@@ -118,6 +118,7 @@ export function AccountDetailNavigation({
                 <div key={activeTabId}>
                     {renderTabContent({
                         tab: displayedTab,
+                        projectId,
                         accountId,
                         externalId,
                         accountDetailTabs,
@@ -132,6 +133,7 @@ export function AccountDetailNavigation({
 
 interface RenderTabContentProps {
     tab: AccountTabDefinition
+    projectId: number
     accountId: string
     externalId: string
     accountDetailTabs: AccountDetailTabsConfigApi
@@ -141,6 +143,7 @@ interface RenderTabContentProps {
 
 function renderTabContent({
     tab,
+    projectId,
     accountId,
     externalId,
     accountDetailTabs,
@@ -161,7 +164,9 @@ function renderTabContent({
         )
     }
     if (tab.view) {
-        return <AccountViewRenderer view={tab.view} accountId={accountId} externalId={externalId} />
+        return (
+            <AccountViewRenderer view={tab.view} projectId={projectId} accountId={accountId} externalId={externalId} />
+        )
     }
     return (
         <LemonBanner

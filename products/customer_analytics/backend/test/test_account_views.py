@@ -53,7 +53,7 @@ class TestAccountViews(APIBaseTest):
             {
                 "name": "Account workspace",
                 "content": account_view_content(
-                    '<Usage nodeId="usage-one" />',
+                    '<Usage nodeId="usage-one" title="Product usage" />',
                     '<Usage nodeId="usage-two" span={6} />',
                 ),
             },

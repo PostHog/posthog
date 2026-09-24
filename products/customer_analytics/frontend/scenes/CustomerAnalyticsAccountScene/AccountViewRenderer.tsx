@@ -1,16 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonCard } from '@posthog/lemon-ui'
-
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { AccountViewComponent } from '../../components/Accounts/AccountViewComponent'
-import {
-    getAccountViewComponentByKind,
-    listAvailableAccountViewComponents,
-} from '../../components/Accounts/accountViewComponents'
+import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountViewApi } from '../../generated/api.schemas'
 import { parseAccountViewContent } from './accountViewDocument'
+import { AccountViewTile } from './AccountViewTile'
 
 const SPAN_CLASSES: Record<number, string> = {
     1: '@min-[48rem]/account-view:col-span-1',
@@ -31,35 +26,28 @@ interface AccountViewRendererProps {
     view: AccountViewApi
     accountId: string
     externalId: string
+    projectId: number
 }
 
-export function AccountViewRenderer({ view, accountId, externalId }: AccountViewRendererProps): JSX.Element {
+export function AccountViewRenderer({ view, accountId, externalId, projectId }: AccountViewRendererProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const availableKinds = new Set(listAvailableAccountViewComponents(featureFlags).map((component) => component.kind))
     const components = parseAccountViewContent(view.content).filter((component) => availableKinds.has(component.kind))
 
     return (
         <div className="@container/account-view grid grid-cols-12 gap-3 py-3" data-attr="account-view-content">
-            {components.map((component) => {
-                const definition = getAccountViewComponentByKind(component.kind)
-                return (
-                    <LemonCard
-                        key={component.nodeId}
-                        hoverEffect={false}
-                        className={`col-span-12 min-w-0 overflow-hidden p-0 ${SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}`}
-                    >
-                        <div className="border-b px-2 py-1 text-xs font-medium text-secondary">{definition?.label}</div>
-                        <div className="min-w-0 px-2 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]">
-                            <AccountViewComponent
-                                kind={component.kind}
-                                accountId={accountId}
-                                externalId={externalId}
-                                embedded
-                            />
-                        </div>
-                    </LemonCard>
-                )
-            })}
+            {components.map((component) => (
+                <AccountViewTile
+                    key={component.nodeId}
+                    view={view}
+                    component={component}
+                    componentCount={components.length}
+                    projectId={projectId}
+                    accountId={accountId}
+                    externalId={externalId}
+                    spanClassName={SPAN_CLASSES[component.span] ?? SPAN_CLASSES[12]}
+                />
+            ))}
         </div>
     )
 }

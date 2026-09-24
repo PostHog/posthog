@@ -24,7 +24,8 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Meetings": "Meetings",
     "EventStream": "Event stream",
 }
-ACCOUNT_VIEW_ALLOWED_PROPS = {"nodeId", "span"}
+ACCOUNT_VIEW_ALLOWED_PROPS = {"nodeId", "span", "title"}
+ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
 ACCOUNT_VIEW_IDENTITY_PROPS = {
     "accountId",
     "account_id",
@@ -82,7 +83,13 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
         if label is None:
             errors.append(f"Component {index} uses unknown type {component.tag_name}.")
             continue
-        labels.append(label)
+        title = component.props.get("title")
+        if title is None:
+            labels.append(label)
+        elif not isinstance(title, str) or not title.strip() or len(title) > ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH:
+            errors.append(f"Component {index} title must be a non-empty string up to 400 characters.")
+        else:
+            labels.append(title.strip())
 
         identity_props = ACCOUNT_VIEW_IDENTITY_PROPS.intersection(component.props)
         if identity_props:

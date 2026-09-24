@@ -24,6 +24,7 @@ import { AccountDetailNavigation } from './AccountDetailNavigation'
 import { AccountPresence } from './AccountPresence'
 import { AccountSidebar } from './AccountSidebar'
 import { AccountViewEditorModal } from './AccountViewEditorModal'
+import { AccountViewTileEditorModal } from './AccountViewTileEditorModal'
 import { ConfigureAccountTabsModal } from './ConfigureAccountTabsModal'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
@@ -160,6 +161,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
             {projectId ? (
                 <>
                     <AccountViewEditorModal projectId={projectId} />
+                    <AccountViewTileEditorModal projectId={projectId} />
                     <ConfigureAccountTabsModal projectId={projectId} />
                 </>
             ) : null}
