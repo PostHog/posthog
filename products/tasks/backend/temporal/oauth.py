@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, cast, get_args
 from uuid import UUID
 
@@ -46,6 +47,7 @@ __all__ = [
 # triggered run has no legitimate reason to create/edit/delete loops, and this closes the
 # injected-instructions plant-a-persistent-loop path. loop:read stays granted.
 LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
+SUBSCRIPTION_RUN_WITHHELD_SCOPES = frozenset({"llm_gateway:read"})
 
 
 # Every Signals sandbox surface mints under the dedicated Signals OAuth app, so the LLM
@@ -182,7 +184,14 @@ def create_oauth_access_token(
         token_options["include_interactive_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
+    if run_uses_own_subscription(run_state):
+        token_options["withhold_scopes"] = sorted(SUBSCRIPTION_RUN_WITHHELD_SCOPES)
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
+
+
+def run_uses_own_subscription(run_state: dict[str, Any] | None) -> bool:
+    state = run_state or {}
+    return any(state.get(f"{adapter}_model_access") == "own-subscription" for adapter in ("claude", "codex"))
 
 
 def create_oauth_access_token_for_run(
@@ -276,6 +285,7 @@ def create_oauth_access_token_for_user(
     include_interactive_run_scope: bool = False,
     include_slack_run_scope: bool = False,
     sandbox_task_id: UUID | None = None,
+    withhold_scopes: Collection[str] = (),
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
@@ -290,6 +300,8 @@ def create_oauth_access_token_for_user(
             token_options["include_interactive_run_scope"] = True
         if include_slack_run_scope:
             token_options["include_slack_run_scope"] = True
+        if withhold_scopes:
+            token_options["withhold_scopes"] = list(withhold_scopes)
         return _create_oauth_access_token_for_user(user, team_id, **token_options)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err
