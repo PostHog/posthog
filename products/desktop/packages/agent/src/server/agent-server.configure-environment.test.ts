@@ -618,6 +618,27 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(env.anthropicCustomHeaders).not.toContain("X-PostHog-Service-Tier");
   });
 
+  // The header outranks `traceparent`, so giving it to Claude would replace the
+  // per-turn ids its CLI mints with one id for the whole run.
+  it("names the run as X-PostHog-Trace-Id for codex only", () => {
+    const codex = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskRunId: "run-1",
+      runtimeAdapter: "codex",
+    });
+    const claude = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskRunId: "run-1",
+      runtimeAdapter: "claude",
+    });
+
+    expect(codex.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBe("run-1");
+    expect(codex.anthropicCustomHeaders).not.toContain("X-PostHog-Trace-Id");
+    expect(claude.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBeUndefined();
+  });
+
   it("keeps non-signals products on their existing ai_product name", () => {
     const env = buildServer().configureEnvironment({ isInternal: true });
 

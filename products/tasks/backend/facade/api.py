@@ -2596,6 +2596,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # interaction_origin is "slack"; a removed actor falls back to the task creator.
         "interaction_origin",
         "slack_actor_user_id",
+        # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
+        "autoresearch_training_run_id",
     }
 )
 
