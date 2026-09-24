@@ -43,6 +43,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.facade.timeseries import merge_saved_metric_breakdowns
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -75,7 +76,6 @@ from products.experiments.backend.setup_context import (
     SdkLibCategory,
     SetupContextSectionStatus,
 )
-from products.experiments.backend.temporal.metric_resolution import merge_saved_metric_breakdowns
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
