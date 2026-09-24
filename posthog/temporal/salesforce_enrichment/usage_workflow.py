@@ -179,13 +179,19 @@ def read_account_regions(sf: "Salesforce", account_ids: list[str]) -> dict[str, 
     }
 
 
+@frozen
+class _RegionDecision:
+    outcome: OrgRegionOutcome
+    previous_region: str | None
+
+
 async def _add_org_regions(
     sf: "Salesforce",
     records: list[dict[str, Any]],
     org_by_account_id: dict[str, str],
     billing_regions: dict[str, str],
-) -> dict[str, OrgRegionOutcome]:
-    """Add billing's region to each update record whose Account may take it, and return the outcome per Account."""
+) -> dict[str, _RegionDecision]:
+    """Add billing's region to each update record whose Account may take it, and return the decision per Account."""
     logger = LOGGER.bind()
     region_by_account_id: dict[str, str] = {}
     for record in records:
@@ -201,27 +207,18 @@ async def _add_org_regions(
         logger.exception("salesforce_account_regions_read_failed", account_count=len(region_by_account_id))
         return {}
 
-    outcomes: dict[str, OrgRegionOutcome] = {}
+    decisions: dict[str, _RegionDecision] = {}
     for record in records:
         account_id = record["Id"]
         billing_region = region_by_account_id.get(account_id)
         if billing_region is None:
             continue
-        org_id = org_by_account_id[account_id]
         current = current_by_account_id.get(account_id)
-        outcome = decide_org_region(org_id, billing_region, current)
-        outcomes[account_id] = outcome
+        outcome = decide_org_region(org_by_account_id[account_id], billing_region, current)
+        decisions[account_id] = _RegionDecision(outcome=outcome, previous_region=current.region if current else None)
         if outcome in (OrgRegionOutcome.FILL, OrgRegionOutcome.REPLACE):
             record[POSTHOG_ORG_REGION_FIELD] = billing_region
-        if outcome is OrgRegionOutcome.REPLACE:
-            logger.info(
-                "salesforce_org_region_replaced",
-                account_id=account_id,
-                org_id=org_id,
-                previous_region=current.region if current else None,
-                billing_region=billing_region,
-            )
-    return outcomes
+    return decisions
 
 
 @frozen
@@ -233,7 +230,7 @@ class _AccountUpdateCounts:
 
 
 async def _update_accounts(
-    sf: "Salesforce", records: list[dict[str, Any]], region_outcomes: dict[str, OrgRegionOutcome]
+    sf: "Salesforce", records: list[dict[str, Any]], region_decisions: dict[str, _RegionDecision]
 ) -> _AccountUpdateCounts:
     """Send one Bulk API batch and count the Accounts it updated.
 
@@ -251,11 +248,19 @@ async def _update_accounts(
     for record, result in zip(records, response, strict=True):
         if result.get("success"):
             updated += 1
-            outcome = region_outcomes.get(record["Id"])
-            if outcome is OrgRegionOutcome.FILL:
+            decision = region_decisions.get(record["Id"])
+            if decision is None:
+                continue
+            if decision.outcome is OrgRegionOutcome.FILL:
                 regions_filled += 1
-            elif outcome is OrgRegionOutcome.REPLACE:
+            elif decision.outcome is OrgRegionOutcome.REPLACE:
                 regions_replaced += 1
+                logger.info(
+                    "salesforce_org_region_replaced",
+                    account_id=record["Id"],
+                    previous_region=decision.previous_region,
+                    billing_region=record[POSTHOG_ORG_REGION_FIELD],
+                )
             continue
         logger.warning("salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors"))
         if POSTHOG_ORG_REGION_FIELD in record:
@@ -404,9 +409,9 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
                 if update_records:
                     for sf_batch in batched(update_records, SALESFORCE_UPDATE_BATCH_SIZE, strict=False):
                         batch_records = list(sf_batch)
-                        region_outcomes = await _add_org_regions(sf, batch_records, org_by_account_id, billing_regions)
-                        region_outcome_counts.update(region_outcomes.values())
-                        counts = await _update_accounts(sf, batch_records, region_outcomes)
+                        region_decisions = await _add_org_regions(sf, batch_records, org_by_account_id, billing_regions)
+                        region_outcome_counts.update(decision.outcome for decision in region_decisions.values())
+                        counts = await _update_accounts(sf, batch_records, region_decisions)
                         total_updated += counts.updated
                         regions_filled += counts.regions_filled
                         regions_replaced += counts.regions_replaced
