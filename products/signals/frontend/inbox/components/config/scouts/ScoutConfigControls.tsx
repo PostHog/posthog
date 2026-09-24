@@ -316,7 +316,9 @@ export function ScoutConfigForm({
                 <LemonSwitch
                     size="small"
                     checked={config.lifecycle_locked}
-                    disabledReason={controlsDisabledReason}
+                    // Editable while the scout is disabled, because the lock decides who may resume
+                    // a paused scout.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
                     onChange={(checked) => onUpdate(config.id, { lifecycle_locked: checked })}
                     aria-label={`${config.skill_name} only the owner can pause or delete`}
                 />
