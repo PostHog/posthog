@@ -76,10 +76,10 @@ def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> d
     return min([now, *(created_at for created_at in in_flight_created_ats if created_at > now - IN_FLIGHT_MAX_AGE)])
 
 
-def _run_ids_to_sync(
+def _runs_to_sync(
     session: Session, repository: str, created_after: dt.datetime | None, created_before: dt.datetime
-) -> list[str]:
-    runs: list[tuple[dt.datetime, str]] = []
+) -> list[JSONObject]:
+    runs: list[tuple[dt.datetime, JSONObject]] = []
     # ListRuns has no time filter but returns terminal runs newest first, so the walk stops at the
     # first run at or before the lower bound.
     for run in _list_runs(session, repository, TERMINAL_STATUSES):
@@ -87,82 +87,66 @@ def _run_ids_to_sync(
         if created_after is not None and created_at <= created_after:
             break
         if created_at < created_before:
-            runs.append((created_at, run["runId"]))
-    return [run_id for _, run_id in sorted(runs)]
+            runs.append((created_at, run))
+    return [run for _, run in sorted(runs, key=lambda created_run: created_run[0])]
 
 
-def _run_columns(run: JSONObject) -> JSONObject:
-    return {
-        "run_id": run.get("runId"),
-        "repo": run.get("repo"),
-        "ref": run.get("ref"),
-        "sha": run.get("sha"),
-        "head_sha": run.get("headSha"),
-        "trigger": run.get("trigger"),
-        "run_status": run.get("status"),
-        "run_created_at": run.get("createdAt"),
-        "run_started_at": run.get("startedAt"),
-        "run_finished_at": run.get("finishedAt"),
-    }
-
-
-def _workflow_columns(workflow: JSONObject) -> JSONObject:
-    return {
+def _attempt_rows(run: JSONObject, workflow: JSONObject) -> list[JSONObject]:
+    shared_columns = {
+        "run_id": workflow.get("runId"),
+        "repo": workflow.get("repo"),
+        "ref": workflow.get("ref"),
+        "sha": workflow.get("sha"),
+        "head_sha": workflow.get("headSha"),
+        "trigger": workflow.get("trigger"),
+        "run_status": workflow.get("runStatus"),
+        # The listing's value, so the incremental cursor stays in the clock the listing walk compares.
+        "run_created_at": run["createdAt"],
+        "run_started_at": workflow.get("runStartedAt"),
+        "run_finished_at": workflow.get("runFinishedAt"),
         "workflow_id": workflow.get("workflowId"),
-        "workflow_name": workflow.get("name"),
+        "workflow_name": workflow.get("workflowName"),
         "workflow_path": workflow.get("workflowPath"),
-        "workflow_status": workflow.get("status"),
-        "workflow_created_at": workflow.get("createdAt"),
-        "workflow_started_at": workflow.get("startedAt"),
-        "workflow_finished_at": workflow.get("finishedAt"),
+        "workflow_status": workflow.get("workflowStatus"),
+        "workflow_created_at": workflow.get("workflowCreatedAt"),
+        "workflow_started_at": workflow.get("workflowStartedAt"),
+        "workflow_finished_at": workflow.get("workflowFinishedAt"),
     }
-
-
-def _job_columns(job: JSONObject, display_name: str | None) -> JSONObject:
-    return {
-        "job_id": job.get("jobId"),
-        "job_key": job.get("jobKey"),
-        "job_display_name": display_name,
-        "job_status": job.get("status"),
-        "job_conclusion": job.get("conclusion"),
-        "job_created_at": job.get("createdAt"),
-        "job_started_at": job.get("startedAt"),
-        "job_finished_at": job.get("finishedAt"),
-    }
-
-
-def _attempt_columns(attempt: JSONObject) -> JSONObject:
-    return {
-        "attempt_id": attempt.get("attemptId"),
-        "attempt": attempt.get("attempt"),
-        "attempt_status": attempt.get("status"),
-        "attempt_conclusion": attempt.get("conclusion"),
-        "attempt_created_at": attempt.get("createdAt"),
-        "attempt_started_at": attempt.get("startedAt"),
-        "attempt_finished_at": attempt.get("finishedAt"),
-        "sandbox_id": attempt.get("sandboxId"),
-    }
-
-
-def _attempt_rows(run_metrics: JSONObject, run_status: JSONObject) -> list[JSONObject]:
-    # GetRunStatus is the only RPC that returns a job's display name.
-    display_names: dict[str, str | None] = {
-        job["jobId"]: job.get("jobDisplayName")
-        for workflow in run_status.get("workflows", [])
-        for job in workflow.get("jobs", [])
-    }
-    run_columns = _run_columns(run_metrics["run"])
     rows: list[JSONObject] = []
-    for workflow_metrics in run_metrics.get("workflows", []):
-        workflow_columns = _workflow_columns(workflow_metrics["workflow"])
-        for job_metrics in workflow_metrics.get("jobs", []):
-            job = job_metrics["job"]
-            job_columns = _job_columns(job, display_names.get(job.get("jobId")))
-            for attempt_metrics in job_metrics.get("attempts", []):
-                rows.append(
-                    {**run_columns, **workflow_columns, **job_columns, **_attempt_columns(attempt_metrics["attempt"])}
-                )
+    for job in workflow.get("jobs", []):
+        job_columns = {
+            "job_id": job.get("jobId"),
+            "job_key": job.get("jobKey"),
+            "job_display_name": job.get("jobDisplayName"),
+            "job_status": job.get("status"),
+            "job_started_at": job.get("startedAt"),
+            "job_finished_at": job.get("finishedAt"),
+        }
+        for attempt in job.get("attempts", []):
+            rows.append(
+                {
+                    **shared_columns,
+                    **job_columns,
+                    "attempt_id": attempt.get("attemptId"),
+                    "attempt": attempt.get("attempt"),
+                    "attempt_status": attempt.get("status"),
+                    "attempt_started_at": attempt.get("startedAt"),
+                    "attempt_finished_at": attempt.get("finishedAt"),
+                    "sandbox_id": attempt.get("sandboxId"),
+                }
+            )
     return rows
+
+
+def _run_attempt_rows(session: Session, run: JSONObject) -> list[JSONObject]:
+    # GetRunMetrics would answer in one call, but Depot refuses it with ResourceExhausted for a run
+    # with many attempts. GetWorkflow answers for any workflow size, so the run is read per workflow.
+    run_status = _call(session, "GetRunStatus", {"runId": run["runId"]})
+    return [
+        row
+        for workflow in run_status.get("workflows", [])
+        for row in _attempt_rows(run, _call(session, "GetWorkflow", {"workflowId": workflow["workflowId"]}))
+    ]
 
 
 def depot_source(
@@ -176,16 +160,15 @@ def depot_source(
     def items() -> Iterator[list[JSONObject]]:
         session = _make_session(api_token)
         horizon = _in_flight_horizon(session, repository, dt.datetime.now(dt.UTC))
-        run_ids = _run_ids_to_sync(session, repository, lower_bound, horizon)
+        runs = _runs_to_sync(session, repository, lower_bound, horizon)
         logger.info(
             "depot_ci.runs_to_sync",
-            run_count=len(run_ids),
+            run_count=len(runs),
             created_after=lower_bound.isoformat() if lower_bound else None,
             created_before=horizon.isoformat(),
         )
-        for run_id in run_ids:
-            run_ref = {"runId": run_id}
-            rows = _attempt_rows(_call(session, "GetRunMetrics", run_ref), _call(session, "GetRunStatus", run_ref))
+        for run in runs:
+            rows = _run_attempt_rows(session, run)
             if rows:
                 yield rows
 

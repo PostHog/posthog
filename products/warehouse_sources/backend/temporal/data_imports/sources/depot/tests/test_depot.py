@@ -40,19 +40,12 @@ def _response(status: int, body: dict[str, Any], method: str) -> Response:
     return response
 
 
-def _single_attempt_metrics(run: dict[str, Any]) -> dict[str, Any]:
+def _single_attempt_workflow(run: dict[str, Any]) -> dict[str, Any]:
     return {
-        "run": {"runId": run["runId"], "createdAt": run["createdAt"]},
-        "workflows": [
-            {
-                "workflow": {"workflowId": f"{run['runId']}-wf"},
-                "jobs": [
-                    {
-                        "job": {"jobId": f"{run['runId']}-job"},
-                        "attempts": [{"attempt": {"attemptId": f"{run['runId']}-attempt", "attempt": 1}}],
-                    }
-                ],
-            }
+        "runId": run["runId"],
+        "workflowId": f"{run['runId']}-wf",
+        "jobs": [
+            {"jobId": f"{run['runId']}-job", "attempts": [{"attemptId": f"{run['runId']}-attempt", "attempt": 1}]}
         ],
     }
 
@@ -60,11 +53,12 @@ def _single_attempt_metrics(run: dict[str, Any]) -> dict[str, Any]:
 def _fake_session(
     terminal_pages: list[list[dict[str, Any]]],
     in_flight_runs: list[dict[str, Any]] | None = None,
-    run_metrics: dict[str, dict[str, Any]] | None = None,
-    run_statuses: dict[str, dict[str, Any]] | None = None,
+    workflows_by_run: dict[str, list[dict[str, Any]]] | None = None,
 ) -> mock.MagicMock:
-    metrics = run_metrics or {run["runId"]: _single_attempt_metrics(run) for page in terminal_pages for run in page}
-    statuses = run_statuses or {}
+    workflows = workflows_by_run or {
+        run["runId"]: [_single_attempt_workflow(run)] for page in terminal_pages for run in page
+    }
+    workflows_by_id = {workflow["workflowId"]: workflow for runs in workflows.values() for workflow in runs}
 
     def post(url: str, json: dict[str, Any], timeout: float) -> Response:
         method = url.removeprefix(f"{DEPOT_CI_SERVICE_URL}/")
@@ -74,9 +68,10 @@ def _fake_session(
             page_index = int(json.get("pageToken", "0"))
             next_page_token = str(page_index + 1) if page_index + 1 < len(terminal_pages) else ""
             return _response(200, {"runs": terminal_pages[page_index], "nextPageToken": next_page_token}, method)
-        if method == "GetRunMetrics":
-            return _response(200, metrics[json["runId"]], method)
-        return _response(200, statuses.get(json["runId"], {}), method)
+        if method == "GetRunStatus":
+            run_workflows = workflows.get(json["runId"], [])
+            return _response(200, {"workflows": [{"workflowId": w["workflowId"]} for w in run_workflows]}, method)
+        return _response(200, workflows_by_id[json["workflowId"]], method)
 
     session = mock.MagicMock()
     session.post.side_effect = post
@@ -165,127 +160,96 @@ class TestDepotSource:
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 200}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 200, "pageToken": "1"}),
         ]
-        assert _requests(session)[3:5] == [("GetRunMetrics", {"runId": "r3"}), ("GetRunStatus", {"runId": "r3"})]
+        assert _requests(session)[3:5] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
 
-    def test_flattens_one_row_per_attempt_with_the_job_display_name(self) -> None:
+    def test_flattens_one_row_per_attempt_of_every_workflow_in_the_run(self) -> None:
         run = _run("run-1", dt.timedelta(hours=1))
-        metrics = {
-            "run": {
-                "runId": "run-1",
-                "repo": REPOSITORY,
-                "ref": "refs/heads/main",
-                "sha": "abc123",
-                "headSha": "def456",
-                "trigger": "push",
-                "status": "failed",
-                "createdAt": run["createdAt"],
-                "startedAt": "2026-01-01T00:00:01.000Z",
-                "finishedAt": "2026-01-01T00:10:00.000Z",
-            },
-            "workflows": [
-                {
-                    "workflow": {
-                        "workflowId": "wf-1",
-                        "workflowPath": ".depot/workflows/ci-backend.yml",
-                        "name": "Backend CI",
-                        "status": "failed",
-                        "createdAt": "2026-01-01T00:00:00.500Z",
-                        "startedAt": "2026-01-01T00:00:02.000Z",
-                        "finishedAt": "2026-01-01T00:09:59.000Z",
-                    },
-                    "jobs": [
-                        {
-                            "job": {
-                                "jobId": "job-matrix",
-                                "jobKey": "ci-backend.yml:turbo-tests:matrix-38",
-                                "status": "finished",
-                                "conclusion": "success",
-                                "currentAttempt": 2,
-                                "createdAt": "2026-01-01T00:00:03.000Z",
-                                "startedAt": "2026-01-01T00:00:04.000Z",
-                                "finishedAt": "2026-01-01T00:08:00.000Z",
-                            },
-                            "attempts": [
-                                {
-                                    "attempt": {
-                                        "attemptId": "attempt-1",
-                                        "attempt": 1,
-                                        "status": "finished",
-                                        "conclusion": "failure",
-                                        "sandboxId": "sandbox-1",
-                                        "sessionId": "session-1",
-                                        "createdAt": "2026-01-01T00:00:03.000Z",
-                                        "startedAt": "2026-01-01T00:00:04.000Z",
-                                        "finishedAt": "2026-01-01T00:04:00.000Z",
-                                    },
-                                    "stats": {},
-                                },
-                                {"attempt": {"attemptId": "attempt-2", "attempt": 2}},
-                            ],
-                        },
-                        {"job": {"jobId": "job-placeholder", "jobKey": "ci-backend.yml:django:_dynamicMatrix"}},
-                        {
-                            "job": {"jobId": "job-lint", "jobKey": "ci-backend.yml:lint"},
-                            "attempts": [{"attempt": {"attemptId": "attempt-3", "attempt": 1}}],
-                        },
-                    ],
-                }
-            ],
-        }
-        status = {
+        backend = {
             "runId": "run-1",
-            "workflows": [
+            "repo": REPOSITORY,
+            "ref": "refs/pull/42/merge",
+            "sha": "abc123",
+            "headSha": "def456",
+            "trigger": "pull_request",
+            "runStatus": "failed",
+            # A different precision from the listing, which the cursor must not take.
+            "runCreatedAt": "2026-01-01T00:00:00Z",
+            "runStartedAt": "2026-01-01T00:00:01Z",
+            "runFinishedAt": "2026-01-01T00:10:00Z",
+            "workflowId": "wf-1",
+            "workflowName": "Backend CI",
+            "workflowPath": "ci-backend.yml",
+            "workflowStatus": "failed",
+            "workflowCreatedAt": "2026-01-01T00:00:00Z",
+            "workflowStartedAt": "2026-01-01T00:00:02Z",
+            "workflowFinishedAt": "2026-01-01T00:09:59Z",
+            "jobs": [
                 {
-                    "workflowId": "wf-1",
-                    "jobs": [
-                        {"jobId": "job-lint", "jobKey": "ci-backend.yml:lint"},
-                        {"jobId": "job-matrix", "jobDisplayName": "Product tests (shard 38)"},
+                    "jobId": "job-matrix",
+                    "jobKey": "ci-backend.yml:turbo-tests:matrix-38",
+                    "jobDisplayName": "Product tests (shard 38)",
+                    "status": "finished",
+                    "startedAt": "2026-01-01T00:00:04Z",
+                    "finishedAt": "2026-01-01T00:08:00Z",
+                    "attempts": [
+                        {
+                            "attemptId": "attempt-1",
+                            "attempt": 1,
+                            "status": "failed",
+                            "sandboxId": "sandbox-1",
+                            "sessionId": "session-1",
+                            "startedAt": "2026-01-01T00:00:04Z",
+                            "finishedAt": "2026-01-01T00:04:00Z",
+                        },
+                        {"attemptId": "attempt-2", "attempt": 2},
                     ],
-                }
+                },
+                {"jobId": "job-placeholder", "jobKey": "ci-backend.yml:django:_dynamicMatrix", "status": "skipped"},
             ],
         }
-        session = _fake_session([[run]], run_metrics={"run-1": metrics}, run_statuses={"run-1": status})
+        report = {
+            "runId": "run-1",
+            "workflowId": "wf-2",
+            "jobs": [{"jobId": "job-report", "attempts": [{"attemptId": "attempt-3"}]}],
+        }
+        session = _fake_session([[run]], workflows_by_run={"run-1": [backend, report]})
 
         rows = _synced_rows(session, None)
 
-        assert [(row["attempt_id"], row["job_display_name"]) for row in rows] == [
-            ("attempt-1", "Product tests (shard 38)"),
-            ("attempt-2", "Product tests (shard 38)"),
-            ("attempt-3", None),
+        assert [(row["workflow_id"], row["attempt_id"], row["job_display_name"]) for row in rows] == [
+            ("wf-1", "attempt-1", "Product tests (shard 38)"),
+            ("wf-1", "attempt-2", "Product tests (shard 38)"),
+            ("wf-2", "attempt-3", None),
         ]
         assert rows[0] == {
             "run_id": "run-1",
             "repo": REPOSITORY,
-            "ref": "refs/heads/main",
+            "ref": "refs/pull/42/merge",
             "sha": "abc123",
             "head_sha": "def456",
-            "trigger": "push",
+            "trigger": "pull_request",
             "run_status": "failed",
             "run_created_at": run["createdAt"],
-            "run_started_at": "2026-01-01T00:00:01.000Z",
-            "run_finished_at": "2026-01-01T00:10:00.000Z",
+            "run_started_at": "2026-01-01T00:00:01Z",
+            "run_finished_at": "2026-01-01T00:10:00Z",
             "workflow_id": "wf-1",
             "workflow_name": "Backend CI",
-            "workflow_path": ".depot/workflows/ci-backend.yml",
+            "workflow_path": "ci-backend.yml",
             "workflow_status": "failed",
-            "workflow_created_at": "2026-01-01T00:00:00.500Z",
-            "workflow_started_at": "2026-01-01T00:00:02.000Z",
-            "workflow_finished_at": "2026-01-01T00:09:59.000Z",
+            "workflow_created_at": "2026-01-01T00:00:00Z",
+            "workflow_started_at": "2026-01-01T00:00:02Z",
+            "workflow_finished_at": "2026-01-01T00:09:59Z",
             "job_id": "job-matrix",
             "job_key": "ci-backend.yml:turbo-tests:matrix-38",
             "job_display_name": "Product tests (shard 38)",
             "job_status": "finished",
-            "job_conclusion": "success",
-            "job_created_at": "2026-01-01T00:00:03.000Z",
-            "job_started_at": "2026-01-01T00:00:04.000Z",
-            "job_finished_at": "2026-01-01T00:08:00.000Z",
+            "job_started_at": "2026-01-01T00:00:04Z",
+            "job_finished_at": "2026-01-01T00:08:00Z",
             "attempt_id": "attempt-1",
             "attempt": 1,
-            "attempt_status": "finished",
-            "attempt_conclusion": "failure",
-            "attempt_created_at": "2026-01-01T00:00:03.000Z",
-            "attempt_started_at": "2026-01-01T00:00:04.000Z",
-            "attempt_finished_at": "2026-01-01T00:04:00.000Z",
+            "attempt_status": "failed",
+            "attempt_started_at": "2026-01-01T00:00:04Z",
+            "attempt_finished_at": "2026-01-01T00:04:00Z",
             "sandbox_id": "sandbox-1",
         }
 
