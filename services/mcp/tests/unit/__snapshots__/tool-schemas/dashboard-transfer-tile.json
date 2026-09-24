@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this dashboard.",
+            "type": "number"
+        },
+        "tile": {
+            "description": "Tile to move, identified by its dashboard tile ID.",
+            "properties": {
+                "id": {
+                    "description": "Dashboard tile ID to move.",
+                    "type": "number"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
+        "to_dashboard": {
+            "description": "Destination dashboard ID.",
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
