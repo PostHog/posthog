@@ -67,7 +67,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import 
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
     cdc_qualified_table_name,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import BUFFER_LANE, snapshot_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    BUFFER_LANE,
+    cancel_running_sync,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     captures_to_buffer,
     snapshot_can_start_in_buffer,
@@ -812,8 +816,11 @@ class CDCExtractActivity:
         truncated_tables = list(self.reader.truncated_tables)
         self.reader.clear_truncated_tables()
         self._truncated_tables.extend(truncated_tables)
+        # The decoder names a table `schema.table`, while a schema created with a source schema set is
+        # stored bare, so the lookup goes through the same map as the change events.
+        stored_names = self._build_event_name_map()
         for table_name in truncated_tables:
-            trunc_schema = self.schema_by_name.get(table_name)
+            trunc_schema = self.schema_by_name.get(stored_names.get(table_name, table_name))
             if trunc_schema is None:
                 continue
             self._schema_log(trunc_schema).warning(
@@ -825,6 +832,12 @@ class CDCExtractActivity:
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        # A snapshot already running may have read the table before changes this reset drops, as
+        # when a retry reads a TRUNCATE again. It must not reach its hand-over. A failed cancel fails
+        # the run while the slot still holds the TRUNCATE, so the retry repeats the reset.
+        cancelled = cancel_running_sync(schema)
+        if cancelled:
+            self._schema_log(schema).info("cdc_reset_cancelled_running_sync", workflow_id=cancelled)
         # The re-seeding snapshot starts after this run, so it covers every change this run read.
         # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
         if self.batcher is not None:
@@ -912,15 +925,18 @@ class CDCExtractActivity:
             self._process_flush(self.batcher.flush())
 
     def _advance_slot_after_run(self) -> None:
-        """Advance the slot to the last LSN if the final flush moved past the last incremental advance.
+        """Advance the slot past everything this run read, once the final flush has landed.
 
-        Intermediate micro-batches already advanced the slot incrementally inside the
-        read loop, so this only fires if the final flush contained new events beyond
-        the last incremental advance.
+        A read always stops at a transaction boundary, and by now every event up to the decoder's
+        last commit is flushed. Confirming that commit rather than the last event also moves past
+        trailing transactions with no row events. A TRUNCATE on its own is one: this run already
+        handled it, and reading it again would reset the table a second time.
         """
-        if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-            self._confirm_position(self.last_end_lsn)
-            self.log.info("slot_advanced", position=self.last_end_lsn)
+        target = self.reader.last_commit_end_lsn or self.last_end_lsn
+        if target is not None and target != self.last_confirmed_lsn:
+            self._confirm_position(target)
+            self.last_end_lsn = target
+            self.log.info("slot_advanced", position=target)
 
     def _update_log_positions(self) -> None:
         """Update per-schema cdc_last_log_position (skip schemas reset to snapshot mode)."""

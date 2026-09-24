@@ -26,9 +26,12 @@ concurrency:
 
 jobs:
     tag:
+        # A manual run can start from any ref, and a break-glass run tags that ref's head. Only
+        # master and an existing release tag hold code that already merged.
         if: >-
             github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'workflow_dispatch' &&
+             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v'))) ||
             (github.event.pull_request.merged == true &&
              contains(github.event.pull_request.labels.*.name, 'desktop-release'))
         permissions:

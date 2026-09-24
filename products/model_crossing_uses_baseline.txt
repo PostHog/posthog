@@ -867,6 +867,7 @@ warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sql_warehou
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status in-collection 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.external_data_failure instance-many(select_related) 1
+warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.webhook_subscription_stale instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.logic.sources instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1

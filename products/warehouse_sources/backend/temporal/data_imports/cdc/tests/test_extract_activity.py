@@ -13,6 +13,7 @@ from django.db.utils import InterfaceError, OperationalError
 import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     ChangeEventBatcher,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import cancel_running_sync
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
@@ -127,13 +129,14 @@ def _stub_app_db_writes():
             side_effect=_fake_update_schema_sync_type_config,
         ),
         patch(f"{_ACTIVITIES}.convert_legacy_cdc_state"),
+        patch(f"{_ACTIVITIES}.cancel_running_sync", return_value=None),
     ):
         yield
 
 
 @contextmanager
 def _capture_harness(source, schemas, events=()) -> Iterator[SimpleNamespace]:
-    reader = MagicMock()
+    reader = MagicMock(last_commit_end_lsn=None)
     reader.read_changes.return_value = iter(events)
     reader.truncated_tables = []
     # Below CDC_MAX_CHANGES_PER_READ so the bounded read loop treats this as a single drained pass.
@@ -467,7 +470,7 @@ class TestCDCExtractActivity:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = RuntimeError("connection lost")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -577,7 +580,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
             'password authentication failed for user "test"'
         )
@@ -664,7 +667,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = exc_cls(exc_message)
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -731,7 +734,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_adapter.is_slot_invalidation_error.return_value = False
@@ -784,7 +787,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
             'password authentication failed for user "test"'
         )
@@ -832,7 +835,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.OperationalError(
             'connection to server at "db" failed: Connection refused'
         )
@@ -886,7 +889,7 @@ class TestErrorClassification:
         mock_get_schemas.return_value = [schema]
 
         # A non-psycopg error the adapter can't classify falls back to retryable UNKNOWN.
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = RuntimeError("arrow merge blew up")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -947,7 +950,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.errors.SyntaxError("invalid syntax")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -1146,7 +1149,7 @@ class TestFailureVisibilityJobs:
         MockSourceModel.objects.get.return_value = source
         mock_get_schemas.return_value = schemas
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = error
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -1799,17 +1802,19 @@ class TestBufferedIngressCapture:
         [
             # The re-snapshot covers the changes read before the TRUNCATE, and buffering them would
             # bring the truncated rows back.
-            ("after_changes_in_the_same_run", [_make_event(op="I", position="0/100", columns={"id": 1})], "0/100"),
-            ("with_no_other_changes", [], "0/500"),
+            ("after_changes_in_the_same_run", [_make_event(op="I", position="0/100", columns={"id": 1})], "users"),
+            ("with_no_other_changes", [], "users"),
+            # The decoder reports a truncated table qualified, even when the schema is stored bare.
+            ("reported_qualified_for_a_bare_schema", [], "public.users"),
         ]
     )
-    def test_a_truncate_resets_the_table_to_a_snapshot_in_an_emptied_buffer(self, _name, events, advanced_to):
+    def test_a_truncate_resets_the_table_to_a_snapshot_in_an_emptied_buffer(self, _name, events, truncated_name):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         schema.sync_type_config["cdc_last_log_position"] = "0/OLD"
 
         with _capture_harness(source, [schema], events) as capture:
-            capture.reader.truncated_tables = ["users"]
+            capture.reader.truncated_tables = [truncated_name]
             capture.reader.last_commit_end_lsn = "0/500"
             capture.extract()
 
@@ -1821,7 +1826,46 @@ class TestBufferedIngressCapture:
         assert schema.sync_type_config[CDC_SNAPSHOT_LANE_KEY] == "buffer"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
-        capture.reader.confirm_position.assert_called_once_with(advanced_to)
+        # The TRUNCATE commits after the last row event, in a transaction of its own. Confirming only that
+        # event's position would read the TRUNCATE again and reset the table a second time.
+        capture.reader.confirm_position.assert_called_once_with("0/500")
+
+    @parameterized.expand(
+        [
+            ("cancelled", None),
+            ("already_finished", RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
+    @patch(f"{_ACTIVITIES}.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
+    def test_a_reset_stops_the_tables_running_sync_first(self, _name, cancel_error, MockJob, mock_purge):
+        # A snapshot that started before a repeated reset missed the changes the reset drops, so it
+        # must not reach its hand-over.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="snapshot", source=source)
+        act = _make_extract_activity(source)
+        running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
+        running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")
+        fails = cancel_error is not None and cancel_error.status != RPCStatusCode.NOT_FOUND
+
+        with (
+            patch(f"{_ACTIVITIES}.cancel_running_sync", cancel_running_sync),
+            patch(
+                "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
+                side_effect=cancel_error,
+            ) as cancel,
+        ):
+            if fails:
+                with pytest.raises(RPCError):
+                    act._reset_schema_to_snapshot(schema)
+            else:
+                act._reset_schema_to_snapshot(schema)
+
+        cancel.assert_called_once_with("users-snapshot")
+        # A cancel that did not go through fails the run before the reset, so the retry repeats both.
+        assert mock_purge.called is not fails
+        assert schema.sync_type_config.get("reset_pipeline") is (None if fails else True)
 
     @parameterized.expand(
         [

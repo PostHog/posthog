@@ -48,6 +48,8 @@ A gap would break that, which is why the buffer is emptied when capture starts a
 A snapshot that completes without the marker, because capture never ran for the table while it snapshotted, purges the whole buffer at the hand-over.
 
 A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
+The reset also cancels the table's running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
 A table whose data was deleted is still streaming but not seeded; its next sync runs a full refresh and the buffer replays over it.
 

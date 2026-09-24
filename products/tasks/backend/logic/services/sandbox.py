@@ -79,6 +79,9 @@ class SandboxTemplate(str, Enum):
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
     CANVAS_BUILD = "canvas_build"
+    # SLIM_BASE plus a uv cache that already holds the stamphog review engine's pinned deps,
+    # so the engine's `uv run` starts without a download.
+    STAMPHOG_REVIEW = "stamphog_review"
 
 
 # Templates whose image hosts the task agent server, so a task can ask for them. The
@@ -223,6 +226,10 @@ class SandboxConfig(BaseModel):
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
     dev_stack_present: bool | None = None
+    # Hogland only: provision from the pluggable-memory golden (boots small, hot-adds
+    # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
+    # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
+    use_hotplug_golden: bool = False
 
     @model_validator(mode="before")
     @classmethod

@@ -1,0 +1,79 @@
+# serializer version: 1
+# name: TestErrorTrackingIssueCorrelationQueryRunner.test_column_names[new_events_schema]
+  '''
+  WITH issues AS
+    (SELECT groupArray(issue_id) AS ids,
+            groupArray(last_seen) AS last_seen_timestamps,
+            groupArray(library) AS libraries
+     FROM
+       (SELECT events__fingerprint_issue_state.issue_id AS issue_id,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
+               argMax(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$lib`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$lib`)), if(isNull(nullIf(toString(events.properties.`$lib`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$lib`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$lib`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$lib`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$lib`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$lib`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$lib`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$lib`), '[]'), '{}'), toString(events.properties.`$lib`))))), toTimeZone(events.timestamp, 'UTC')) AS library
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+                  toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id
+           FROM error_tracking_fingerprint_issue_state
+           WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+           GROUP BY fp_hash
+           HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.properties.`$session_id`), isNotNull(events__fingerprint_issue_state.issue_id), equals(events.event, '$exception'))
+        GROUP BY events__fingerprint_issue_state.issue_id))
+  SELECT event AS event,
+  
+    (SELECT issues.ids AS ids
+     FROM issues) AS issue_ids,
+  
+    (SELECT issues.last_seen_timestamps AS last_seen_timestamps
+     FROM issues) AS issue_last_seen_timestamps,
+  
+    (SELECT issues.libraries AS libraries
+     FROM issues) AS issue_libraries,
+         sumForEach(both) AS both,
+         sumForEach(success_only) AS success_only,
+         sumForEach(exception_only) AS exception_only,
+         sumForEach(neither) AS neither
+  FROM
+    (SELECT event,
+            `$session_id` AS `$session_id`,
+            arrayMap(x -> if(and(isNotNull(x), isNotNull(earliest_success_event), ifNull(less(x, earliest_success_event), 0)), 1, 0), earliest_exceptions) AS both,
+            arrayMap(x -> if(and(isNull(x), isNotNull(earliest_success_event)), 1, 0), earliest_exceptions) AS success_only,
+            arrayMap(x -> if(and(isNotNull(x), isNull(earliest_success_event)), 1, 0), earliest_exceptions) AS exception_only,
+            arrayMap(x -> if(and(isNull(x), isNull(earliest_success_event)), 1, 0), earliest_exceptions) AS neither
+     FROM
+       (SELECT events.properties.`$session_id` AS `$session_id`,
+               ['$pageview'] AS events,
+               minForEach(arrayMap(x -> if(ifNull(equals(events.event, x), isNull(events.event)
+                                                  and isNull(x)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
+               minForEach(arrayMap(x -> if(ifNull(equals(x, events__fingerprint_issue_state.issue_id), isNull(x)
+                                                  and isNull(events__fingerprint_issue_state.issue_id)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
+                                     (SELECT issues.ids AS ids
+                                      FROM issues))) AS earliest_exceptions
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
+                  toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id
+           FROM error_tracking_fingerprint_issue_state
+           WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
+           GROUP BY fp_hash
+           HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.properties.`$session_id`))
+        GROUP BY events.properties.`$session_id`) ARRAY
+     JOIN events AS event,
+                    earliest_success_events AS earliest_success_event)
+  GROUP BY event
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---

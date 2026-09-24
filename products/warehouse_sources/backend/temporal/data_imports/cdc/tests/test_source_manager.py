@@ -43,9 +43,6 @@ _NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
 _OLD_MTIME = _NOW - dt.timedelta(hours=2)
 
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
-
-
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
     return pa.table({"id": pa.array(ids, pa.int64())}).append_column(
         pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
@@ -319,10 +316,15 @@ class TestSnapshotCapture:
                 {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
                 True,
             ),
+            # Its buffer holds copies of changes the legacy lane already delivered, until capture converts it.
+            ("streaming_on_a_source_not_converted_yet", {"job_inputs": {"cdc_ingest_mode": "legacy"}}, False),
+            # The previous release skipped these tables' capture, so their buffer has a gap.
+            ("streaming_with_deferred_runs_left", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, False),
         ]
     )
     def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(self, _name, overrides, stays):
-        assert resnapshot_stays_in_buffer(_schema(**overrides)) is stays
+        schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
+        assert resnapshot_stays_in_buffer(schema) is stays
 
 
 class TestBufferedGating:

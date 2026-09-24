@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
+    SELF_MANAGED_LAG_REASON,
     CDCRepairError,
     CDCRepairInProgress,
     CDCSourceAdapter,
@@ -653,8 +654,11 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         # A broken source has lost its slot/publication — resuming would just re-fail on the
-        # next tick. Route the user to Repair CDC, which recreates them (and re-syncs).
-        if any((schema.sync_type_config or {}).get("cdc_broken") for schema in cdc_schemas):
+        # next tick. Route the user to Repair CDC, which recreates them (and re-syncs). The
+        # self-managed lag marker is the exception: that slot is intact, and the marker clears only
+        # once capture runs and brings the lag down, so refusing here would never let it clear.
+        broken_markers = [(schema.sync_type_config or {}).get("cdc_broken") for schema in cdc_schemas]
+        if any(marker and marker.get("reason") != SELF_MANAGED_LAG_REASON for marker in broken_markers):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "The replication slot or publication was lost. Use Repair CDC to recreate it."},

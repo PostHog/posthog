@@ -211,6 +211,7 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
+        self.assertEqual(mock_process_query_dict.call_args.kwargs["query_id"], self.query_id)
         self.assertEqual(get_query_tags().celery_task_id, task_id)
 
         # Assert that Redis set method was called with the correct arguments

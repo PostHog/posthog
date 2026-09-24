@@ -662,9 +662,13 @@ CREATE TABLE posthog.metrics4_samples (
   trace_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   span_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   trace_flags_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+  timestamp_min DateTime64(6) ALIAS arrayMin(timestamp_arr),
+  timestamp_max DateTime64(6) ALIAS arrayMax(timestamp_arr),
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+  INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,

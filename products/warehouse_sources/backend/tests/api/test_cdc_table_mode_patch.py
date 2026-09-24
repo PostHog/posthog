@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 pytestmark = [pytest.mark.django_db]
 
 
+_VIEW = "products.warehouse_sources.backend.presentation.views.external_data_schema"
 _PATCH_TARGETS = {
     "is_cdc_enabled_for_team": "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
     # Single private method backing both add_table/remove_table on the adapter — patching it
@@ -165,6 +166,55 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, clie
     assert schema.sync_type_config.get("reset_pipeline") is True
     mock_cancel.assert_called_once_with(running_job.workflow_id)
     mock_trigger.assert_called_once()
+
+
+@pytest.mark.parametrize(("should_sync_before", "should_sync_after"), [(True, False), (False, True)])
+def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient, should_sync_before, should_sync_after):
+    # Capture skips a table while its sync is off, so its buffer has a gap. A marker left behind would
+    # have the hand-over replay files from before the gap and bring deleted rows back.
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode="buffered")
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        should_sync=should_sync_before,
+        initial_sync_complete=False,
+        sync_type_config={**schema.sync_type_config, "cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
+    )
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(f"{_VIEW}.pause_external_data_schedule"),
+        mock.patch(f"{_VIEW}.unpause_external_data_schedule"),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"should_sync": should_sync_after},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert "cdc_snapshot_lane" not in schema.sync_type_config
+
+
+@pytest.mark.parametrize("ingest_mode", [None, "buffered"])
+def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team, user, client: HttpClient, ingest_mode):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode=ingest_mode)
+    client.force_login(user)
+    with (
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+    ):
+        response = client.post(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/resync")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_type_config.get("cdc_mode") == "snapshot"
+    # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
+    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
 
 
 @pytest.mark.parametrize(

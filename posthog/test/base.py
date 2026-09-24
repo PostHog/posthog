@@ -1502,6 +1502,13 @@ class QueryMatchingTest:
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
+
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
