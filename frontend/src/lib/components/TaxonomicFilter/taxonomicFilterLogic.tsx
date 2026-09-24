@@ -526,6 +526,7 @@ export interface taxonomicFilterLogicValues {
     }
     currentTabIndex: number
     dataWarehousePopoverFields: any
+    defaultGroupType: any
     endpointFilters: Record<string, any>
     eventNames: any
     eventNamesWithPrimaryProperties: {
@@ -787,9 +788,11 @@ export interface taxonomicFilterLogicMeta {
         }
         value: (arg: any) => any
         groupType: (arg: any) => any
+        defaultGroupType: (arg: any) => any
         activeTab: (
             explicitActiveTab: TaxonomicFilterGroupType | null,
             groupType: any,
+            defaultGroupType: any,
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             metaGroupTypes: Set<string>
         ) => TaxonomicFilterGroupType
@@ -2391,11 +2394,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
+        defaultGroupType: [() => [(_, props) => props.defaultGroupType], (defaultGroupType) => defaultGroupType],
         activeTab: [
-            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes],
+            (s) => [s.explicitActiveTab, s.groupType, s.defaultGroupType, s.taxonomicGroupTypes, s.metaGroupTypes],
             (
                 explicitActiveTab: TaxonomicFilterGroupType | null,
                 propsGroupType,
+                propsDefaultGroupType,
                 groupTypes: TaxonomicFilterGroupType[],
                 metaGroupTypes: Set<string>
             ): TaxonomicFilterGroupType => {
@@ -2411,6 +2416,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupTypes.includes(propsGroupType)
                 ) {
                     return propsGroupType
+                }
+                // A host that asks for a landing tab wins over the All surface. A browse-first
+                // picker needs a list on open, and All lists nothing until the user types.
+                if (propsDefaultGroupType && groupTypes.includes(propsDefaultGroupType)) {
+                    return propsDefaultGroupType
                 }
                 // Otherwise lead with the All (Suggested filters) surface so reopening on an
                 // existing selection still shows recents/pinned + a cross-category search,

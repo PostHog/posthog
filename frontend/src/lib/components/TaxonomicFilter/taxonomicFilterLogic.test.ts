@@ -1076,10 +1076,25 @@ describe('taxonomicFilterLogic', () => {
                 expectPresent: false,
                 expectDefault: false,
             },
-        ])('$description', ({ groupTypes, expectPresent, expectDefault }) => {
+            {
+                description: 'keeps SuggestedFilters but opens on the tab a browse-first picker asks for',
+                groupTypes: [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.PersonProperties],
+                defaultGroupType: TaxonomicFilterGroupType.SessionProperties,
+                expectPresent: true,
+                expectDefault: false,
+            },
+            {
+                description: 'ignores a requested tab the picker does not offer',
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                defaultGroupType: TaxonomicFilterGroupType.SessionProperties,
+                expectPresent: true,
+                expectDefault: true,
+            },
+        ])('$description', ({ groupTypes, defaultGroupType, expectPresent, expectDefault }) => {
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testSuggested-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testSuggested-${groupTypes.join('-')}-${defaultGroupType ?? 'none'}`,
                 taxonomicGroupTypes: groupTypes,
+                defaultGroupType,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()
@@ -1091,6 +1106,9 @@ describe('taxonomicFilterLogic', () => {
                 expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
             } else {
                 expect(testLogic.values.activeTab).not.toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            }
+            if (defaultGroupType && !expectDefault) {
+                expect(testLogic.values.activeTab).toBe(defaultGroupType)
             }
 
             testLogic.unmount()

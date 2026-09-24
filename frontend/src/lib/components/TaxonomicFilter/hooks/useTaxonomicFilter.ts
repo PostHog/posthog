@@ -66,6 +66,8 @@ export interface UseTaxonomicFilterOptions {
 
     // initial / controlled tab
     groupType?: TaxonomicFilterGroupType
+    /** Host's choice of landing tab, ahead of the aggregated "All" tab. See `TaxonomicFilterProps`. */
+    defaultGroupType?: TaxonomicFilterGroupType
 
     // search input
     searchQuery?: string
@@ -277,6 +279,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         onChange,
         onEnter,
         groupType: initialGroupType,
+        defaultGroupType,
         searchQuery: controlledSearchQuery,
         initialSearchQuery,
         onSearchQueryChange,
@@ -400,12 +403,17 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         if (initialGroupType && groupTypes.includes(initialGroupType)) {
             return initialGroupType
         }
+        // A host that asks for a landing tab wins over the All surface. A browse-first
+        // picker needs a list on open, and All lists nothing until the user types.
+        if (defaultGroupType && groupTypes.includes(defaultGroupType)) {
+            return defaultGroupType
+        }
         if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
             return TaxonomicFilterGroupType.SuggestedFilters
         }
         const firstNonMeta = groupTypes.find((t) => !metaGroupTypes.has(t))
         return firstNonMeta ?? groupTypes[0] ?? TaxonomicFilterGroupType.Empty
-    }, [initialGroupType, groupTypes, metaGroupTypes])
+    }, [initialGroupType, defaultGroupType, groupTypes, metaGroupTypes])
 
     // Only an explicit choice is stored; the active group derives from it so the
     // default keeps tracking groups that arrive after mount (late feature flags,

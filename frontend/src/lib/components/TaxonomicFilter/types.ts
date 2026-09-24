@@ -120,6 +120,11 @@ export function isKeyOnlyForGroup(
 
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
+    /** Tab to open on, ahead of the aggregated "All" tab. Set it on a picker whose job is to browse
+     *  a list rather than to search: "All" lists only the properties its event names suggest, so a
+     *  picker that passes no event names opens on a tab that shows a search prompt and nothing else.
+     *  Unlike `groupType`, this is the host's choice of landing tab, not the group of the current value. */
+    defaultGroupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
