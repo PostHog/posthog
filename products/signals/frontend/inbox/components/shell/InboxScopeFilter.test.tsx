@@ -69,6 +69,9 @@ describe('InboxScopeFilter', () => {
         inboxFiltersLogic.actions.setScope('teammate:uuid-ada')
         await waitFor(() => expect(screen.getByLabelText('Report scope: Ada')).toBeInTheDocument())
 
+        inboxFiltersLogic.actions.loadAvailableReviewersSuccess([])
+        expect(screen.getByLabelText('Report scope: Ada')).toBeInTheDocument()
+
         inboxFiltersLogic.actions.setScope('teammate:uuid-off-roster')
         await waitFor(() => expect(screen.getByLabelText('Report scope: Teammate')).toBeInTheDocument())
         expect(screen.queryByLabelText('Report scope: Ada')).toBeNull()

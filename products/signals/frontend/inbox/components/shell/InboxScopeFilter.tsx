@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -19,25 +18,19 @@ import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../
  * `inboxFiltersLogic`; teammates come from its shared `availableReviewers` loader.
  */
 export function InboxScopeFilter(): JSX.Element {
-    const { scope, availableReviewers: reviewers, availableReviewersLoading } = useValues(inboxFiltersLogic)
-    const { setScope, searchAvailableReviewers } = useActions(inboxFiltersLogic)
+    const {
+        scope,
+        availableReviewers: reviewers,
+        availableReviewersLoading,
+        knownTeammate,
+    } = useValues(inboxFiltersLogic)
+    const { setScope, searchAvailableReviewers, setKnownTeammate } = useActions(inboxFiltersLogic)
     const { user } = useValues(userLogic)
-    // Remember the selected teammate's label so the trigger stays correct even while a search
-    // query has filtered them out of the server-returned `reviewers` list. Keep the uuid alongside
-    // it: a scope change to a different teammate the roster hasn't loaded (search-filtered, or past
-    // the 100-row cap) must not fall back to the previous teammate's name.
-    const [knownTeammate, setKnownTeammate] = useState<{ uuid: string; label: string } | null>(null)
 
     const isForYou = scope === INBOX_SCOPE_FOR_YOU
     const selectedTeammateUuid = parseTeammateInboxScope(scope)
     const selectedTeammate = reviewers.find((r) => r.user_uuid === selectedTeammateUuid)
     const selectedTeammateLabel = selectedTeammate ? selectedTeammate.name || selectedTeammate.email : null
-
-    useEffect(() => {
-        if (selectedTeammateUuid && selectedTeammateLabel) {
-            setKnownTeammate({ uuid: selectedTeammateUuid, label: selectedTeammateLabel })
-        }
-    }, [selectedTeammateUuid, selectedTeammateLabel])
 
     // Only reuse the cached label when it names the currently-scoped teammate.
     const cachedTeammateLabel =
@@ -52,7 +45,7 @@ export function InboxScopeFilter(): JSX.Element {
     const pick = (next: InboxScope, label?: string): void => {
         const nextUuid = parseTeammateInboxScope(next)
         if (label && nextUuid) {
-            setKnownTeammate({ uuid: nextUuid, label })
+            setKnownTeammate(nextUuid, label)
         }
         setScope(next)
         searchAvailableReviewers('')

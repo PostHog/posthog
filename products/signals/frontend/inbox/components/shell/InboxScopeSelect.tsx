@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -11,19 +10,17 @@ import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
 
 export function InboxScopeSelect(): JSX.Element {
-    const { scope, availableReviewers: reviewers, availableReviewersLoading } = useValues(inboxFiltersLogic)
-    const { setScope, searchAvailableReviewers } = useActions(inboxFiltersLogic)
-    const [knownTeammate, setKnownTeammate] = useState<{ uuid: string; label: string } | null>(null)
+    const {
+        scope,
+        availableReviewers: reviewers,
+        availableReviewersLoading,
+        knownTeammate,
+    } = useValues(inboxFiltersLogic)
+    const { setScope, searchAvailableReviewers, setKnownTeammate } = useActions(inboxFiltersLogic)
 
     const selectedUuid = parseTeammateInboxScope(scope)
     const selectedTeammate = reviewers.find((reviewer) => reviewer.user_uuid === selectedUuid)
     const selectedLabel = selectedTeammate ? selectedTeammate.name || selectedTeammate.email : null
-
-    useEffect(() => {
-        if (selectedUuid && selectedLabel) {
-            setKnownTeammate({ uuid: selectedUuid, label: selectedLabel })
-        }
-    }, [selectedUuid, selectedLabel])
 
     const rightLabel = selectedUuid
         ? (selectedLabel ?? (knownTeammate?.uuid === selectedUuid ? knownTeammate.label : null) ?? 'Teammate')
@@ -32,7 +29,7 @@ export function InboxScopeSelect(): JSX.Element {
     const pick = (next: InboxScope, label?: string): void => {
         const nextUuid = parseTeammateInboxScope(next)
         if (nextUuid && label) {
-            setKnownTeammate({ uuid: nextUuid, label })
+            setKnownTeammate(nextUuid, label)
         }
         setScope(next)
         searchAvailableReviewers('')
