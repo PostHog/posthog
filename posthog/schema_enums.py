@@ -2746,6 +2746,12 @@ class SpanPropertyFilterType(StrEnum):
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 
 
+class SrmCause(StrEnum):
+    LOW_SAMPLE_SIZE = "low_sample_size"
+    CAPTURE_BY_SURFACE = "capture_by_surface"
+    UNKNOWN = "unknown"
+
+
 class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"

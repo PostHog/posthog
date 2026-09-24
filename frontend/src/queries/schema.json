@@ -50387,6 +50387,9 @@
         "SampleRatioMismatch": {
             "additionalProperties": false,
             "properties": {
+                "diagnosis": {
+                    "$ref": "#/definitions/SrmDiagnosis"
+                },
                 "expected": {
                     "additionalProperties": {
                         "type": "number"
@@ -52043,6 +52046,57 @@
                 "error_count",
                 "avg_start_offset_nano"
             ],
+            "type": "object"
+        },
+        "SrmCause": {
+            "enum": ["low_sample_size", "capture_by_surface", "unknown"],
+            "type": "string"
+        },
+        "SrmDiagnosis": {
+            "additionalProperties": false,
+            "description": "The likeliest reason a mismatch was flagged, with the numbers behind it. Present only when the chi-squared test is significant, so it always describes a live mismatch.",
+            "properties": {
+                "cause": {
+                    "$ref": "#/definitions/SrmCause"
+                },
+                "smallest_expected_count": {
+                    "description": "Smallest per-variant count the configured rollout expects, set for `low_sample_size`.",
+                    "type": "number"
+                },
+                "surface_skew": {
+                    "$ref": "#/definitions/SrmSurfaceSkew",
+                    "description": "The skewed surface, set for `capture_by_surface`."
+                }
+            },
+            "required": ["cause"],
+            "type": "object"
+        },
+        "SrmSurfaceSkew": {
+            "additionalProperties": false,
+            "description": "One first-exposure surface whose variant split runs far from the configured rollout.",
+            "properties": {
+                "expected_percentage": {
+                    "description": "The share the configured rollout expects for that variant, as a percentage (0-100).",
+                    "type": "number"
+                },
+                "exposures": {
+                    "description": "First exposures recorded on this surface.",
+                    "type": "number"
+                },
+                "surface": {
+                    "description": "The `$pathname` of the first exposure, falling back to `$screen_name`.",
+                    "type": "string"
+                },
+                "variant": {
+                    "description": "Variant taking the largest share of first exposures on this surface.",
+                    "type": "string"
+                },
+                "variant_percentage": {
+                    "description": "That variant's share of first exposures on this surface, as a percentage (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["surface", "variant", "variant_percentage", "expected_percentage", "exposures"],
             "type": "object"
         },
         "StepOrderValue": {

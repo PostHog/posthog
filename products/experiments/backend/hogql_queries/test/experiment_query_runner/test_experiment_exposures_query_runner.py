@@ -17,6 +17,7 @@ from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import UNKNOWN_SURFACE
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
@@ -235,6 +236,87 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, expected_exposures)
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_surface_split_groups_first_exposures_by_pathname(self):
+        # _get_surface_splits swallows query failures so a mismatch still reports a cause, so a
+        # template that stops parsing or a column that stops resolving would silently leave every
+        # diagnosis at UNKNOWN. Only a ClickHouse run catches that.
+        ff_property = f"$feature/{self.feature_flag.key}"
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                            "$pathname": "/",
+                        },
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                            "$pathname": "/",
+                        },
+                    },
+                ],
+                "user_test_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                            "$pathname": "/checkout",
+                        },
+                    },
+                ],
+                "user_test_3": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=None,
+        )
+
+        splits = ExperimentExposuresQueryRunner(team=self.team, query=query)._get_surface_splits()
+
+        assert splits is not None
+        by_surface = {split.surface: split for split in splits}
+        self.assertEqual(set(by_surface), {"/", "/checkout", UNKNOWN_SURFACE})
+        self.assertEqual(by_surface["/"].exposures, 2)
+        self.assertEqual(by_surface["/checkout"].exposures, 1)
+        self.assertEqual(by_surface["/checkout"].dominant_variant, "test")
+        self.assertEqual(by_surface[UNKNOWN_SURFACE].exposures, 1)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

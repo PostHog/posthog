@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
+import { IconCorrelationAnalysis, IconInfo, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import {
     LineChart,
@@ -23,11 +23,11 @@ import { experimentLogic } from '../experimentLogic'
 import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
+import { ExposureSplitNotice } from './ExposureSplitNotice'
+import { getExposureSplitVerdict } from './exposureSplitVerdict'
+import { ExposureSplitVerdictTag } from './ExposureSplitVerdictTag'
 import { buildExposureSeries } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
-
-const srmFailureTooltipText =
-    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
 
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
@@ -167,8 +167,7 @@ export function Exposures(): JSX.Element {
     const multipleTreatmentLabel =
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
-    // Detect sample ratio mismatch (p < 0.001 is significant)
-    const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
+    const splitVerdict = getExposureSplitVerdict(exposures?.sample_ratio_mismatch)
 
     const handleCollapseChange = useCallback((activeKey: string | null) => {
         const isOpen = activeKey === 'cumulative-exposures'
@@ -191,7 +190,7 @@ export function Exposures(): JSX.Element {
                     // The fade-out is shorter so it ends before the 200ms panel slide does; at equal
                     // durations the exit reads as sluggish.
                     <div
-                        className={`flex items-center gap-3 transition-[opacity,visibility] ease-in-out ${
+                        className={`flex items-center gap-3 flex-wrap transition-[opacity,visibility] ease-in-out ${
                             isCollapsed
                                 ? 'visible opacity-100 pointer-events-auto duration-300'
                                 : 'invisible opacity-0 pointer-events-none duration-150'
@@ -226,11 +225,7 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
-                                {hasSRM && (
-                                    <Tooltip title={srmFailureTooltipText}>
-                                        <IconWarning className="text-warning text-lg" />
-                                    </Tooltip>
-                                )}
+                                {splitVerdict && <ExposureSplitVerdictTag verdict={splitVerdict} />}
                                 {excludedVariants.length > 0 && (
                                     <Tooltip
                                         title={`Excluded from analysis: ${excludedVariants.join(', ')}. Manage on the Variants tab.`}
@@ -458,38 +453,12 @@ export function Exposures(): JSX.Element {
                                             },
                                         ]}
                                     />
-                                    {exposures?.sample_ratio_mismatch != null && (
-                                        <div className="flex items-center gap-1 text-xs mt-2">
-                                            {hasSRM ? (
-                                                <>
-                                                    <Tooltip title={srmFailureTooltipText}>
-                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                            <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">
-                                                                Sample ratio mismatch detected
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
-                                                    </span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
-                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
-                                                            <IconCheckCircle className="text-sm" />
-                                                            <span>
-                                                                Exposure distribution matches rollout percentages
-                                                            </span>
-                                                        </span>
-                                                    </Tooltip>
-                                                    <span className="text-muted">
-                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
-                                                    </span>
-                                                </>
-                                            )}
-                                        </div>
+                                    {splitVerdict && exposures?.sample_ratio_mismatch != null && (
+                                        <ExposureSplitNotice
+                                            verdict={splitVerdict}
+                                            pValue={exposures.sample_ratio_mismatch.p_value}
+                                            onEditExposureCriteria={() => openExposureCriteriaModal(exposureCriteria)}
+                                        />
                                     )}
                                 </div>
                             )}

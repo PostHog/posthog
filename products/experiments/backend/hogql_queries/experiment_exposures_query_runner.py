@@ -14,6 +14,8 @@ from posthog.schema import (
     ExperimentExposureTimeSeries,
     IntervalType,
     SampleRatioMismatch,
+    SrmCause,
+    SrmDiagnosis,
 )
 
 from posthog.hogql import ast
@@ -27,7 +29,11 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    SurfaceExposureSplit,
+    evaluate_bias_risk,
+    evaluate_srm_diagnosis,
+)
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -129,12 +135,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             analysis_window_end(self.window_end_date, self.as_of),
         )
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
+    def _build_query_builder(self) -> ExperimentQueryBuilder:
         exposure_params = get_exposure_config_params_for_builder(
             self.exposure_criteria, self.team, self.experiment.start_date
         )
 
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_params.exposure_config,
@@ -145,6 +151,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             entity_key=get_entity_key(self.group_type_index),
             activation_config=exposure_params.activation_config,
         )
+
+    def _get_exposure_query(self) -> ast.SelectQuery:
+        builder = self._build_query_builder()
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
         # Until then, the duration gate here is unconditional — the main runner
@@ -265,6 +274,75 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             p_value=float(p_value),
         )
 
+    def _diagnose_srm(self, sample_ratio_mismatch: SampleRatioMismatch) -> SrmDiagnosis | None:
+        """
+        Name the likeliest cause of a flagged mismatch, so the UI can say more than that the
+        split is uneven.
+
+        Two passes, because the surface split is a second ClickHouse scan: the first pass
+        answers from the chi-square alone, and only a result of UNKNOWN is worth paying for
+        the scan to narrow further.
+        """
+        diagnosis = evaluate_srm_diagnosis(
+            p_value=sample_ratio_mismatch.p_value,
+            expected_counts=sample_ratio_mismatch.expected,
+        )
+        if diagnosis is None or diagnosis.cause != SrmCause.UNKNOWN:
+            return diagnosis
+
+        surface_splits = self._get_surface_splits()
+        if surface_splits is None:
+            return diagnosis
+
+        return evaluate_srm_diagnosis(
+            p_value=sample_ratio_mismatch.p_value,
+            expected_counts=sample_ratio_mismatch.expected,
+            surface_splits=surface_splits,
+        )
+
+    def _get_surface_splits(self) -> list[SurfaceExposureSplit] | None:
+        """
+        First exposures per surface, for the busiest surfaces. Returns None when the split
+        cannot be read, which leaves the diagnosis at UNKNOWN rather than guessing.
+
+        Activation mode is one such case: an activation event decides which entities count,
+        so a split over the flag exposures alone would describe a wider population than
+        total_exposures does, and a surface only the activation path reaches would read as
+        skewed on every experiment configured that way.
+        """
+        if (
+            get_exposure_config_params_for_builder(
+                self.exposure_criteria, self.team, self.experiment.start_date
+            ).activation_config
+            is not None
+        ):
+            return None
+
+        try:
+            with tags_context(experiment_query_surface="srm_surface_split"):
+                response = execute_hogql_query(
+                    query_type="ExperimentExposureSurfaceSplitQuery",
+                    query=self._build_query_builder().get_surface_split_query(),
+                    team=self.team,
+                    user=self.user,
+                    timings=self.timings,
+                    modifiers=create_default_modifiers_for_team(self.team),
+                    settings=HogQLGlobalSettings(max_execution_time=600),
+                )
+        except Exception:
+            logger.exception("exposure_surface_split_failed", experiment_id=self.experiment.id)
+            return None
+
+        return [
+            SurfaceExposureSplit(
+                surface=surface,
+                exposures=int(exposures),
+                dominant_variant=dominant_variant,
+                dominant_exposures=int(dominant_exposures),
+            )
+            for surface, exposures, dominant_variant, dominant_exposures in response.results
+        ]
+
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
         # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
         # uneven-split check on data collected under the original split. The warning is
@@ -355,6 +433,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
+        if sample_ratio_mismatch is not None:
+            sample_ratio_mismatch.diagnosis = self._diagnose_srm(sample_ratio_mismatch)
         bias_risk = self._evaluate_bias_risk(total_exposures)
 
         return ExperimentExposureQueryResponse(

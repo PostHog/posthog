@@ -262,6 +262,7 @@ from posthog.schema_enums import (
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
     SnapshotSource as SnapshotSource,
     SpanPropertyFilterType as SpanPropertyFilterType,
+    SrmCause as SrmCause,
     StartHandling as StartHandling,
     Status as Status,
     StepOrderValue as StepOrderValue,
@@ -2844,14 +2845,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: CurrencyCode | None = None
 
 
-class SampleRatioMismatch(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    expected: dict[str, float]
-    p_value: float
-
-
 class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2993,6 +2986,29 @@ class SourceMap(BaseModel):
     reported_conversion: str | None = None
     reported_conversion_value: str | None = None
     source: str | None = None
+
+
+class SrmSurfaceSkew(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_percentage: float = Field(
+        ...,
+        description=("The share the configured rollout expects for that variant, as a percentage (0-100)."),
+    )
+    exposures: float = Field(..., description="First exposures recorded on this surface.")
+    surface: str = Field(
+        ...,
+        description=("The `$pathname` of the first exposure, falling back to `$screen_name`."),
+    )
+    variant: str = Field(
+        ...,
+        description=("Variant taking the largest share of first exposures on this surface."),
+    )
+    variant_percentage: float = Field(
+        ...,
+        description=("That variant's share of first exposures on this surface, as a percentage (0-100)."),
+    )
 
 
 class StickinessFilterLegacy(BaseModel):
@@ -5311,22 +5327,6 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
-class ExperimentExposureQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6763,22 +6763,6 @@ class QueryResponseAlternative10(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7587,6 +7571,20 @@ class SpanTreeNode(BaseModel):
     parent_service: str
     service_name: str
     total_duration_nano: float
+
+
+class SrmDiagnosis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cause: SrmCause
+    smallest_expected_count: float | None = Field(
+        default=None,
+        description=("Smallest per-variant count the configured rollout expects, set for `low_sample_size`."),
+    )
+    surface_skew: SrmSurfaceSkew | None = Field(
+        default=None, description="The skewed surface, set for `capture_by_surface`."
+    )
 
 
 class StickinessCriteria(BaseModel):
@@ -11849,41 +11847,6 @@ class CachedEventsQueryResponse(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
-    )
-
-
-class CachedExperimentExposureQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    date_range: DateRange
-    is_cached: bool
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    timezone: str
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
@@ -24749,6 +24712,15 @@ class RevenueAnalyticsConfig(BaseModel):
     filter_test_accounts: bool | None = False
 
 
+class SampleRatioMismatch(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    diagnosis: SrmDiagnosis | None = None
+    expected: dict[str, float]
+    p_value: float
+
+
 class SessionAttributionExplorerQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26086,6 +26058,41 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
+class CachedExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    date_range: DateRange
+    is_cached: bool
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    timezone: str
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class CachedInsightActorsQueryOptionsResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27052,6 +27059,22 @@ class ExperimentEventExposureConfig(BaseModel):
     properties: list[AnyPropertyFilterDiscriminated]
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
 
 
 class FeatureFlagGroupType(BaseModel):
@@ -28421,6 +28444,22 @@ class QueryResponseAlternative17(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
+    )
+
+
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
