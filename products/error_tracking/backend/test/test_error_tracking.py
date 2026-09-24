@@ -96,6 +96,31 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         assert override
         assert override.version == 1
 
+    @parameterized.expand(
+        [
+            ("resolved", "active", "active"),
+            ("pending_release", "active", "active"),
+            ("archived", "active", "active"),
+            # A suppressed issue stays suppressed, which is what ingestion does on a direct link.
+            ("suppressed", "active", "suppressed"),
+            ("active", "active", "active"),
+            # No source is seeing the error any more, so the target has no recurrence to report.
+            ("resolved", "resolved", "resolved"),
+        ]
+    )
+    def test_merge_reopens_a_dormant_target(self, target_status: str, source_status: str, expected_status: str):
+        source = self.create_issue(["fingerprint_one"])
+        target = self.create_issue(["fingerprint_two"])
+        ErrorTrackingIssue.objects.filter(id=source.id).update(status=source_status)
+        target.status = target_status
+        target.save(update_fields=["status"])
+
+        target.merge(issue_ids=[source.id])
+
+        assert target.status == expected_status
+        target.refresh_from_db()
+        assert target.status == expected_status
+
     def test_merging_multiple_issues_at_once(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])

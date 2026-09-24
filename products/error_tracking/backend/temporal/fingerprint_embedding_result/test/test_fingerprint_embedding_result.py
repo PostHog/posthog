@@ -16,6 +16,7 @@ from posthog.models import Team
 
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueMergeResult,
 )
@@ -223,7 +224,7 @@ class TestFingerprintEmbeddingResultActivity:
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01)],
             )
 
-        assert result == 0
+        assert result.merged_count == 0
 
     def test_merge_fingerprint_skips_distances_above_threshold(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True):
@@ -233,7 +234,7 @@ class TestFingerprintEmbeddingResultActivity:
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.019)],
             )
 
-        assert result == 0
+        assert result.merged_count == 0
 
     def test_merge_fingerprint_raises_when_source_fingerprint_is_missing(self) -> None:
         fingerprint_query = MagicMock()
@@ -289,7 +290,7 @@ class TestFingerprintEmbeddingResultActivity:
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
             )
 
-        assert result == 1
+        assert result.merged_count == 1
         assert filter_fingerprints.call_args.kwargs == {
             "team_id": 2,
             "fingerprint__in": ["test-fingerprint", "fingerprint-1"],
@@ -341,7 +342,7 @@ class TestFingerprintEmbeddingResultActivity:
                 ],
             )
 
-        assert result == 1
+        assert result.merged_count == 1
         target_issue.merge.assert_called_once_with(
             issue_ids=[source_issue_id],
             expected_fingerprint_issue_ids={
@@ -381,7 +382,7 @@ class TestFingerprintEmbeddingResultActivity:
                 expected_source_issue_id=str(original_issue_id),
             )
 
-        assert result == 1
+        assert result.merged_count == 1
 
     def test_merge_fingerprint_ownership_change_keeps_unmerged_outcome(self) -> None:
         original_issue_id = uuid.uuid4()
@@ -414,7 +415,7 @@ class TestFingerprintEmbeddingResultActivity:
                 expected_source_issue_id=str(original_issue_id),
             )
 
-        assert result == 0
+        assert result.merged_count == 0
 
     def test_merge_fingerprint_retries_when_merge_state_is_stale(self) -> None:
         source_issue_id = uuid.uuid4()
@@ -465,13 +466,13 @@ class TestMergeFingerprintCrossTeamIsolation(BaseTest):
                 return_value=MagicMock(),
             ),
         ):
-            merged_count = _merge_fingerprint_into_closest_issue(
+            outcome = _merge_fingerprint_into_closest_issue(
                 team=self.team,
                 fingerprint="fp-source",
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fp-target", distance=0.01)],
             )
 
-        assert merged_count == 1
+        assert outcome.merged_count == 1
 
         # requesting team: source issue merged into target, fingerprint repointed with bumped version
         assert not ErrorTrackingIssue.objects.filter(id=source_issue.id).exists()
@@ -485,3 +486,54 @@ class TestMergeFingerprintCrossTeamIsolation(BaseTest):
         other_fingerprint = ErrorTrackingIssueFingerprintV2.objects.get(team=other_team, fingerprint="fp-source")
         assert other_fingerprint.issue_id == other_source_issue.id
         assert other_fingerprint.version == 0
+
+
+class TestAutoMergeReopensTarget(BaseTest):
+    def _create_issue(self, fingerprint: str, status: str) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError", status=status)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
+    def _merge(self, event_reference: str = "event-1") -> object:
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=MagicMock(),
+            ),
+        ):
+            return _merge_fingerprint_into_closest_issue(
+                team=self.team,
+                fingerprint="fp-source",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fp-target", distance=0.01)],
+                event_reference=event_reference,
+            )
+
+    def test_auto_merge_into_resolved_target_reports_the_reopen(self) -> None:
+        self._create_issue("fp-source", "active")
+        target = self._create_issue("fp-target", "resolved")
+        ErrorTrackingIssueAssignment.objects.create(issue=target, user=self.user)
+
+        outcome = self._merge()
+
+        target.refresh_from_db()
+        assert target.status == "active"
+        assert outcome.reopened_target is not None
+        assert outcome.reopened_target.issue_id == str(target.id)
+        # The notification carries the target's state after the reopen, so subscribers
+        # do not read it as still resolved.
+        assert outcome.reopened_target.issue.status == "active"
+        assert outcome.reopened_target.issue.name == "TypeError"
+        assert outcome.reopened_target.assignee == f'{{"type":"user","id":{self.user.id}}}'
+        assert outcome.reopened_target.notification_id == str(
+            uuid.uuid5(uuid.NAMESPACE_OID, f"issue_reopened:{self.team.id}:{target.id}:event-1")
+        )
+
+    def test_auto_merge_into_active_target_reports_no_reopen(self) -> None:
+        self._create_issue("fp-source", "active")
+        self._create_issue("fp-target", "active")
+
+        outcome = self._merge()
+
+        assert outcome.merged_count == 1
+        assert outcome.reopened_target is None

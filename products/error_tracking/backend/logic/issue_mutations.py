@@ -24,6 +24,7 @@ from products.error_tracking.backend.logic.assignees import assignee_property
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
     ISSUE_MERGED_EVENT,
+    ISSUE_REOPENED_EVENT,
     ISSUE_SPLIT_EVENT,
     ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
@@ -196,7 +197,9 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
+    status_before = issue.status
     result, merged_issue_ids = issue.merge(issue_ids=ids)
+    reopened = issue.status != status_before
 
     if result == ErrorTrackingIssueMergeResult.MERGED:
         merged_id_strings = [str(merged_issue_id) for merged_issue_id in merged_issue_ids]
@@ -223,6 +226,13 @@ def merge_issues(
             user=user,
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
+        if reopened:
+            produce_issue_lifecycle_event_on_commit(
+                event=ISSUE_REOPENED_EVENT,
+                issue=issue,
+                user=user,
+                extra_properties={"previous_status": status_label(status_before)},
+            )
 
     return IssueMergeOutcome(result=result, merged_issue_count=len(merged_issue_ids))
 
