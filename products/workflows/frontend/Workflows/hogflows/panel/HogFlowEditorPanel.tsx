@@ -62,11 +62,12 @@ export function HogFlowEditorPanel({
     return (
         <div
             ref={panelRef}
+            data-attr="workflow-editor-panel"
             className={clsx(
-                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden',
+                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden @max-[48rem]/workflow-editor:!relative @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:shrink-0',
                 layout === 'floating'
                     ? 'absolute right-0 max-w-full p-2'
-                    : 'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:border-t'
+                    : 'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:border-t'
             )}
             style={
                 layout === 'floating'
@@ -89,7 +90,7 @@ export function HogFlowEditorPanel({
                 className={clsx(
                     'relative z-10 flex min-h-0 flex-col overflow-hidden bg-surface-primary',
                     layout === 'floating'
-                        ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)]'
+                        ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)] @max-[48rem]/workflow-editor:h-full'
                         : 'h-full !rounded-none'
                 )}
             >
@@ -101,6 +102,7 @@ export function HogFlowEditorPanel({
                         )}
                     >
                         <LemonButton
+                            aria-label="Back to steps"
                             size="small"
                             icon={<IconArrowLeft />}
                             onClick={() => setSelectedNodeId(null)}
