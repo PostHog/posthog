@@ -598,6 +598,8 @@ SPECTACULAR_SETTINGS = {
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+            # LogsMetricRule.RecordSource and LogsRetentionRule.RecordSource are identical.
+            "LogsRecordSourceEnum": "products.logs.backend.facade.enums.RecordSource",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",

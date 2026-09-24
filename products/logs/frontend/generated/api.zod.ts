@@ -1667,6 +1667,14 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe('The logs query to execute.'),
 })
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesCreateBodyNameMax = 255
 
 export const logsRetentionRulesCreateBodyEnabledDefault = false
@@ -1692,6 +1700,14 @@ export const LogsRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesUpdateBodyNameMax = 255
 
 export const logsRetentionRulesUpdateBodyEnabledDefault = false
@@ -1717,6 +1733,14 @@ export const LogsRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesPartialUpdateBodyNameMax = 255
 
 export const logsRetentionRulesPartialUpdateBodyEnabledDefault = false

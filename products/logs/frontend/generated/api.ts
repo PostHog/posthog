@@ -732,6 +732,14 @@ export const getLogsRetentionRulesListUrl = (projectId: string, params?: LogsRet
         : `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesList = async (
     projectId: string,
     params?: LogsRetentionRulesListParams,
@@ -747,6 +755,14 @@ export const getLogsRetentionRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesCreate = async (
     projectId: string,
     logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
@@ -764,6 +780,14 @@ export const getLogsRetentionRulesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -779,6 +803,14 @@ export const getLogsRetentionRulesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesUpdate = async (
     projectId: string,
     id: string,
@@ -797,6 +829,14 @@ export const getLogsRetentionRulesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -815,6 +855,14 @@ export const getLogsRetentionRulesDestroyUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record source.
+ *
+ * The route pins the source (see `TracingRetentionRuleViewSet` for spans), so a client can
+ * never move a rule between sources and `reorder` keeps its "every rule exactly once"
+ * contract. Priorities are therefore ordered per source, not per team — a single-route API
+ * with a `source` query parameter would break that contract silently.
+ */
 export const logsRetentionRulesDestroy = async (
     projectId: string,
     id: string,

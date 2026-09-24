@@ -40,6 +40,25 @@ describe('RetentionRulesCache', () => {
         expect((await droppedCount('7')) - before).toBe(1)
     })
 
+    it('filters by record source in SQL and caches each source apart', async () => {
+        query.mockResolvedValueOnce(rows(30))
+        await cache.getCompiledRuleSet(1, 'spans')
+        expect(query.mock.calls[0][1]).toContain('source = $2')
+        expect(query.mock.calls[0][2]).toEqual([1, 'spans'])
+
+        // Same team, other source: the cached span rules must not be served for logs.
+        query.mockResolvedValueOnce(rows(90))
+        const logRules = await cache.getCompiledRuleSet(1, 'logs')
+        expect(query.mock.calls[1][2]).toEqual([1, 'logs'])
+        expect(logRules.rules).toEqual([{ id: 'r1', filterGroup: null, retentionDays: 90 }])
+    })
+
+    it('defaults to the log source', async () => {
+        query.mockResolvedValueOnce(rows(30))
+        await cache.getCompiledRuleSet(1)
+        expect(query.mock.calls[0][2]).toEqual([1, 'logs'])
+    })
+
     it('fails open to no rules when the fetch throws and nothing is cached', async () => {
         query.mockRejectedValueOnce(new Error('pg down'))
         const compiled = await cache.getCompiledRuleSet(1)

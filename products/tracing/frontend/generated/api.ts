@@ -9,10 +9,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    LogsRetentionRuleApi,
+    LogsRetentionRuleNameSuggestionApi,
+    LogsRetentionRuleReorderApi,
+    LogsRetentionRuleSuggestNameApi,
+    PaginatedLogsRetentionRuleListApi,
     PaginatedTracingViewListApi,
+    PatchedLogsRetentionRuleApi,
     PatchedTeamTracingConfigApi,
     PatchedTracingViewApi,
     TeamTracingConfigApi,
+    TracingRetentionRulesListParams,
+    TracingRetentionRulesReorderCreateParams,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
@@ -98,7 +106,7 @@ export const getOrganizationsProjectsTracingConfigPartialUpdateUrl = (organizati
 export const organizationsProjectsTracingConfigPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedTeamTracingConfigApi?: PatchedTeamTracingConfigApi,
+    patchedTeamTracingConfigApi?: NonReadonly<PatchedTeamTracingConfigApi>,
     options?: RequestInit
 ): Promise<TeamTracingConfigApi> => {
     return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigPartialUpdateUrl(organizationId, id), {
@@ -106,6 +114,214 @@ export const organizationsProjectsTracingConfigPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTeamTracingConfigApi),
+    })
+}
+
+export const getTracingRetentionRulesListUrl = (projectId: string, params?: TracingRetentionRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/retention_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/retention_rules/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation — only the record source, the access-control scope and the
+ * feature flag differ. The source is pinned here rather than taken from the payload, so a
+ * client can never move a rule between logs and spans.
+ */
+export const tracingRetentionRulesList = async (
+    projectId: string,
+    params?: TracingRetentionRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsRetentionRuleListApi> => {
+    return apiMutator<PaginatedLogsRetentionRuleListApi>(getTracingRetentionRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingRetentionRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation — only the record source, the access-control scope and the
+ * feature flag differ. The source is pinned here rather than taken from the payload, so a
+ * client can never move a rule between logs and spans.
+ */
+export const tracingRetentionRulesCreate = async (
+    projectId: string,
+    logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getTracingRetentionRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleApi),
+    })
+}
+
+export const getTracingRetentionRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation — only the record source, the access-control scope and the
+ * feature flag differ. The source is pinned here rather than taken from the payload, so a
+ * client can never move a rule between logs and spans.
+ */
+export const tracingRetentionRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getTracingRetentionRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingRetentionRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation — only the record source, the access-control scope and the
+ * feature flag differ. The source is pinned here rather than taken from the payload, so a
+ * client can never move a rule between logs and spans.
+ */
+export const tracingRetentionRulesUpdate = async (
+    projectId: string,
+    id: string,
+    logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getTracingRetentionRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleApi),
+    })
+}
+
+export const getTracingRetentionRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation — only the record source, the access-control scope and the
+ * feature flag differ. The source is pinned here rather than taken from the payload, so a
+ * client can never move a rule between logs and spans.
+ */
+export const tracingRetentionRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsRetentionRuleApi?: NonReadonly<PatchedLogsRetentionRuleApi>,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getTracingRetentionRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsRetentionRuleApi),
+    })
+}
+
+export const getTracingRetentionRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation — only the record source, the access-control scope and the
+ * feature flag differ. The source is pinned here rather than taken from the payload, so a
+ * client can never move a rule between logs and spans.
+ */
+export const tracingRetentionRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingRetentionRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTracingRetentionRulesReorderCreateUrl = (
+    projectId: string,
+    params?: TracingRetentionRulesReorderCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/retention_rules/reorder/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/retention_rules/reorder/`
+}
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const tracingRetentionRulesReorderCreate = async (
+    projectId: string,
+    logsRetentionRuleReorderApi: LogsRetentionRuleReorderApi,
+    params?: TracingRetentionRulesReorderCreateParams,
+    options?: RequestInit
+): Promise<PaginatedLogsRetentionRuleListApi> => {
+    return apiMutator<PaginatedLogsRetentionRuleListApi>(getTracingRetentionRulesReorderCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleReorderApi),
+    })
+}
+
+export const getTracingRetentionRulesSuggestNameCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/suggest_name/`
+}
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const tracingRetentionRulesSuggestNameCreate = async (
+    projectId: string,
+    logsRetentionRuleSuggestNameApi: LogsRetentionRuleSuggestNameApi,
+    options?: RequestInit
+): Promise<LogsRetentionRuleNameSuggestionApi> => {
+    return apiMutator<LogsRetentionRuleNameSuggestionApi>(getTracingRetentionRulesSuggestNameCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleSuggestNameApi),
     })
 }
 

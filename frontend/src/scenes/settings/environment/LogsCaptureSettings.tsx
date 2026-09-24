@@ -17,6 +17,7 @@ import {
     logsRetentionDaysLabel,
 } from 'products/logs/frontend/components/LogsRetention/logsRetentionPeriod'
 import { LogsRetentionPeriodPicker } from 'products/logs/frontend/components/LogsRetention/LogsRetentionPeriodPicker'
+import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 export function LogsCaptureSettings(): JSX.Element {
@@ -181,5 +182,16 @@ export function LogsRetentionSettings(): JSX.Element {
                 customCommit="apply"
             />
         </AccessControlAction>
+    )
+}
+
+export function LogsRetentionSettingsBlock(): JSX.Element {
+    // `LogsRetentionSection` gates itself on the retention-rules flag, so the environment
+    // default below stays visible to everyone.
+    return (
+        <div className="flex flex-col gap-4">
+            <LogsRetentionSettings />
+            <LogsRetentionSection />
+        </div>
     )
 }
