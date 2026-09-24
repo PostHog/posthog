@@ -105,18 +105,32 @@ class TestObservationMedia(BaseTest):
 
     @parameterized.expand(
         [
-            ("citation_wins", {"summary_segments": [{"kind": "chip", "timestamp_ms": 12_000}]}, [(40, 60)], 12.0),
-            ("signal_midpoint", {"summary_segments": [{"kind": "text", "value": "no chip"}]}, [(40, 60)], 50.0),
-            ("quarter_of_the_video", {}, [], 25.0),
+            ("citation_wins", {"summary_segments": [{"kind": "chip", "timestamp_ms": 12_000}]}, [(40, 60)], None, 12.0),
+            ("signal_midpoint", {"summary_segments": [{"kind": "text", "value": "no chip"}]}, [(40, 60)], None, 50.0),
+            ("quarter_of_the_video", {}, [], None, 25.0),
+            ("pick_at_the_start_skips_the_unstyled_frames", {}, [], 0, 3.0),
+            ("pick_past_the_end_skips_the_unloading_frames", {}, [], 500, 97.0),
+            (
+                "citation_at_the_start_skips_them_too",
+                {"summary_segments": [{"kind": "chip", "timestamp_ms": 0}]},
+                [],
+                None,
+                3.0,
+            ),
         ]
     )
     def test_thumbnail_moment(
-        self, _name: str, model_output: dict[str, Any], signals: list[tuple[int, int]], expected_s: float
+        self,
+        _name: str,
+        model_output: dict[str, Any],
+        signals: list[tuple[int, int]],
+        thumbnail_video_s: int | None,
+        expected_s: float,
     ) -> None:
         self.observation.scanner_result = {"model_output": model_output}
         self.observation.save(update_fields=["scanner_result"])
 
-        prepared = self._prepare(signal_video_times=signals)
+        prepared = self._prepare(signal_video_times=signals, thumbnail_video_s=thumbnail_video_s)
 
         assert prepared.activity_input.video_time_s == expected_s
         assert prepared.video_start_ms == int(expected_s * 1000)
