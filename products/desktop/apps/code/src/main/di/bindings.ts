@@ -2,6 +2,7 @@ import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -391,6 +392,7 @@ export interface MainBindings {
   [AUTH_TOKEN_CIPHER]: TokenCipherPortAdapter;
   [AUTH_CONNECTIVITY]: ConnectivityService;
   [AUTH_TOKEN_OVERRIDE]: string | null;
+  [AUTH_FETCH_EXTRA_ORIGINS]: readonly string[];
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
   [QUICK_ASK_FETCH]: FetchLike;

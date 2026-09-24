@@ -130,6 +130,58 @@ describe("Agent", () => {
     );
   });
 
+  it.each(["claude", "codex"] as const)(
+    "hands %s the proxy placeholder instead of the OAuth token",
+    async (adapter) => {
+      const getApiKey = vi.fn().mockResolvedValue("pha_oauth");
+      const agent = new Agent({
+        posthog: { apiUrl: "https://us.posthog.com", getApiKey, projectId: 1 },
+        skipLogPersistence: true,
+      });
+
+      await agent.run("__preview__", "run-1", {
+        adapter,
+        model: adapter === "codex" ? "gpt-5.5" : undefined,
+        gatewayUrl: "http://127.0.0.1:4000/tok",
+        gatewayApiKey: "posthog-code-auth-proxy",
+        codexBaseUrlInConfig: true,
+      });
+
+      const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+        [AcpConnectionConfig],
+      ];
+      expect(JSON.stringify(config)).not.toContain("pha_oauth");
+      if (adapter === "claude") {
+        expect(config.claudeGatewayEnv).toMatchObject({
+          anthropicAuthToken: "posthog-code-auth-proxy",
+          openaiApiKey: "posthog-code-auth-proxy",
+        });
+      } else {
+        expect(config.codexOptions).toMatchObject({
+          apiKey: "posthog-code-auth-proxy",
+          apiBaseUrlInConfig: true,
+        });
+      }
+    },
+  );
+
+  it("refuses a gateway URL override without its key", async () => {
+    const getApiKey = vi.fn().mockResolvedValue("pha_oauth");
+    const agent = new Agent({
+      posthog: { apiUrl: "https://us.posthog.com", getApiKey, projectId: 1 },
+      skipLogPersistence: true,
+    });
+
+    await expect(
+      agent.run("__preview__", "run-1", {
+        adapter: "claude",
+        gatewayUrl: "http://127.0.0.1:4000/tok",
+      }),
+    ).rejects.toThrow("gatewayUrl override requires gatewayApiKey");
+    expect(getApiKey).not.toHaveBeenCalled();
+    expect(createAcpConnectionMock).not.toHaveBeenCalled();
+  });
+
   it("stops before starting Codex without authentication", async () => {
     const agent = new Agent({ skipLogPersistence: true });
 

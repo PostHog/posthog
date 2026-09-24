@@ -122,3 +122,7 @@ export const AUTH_CONNECTIVITY = Symbol.for("posthog.core.auth.connectivity");
 export const AUTH_TOKEN_OVERRIDE = Symbol.for(
   "posthog.core.auth.tokenOverride",
 );
+
+export const AUTH_FETCH_EXTRA_ORIGINS = Symbol.for(
+  "posthog.core.auth.fetchExtraOrigins",
+);

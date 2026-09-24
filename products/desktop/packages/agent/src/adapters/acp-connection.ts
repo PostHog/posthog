@@ -244,6 +244,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         binaryPath: nativeBinary,
         cwd: codexOptions.cwd,
         apiBaseUrl: codexOptions.apiBaseUrl,
+        apiBaseUrlInConfig: codexOptions.apiBaseUrlInConfig,
         apiKey: codexOptions.apiKey,
         codexHome: codexOptions.codexHome,
         useMachineAuth: codexOptions.useMachineAuth,

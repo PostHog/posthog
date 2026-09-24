@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -63,6 +69,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 vi.mock("./mcp/tool-metadata", () => ({
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
+  getCachedMcpTools: vi.fn().mockReturnValue([]),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
   setMcpToolApprovalStates: vi.fn(),
   getMcpToolApprovalState: vi.fn().mockReturnValue("approved"),
@@ -548,4 +555,71 @@ describe("ClaudeAcpAgent session creation", () => {
 
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "detects the traceparent hook inside a pinned gateway settings file",
+    async () => {
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+
+      await agent.newSession({ cwd, mcpServers: [] });
+
+      const settings = createdQueryOptions[0]?.extraArgs?.settings;
+      expect(settings?.startsWith(configDir)).toBe(true);
+      expect(
+        (agent as unknown as { session: { traceparentHookInstalled: boolean } })
+          .session.traceparentHookInstalled,
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "removes pinned settings on replacement and close, keeping a shared file",
+    async () => {
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+      const settingsOf = (index: number) =>
+        String(createdQueryOptions[index]?.extraArgs?.settings);
+
+      const { sessionId } = await agent.newSession({ cwd, mcpServers: [] });
+      // Detach the live id so the resume rebuilds the same session.
+      const live = agent as unknown as {
+        sessionId: string;
+        session: { sdkSessionId: string };
+      };
+      live.sessionId = "detached";
+      live.session.sdkSessionId = "detached";
+      await agent.resumeSession({ sessionId, cwd, mcpServers: [] });
+      expect(settingsOf(1)).toBe(settingsOf(0));
+      expect(existsSync(settingsOf(0))).toBe(true);
+
+      await agent.newSession({ cwd, mcpServers: [] });
+      expect(existsSync(settingsOf(0))).toBe(false);
+      expect(existsSync(settingsOf(2))).toBe(true);
+
+      await agent.closeSession();
+      await agent.closeSession();
+      expect(existsSync(settingsOf(2))).toBe(false);
+    },
+  );
 });

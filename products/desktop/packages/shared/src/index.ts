@@ -106,6 +106,7 @@ export {
   configureCustomCloud,
   customCloudSchema,
   getCustomCloud,
+  isCredentialOriginAllowed,
   isCustomCloudHost,
   normalizeCustomCloud,
 } from "./custom-cloud";

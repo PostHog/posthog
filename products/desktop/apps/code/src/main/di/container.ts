@@ -14,6 +14,7 @@ import { AuthService } from "@posthog/core/auth/auth";
 import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -425,6 +426,13 @@ container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
+container
+  .bind(AUTH_FETCH_EXTRA_ORIGINS)
+  .toConstantValue(
+    [process.env.POSTHOG_MCP_URL, process.env.POSTHOG_PROXY_BASE_URL].filter(
+      (value): value is string => Boolean(value),
+    ),
+  );
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
 container.load(feedbackCoreModule);

@@ -19,6 +19,15 @@ import { AGENT_AUTH, AGENT_LOGGER } from "./identifiers";
 import type { AgentAuth, AgentLogger, AgentScopedLogger } from "./ports";
 import type { Credentials } from "./schemas";
 
+function isPostHogDevHost(apiHost: string): boolean {
+  try {
+    const host = new URL(apiHost).hostname.replace(/\.+$/, "").toLowerCase();
+    return host === "posthog.dev" || host.endsWith(".posthog.dev");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Names capabilities rather than describing the server, because the agent's tool search
  * reads this before the PostHog MCP has ever connected. Mirrors POSTHOG_MCP_DESCRIPTION
@@ -302,6 +311,10 @@ export class AgentAuthAdapter {
     }
     if (apiHost.includes("localhost") || apiHost.includes("127.0.0.1")) {
       return "http://localhost:8787/mcp";
+    }
+    // The credential guard sends a posthog.dev token only to posthog.dev hosts.
+    if (isPostHogDevHost(apiHost)) {
+      return "https://mcp.dev.posthog.dev/mcp";
     }
     return "https://mcp.posthog.com/mcp";
   }

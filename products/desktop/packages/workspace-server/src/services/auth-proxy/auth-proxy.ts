@@ -7,12 +7,42 @@ import {
 } from "@posthog/di/logger";
 import { serializeError } from "@posthog/shared";
 import { inject, injectable } from "inversify";
+import { hopByHop } from "../proxy-stream/hop-by-hop";
 import {
   type StreamProgress,
   streamBodyToResponse,
 } from "../proxy-stream/proxy-stream";
 import { AUTH_PROXY_AUTH } from "./identifiers";
 import type { AuthProxyAuth } from "./ports";
+
+type Body = Buffer<ArrayBuffer>;
+
+const STRIPPED_REQUEST_HEADERS = new Set([
+  "authorization",
+  "x-api-key",
+  "api-key",
+  "anthropic-auth-token",
+  "proxy-authorization",
+  "content-length",
+  "transfer-encoding",
+  "cookie",
+]);
+
+const STRIPPED_RESPONSE_HEADERS = new Set([
+  "transfer-encoding",
+  "content-encoding",
+  "content-length",
+  "set-cookie",
+  "www-authenticate",
+]);
+
+export const MAX_BODY_BYTES = 16 * 1024 * 1024;
+export const PROXY_TIMEOUTS = {
+  bodyMs: 60_000,
+  // Non-streaming calls can run for minutes before the first byte, so this
+  // only catches a wedged connection.
+  headersMs: 10 * 60_000,
+};
 
 @injectable()
 export class AuthProxyService {
@@ -156,29 +186,20 @@ export class AuthProxyService {
     if (!sameOrigin || hasPathTraversal) {
       this.log.warn("Rejected proxy request with invalid target URL", {
         method: req.method,
-        incoming: req.url,
-        target: targetUrl.toString(),
       });
       res.writeHead(403);
       res.end("Forbidden");
       return;
     }
 
-    const strippedHeaders = new Set([
-      "authorization",
-      "x-api-key",
-      "api-key",
-      "anthropic-auth-token",
-      "proxy-authorization",
-      "content-length",
-      "transfer-encoding",
-    ]);
     const headers: Record<string, string> = {};
+    const requestHopByHop = hopByHop(req.headers.connection);
     for (const [key, value] of Object.entries(req.headers)) {
+      const name = key.toLowerCase();
       if (
-        key === "host" ||
-        key === "connection" ||
-        strippedHeaders.has(key.toLowerCase())
+        name === "host" ||
+        requestHopByHop.has(name) ||
+        STRIPPED_REQUEST_HEADERS.has(name)
       ) {
         continue;
       }
@@ -211,37 +232,89 @@ export class AuthProxyService {
     };
 
     if (req.method !== "GET" && req.method !== "HEAD") {
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      req.on("end", () => {
-        fetchOptions.body = Buffer.concat(chunks);
-        this.forwardRequest(targetUrl.toString(), fetchOptions, res);
+      void readBody(req).then((body) => {
+        if (typeof body === "string") {
+          this.log.warn("Auth proxy refused a request body", {
+            method: req.method,
+            reason: body,
+          });
+        }
+        if (body === "too_large") {
+          // Worded to match the "request body too large" size-error pattern.
+          jsonError(
+            res,
+            413,
+            { type: "request_too_large", message: "request body too large" },
+            { connection: "close" },
+          );
+          return;
+        }
+        if (body === "timeout" || body === "aborted") {
+          jsonError(
+            res,
+            408,
+            { type: "timeout_error", message: "request body not received" },
+            { connection: "close" },
+          );
+          return;
+        }
+        fetchOptions.body = body;
+        void this.forwardRequest(targetUrl, fetchOptions, res, abort);
       });
     } else {
-      this.forwardRequest(targetUrl.toString(), fetchOptions, res);
+      void this.forwardRequest(targetUrl, fetchOptions, res, abort);
     }
   }
 
   private async forwardRequest(
-    url: string,
+    target: URL,
     options: RequestInit,
     res: http.ServerResponse,
+    abort: AbortController,
   ): Promise<void> {
+    if (abort.signal.aborted) return;
     const startedAt = Date.now();
     const progress: StreamProgress = { bytesWritten: 0 };
+    // Logged without the query string, which may carry request detail.
+    const url = `${target.origin}${target.pathname}`;
     let status = 0;
+    let timedOut = false;
     try {
-      const response = await this.auth.authenticatedFetch(url, options);
+      const timer = setTimeout(() => {
+        timedOut = true;
+        abort.abort();
+      }, PROXY_TIMEOUTS.headersMs);
+      let response: Response;
+      try {
+        response = await this.auth.authenticatedFetch(target.toString(), {
+          ...options,
+          redirect: "manual",
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       status = response.status;
 
+      if (status >= 300 && status < 400) {
+        void response.body?.cancel().catch(() => {});
+        this.log.warn("Auth proxy refused an upstream redirect", {
+          url,
+          method: options.method,
+          status,
+        });
+        jsonError(res, 502, {
+          type: "api_error",
+          message: "Unexpected redirect from the PostHog gateway",
+        });
+        return;
+      }
+
       const responseHeaders: Record<string, string> = {};
-      const stripHeaders = new Set([
-        "transfer-encoding",
-        "content-encoding",
-        "content-length",
-      ]);
+      const responseHopByHop = hopByHop(response.headers.get("connection"));
       response.headers.forEach((value: string, key: string) => {
-        if (stripHeaders.has(key)) return;
+        const name = key.toLowerCase();
+        if (STRIPPED_RESPONSE_HEADERS.has(name) || responseHopByHop.has(name))
+          return;
         responseHeaders[key] = value;
       });
 
@@ -257,6 +330,18 @@ export class AuthProxyService {
         bytesStreamed: progress.bytesWritten,
       });
     } catch (err) {
+      if (timedOut) {
+        this.log.warn("Auth proxy upstream sent no response headers in time", {
+          url,
+          method: options.method,
+          durationMs: Date.now() - startedAt,
+        });
+        jsonError(res, 504, {
+          type: "timeout_error",
+          message: "PostHog gateway did not respond",
+        });
+        return;
+      }
       if (options.signal?.aborted) {
         this.log.debug("Upstream fetch aborted after client disconnect", {
           url,
@@ -281,4 +366,53 @@ export class AuthProxyService {
       res.end("Proxy error");
     }
   }
+}
+
+function jsonError(
+  res: http.ServerResponse,
+  status: number,
+  error: Record<string, string>,
+  extraHeaders: Record<string, string> = {},
+): void {
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  res.writeHead(status, {
+    "content-type": "application/json",
+    ...extraHeaders,
+  });
+  res.end(JSON.stringify({ error }));
+}
+
+function readBody(
+  req: http.IncomingMessage,
+): Promise<Body | "too_large" | "timeout" | "aborted"> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const finish = (result: Body | "too_large" | "timeout" | "aborted") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      req.off("data", onData);
+      // Drain the rest so the socket can carry the error response.
+      if (typeof result === "string") req.resume();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish("timeout"), PROXY_TIMEOUTS.bodyMs);
+    const onData = (chunk: Buffer) => {
+      size += chunk.byteLength;
+      if (size > MAX_BODY_BYTES) {
+        finish("too_large");
+        return;
+      }
+      chunks.push(chunk);
+    };
+    req.on("data", onData);
+    req.on("end", () => finish(Buffer.concat(chunks)));
+    req.on("error", () => finish("aborted"));
+    req.on("aborted", () => finish("aborted"));
+  });
 }

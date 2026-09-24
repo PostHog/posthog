@@ -182,6 +182,7 @@ export default defineConfig([
       "src/pi/conversation/translatePiConversation.ts",
       "src/resume.ts",
       "src/types.ts",
+      "src/utils/redact-secrets.ts",
       "src/adapters/claude/questions/utils.ts",
       "src/adapters/claude/permissions/permission-options.ts",
       "src/adapters/claude/tools.ts",

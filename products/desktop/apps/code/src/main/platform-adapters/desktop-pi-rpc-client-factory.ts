@@ -28,10 +28,9 @@ import type {
 } from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import { AUTH_PROXY_PLACEHOLDER_CREDENTIAL as PROXY_API_KEY } from "@posthog/workspace-server/services/auth-proxy/ports";
 import type { PiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/identifiers";
 import { inject, injectable } from "inversify";
-
-const PROXY_API_KEY = "posthog-code-auth-proxy";
 
 @injectable()
 export class DesktopPiRpcClientFactory implements PiRpcClientFactory {

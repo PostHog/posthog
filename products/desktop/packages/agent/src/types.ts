@@ -56,6 +56,8 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
+  gatewayApiKey?: string;
+  codexBaseUrlInConfig?: boolean;
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;

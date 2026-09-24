@@ -1,4 +1,9 @@
-import { SECRET_HEADERS, TOKEN_RULES, type TokenRule } from "./secret-rules";
+import {
+  LOOPBACK_PROXY_TOKEN,
+  SECRET_HEADERS,
+  TOKEN_RULES,
+  type TokenRule,
+} from "./secret-rules";
 
 const REDACTED = "[REDACTED]";
 
@@ -11,8 +16,12 @@ function escapeLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Not after a letter or digit, unless it ends an escape such as "\n" or "%20".
+const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?)[A-Za-z0-9])`;
+
 function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
-  return `${escapeLiteral(rule.prefix)}${rule.body.source}${repeat}`;
+  const start = rule.wordStart ? WORD_START : "";
+  return `${start}${escapeLiteral(rule.prefix)}${rule.body.source}${repeat}`;
 }
 
 const RULES: CompiledRule[] = TOKEN_RULES.map((rule) => ({
@@ -43,6 +52,37 @@ const PARTIAL_PREFIXES = [
   ),
 ].sort((left, right) => right.length - left.length);
 
+const LOOPBACK_TAIL: CompiledRule = {
+  head: LOOPBACK_PROXY_TOKEN,
+  tail: /^[A-Za-z0-9_-]*/,
+};
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
+const LOOPBACK_AFTER_HOST = /^:(?:\d{0,5}|\d{1,5}\/[A-Za-z0-9_-]{0,31})$/;
+const LOOPBACK_HOLD_MAX = 2 + 9 + 6 + 1 + 31;
+
+/** Whether `text` could still grow into a loopback URL with a full path token. */
+function isLoopbackPrefix(text: string): boolean {
+  if (text.length <= 2) return "//".startsWith(text);
+  if (!text.startsWith("//")) return false;
+  const rest = text.slice(2);
+  return LOOPBACK_HOSTS.some(
+    (host) =>
+      host.startsWith(rest) ||
+      (rest.startsWith(host) &&
+        LOOPBACK_AFTER_HOST.test(rest.slice(host.length))),
+  );
+}
+
+function loopbackPrefixLength(text: string): number {
+  const from = Math.max(0, text.length - LOOPBACK_HOLD_MAX);
+  for (let start = from; start < text.length; start++) {
+    if (text[start] === "/" && isLoopbackPrefix(text.slice(start))) {
+      return text.length - start;
+    }
+  }
+  return 0;
+}
+
 const SECRET_HEADER_NAMES = new Set(SECRET_HEADERS);
 
 function isSecretHeader(name: unknown): boolean {
@@ -62,8 +102,11 @@ export function redactSecrets(value: string): string;
 export function redactSecrets(value: string | undefined): string | undefined;
 export function redactSecrets(value: unknown): unknown;
 export function redactSecrets(value: unknown): unknown {
-  if (typeof value === "string")
-    return value.replace(TOKEN, (match) => REDACTED + trailingDots(match));
+  if (typeof value === "string") {
+    return value
+      .replace(TOKEN, (match) => REDACTED + trailingDots(match))
+      .replace(LOOPBACK_PROXY_TOKEN, `$1${REDACTED}`);
+  }
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (value instanceof Error)
     return {
@@ -87,6 +130,24 @@ export function redactSecrets(value: unknown): unknown {
         : redactSecrets(nested),
     ]),
   );
+}
+
+/**
+ * `JSON.stringify` replacer that masks secret headers without a recursive
+ * walk, so cycles fail fast. Run `redactSecrets` over the output for tokens.
+ */
+export function secretHeaderReplacer(key: string, value: unknown): unknown {
+  if (isSecretHeader(key) && typeof value === "string") return REDACTED;
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (isSecretHeader(record.name) && "value" in record) {
+      return { ...record, value: REDACTED };
+    }
+  }
+  return value;
 }
 
 type TextEvent = Record<string, unknown> & {
@@ -181,8 +242,20 @@ export class SecretEventRedactor {
         },
       );
     }
+    text = text.replace(
+      LOOPBACK_PROXY_TOKEN,
+      (match, host: string, offset: number, source: string) => {
+        if (offset + match.length === source.length) {
+          this.active = LOOPBACK_TAIL;
+          heldDots = 0;
+        }
+        return host + REDACTED;
+      },
+    );
     const redacted = redactSecrets(withText(event, text)) as TextEvent;
-    const held = this.active ? heldDots : partialPrefixLength(text);
+    const held = this.active
+      ? heldDots
+      : Math.max(partialPrefixLength(text), loopbackPrefixLength(text));
     this.heldDots = this.active ? heldDots : 0;
     if (held > 0) {
       if (previous) {
