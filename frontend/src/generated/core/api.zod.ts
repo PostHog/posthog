@@ -812,7 +812,7 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutCreateBodyTypeMax = 100
 
-export const fileSystemShortcutCreateBodyRefMax = 100
+export const fileSystemShortcutCreateBodyRefMax = 4000
 
 export const fileSystemShortcutCreateBodyOrderMin = -2147483648
 export const fileSystemShortcutCreateBodyOrderMax = 2147483647
@@ -843,7 +843,7 @@ export const FileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutUpdateBodyTypeMax = 100
 
-export const fileSystemShortcutUpdateBodyRefMax = 100
+export const fileSystemShortcutUpdateBodyRefMax = 4000
 
 export const fileSystemShortcutUpdateBodyOrderMin = -2147483648
 export const fileSystemShortcutUpdateBodyOrderMax = 2147483647
@@ -874,7 +874,7 @@ export const FileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutPartialUpdateBodyTypeMax = 100
 
-export const fileSystemShortcutPartialUpdateBodyRefMax = 100
+export const fileSystemShortcutPartialUpdateBodyRefMax = 4000
 
 export const fileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
 export const fileSystemShortcutPartialUpdateBodyOrderMax = 2147483647

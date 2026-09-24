@@ -5532,6 +5532,10 @@ snapshots:
         hash: v1.k794b7964.4c13e857435c2bee42eea33c6f86ab2d46f0d3c1c9d997f32bcdc57cf1e7dafc.J9JahhAU6VQmtGCK8icH17WJvkELlNa7DkbabJ2wtRU
     marketing-analytics-dashboard-metric-cards--interactive--light:
         hash: v1.k794b7964.ae261dc53797e4fa4d00cd299f8d48d6e2c1281786d5048a36582ed229bec412.jGf_7LuJ55QW0GvghJfa-eid3j8lLV2NLhJGymTVmXU
+    marketing-analytics-dashboard-metric-cards--loading--dark:
+        hash: v1.k794b7964.51ad00cd8818358b38d57bdd5d694ea98446dbdef7727db1e6f89320dacb1ff9.XLLDF_4xHonffqOBzexuguHLaGw8rSq4xMKSN5cSZmU
+    marketing-analytics-dashboard-metric-cards--loading--light:
+        hash: v1.k794b7964.cc0559f266eccc72b9b5f443568c3b7c056073ef51c798f024afce930115d993.dtMKcpd7lEz3_eTuPButOD5iWcsQPvNuRxc4G7Oh_fY
     marketing-analytics-dashboard-metric-cards--missing-spec--dark:
         hash: v1.k794b7964.9b4b7284ba622834380b56575fb34d933ee33e05dd1ebd0f059b4feb03489589.HV9E-HZGn9I2YYV7iG1eqbcCSA3kInX_R6eYwVJ8DvQ
     marketing-analytics-dashboard-metric-cards--missing-spec--light:

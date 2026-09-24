@@ -979,9 +979,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def _move_folder_shortcuts(self, old_path: str, new_path: str) -> None:
-        shortcuts = self._scope_by_project(FileSystemShortcut.objects.filter(type="folder", ref=old_path))
-        shortcuts.update(ref=new_path, path=join_path([split_path(new_path)[-1]]))
+    def _move_folder_shortcuts(self, old_path: str, new_path: str, team_id: int) -> None:
+        shortcuts = self._scope_by_project(
+            FileSystemShortcut.objects.filter(team_id=team_id, type="folder", ref=old_path)
+        )
+        shortcuts.filter(path=join_path([split_path(old_path)[-1]])).update(path=join_path([split_path(new_path)[-1]]))
+        shortcuts.update(ref=new_path)
 
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1008,9 +1011,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     file.depth = len(split_path(file.path))
                     file.save()
                     if file.type == "folder":
-                        self._move_folder_shortcuts(old_child_path, file.path)
+                        self._move_folder_shortcuts(old_child_path, file.path, file.team_id)
 
-                self._move_folder_shortcuts(old_path, new_path)
+                self._move_folder_shortcuts(old_path, new_path, instance.team_id)
 
                 targets = FileSystem.objects.filter(path=new_path).all()
                 targets = self._scope_by_project_and_environment(targets)
