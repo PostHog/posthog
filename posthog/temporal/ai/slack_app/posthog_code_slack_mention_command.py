@@ -52,9 +52,8 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PostHogCodeSlackMentionCommandWorkflowInputs) -> None:
-        # The mention surface resolves the user at routing time and passes it in.
-        # The slash surface passes ``None`` on purpose so its webhook ack stays
-        # inside Slack's 3s budget, and resolution happens here instead.
+        # The slash surface passes ``None`` so its webhook ack stays inside Slack's 3s budget,
+        # and resolution happens here instead.
         user_id = inputs.user_id
         if user_id is None:
             user_id = await workflow.execute_activity(

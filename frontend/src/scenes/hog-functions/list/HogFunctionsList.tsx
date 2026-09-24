@@ -9,6 +9,7 @@ import {
     LemonCheckbox,
     LemonInput,
     LemonSelect,
+    LemonSelectOptions,
     LemonTable,
     LemonTableColumn,
     LemonTag,
@@ -31,7 +32,6 @@ import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
-import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
@@ -53,6 +53,7 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'insight-alerts': { label: 'Insight alerts' },
     'experiment-alerts': { label: 'Experiment alerts' },
+    'logs-alerting': { label: 'Logs alerts' },
     'health-alerts': {
         label: 'Health alerts',
         url: urls.healthAlerts(),
@@ -61,6 +62,9 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
         label: 'Feature flags',
         url: urls.featureFlags('notifications'),
     },
+    'batch-export-alerts': { label: 'Batch export alerts' },
+    'billing-alerts': { label: 'Billing alerts' },
+    'replay-vision-alerts': { label: 'Replay vision alerts' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
@@ -100,14 +104,10 @@ function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType 
     )
 }
 
-// `returnTo` only applies to the canonical hog-function path; legacy plugin and
-// batch-export scenes don't read it.
+// `returnTo` only applies to the canonical hog-function path; the legacy plugin scene doesn't read it.
 export const urlForHogFunction = (hogFunction: HogFunctionType, returnTo?: string): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
-    }
-    if (hogFunction.id.startsWith('batch-export-')) {
-        return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
     }
     const path = urls.hogFunction(hogFunction.id)
     return returnTo ? combineUrl(path, { returnTo }).url : path
@@ -121,6 +121,7 @@ export function HogFunctionList({
     onEditHogFunction,
     returnTo,
     truncateDescriptions = false,
+    manualFunctionsLoading = false,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
@@ -128,19 +129,34 @@ export function HogFunctionList({
     emptyText?: string
     onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
     onEditHogFunction?: (hogFunction: HogFunctionType) => void
+    /** Path the row's breadcrumbs return to. An alert row reads it as the owning alert's path, so pass the owner's URL rather than a list URL. */
     returnTo?: string
     /** Clamp long descriptions to two lines with a "Show more" toggle. */
     truncateDescriptions?: boolean
+    /** Whether `manualFunctions` are still being fetched, so the table shows a skeleton and not an empty state. */
+    manualFunctionsLoading?: boolean
 }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
-        hogFunctionsListLogic(props)
-    )
+    const { loading, filteredHogFunctions, filters, sortedHogFunctions, hiddenHogFunctions, notificationSources } =
+        useValues(hogFunctionsListLogic(props))
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
         useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
+    // One source leaves nothing to narrow down, so the filter only shows for a list that mixes sources.
+    const showNotificationSourceFilter = notificationSources.length > 1 || !!filters.notificationSource
+    const notificationSourceOptions: LemonSelectOptions<HogFunctionConfigurationContextId | null> = [
+        { label: 'All sources', value: null },
+        ...notificationSources
+            .map((contextId) => ({
+                // An internal event with no entry above falls back to the 'standard' context id,
+                // which is an internal token rather than something to show a person.
+                label: INTERNAL_DESTINATION_CONTEXT[contextId]?.label ?? 'Other',
+                value: contextId,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+    ]
 
     useOnMountEffect(loadHogFunctions)
 
@@ -195,26 +211,6 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
-                    if (hogFunction.id.startsWith('batch-export-')) {
-                        // TODO: Make this less hacky, maybe with some extended type for managing these values
-                        const batchExportId = hogFunction.id.replace('batch-export-', '')
-                        return (
-                            <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
-                                <AppMetricsSparkline
-                                    logicKey={batchExportId}
-                                    forceParams={{
-                                        appSource: 'batch_export',
-                                        appSourceId: batchExportId,
-                                        metricKind: ['success', 'failure'],
-                                        breakdownBy: 'metric_kind',
-                                        interval: 'day',
-                                        dateFrom: '-7d',
-                                    }}
-                                />
-                            </Link>
-                        )
-                    }
-
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
                         return <>N/A</>
                     }
@@ -289,18 +285,6 @@ export function HogFunctionList({
             },
         ]
 
-        if (props.type === 'destination') {
-            // insert after the Name column
-            columns.splice(2, 0, {
-                title: 'Type',
-                key: 'deliveryType',
-                width: 0,
-                render: function RenderDeliveryType(_, hogFunction) {
-                    return <DeliveryTypeTag item={hogFunction} />
-                },
-            })
-        }
-
         if (props.type === 'transformation' || props.type === 'transformation_log') {
             // insert it in the second column
             columns.splice(1, 0, {
@@ -337,7 +321,7 @@ export function HogFunctionList({
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -357,12 +341,13 @@ export function HogFunctionList({
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                     />
                 </div>
-                {props.type === 'destination' && (
+                {showNotificationSourceFilter && (
                     <LemonSelect
                         size="small"
-                        value={filters.deliveryType ?? null}
-                        onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
-                        options={DELIVERY_TYPE_FILTER_OPTIONS}
+                        value={filters.notificationSource ?? null}
+                        onChange={(value) => setFilters({ notificationSource: value ?? undefined })}
+                        options={notificationSourceOptions}
+                        data-attr="hog-function-notification-source-filter"
                     />
                 )}
                 <LemonCheckbox
@@ -379,11 +364,14 @@ export function HogFunctionList({
                 <LemonTable
                     dataSource={filteredHogFunctions}
                     size="small"
-                    loading={loading}
+                    loading={loading || manualFunctionsLoading}
                     columns={columns}
+                    // The sparkline loads once per row, so a row must keep its function across a sort or a search.
+                    rowKey="id"
                     pagination={{ pageSize: 30 }}
                     emptyState={
-                        hogFunctions.length === 0 && !loading ? (
+                        // The API applies the search itself, so an empty result with a search is a filter miss.
+                        sortedHogFunctions.length === 0 && !filters.search?.trim() ? (
                             (emptyText ?? `No ${humanizedType}s found`)
                         ) : (
                             <>

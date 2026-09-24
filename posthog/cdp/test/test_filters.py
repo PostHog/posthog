@@ -105,6 +105,206 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
         assert execute_bytecode(bytecode, {}).result is True
 
+    @parameterized.expand(
+        [
+            (
+                "trigger_filter_matches_row",
+                {
+                    "source": "data-warehouse-view",
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                {"organization": "acme", "$source_table": "accounts"},
+                True,
+            ),
+            (
+                "trigger_filter_rejects_row",
+                {
+                    "source": "data-warehouse-view",
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                {"organization": "globex", "$source_table": "accounts"},
+                False,
+            ),
+            (
+                "destination_table_filter_matches_row",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        }
+                    ],
+                },
+                {"organization": "acme", "$source_table": "postgres.accounts"},
+                True,
+            ),
+            (
+                "destination_unfiltered_table_still_matches",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        },
+                        {"table_name": "postgres.orders"},
+                    ],
+                },
+                {"organization": "globex", "$source_table": "postgres.orders"},
+                True,
+            ),
+            (
+                "destination_unfiltered_table_does_not_bypass_filtered_table",
+                {
+                    "source": "data-warehouse-table",
+                    "data_warehouse": [
+                        {
+                            "table_name": "postgres.accounts",
+                            "properties": [
+                                {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                            ],
+                        },
+                        {"table_name": "postgres.orders"},
+                    ],
+                },
+                {"organization": "globex", "$source_table": "postgres.accounts"},
+                False,
+            ),
+        ]
+    )
+    def test_warehouse_row_filters_match_row_columns(self, _name: str, filters: dict, row: dict, expected: bool):
+        bytecode = self.filters_to_bytecode(filters=filters)
+        assert execute_bytecode(bytecode, {"properties": row}).result is expected
+
+    @parameterized.expand(
+        [
+            # The column hint lists bare names, so that is what people type into the SQL leaf.
+            ("bare_column", {"type": "hogql", "key": "organization = 'acme'"}),
+            # What an input template reads the row as.
+            ("record_alias", {"type": "hogql", "key": "record.organization = 'acme'"}),
+            # Already where the row is; must not become properties.properties.
+            ("qualified_column", {"type": "hogql", "key": "properties.organization = 'acme'"}),
+            # A lambda parameter is a local, not a column.
+            ("lambda_local", {"type": "hogql", "key": "arrayExists(x -> x = 'acme', [organization])"}),
+            # A lambda parameter named like the column shadows it inside the lambda only.
+            (
+                "lambda_shadows_column",
+                {
+                    "type": "hogql",
+                    "key": "arrayExists(organization -> organization = 'acme', ['acme']) and organization = 'acme'",
+                },
+            ),
+            # The same for the record alias.
+            (
+                "lambda_shadows_record",
+                {
+                    "type": "hogql",
+                    "key": "arrayExists(record -> record = 'acme', ['acme']) and record.organization = 'acme'",
+                },
+            ),
+        ]
+    )
+    def test_warehouse_sql_filters_read_columns_from_the_row(self, _name: str, prop: dict):
+        for filters in (
+            {"source": "data-warehouse-view", "properties": [prop]},
+            {"source": "data-warehouse-table", "data_warehouse": [{"table_name": "accounts", "properties": [prop]}]},
+        ):
+            response = compile_filters_bytecode(filters=filters, team=self.team)
+            assert "bytecode_error" not in response, response
+            row = {"$source_table": "accounts"}
+            assert (
+                execute_bytecode(response["bytecode"], {"properties": {**row, "organization": "acme"}}).result is True
+            )
+            assert (
+                execute_bytecode(response["bytecode"], {"properties": {**row, "organization": "globex"}}).result
+                is False
+            )
+
+    def test_warehouse_sql_filter_keeps_a_block_local_over_the_column(self):
+        # The `let` inside the lambda is a local named like the column; only the outer read is the column.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let organization := 'acme'; return organization = 'acme' }, [1]) and organization = 'globex'",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "globex"}}).result is True
+
+    def test_warehouse_filters_leave_the_team_test_account_filters_under_the_guard(self):
+        # The rewrite is for the row the destination filters on. The team's filters are written
+        # against events, so an unknown root there is still the team's mistake to fix.
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "filter_test_accounts": True,
+                "properties": [{"type": "hogql", "key": "organization = 'acme'"}],
+            },
+            team=self.team,
+        )
+        assert response["bytecode"] is None
+        assert "internal/test user filters read $virt_is_bot" in response["bytecode_error"]
+        assert "organization" not in response["bytecode_error"]
+
+    def test_warehouse_sql_filter_reads_the_column_until_a_let_shadows_it(self):
+        # `picked` reads the column, the `let` after it does not reach back.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let picked := organization; let organization := 'other'; return picked = 'acme' }, [1])",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "acme"}}).result is True
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is False
+
+    def test_warehouse_sql_filter_keeps_a_recursive_lambda_local(self):
+        # The lambda calls its own name, which must stay the local and not become the column.
+        response = compile_filters_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "arrayExists(x -> { let organization := (n -> if(n = 'acme', true, organization('acme'))); return organization(x) }, ['zzz'])",
+                    }
+                ],
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response, response
+        assert execute_bytecode(response["bytecode"], {"properties": {"organization": "other"}}).result is True
+
+    def test_event_filters_still_reject_a_bare_unknown_column(self):
+        # Only a warehouse row lives under properties; an event filter naming an unknown root is a typo.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "organization = 'acme'"}]}, team=self.team
+        )
+        assert "organization" in response["bytecode_error"]
+
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(
             filters={
@@ -118,6 +318,191 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             team=self.team,
         )
         assert response["bytecode_error"] == "Select queries are not allowed in filters"
+
+    def test_filters_raise_on_a_global_the_runtime_does_not_have(self):
+        # $virt_is_bot exists in HogQL query context but not in the globals the filter path
+        # builds, so it compiles clean and then raises on every event the destination is offered.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "$virt_is_bot"}]},
+            team=self.team,
+        )
+        assert "$virt_is_bot" in response["bytecode_error"]
+        assert response["bytecode"] is None
+
+    def test_filters_allow_a_global_the_runtime_does_have(self):
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "person.properties.email is not null"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in response
+
+    def test_filters_allow_what_the_other_consumers_compile(self):
+        # Error tracking alerts and AI observability evaluations compile through this function too,
+        # and error tracking turns any bytecode_error into a refused save. Their surfaces reduce to
+        # roots the runtime provides, and this keeps that true.
+        alert = compile_filters_bytecode(
+            filters={
+                "events": [
+                    {
+                        "id": "$exception",
+                        "type": "events",
+                        "properties": [{"key": "$exception_type", "value": "TypeError", "type": "event"}],
+                    }
+                ]
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in alert
+
+        evaluation = compile_filters_bytecode(
+            filters={
+                "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}]
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in evaluation
+
+    def test_filters_reject_a_global_only_some_callers_supply(self):
+        # cohort_ids is built only by hogflow_conditional_branch, and only when the condition
+        # references cohorts. Nothing this function compiles is ever evaluated with it present.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "has(cohort_ids, 1)"}]},
+            team=self.team,
+        )
+        assert "cohort_ids" in response["bytecode_error"]
+
+    def test_filters_allow_a_named_stl_callback(self):
+        # The VM resolves a bare standard-library name through GET_GLOBAL and returns the callable,
+        # so this filter runs. Only the async one cannot, because the filter path allows no async steps.
+        ok = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(lower, ['A'])[1] = 'a'"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in ok
+
+        rejected = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(sleep, [1])[1] = 1"}]},
+            team=self.team,
+        )
+        assert "sleep" in rejected["bytecode_error"]
+
+        # A bytecode standard-library name resolves to a closure the VM then refuses to call, so a
+        # filter passing one as a callback throws on every event.
+        not_invocable = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(sortableSemver, ['1.2.3'])[1] != []"}]},
+            team=self.team,
+        )
+        assert "sortableSemver" in not_invocable["bytecode_error"]
+
+        # A direct call compiles to a different instruction, which does run the same name.
+        called_directly = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "sortableSemver('1.2.3')[1] = 1"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in called_directly
+
+    def test_filters_reject_a_function_the_runtime_does_not_have(self):
+        # max2 exists in the Python standard library and not in the Node VM. A data global such as
+        # event is not callable either, because the VM resolves a direct call against its function
+        # tables and never against the globals it was given.
+        for key in ("max2(1, 2) > 1", "sleep(1) = 1", "event() = 'x'", "properties() = 'x'"):
+            response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
+            assert response.get("bytecode_error"), key
+            assert key.split("(")[0] in response["bytecode_error"]
+
+    def test_filters_reject_a_call_with_the_wrong_number_of_arguments(self):
+        # Valid HogQL for a query, where dateAdd takes two arguments, and a run-time error in the VM,
+        # where it takes three.
+        for key, expected in (
+            ("lower() = 'a'", "`lower` takes exactly 1 arguments, got 0"),
+            ("inCohort(1)", "`inCohort` takes exactly 2 arguments, got 1"),
+            ("dateAdd(toIntervalDay(1), timestamp) > now()", "`dateAdd` takes exactly 3 arguments, got 2"),
+        ):
+            response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
+            assert expected in (response.get("bytecode_error") or ""), key
+
+    def test_filters_reject_what_the_compiler_lowers_before_the_generic_check(self):
+        for key, expected in (
+            ("if(true, true)", "`if` takes exactly 3 arguments, got 2"),
+            ("if(true, true, false, $virt_is_bot)", "`if` takes exactly 3 arguments, got 4"),
+            ("sql(event) = 1", "`sql` is not implemented"),
+            ("print(person.properties.email) = ''", "`print` is not implemented"),
+            (
+                "person.properties.email.startsWith('a')",
+                "`person.properties.email.startsWith` is a value, not a function",
+            ),
+            ("(event)()", "`event` is a value, not a function"),
+            ("multiIf(true, true, false, true)", "`multiIf` takes an odd number of arguments, got 4"),
+        ):
+            response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
+            assert expected in (response.get("bytecode_error") or ""), key
+
+        # The shape with a value to fall back to still compiles.
+        odd = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "multiIf(true, true, false, true, false)"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in odd
+
+        # A lambda parameter is a variable, and a variable that holds a function can be called.
+        allowed = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(f -> f(1), [x -> x])[1] = 1"}]}, team=self.team
+        )
+        assert "bytecode_error" not in allowed
+
+    def test_filters_name_the_team_settings_when_test_account_filters_cannot_run(self):
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+
+        result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
+        assert result["bytecode"] is None
+        assert _normalize_error(result["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Check the spelling, or use a field or function that real-time filters support. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+        # A bad field in the destination on top of the project's names both sources, so a person
+        # knows there are two places to fix.
+        own = compile_filters_bytecode(
+            {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_traffic_type = 'y'"}]},
+            self.team,
+        )
+        assert _normalize_error(own["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Check the spelling, or use a field or function that real-time filters support. "
+            "This destination's own filters also read $virt_traffic_type. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+        # Both sources reading the same field must still name both, or the next save fails the same way.
+        shared = compile_filters_bytecode(
+            {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_is_bot = true"}]},
+            self.team,
+        )
+        assert _normalize_error(shared["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Check the spelling, or use a field or function that real-time filters support. "
+            "This destination's own filters also read $virt_is_bot. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+    def test_filters_allow_group_globals(self):
+        response = compile_filters_bytecode(
+            filters={
+                "properties": [{"type": "hogql", "key": "group_0.properties.name = 'a' and $group_1 is not null"}]
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response
+
+    def test_filters_allow_a_lambda_parameter(self):
+        # The parameter is a local, not a global. Reading the chain off the AST would reject this.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayExists(x -> x = 'a', elements_chain_texts)"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in response
 
     def test_filters_events(self):
         bytecode = self.filters_to_bytecode(filters={"events": self.filters["events"]})

@@ -28,8 +28,8 @@ export const manifest: ProductManifest = {
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-        dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
-            `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
+        dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+            `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

@@ -14,12 +14,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
 import { formatCost, formatMinutes, runPrNumber } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { Section } from '../components/Section'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
@@ -45,12 +47,13 @@ export function WorkflowRunDetailScene(): JSX.Element {
         sourceId,
         jobs,
         jobsLoading,
+        jobsFailed,
         runCost,
         isValidRunId,
         failureLogs,
         failureLogsLoading,
     } = useValues(workflowRunDetailLogic)
-    const { loadRun } = useActions(workflowRunDetailLogic)
+    const { loadRun, loadJobs, loadFailureLogs } = useActions(workflowRunDetailLogic)
     const { searchParams } = useValues(router)
 
     if (!isValidRunId) {
@@ -95,19 +98,18 @@ export function WorkflowRunDetailScene(): JSX.Element {
         : null
     // The logs endpoint only carries job ids; the run's loaded jobs supply the names.
     const jobNamesById = Object.fromEntries((jobs ?? []).map((job) => [job.id, job.name]))
+    const jobsPending = jobsLoading && !jobs
 
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary">
-                        Couldn't load this workflow run. It may not exist in the connected GitHub source.
-                    </span>
-                    <LemonButton type="secondary" size="small" onClick={loadRun} loading={runLoading}>
-                        Retry
-                    </LemonButton>
-                </div>
+                <CIAnalyticsLoadError
+                    title="Couldn't load this workflow run"
+                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                    onRetry={loadRun}
+                    loading={runLoading}
+                />
             </SceneContent>
         )
     }
@@ -231,8 +233,14 @@ export function WorkflowRunDetailScene(): JSX.Element {
                             label="Queue time"
                             tooltip="From run started to the first job starting."
                             value={queueSeconds != null ? humanFriendlyDuration(queueSeconds) : '—'}
+                            loading={jobsPending}
                         />
-                        <MetricTile label="Jobs" tooltip={jobRollupLabel} value={jobs ? `${jobs.length}` : '—'} />
+                        <MetricTile
+                            label="Jobs"
+                            tooltip={jobRollupLabel}
+                            value={jobs ? `${jobs.length}` : '—'}
+                            loading={jobsPending}
+                        />
                         <MetricTile
                             label="Estimated cost"
                             tooltip={
@@ -242,22 +250,36 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                               ? ` · ${pluralize(runCost.unsettledJobs, 'unsettled job')} excluded`
                                               : ''
                                       }.`
-                                    : 'Available once the job-level source is synced.'
+                                    : jobsFailed
+                                      ? "Couldn't load this run's jobs."
+                                      : 'Available once the job-level source is synced.'
                             }
                             value={runCost ? formatCost(runCost.estimatedCostUsd) : '—'}
+                            loading={jobsPending}
                         />
                     </div>
 
-                    <div className="flex flex-col gap-2">
-                        <h3 className="mb-0">Jobs</h3>
-                        <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
-                    </div>
+                    <Section id="jobs" title="Jobs">
+                        {jobsFailed ? (
+                            <CIAnalyticsLoadError
+                                title="Couldn't load this run's jobs"
+                                onRetry={loadJobs}
+                                loading={jobsLoading}
+                            />
+                        ) : (
+                            <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
+                        )}
+                    </Section>
 
                     {isDecisiveFailure(run.conclusion) && (
-                        <div className="flex flex-col gap-2">
-                            <h3 className="mb-0">Failure logs</h3>
-                            <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} jobNames={jobNamesById} />
-                        </div>
+                        <Section id="failure-logs" title="Failure logs">
+                            <FailureLogGroups
+                                logs={failureLogs}
+                                loading={failureLogsLoading}
+                                onRetry={loadFailureLogs}
+                                jobNames={jobNamesById}
+                            />
+                        </Section>
                     )}
                 </>
             ) : (

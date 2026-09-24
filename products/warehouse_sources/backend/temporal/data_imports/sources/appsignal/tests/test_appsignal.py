@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -744,17 +745,20 @@ class TestPerformanceActionRows:
         session = _v2_session(post={"/tracing/actions": []})
         mock_session.return_value = session
 
-        list(
-            get_rows(
-                "token",
-                "app-id",
-                "performance_actions",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
+        with time_machine.travel(
+            datetime.fromtimestamp((_to_epoch(watermark) or 0) + AGGREGATE_BUCKET_SECONDS, UTC), tick=False
+        ):
+            list(
+                get_rows(
+                    "token",
+                    "app-id",
+                    "performance_actions",
+                    mock.MagicMock(),
+                    _make_manager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=watermark,
+                )
             )
-        )
 
         assert session.post.call_args_list[0].kwargs["json"]["from"] == watermark
 

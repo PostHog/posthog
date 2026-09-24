@@ -2,17 +2,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
+use common_hypercache::{HyperCacheConfig, HyperCacheReader, KeyType};
+use common_s3::MockS3Client;
 use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::flags::cache_builder::build_flags_cache;
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching::FeatureFlagMatcher;
 use feature_flags::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
+    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
 use feature_flags::utils::test_utils::{
-    insert_flags_for_team_in_redis, mock_group_type_cache, setup_redis_client,
-    update_team_in_hypercache, TestContext,
+    mock_group_type_cache, setup_redis_client, update_team_in_hypercache,
+    write_flags_wire_json_to_redis, TestContext,
 };
 use rstest::rstest;
 use serde_json::{json, Value};
@@ -22,10 +24,52 @@ pub mod common;
 
 fn documents() -> Vec<(String, Value, bool, bool)> {
     let mut cases = Vec::new();
+    let supported: Value = serde_json::from_str(include_str!(
+        "fixtures/rules_v2_parser/2.1.0/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
+    )).unwrap();
+    cases.push((
+        "rejected-valid-v2".to_string(),
+        supported.clone(),
+        true,
+        false,
+    ));
+    let mut rounded = supported.clone();
+    rounded["version"] = json!("__rounds_to_two__");
+    cases.push(("rejected-rounded-v2".to_string(), rounded, true, false));
+    let mut near_one = supported.clone();
+    near_one["version"] = json!("__below_one__");
+    cases.push(("rejected-below-one".to_string(), near_one, true, false));
+    let mut unsupported = supported.clone();
+    unsupported["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"rule_type": "experiment"}));
+    cases.push((
+        "rejected-unsupported-v2".to_string(),
+        unsupported,
+        true,
+        false,
+    ));
+    let mut overprecise = supported.clone();
+    overprecise["rules"][1]["rollout_percentage"] = json!("__overprecise__");
+    cases.push((
+        "rejected-overprecise-v2".to_string(),
+        overprecise,
+        true,
+        false,
+    ));
+    cases.push((
+        "inactive-valid-v2".to_string(),
+        supported.clone(),
+        false,
+        false,
+    ));
+    cases.push(("deleted-valid-v2".to_string(), supported, true, true));
     for (key, version) in [
         ("absent", None),
         ("one", Some(json!(1))),
         ("one-float", Some(json!(1.0))),
+        ("one-rounded", Some(json!("__rounds_to_one__"))),
     ] {
         let mut filters = json!({"groups": [{"rollout_percentage": 100}], "payloads": {"true": "example-payload"}});
         if let Some(version) = version {
@@ -80,6 +124,21 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
     cases
 }
 
+const RAW_NUMBERS: &[(&str, &str, &str)] = &[
+    (
+        "rejected-overprecise-v2",
+        "__overprecise__",
+        "33.330000000000000001",
+    ),
+    ("one-rounded", "__rounds_to_one__", "1.0000000000000001"),
+    ("rejected-below-one", "__below_one__", "0.9999999999999999"),
+    (
+        "rejected-rounded-v2",
+        "__rounds_to_two__",
+        "2.0000000000000001",
+    ),
+];
+
 #[rstest]
 #[case::redis(true)]
 #[case::postgres_fallback(false)]
@@ -115,11 +174,81 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
         }
     }
     if cached {
-        insert_flags_for_team_in_redis(redis, team.id, Some(json!(flags).to_string())).await?;
+        let ids: Vec<_> = flags
+            .iter()
+            .map(|flag| flag["id"].as_i64().unwrap())
+            .collect();
+        let dependencies: serde_json::Map<_, _> =
+            ids.iter().map(|id| (id.to_string(), json!([]))).collect();
+        // Value-based cache helpers would round the discriminator under test.
+        let mut encoded = json!({"flags": flags, "evaluation_metadata": {
+            "dependency_stages": [ids], "flags_with_missing_deps": [], "transitive_deps": dependencies
+        }}).to_string();
+        for (_, placeholder, number) in RAW_NUMBERS {
+            encoded = encoded.replace(&format!("\"{placeholder}\""), number);
+        }
+        write_flags_wire_json_to_redis(redis.clone(), team.id, encoded).await?;
     } else {
-        assert!(build_flags_cache(db.non_persons_reader.clone(), team.id)
-            .await
-            .is_err());
+        let mut connection = db.non_persons_writer.get_connection().await?;
+        for &(key, placeholder, number) in RAW_NUMBERS {
+            let raw = docs
+                .iter()
+                .find(|(name, ..)| name == key)
+                .unwrap()
+                .1
+                .to_string()
+                .replace(&format!("\"{placeholder}\""), number);
+            sqlx::query("UPDATE posthog_featureflag SET filters = $1::jsonb WHERE team_id = $2 AND key = $3")
+                .bind(raw).bind(team.id).bind(key).execute(&mut *connection).await?;
+        }
+        drop(connection);
+        // The cache builder omits every non-v1 row instead of failing the team; the
+        // evaluator's PostgreSQL fallback below still sees them.
+        let mut built: Vec<String> = build_flags_cache(db.non_persons_reader.clone(), team.id)
+            .await?
+            .flags
+            .into_iter()
+            .map(|flag| flag.key)
+            .collect();
+        built.sort();
+        assert_eq!(built, vec!["absent", "one", "one-float", "one-rounded"]);
+    }
+    let stored = if cached {
+        let reader = HyperCacheReader::new_with_s3_client(
+            redis.clone(),
+            Arc::new(MockS3Client::new()),
+            HyperCacheConfig::new(
+                "feature_flags".to_owned(),
+                "flags.json".to_owned(),
+                "us-east-1".to_owned(),
+                "test-bucket".to_owned(),
+            ),
+        );
+        reader
+            .get_typed_from_redis::<HypercacheFlagsWrapper>(&KeyType::Int(team.id))
+            .await?
+            .expect("written flags must be present in Redis")
+            .flags
+    } else {
+        FeatureFlagList::from_pg(db.non_persons_reader.clone(), team.id).await?
+    };
+    for (key, valid) in [
+        ("rejected-valid-v2", true),
+        ("rejected-rounded-v2", true),
+        ("rejected-overprecise-v2", false),
+    ] {
+        let flag = stored.iter().find(|flag| flag.key == key).unwrap();
+        assert_eq!(
+            flag.filters
+                .non_v1
+                .as_ref()
+                .unwrap()
+                .parsed_v2
+                .as_ref()
+                .unwrap()
+                .is_ok(),
+            valid
+        );
     }
     let server = common::ServerHandle::for_config(DEFAULT_TEST_CONFIG.clone()).await;
     let client = reqwest::Client::new();
@@ -173,7 +302,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
         }
         match shape {
             Shape::Detailed => {
-                for key in ["absent", "one", "one-float"] {
+                for key in ["absent", "one", "one-float", "one-rounded"] {
                     assert_eq!(body["flags"][key]["enabled"], true, "{body}");
                     assert_eq!(body["flags"][key]["metadata"]["version"], 2, "{body}");
                 }
@@ -199,13 +328,19 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                 keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                 assert_eq!(
                     keys,
-                    vec![json!("absent"), json!("one"), json!("one-float")]
+                    vec![
+                        json!("absent"),
+                        json!("one"),
+                        json!("one-float"),
+                        json!("one-rounded")
+                    ]
                 );
             }
             Shape::Map {
                 keeps_rejected_as_false,
             } => {
-                let mut expected = json!({"absent": true, "one": true, "one-float": true});
+                let mut expected =
+                    json!({"absent": true, "one": true, "one-float": true, "one-rounded": true});
                 if keeps_rejected_as_false {
                     for (key, _, _, _) in &docs {
                         if key.starts_with("rejected-") {

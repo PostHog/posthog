@@ -59,6 +59,8 @@ export interface MessageInputProps {
     collapseUntilActive?: boolean
     /** When this changes, the collapsed composer closes. Ticket navigation reuses the same mount. */
     threadId?: string
+    /** When this changes, seed the editor from draftContent even if it is already mounted. */
+    composerPrefillAt?: number
 }
 
 export function MessageInput({
@@ -85,6 +87,7 @@ export function MessageInput({
     onCancelEdit,
     collapseUntilActive = false,
     threadId,
+    composerPrefillAt = 0,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -152,6 +155,19 @@ export function MessageInput({
             queueMicrotask(() => setIsEmpty(ed.isEmpty()))
         })
     }, [editingMessageId])
+
+    useEffect(() => {
+        if (!composerPrefillAt) {
+            return
+        }
+        const editor = editorRef.current
+        const content = draftContentRef.current
+        if (!editor || content == null) {
+            return
+        }
+        editor.setContent(content)
+        queueMicrotask(() => setIsEmpty(editor.isEmpty()))
+    }, [composerPrefillAt])
 
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate

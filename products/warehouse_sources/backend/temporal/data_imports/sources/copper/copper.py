@@ -1,8 +1,10 @@
-import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from requests import Request, Response
+from requests import Request, Response, Session
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -19,25 +21,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import (
     COPPER_DEFAULT_PAGE_SIZE,
     COPPER_ENDPOINTS,
+    DATE_CREATED,
+    FIELD_LAYOUT_ENTITIES,
+    FIELD_LAYOUT_NO_PIPELINE,
+    FIELD_LAYOUT_PIPELINED_ENTITY,
+    FIELD_LAYOUTS_ENDPOINT,
+    RELATED_ITEM_PARENTS,
     CopperEndpointConfig,
 )
 
 COPPER_BASE_URL = "https://api.copper.com/developer_api/v1"
 # Copper requires this header on every request; "developer" is the documented value for API-key auth.
 COPPER_APPLICATION = "developer"
-
-# Maps an advertised incremental field to its server-side filter param and sort column.
-# Copper's search endpoints filter by `minimum_modified_date` / `minimum_created_date`
-# (inclusive Unix-epoch-seconds bounds) and sort by `date_modified` / `date_created`.
-INCREMENTAL_FIELD_TO_PARAMS: dict[str, tuple[str, str]] = {
-    "date_modified": ("minimum_modified_date", "date_modified"),
-    "date_created": ("minimum_created_date", "date_created"),
-}
+COPPER_REQUEST_TIMEOUT = 60
 
 
-@dataclasses.dataclass
+@frozen
 class CopperResumeConfig:
     page_number: int
+    # Which entry of RELATED_ITEM_PARENTS the related-items fan-out was walking. Unused by the
+    # single-endpoint searches, which only ever resume a page number.
+    parent_index: int = 0
 
 
 class CopperPageNumberPaginator(BasePaginator):
@@ -124,15 +128,21 @@ def _build_search_body(
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"page_size": page_size}
 
-    if should_use_incremental_field and incremental_field in INCREMENTAL_FIELD_TO_PARAMS:
-        min_param, sort_field = INCREMENTAL_FIELD_TO_PARAMS[incremental_field]
-        body["sort_by"] = sort_field
-        body["sort_direction"] = "asc"
+    if config.incremental_ceiling_param is not None:
+        # Applied on every sync, not just incremental ones, so a future-dated row can never enter
+        # the table and become the watermark.
+        body[config.incremental_ceiling_param] = int(datetime.now(UTC).timestamp())
+
+    min_param = config.incremental_params.get(incremental_field or "") if should_use_incremental_field else None
+    if min_param is not None:
+        if config.sortable:
+            body["sort_by"] = incremental_field
+            body["sort_direction"] = "asc"
         last_value = _to_unix_seconds(db_incremental_field_last_value)
         if last_value is not None:
             # Inclusive bound: the boundary row is re-fetched and deduped by merge on primary key.
             body[min_param] = last_value
-    elif config.full_refresh_sort:
+    elif config.sortable and config.full_refresh_sort:
         body["sort_by"] = config.full_refresh_sort
         body["sort_direction"] = "asc"
 
@@ -154,6 +164,132 @@ def validate_credentials(api_key: str, user_email: str) -> tuple[bool, str | Non
     return False, f"Copper credential check failed with status {status}"
 
 
+def _copper_session(api_key: str, user_email: str) -> Session:
+    return make_tracked_session(
+        headers={"X-PW-AccessToken": api_key, **_headers(user_email)},
+        redact_values=(api_key,),
+    )
+
+
+def _get_json(session: Session, path: str, params: dict[str, Any] | None = None) -> Any | None:
+    """GET a Copper path, answering None when the record or layout is gone."""
+    response = session.get(f"{COPPER_BASE_URL}{path}", params=params, timeout=COPPER_REQUEST_TIMEOUT)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
+@frozen
+class CopperSearchPage:
+    number: int
+    has_next_page: bool
+    records: list[dict[str, Any]]
+
+
+def _iter_search_pages(session: Session, path: str, page_size: int, start_page: int) -> Iterator[CopperSearchPage]:
+    page = start_page
+    while True:
+        response = session.post(
+            f"{COPPER_BASE_URL}{path}",
+            json={
+                "page_size": page_size,
+                "page_number": page,
+                "sort_by": DATE_CREATED,
+                "sort_direction": "asc",
+            },
+            timeout=COPPER_REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        records = response.json()
+        if not isinstance(records, list):
+            # Reading a malformed page as empty would end the walk early and silently truncate.
+            raise ValueError(f"Copper returned a non-list search page for {path}")
+        has_next_page = len(records) >= page_size
+        yield CopperSearchPage(number=page, has_next_page=has_next_page, records=records)
+        if not has_next_page:
+            return
+        page += 1
+
+
+def _iter_field_layouts(session: Session, path_template: str) -> Iterator[list[dict[str, Any]]]:
+    pipeline_ids = [
+        pipeline["id"] for pipeline in (_get_json(session, "/pipelines") or []) if pipeline.get("id") is not None
+    ]
+
+    for entity in FIELD_LAYOUT_ENTITIES:
+        targets = pipeline_ids if entity == FIELD_LAYOUT_PIPELINED_ENTITY else [FIELD_LAYOUT_NO_PIPELINE]
+        for pipeline_id in targets:
+            params = {"pipeline_id": pipeline_id} if pipeline_id != FIELD_LAYOUT_NO_PIPELINE else None
+            layout = _get_json(session, path_template.format(entity=entity), params=params)
+            if not layout:
+                continue
+            yield [{"entity_type": entity, "pipeline_id": pipeline_id, **field} for field in layout]
+
+
+def _iter_related_items(
+    session: Session,
+    path_template: str,
+    resumable_source_manager: ResumableSourceManager[CopperResumeConfig],
+    page_size: int,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    first_parent = resume.parent_index if resume else 0
+    first_page = resume.page_number if resume else 1
+
+    for parent_index in range(first_parent, len(RELATED_ITEM_PARENTS)):
+        parent_type, parent_endpoint = RELATED_ITEM_PARENTS[parent_index]
+        start_page = first_page if parent_index == first_parent else 1
+        search_path = COPPER_ENDPOINTS[parent_endpoint].path
+
+        for page in _iter_search_pages(session, search_path, page_size, start_page):
+            rows: list[dict[str, Any]] = []
+            for record in page.records:
+                parent_id = record.get("id")
+                if parent_id is None:
+                    continue
+                related = _get_json(session, path_template.format(entity=parent_endpoint, record_id=parent_id))
+                if related is None:
+                    # Deleted between the parent page and this call.
+                    continue
+                rows.extend({"parent_type": parent_type, "parent_id": parent_id, **item} for item in related)
+            if rows:
+                yield rows
+
+            next_parent, next_page = (parent_index, page.number + 1) if page.has_next_page else (parent_index + 1, 1)
+            if next_parent < len(RELATED_ITEM_PARENTS):
+                # Saved after the page is yielded, so a crash re-walks it rather than skipping it.
+                resumable_source_manager.save_state(CopperResumeConfig(page_number=next_page, parent_index=next_parent))
+
+    # The walk finished: leaving the last checkpoint would make a later attempt resume mid-stream.
+    resumable_source_manager.clear_state()
+
+
+def _custom_iterator_source(
+    config: CopperEndpointConfig,
+    api_key: str,
+    user_email: str,
+    resumable_source_manager: ResumableSourceManager[CopperResumeConfig],
+) -> SourceResponse:
+    """Endpoints Copper only exposes per entity, so one schema needs many differently-shaped requests."""
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        session = _copper_session(api_key, user_email)
+        if config.name == FIELD_LAYOUTS_ENDPOINT:
+            yield from _iter_field_layouts(session, config.path)
+        else:
+            yield from _iter_related_items(session, config.path, resumable_source_manager, COPPER_DEFAULT_PAGE_SIZE)
+
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        sort_mode=config.sort_mode,
+    )
+
+
 def copper_source(
     api_key: str,
     user_email: str,
@@ -166,6 +302,9 @@ def copper_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = COPPER_ENDPOINTS[endpoint]
+
+    if config.custom_iterator:
+        return _custom_iterator_source(config, api_key, user_email, resumable_source_manager)
 
     body: dict[str, Any] | None
     paginator: BasePaginator
@@ -195,8 +334,9 @@ def copper_source(
                 "endpoint": {
                     "path": config.path,
                     "method": config.method,
-                    # Copper responses are bare JSON arrays, so there's no data_selector.
+                    # Most Copper responses are bare JSON arrays, so data_selector is usually unset.
                     "json": body,
+                    "data_selector": config.data_selector,
                     "paginator": paginator,
                 },
             }
@@ -227,11 +367,11 @@ def copper_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode=config.partition_mode,
         partition_format=config.partition_format,
         partition_keys=config.partition_keys,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )

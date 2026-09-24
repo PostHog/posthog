@@ -37,7 +37,19 @@ class EgressBudgetExhausted(Exception):
     """A *sheddable* (non-CRITICAL) outbound call was denied by the egress limiter before it was sent.
     Callers that can defer should catch this and back off/retry — it means our own shared budget is
     spent, not that the third-party API returned an error. CRITICAL calls are never raised on; they
-    proceed and let the API's own rate limiting be the backstop."""
+    proceed and let the API's own rate limiting be the backstop.
+
+    ``scope`` is the budget key that was denied (a GitHub installation id, say). It rides on the
+    exception because this is *our* budget: unlike a third-party 429, the limiter can say how long
+    until it frees, and a caller that wants to wait for it needs the key to ask. Subclasses that
+    name the scope in their message should pass it here too rather than leaving callers to parse
+    it back out."""
+
+    def __init__(self, message: str = "", *, scope: str | None = None) -> None:
+        # Defaulted so this stays a pure addition: before ``scope`` existed this was a bare
+        # Exception, and callers that raise it as a marker construct it with no arguments.
+        super().__init__(message)
+        self.scope = scope
 
 
 def _raise_if_denied(granted: bool, priority: Priority, make_error: Callable[[], EgressBudgetExhausted]) -> None:

@@ -75,6 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -142,6 +143,7 @@ class _MissionOutcome:
     finalized: BaseScannerOutput
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
+    thumbnail_video_s: int | None = None
 
 
 @activity.defn
@@ -321,7 +323,14 @@ async def run_scan(
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
-    return ScannerCallOutput(model_output=finalized, signals=signals, verification=outcome.verification)
+    return ScannerCallOutput(
+        model_output=finalized,
+        signals=signals,
+        verification=outcome.verification,
+        thumbnail_video_s=outcome.thumbnail_video_s,
+        # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
+        signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
+    )
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -629,7 +638,12 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+    return _MissionOutcome(
+        finalized=finalized,
+        signals=signals,
+        verification=verification,
+        thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
+    )
 
 
 async def _verify_positive_verdict(
@@ -794,21 +808,29 @@ async def _run_steps(
     for step in steps:
         checkpoint = len(convo)
         convo.append(types.Part(text=step.instruction))
-        result = await _run_step(
-            client=client,
-            model=model,
-            step=step,
-            convo=convo,
-            cache_name=cache_name,
-            video_part=video_part,
-            preamble_text=preamble_text,
-            dispatch=dispatch,
-            team_id=team_id,
-            tools=tools,
-            metric_labels=metric_labels,
-            trace_id=trace_id,
-            on_round=on_round,
-        )
+        try:
+            result = await _run_step(
+                client=client,
+                model=model,
+                step=step,
+                convo=convo,
+                cache_name=cache_name,
+                video_part=video_part,
+                preamble_text=preamble_text,
+                dispatch=dispatch,
+                team_id=team_id,
+                tools=tools,
+                metric_labels=metric_labels,
+                trace_id=trace_id,
+                on_round=on_round,
+            )
+        except Exception as exc:
+            if step.required:
+                raise
+            # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
+            logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
+            del convo[checkpoint:]
+            continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
@@ -1017,7 +1039,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
-        "max_output_tokens": step.max_output_tokens,
+        "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now

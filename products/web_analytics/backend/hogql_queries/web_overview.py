@@ -5,7 +5,10 @@ import structlog
 
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
+    EventPropertyFilter,
     HogQLQueryModifiers,
+    PersonPropertyFilter,
+    SessionTableVersion,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebOverviewQueryResponse,
@@ -324,7 +327,118 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
         )
 
+    @cached_property
+    def should_split_conversion_goal(self) -> bool:
+        """Whether a conversion-goal overview can run as visitors + a goal-only scan.
+
+        The joined shape groups every pageview session in range to count a handful
+        of conversions, so its memory scales with total traffic rather than with the
+        goal. Splitting keeps visitors on the goal-less path (precompute,
+        pre-aggregated or two-scan) and reads only goal events for conversions.
+        Filters must be events-evaluable for the goal scan; session and cohort
+        filters keep the joined shape.
+        """
+        if not self.query.conversionGoal:
+            return False
+        if self.modifiers.sessionTableVersion == SessionTableVersion.V1:
+            return False
+        if not all(isinstance(p, EventPropertyFilter | PersonPropertyFilter) for p in self.effective_query_properties):
+            return False
+        return all(f.get("type") in ("event", "person") for f in self._test_account_filters)
+
+    def _conversion_goal_select(self) -> ast.SelectQuery:
+        has_comparison = bool(self.query_compare_to_date_range)
+        current = self._current_period_expression("timestamp")
+        previous = self._previous_period_expression("timestamp")
+        query = parse_select(
+            """
+SELECT
+    countIf({current}) AS total_conversion_count,
+    {previous_total} AS previous_total_conversion_count,
+    uniqIf(events.person_id, {current}) AS unique_conversions,
+    {previous_unique} AS previous_unique_conversions
+FROM events
+WHERE and(
+    {events_session_id_present},
+    {conversion_goal},
+    {inside_timestamp_period},
+    {all_properties},
+)
+            """,
+            placeholders={
+                "current": current,
+                "previous_total": (
+                    parse_expr("countIf({previous})", placeholders={"previous": previous})
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "previous_unique": (
+                    parse_expr("uniqIf(events.person_id, {previous})", placeholders={"previous": previous})
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "events_session_id_present": self.events_session_id_present,
+                "conversion_goal": self.conversion_goal_expr or ast.Constant(value=False),
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "all_properties": self.all_properties(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _calculate_split_conversion_goal(self) -> WebOverviewQueryResponse:
+        visitors_runner = WebOverviewQueryRunner(
+            query=self.query.model_copy(update={"conversionGoal": None}),
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+        )
+        visitors_response = visitors_runner._calculate()
+        visitors = next(item for item in visitors_response.results if item.key == "visitors")
+
+        conversions_response = execute_hogql_query(
+            query_type="web_overview_conversion_goal_query",
+            query=self._conversion_goal_select(),
+            team=self.team,
+            user=self.user,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+        row = conversions_response.results[0] if conversions_response.results else [None] * 4
+        include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
+
+        def rate(unique_conversions: Optional[float], unique_visitors: Optional[float]) -> Optional[float]:
+            if unique_conversions is None or not unique_visitors:
+                return None
+            return unique_conversions / unique_visitors
+
+        results = [
+            to_data("visitors", "unit", visitors.value, visitors.previous if include_previous else None),
+            to_data("total conversions", "unit", row[0], row[1] if include_previous else None),
+            to_data("unique conversions", "unit", row[2], row[3] if include_previous else None),
+            to_data(
+                "conversion rate",
+                "percentage",
+                rate(row[2], visitors.value),
+                rate(row[3], visitors.previous) if include_previous else None,
+            ),
+        ]
+        return WebOverviewQueryResponse(
+            results=results,
+            modifiers=self.modifiers,
+            dateFrom=self.query_date_range.date_from_str,
+            dateTo=self.query_date_range.date_to_str,
+            preComputeStrategy=visitors_response.preComputeStrategy,
+            preComputeIneligibleReason=visitors_response.preComputeIneligibleReason,
+        )
+
     def _calculate(self) -> WebOverviewQueryResponse:
+        if self.should_split_conversion_goal:
+            return self._calculate_split_conversion_goal()
+
         lazy_row = self.get_lazy_precomputed_row()
         if lazy_row is not None:
             return self._build_response_from_row(lazy_row)

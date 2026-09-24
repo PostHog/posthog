@@ -13,6 +13,7 @@ import { McpToolCache } from "./tool-cache";
 
 const ECHO_TOOL = {
   name: "echo",
+  title: "Echo text tool",
   description: "Echo text back",
   inputSchema: {
     type: "object",
@@ -400,11 +401,19 @@ describe("mcp proxy tool", () => {
     });
     await manager.startServer("demo", "/workspace");
 
-    const result = await text(tool, {
-      tool: "mcp_demo_echo",
-      args: '{"text":"hi"}',
+    const result = await tool.execute(
+      "id-1",
+      { tool: "mcp_demo_echo", args: '{"text":"hi"}' } as never,
+      undefined,
+      undefined as never,
+      undefined as never,
+    );
+    expect((result.content[0] as { text: string }).text).toBe("echo: hi");
+    expect(result.details).toMatchObject({
+      kind: "call",
+      title: "Echo text tool",
+      posthog: { mcp: { title: "Echo text tool" } },
     });
-    expect(result).toBe("echo: hi");
     await mock.close();
   });
 

@@ -1,30 +1,37 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import {
     accountsList,
+    accountsRetrieve,
     customerTasksCreate,
     customerTasksList,
+    customerTasksRetrieve,
     customerTasksPartialUpdate,
 } from 'products/customer_analytics/frontend/generated/api'
 import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { customerTasksPersistencePrefix } from './customerTaskFilters'
+import { customerTasksPersistencePrefix, parseCustomerTaskSearchParams } from './customerTaskFilters'
 import { customerTasksLogic } from './customerTasksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
+    accountsRetrieve: jest.fn(),
     customerTasksArchiveCreate: jest.fn(),
     customerTasksCreate: jest.fn(),
     customerTasksList: jest.fn(),
+    customerTasksRetrieve: jest.fn(),
     customerTasksPartialUpdate: jest.fn(),
     customerTasksRestoreCreate: jest.fn(),
 }))
@@ -33,6 +40,10 @@ const mockCreate = customerTasksCreate as jest.MockedFunction<typeof customerTas
 const mockList = customerTasksList as jest.MockedFunction<typeof customerTasksList>
 const mockAccounts = accountsList as jest.MockedFunction<typeof accountsList>
 const mockUpdate = customerTasksPartialUpdate as jest.MockedFunction<typeof customerTasksPartialUpdate>
+const mockAccount = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
+
+const URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e95'
+const SECOND_URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e96'
 
 function task(canEdit = true): CustomerTaskApi {
     return {
@@ -64,6 +75,8 @@ describe('customerTasksLogic', () => {
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockAccounts.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockUpdate.mockResolvedValue(task())
+        mockAccount.mockResolvedValue({ id: URL_ACCOUNT_ID, name: 'Acme' } as never)
+        router.actions.push(urls.customerAnalyticsTasks())
     })
 
     afterEach(() => {
@@ -89,6 +102,17 @@ describe('customerTasksLogic', () => {
                 offset: 0,
             })
         )
+    })
+
+    test('opens a linked task even when persisted filters exclude it', async () => {
+        const linkedTask = task()
+        ;(customerTasksRetrieve as jest.Mock).mockResolvedValue(linkedTask)
+        router.actions.push(urls.customerAnalyticsTasks(), { task_id: linkedTask.id })
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.modalTask).toEqual(linkedTask)
+        expect(logic.values.modalOpen).toBe(true)
     })
 
     test('creates a task for the current account without exposing a different account', async () => {
@@ -179,6 +203,7 @@ describe('customerTasksLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.filters).toMatchObject({ status: 'completed', assignee: 'unassigned' })
         logic.unmount()
+        router.actions.push(urls.customerAnalyticsTasks())
 
         const otherUserLogic = customerTasksLogic({
             context: 'inbox',
@@ -262,5 +287,155 @@ describe('customerTasksLogic', () => {
         logic.actions.updateTask('task-1', { name: 'Changed' })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockUpdate).not.toHaveBeenCalled()
+    })
+    test('lets a link override the filters the person left behind', async () => {
+        const prefix = customerTasksPersistencePrefix(1, 42)
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        logic.actions.setFilters({ status: 'completed', assignee: 'unassigned' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        router.actions.push(urls.customerAnalyticsTasks(), { due: 'overdue', assignee: 'me' })
+        mockList.mockClear()
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters).toMatchObject({ status: 'open', assignee: 'me', due: 'overdue' })
+        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(mockList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ assigned_to: 'me', statuses: 'open,in_progress', due_before: expect.any(String) })
+        )
+    })
+
+    test('keeps the persisted filters when the link carries none', async () => {
+        const prefix = customerTasksPersistencePrefix(1, 42)
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        logic.actions.setFilters({ status: 'completed' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        router.actions.push(urls.customerAnalyticsTasks())
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters).toMatchObject({ status: 'completed' })
+    })
+
+    test('keeps the persisted filters when a link only sorts', async () => {
+        const prefix = customerTasksPersistencePrefix(1, 42)
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        logic.actions.setFilters({ status: 'completed' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        router.actions.push(urls.customerAnalyticsTasks(), { sort: '-name' })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters).toMatchObject({ status: 'completed' })
+        expect(logic.values.ordering).toBe('-name')
+    })
+
+    test('keeps a digits-only search the router reads back as a number', async () => {
+        router.actions.push(`${urls.customerAnalyticsTasks()}?search=123`)
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.search).toBe(123)
+        expect(logic.values.filters.search).toBe('123')
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ search: '123' }))
+
+        logic.actions.setSearch('456')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.search).toBe('456')
+    })
+
+    test('writes the inbox filters, sort and page back to the link', async () => {
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setFilters({ due: 'overdue', status: 'all' })
+        logic.actions.setTaskOrdering('-updated_at')
+        logic.actions.setPage(2)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({
+            due: 'overdue',
+            status: 'all',
+            sort: '-updated_at',
+            page: 2,
+        })
+        expect(parseCustomerTaskSearchParams(router.values.searchParams)).toEqual({
+            filters: logic.values.filters,
+            ordering: logic.values.ordering,
+            page: logic.values.page,
+        })
+    })
+
+    test('names the account a link can only identify by id', async () => {
+        router.actions.push(urls.customerAnalyticsTasks(), { account: URL_ACCOUNT_ID })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAccount).toHaveBeenCalledWith(expect.any(String), URL_ACCOUNT_ID)
+        expect(logic.values.filters.account).toEqual({ id: URL_ACCOUNT_ID, name: 'Acme' })
+        expect(mockList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ account_id: URL_ACCOUNT_ID })
+        )
+    })
+
+    test('ignores a slow account read for an account the person moved off', async () => {
+        let resolveAccount = (): void => {}
+        mockAccount.mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveAccount = () => resolve({ id: URL_ACCOUNT_ID, name: 'Acme' } as never)
+            })
+        )
+        router.actions.push(urls.customerAnalyticsTasks(), { account: URL_ACCOUNT_ID })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+
+        logic.actions.setAccountFilter({ id: SECOND_URL_ACCOUNT_ID, name: 'Initech' })
+        resolveAccount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.account).toEqual({ id: SECOND_URL_ACCOUNT_ID, name: 'Initech' })
+    })
+
+    test('reports where an inbox visit came from once, then drops the source', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        router.actions.push(urls.customerAnalyticsTasks(), { source: 'task_digest', due: 'overdue' })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('customer analytics tasks inbox viewed', { source: 'task_digest' })
+        expect(router.values.searchParams).not.toHaveProperty('source')
+        expect(logic.values.filters.due).toBe('overdue')
+        captureSpy.mockRestore()
+    })
+
+    test('leaves the link alone for the account tab', async () => {
+        router.actions.push(urls.customerAnalyticsTasks())
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setFilters({ status: 'completed' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toEqual({})
     })
 })

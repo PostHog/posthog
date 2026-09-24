@@ -10,10 +10,13 @@ Covers:
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from prometheus_client import CollectorRegistry
 
 from posthog.models.team.team import Team
-from posthog.storage.hypercache import HyperCache
+from posthog.storage.hypercache import DEFAULT_CACHE_TTL, HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
     get_cache_stats,
@@ -28,6 +31,7 @@ def create_test_hypercache(
     value: str = "test_value",
     token_based: bool = False,
     expiry_sorted_set_key: str = "test_cache_expiry",
+    cache_ttl: int = DEFAULT_CACHE_TTL,
 ) -> HyperCache:
     """Create a test HyperCache with minimal setup."""
 
@@ -40,6 +44,7 @@ def create_test_hypercache(
         load_fn=load_fn,
         token_based=token_based,
         expiry_sorted_set_key=expiry_sorted_set_key,
+        cache_ttl=cache_ttl,
     )
 
 
@@ -49,6 +54,8 @@ def create_test_config(
     token_based: bool = False,
     update_fn=None,
     route_refresh_fn=None,
+    refresh_ttl_min_fraction: float | None = None,
+    cache_ttl: int = DEFAULT_CACHE_TTL,
 ) -> HyperCacheManagementConfig:
     """Create a test HyperCacheManagementConfig with minimal setup."""
 
@@ -61,6 +68,7 @@ def create_test_config(
         namespace=namespace,
         value=value,
         token_based=token_based,
+        cache_ttl=cache_ttl,
     )
 
     return HyperCacheManagementConfig(
@@ -68,7 +76,15 @@ def create_test_config(
         update_fn=update_fn,
         cache_name="test_cache",
         route_refresh_fn=route_refresh_fn,
+        refresh_ttl_min_fraction=refresh_ttl_min_fraction,
     )
+
+
+class TestRefreshTtlMinFractionValidation(SimpleTestCase):
+    @parameterized.expand([("zero", 0.0), ("above_one", 1.5), ("days_mistaken_for_a_fraction", 7.0)])
+    def test_a_fraction_outside_the_unit_range_is_refused(self, _name: str, fraction: float) -> None:
+        with self.assertRaises(ValueError):
+            create_test_config(refresh_ttl_min_fraction=fraction)
 
 
 class TestDjangoKeyPrefix(BaseTest):
@@ -477,6 +493,9 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
                 failed=100,
                 enqueued=25,
                 expiry_backlog=7000,
+                expiry_backlog_before=11000,
+                oldest_expiry_seconds=-1800.0,
+                limit_reached=True,
             )
 
         mock_registry_cm.assert_called_once_with("hypercache_teams_processed_feature_flags_flags")
@@ -496,6 +515,12 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         # Once the sweep only produces, this gauge is the only thing left that says
         # whether the queue drains.
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) == 7000
+        # The before sample is what the after sample is read against: 11000 - 7000 is what
+        # the run drained, and the next run's before sample against 7000 is the net change
+        # between runs.
+        assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) == 11000
+        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_before_run_seconds", base) == -1800.0
+        assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 1
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_an_unavailable_backlog_emits_no_backlog_series(self, mock_registry_cm):
@@ -510,16 +535,43 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
                 successful=900,
                 failed=100,
                 expiry_backlog=None,
+                expiry_backlog_before=None,
+                oldest_expiry_seconds=None,
+                limit_reached=None,
             )
 
         base = {"namespace": "feature_flags", "cache_name": "flags"}
         # Absent rather than zero: a zero here reads as a drained queue, which is the
         # opposite of "Redis did not answer".
         assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) is None
+        assert registry.get_sample_value("posthog_hypercache_expiry_backlog_before_run", base) is None
+        assert registry.get_sample_value("posthog_hypercache_expiry_oldest_before_run_seconds", base) is None
+        # A 0 here would read as a run that saw the whole queue and left nothing behind.
+        assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) is None
         assert (
             registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "success"})
             == 900
         )
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_a_run_that_stayed_under_its_limit_pushes_a_zero(self, mock_registry_cm: MagicMock) -> None:
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+                limit_reached=False,
+            )
+
+        base = {"namespace": "feature_flags", "cache_name": "flags"}
+        # Dropping a known False on falsiness would remove the series, which a consumer
+        # cannot tell apart from a run that could not read the queue at all.
+        assert registry.get_sample_value("posthog_hypercache_refresh_limit_reached_last_run", base) == 0
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):

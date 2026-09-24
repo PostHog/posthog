@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,9 +66,11 @@ class GitHubGrant:
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
     created_at: str
+    # None only for grants cached before the field existed.
+    identity_verified_at: int | None = None
 
     def to_authorization(self) -> GitHubUserAuthorization:
-        return GitHubUserAuthorization(
+        authorization = GitHubUserAuthorization(
             gh_id=self.gh_id,
             gh_login=self.gh_login,
             access_token=self.access_token,
@@ -75,6 +78,9 @@ class GitHubGrant:
             access_token_expires_in=self.access_token_expires_in,
             refresh_token_expires_in=self.refresh_token_expires_in,
         )
+        if self.identity_verified_at is None:
+            return authorization
+        return dataclasses.replace(authorization, identity_verified_at=self.identity_verified_at)
 
     def cache_payload(self) -> dict[str, Any]:
         return {
@@ -87,6 +93,7 @@ class GitHubGrant:
             "access_token_expires_in": self.access_token_expires_in,
             "refresh_token_expires_in": self.refresh_token_expires_in,
             "created_at": self.created_at,
+            "identity_verified_at": self.identity_verified_at,
         }
 
     @classmethod
@@ -102,6 +109,7 @@ class GitHubGrant:
             access_token_expires_in=payload.get("access_token_expires_in"),
             refresh_token_expires_in=payload.get("refresh_token_expires_in"),
             created_at=payload["created_at"],
+            identity_verified_at=payload.get("identity_verified_at"),
         )
 
 
@@ -117,6 +125,7 @@ def create_grant(partner: OAuthApplication, authorization: GitHubUserAuthorizati
         access_token_expires_in=authorization.access_token_expires_in,
         refresh_token_expires_in=authorization.refresh_token_expires_in,
         created_at=timezone.now().isoformat(),
+        identity_verified_at=authorization.identity_verified_at,
     )
     cache.set(
         f"{GITHUB_GRANT_CACHE_PREFIX}{grant.grant_id}",

@@ -1,17 +1,17 @@
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType, DashboardPlacement, QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, DashboardPlacement, InsightModel } from '~/types'
 
 import { shouldRenderInsightCardViz } from './InsightCard'
 
-const tableQuery = { kind: NodeKind.DataTableNode } as QueryBasedInsightModel['query']
+const tableQuery = { kind: NodeKind.DataTableNode } as InsightModel['query']
 const autoSqlQuery = {
     kind: NodeKind.DataVisualizationNode,
     display: ChartDisplayType.Auto,
-} as QueryBasedInsightModel['query']
+} as InsightModel['query']
 const canvasQuery = {
     kind: NodeKind.DataVisualizationNode,
     display: ChartDisplayType.ActionsLineGraph,
-} as QueryBasedInsightModel['query']
+} as InsightModel['query']
 
 describe('InsightCard', () => {
     it.each([

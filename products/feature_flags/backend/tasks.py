@@ -472,7 +472,7 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     """
     Periodic task to refresh the flag definitions cache before entries expire.
 
-    Runs hourly and refreshes caches with TTL < 24 hours to prevent cache misses.
+    Runs hourly and refreshes caches inside the TTL threshold to prevent cache misses.
 
     Note: Most cache updates happen via Django signals when flags change.
     This job just prevents expiration-related cache misses.
@@ -494,14 +494,14 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     start_time = time.time()
     logger.info(
         "Starting flag definitions cache sync",
-        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+        ttl_threshold_hours=settings.FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT,
     )
 
     counts = refresh_expiring_caches(
         config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+        ttl_threshold_hours=settings.FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT,
     )
 
     successful_gauge.set(counts.successful)

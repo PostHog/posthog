@@ -203,6 +203,52 @@ class TestMemoriesRows:
         assert _query(prepared[0])["page"] == ["1"]
 
 
+class TestMemoriesRejectedPage:
+    def test_a_rejected_next_page_ends_the_table_with_the_rows_already_read(self):
+        # Mem0 keeps putting a `next` link in the memories envelope past the page it answers with
+        # 400, so following it failed the whole sync and the table never landed.
+        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
+        rows, prepared = _run(
+            MEMORIES_ENDPOINT,
+            [_response([{"id": "m1"}], next_url=next_url), _response([], status=400)],
+            _manager(),
+        )
+
+        assert rows == [{"id": "m1"}]
+        assert len(prepared) == 2
+
+    def test_a_resumed_run_ends_the_table_when_its_saved_page_is_rejected(self):
+        # A resumed run's first request is Mem0's own saved `next` link, so a 400 there is the same
+        # refusal to page deeper rather than a bad request of ours.
+        saved_url = f"{MEM0_BASE_URL}/v3/memories/?page=21&page_size=100"
+        manager = _manager(Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=saved_url, cutoff=None))
+
+        rows, prepared = _run(MEMORIES_ENDPOINT, [_response([], status=400)], manager)
+
+        assert rows == []
+        assert len(prepared) == 1
+
+    @parameterized.expand(
+        [
+            # A 400 on the first request is a request-validation failure (Mem0 documents an empty
+            # `filters` as the cause), not a page Mem0 sent us to — syncing an empty table would hide it.
+            ("bad_request_on_first_page", 400, True),
+            ("unauthorized_on_a_later_page", 401, False),
+            ("not_found_on_a_later_page", 404, False),
+        ]
+    )
+    def test_other_rejections_still_fail_the_sync(self, _name, status, on_first_request):
+        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
+        responses = (
+            [_response([], status=status)]
+            if on_first_request
+            else [_response([{"id": "m1"}], next_url=next_url), _response([], status=status)]
+        )
+
+        with pytest.raises(requests.HTTPError):
+            _run(MEMORIES_ENDPOINT, responses, _manager())
+
+
 class TestCutoffFormatting:
     @parameterized.expand(
         [

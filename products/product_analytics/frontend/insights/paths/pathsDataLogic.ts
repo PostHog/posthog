@@ -5,7 +5,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -13,11 +12,11 @@ import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import type {
     DataNode,
     DateRange,
+    EventsNode,
     FunnelPathsFilter,
     FunnelsQuery,
     InsightFilter,
@@ -31,22 +30,22 @@ import type {
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
-import { ActionFilter, FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
 
-export function buildFunnelEventsFromPathNode(pathItemCard: PathNodeData): ActionFilter[] {
-    const events: ActionFilter[] = []
+export function buildFunnelEventsFromPathNode(pathItemCard: PathNodeData): EventsNode[] {
+    const events: EventsNode[] = []
     let currentItemCard: PathNodeData | undefined = pathItemCard
     while (currentItemCard) {
         const rawName = currentItemCard.name.replace(/(^[0-9]+_)/, '')
         const isPageview = /^https?:\/\//.test(rawName)
-        events.push({
-            id: isPageview ? '$pageview' : rawName,
+        // The walk runs backward from the clicked node, so each step goes in front of the last.
+        events.unshift({
+            kind: NodeKind.EventsNode,
+            event: isPageview ? '$pageview' : rawName,
             name: isPageview ? '$pageview' : rawName,
-            type: 'events',
-            order: currentItemCard.depth,
             ...(isPageview && {
                 properties: [
                     {
@@ -239,8 +238,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             openPersonsModal(modalProps)
         },
         viewPathToFunnel: ({ pathItemCard }) => {
-            const events = buildFunnelEventsFromPathNode(pathItemCard)
-            if (events.length === 0) {
+            const series = buildFunnelEventsFromPathNode(pathItemCard)
+            if (series.length === 0) {
                 return
             }
 
@@ -248,12 +247,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    series: actionsAndEventsToSeries(
-                        { events },
-                        true,
-                        MathAvailability.None,
-                        NodeKind.FunnelsDataWarehouseNode
-                    ),
+                    series,
                     funnelsFilter: {
                         funnelVizType: FunnelVizType.Steps,
                     },

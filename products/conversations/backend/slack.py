@@ -31,11 +31,11 @@ from posthog.comment.formatting import (
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -53,7 +53,7 @@ from .services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
     MAX_ATTACHMENTS_PER_MESSAGE,
     build_content_with_images,
-    is_valid_image,
+    resolve_attachment_content_type,
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
@@ -368,22 +368,23 @@ def _rehost_slack_file(f: dict, team: Team, bot_token: str | None) -> dict | Non
         logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
         return None
 
-    # Only images get byte-level validation; other types are stored as-is and
-    # served as opaque downloads by the media endpoint.
-    if is_image and not is_valid_image(file_bytes):
+    # Only types the media endpoint serves inline get byte-level validation; other
+    # types are stored as-is and served as opaque downloads by the media endpoint.
+    content_type = resolve_attachment_content_type(file_bytes, mimetype)
+    if content_type is None:
         logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
         return None
 
     safe_name = sanitize_attachment_filename(f.get("name"))
-    stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
+    stored_url = save_file_to_uploaded_media(team, safe_name, content_type, file_bytes, validate_images=False)
     if not stored_url:
         logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
         return None
 
-    attachment = {
+    attachment: dict[str, Any] = {
         "url": stored_url,
         "name": safe_name,
-        "mimetype": mimetype,
+        "mimetype": content_type,
     }
     if is_image:
         attachment["thumb"] = f.get("thumb_360") or f.get("thumb_160")

@@ -69,12 +69,19 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     )
 
     useEffect(() => {
-        if (!viewportInitialized || !focusNodeIds?.size || !layout) {
+        if (!viewportInitialized || !focusNodeIds || !layout) {
             return
         }
-        const nodes = layout.nodes.filter((node) => focusNodeIds.has(node.id))
+        // Keep the match readable when a search term identifies one or a few nodes. When the
+        // search is cleared, fit the whole graph again instead of leaving the viewport stranded.
+        const nodes = focusNodeIds.size > 0 ? layout.nodes.filter((node) => focusNodeIds.has(node.id)) : layout.nodes
         if (nodes.length > 0) {
-            void fitView({ nodes, padding: 0.2, maxZoom: 1 })
+            void fitView({
+                nodes,
+                padding: 0.2,
+                duration: 400,
+                maxZoom: focusNodeIds.size > 0 ? 2 : undefined,
+            })
         }
     }, [fitView, viewportInitialized, focusNodeIds, layout])
 
@@ -109,6 +116,9 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={false}
             nodesConnectable={false}
+            // The card inside each node is the focus target and carries the key handler. A focusable
+            // wrapper would add a second tab stop per node that only selects and never navigates.
+            nodesFocusable={false}
             fitView
             fitViewOptions={props.fitViewOptions}
             minZoom={0.1}

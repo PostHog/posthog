@@ -1,4 +1,6 @@
+import hmac
 import base64
+import hashlib
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs, urlparse
@@ -55,9 +57,11 @@ class _FakeSession:
     def __init__(self, responses: list[mock.MagicMock]) -> None:
         self._responses = list(responses)
         self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
 
     def get(self, url: str, **kwargs: Any) -> mock.MagicMock:
         self.urls.append(url)
+        self.headers.append(kwargs.get("headers") or {})
         return self._responses.pop(0)
 
 
@@ -70,6 +74,11 @@ def _manager(resume: CiscoDuoResumeConfig | None = None) -> mock.MagicMock:
 
 def _query(url: str) -> dict[str, str]:
     return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
+
+
+def _signature(headers: dict[str, str]) -> str:
+    decoded = base64.b64decode(headers["Authorization"].removeprefix("Basic ")).decode()
+    return decoded.partition(":")[2]
 
 
 @pytest.fixture(autouse=True)
@@ -143,6 +152,19 @@ class TestSigning:
         assert username == IKEY
         assert len(signature) == 40
         int(signature, 16)  # HMAC-SHA1 hex digest
+
+    def test_v5_signature_appends_body_and_header_hashes(self):
+        # Some /admin/v2 handlers reject Duo's legacy v2 signing. v5 signs two extra canonical
+        # lines — the request body and the signed X-Duo-* headers — with SHA-512 instead of
+        # SHA-1. A GET carries neither, so both are the hash of the empty string.
+        date_str = "Tue, 21 Aug 2012 17:29:18 -0000"
+        empty = hashlib.sha512(b"").hexdigest()
+        canon = "\n".join([date_str, "GET", HOST, "/admin/v2/policies", "limit=100", empty, empty])
+        expected = hmac.new(SKEY.encode("utf-8"), canon.encode("utf-8"), hashlib.sha512).hexdigest()
+
+        headers = sign_request("GET", HOST, "/admin/v2/policies", {"limit": "100"}, IKEY, SKEY, date_str, 5)
+
+        assert _signature(headers) == expected
 
     def test_signature_changes_with_params(self):
         date_str = "Tue, 21 Aug 2012 17:29:18 -0000"
@@ -375,6 +397,19 @@ class TestListV1Rows:
         assert _query(session.urls[1])["offset"] == "100"
         manager.save_state.assert_called_once_with(CiscoDuoResumeConfig(offset=100))
 
+    @pytest.mark.parametrize(
+        "endpoint, signature_length",
+        [("users", 40), ("endpoints", 40), ("policies", 128)],
+    )
+    def test_endpoint_signs_with_its_configured_version(self, endpoint: str, signature_length: int):
+        # A /admin/v2 handler can reject legacy v2 signing, so the endpoint's signing version has
+        # to reach the request instead of only sitting in settings.
+        session = _FakeSession([self._page([])])
+
+        _run(endpoint, session, _manager())
+
+        assert len(_signature(session.headers[0])) == signature_length
+
     def test_resume_starts_from_saved_offset(self):
         session = _FakeSession([self._page([{"user_id": "u3"}])])
 
@@ -412,6 +447,118 @@ class TestListV1Rows:
             )
 
         assert make_session.call_args.kwargs["capture"] is expected_capture
+
+
+class TestFanoutV1Rows:
+    def _page(self, items: list[dict], next_offset: Any = None) -> mock.MagicMock:
+        metadata = {"next_offset": next_offset} if next_offset is not None else {}
+        return _response(json_data={"stat": "OK", "response": items, "metadata": metadata})
+
+    def _group(self, group_id: str) -> dict:
+        return {"group_id": group_id, "name": group_id}
+
+    def test_fans_out_over_parents_and_stamps_the_parent_id(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1"), self._group("DG2")]),
+                self._page([{"user_id": "u1"}]),
+                self._page([{"user_id": "u2"}]),
+            ]
+        )
+
+        batches = _run("group_users", session, _manager())
+
+        # Without the parent id on the row the membership is unattributable and the composite
+        # primary key collapses to the user, dropping every group but one.
+        assert batches == [
+            [{"user_id": "u1", "group_id": "DG1"}],
+            [{"user_id": "u2", "group_id": "DG2"}],
+        ]
+        assert [urlparse(url).path for url in session.urls] == [
+            "/admin/v1/groups",
+            "/admin/v2/groups/DG1/users",
+            "/admin/v2/groups/DG2/users",
+        ]
+
+    def test_parent_and_child_sign_with_their_own_versions(self):
+        # The parent list is a v1 handler that takes legacy v2 signing; the child is a v2 handler
+        # that can reject it.
+        session = _FakeSession([self._page([self._group("DG1")]), self._page([])])
+
+        _run("group_users", session, _manager())
+
+        assert len(_signature(session.headers[0])) == 40
+        assert len(_signature(session.headers[1])) == 128
+
+    def test_checkpoints_the_next_child_page_then_the_next_parent(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1"), self._group("DG2")]),
+                self._page([{"user_id": "u1"}], next_offset=100),
+                self._page([{"user_id": "u2"}]),
+                self._page([{"user_id": "u3"}]),
+            ]
+        )
+        manager = _manager()
+
+        _run("group_users", session, manager)
+
+        assert _query(session.urls[1])["offset"] == "0"
+        assert _query(session.urls[2])["offset"] == "100"
+        # Each checkpoint names the work still to do. Naming the work just done would re-yield
+        # it on resume, and these tables are full-refresh, so the rows would duplicate.
+        assert manager.save_state.call_args_list == [
+            mock.call(CiscoDuoResumeConfig(parent_offset=0, parent_id="DG1", offset=100)),
+            mock.call(CiscoDuoResumeConfig(parent_offset=0, parent_id="DG2", offset=0)),
+        ]
+
+    def test_resume_skips_finished_parents_and_continues_mid_parent(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1"), self._group("DG2")]),
+                self._page([{"user_id": "u9"}]),
+            ]
+        )
+        resume = CiscoDuoResumeConfig(parent_offset=0, parent_id="DG2", offset=100)
+
+        batches = _run("group_users", session, _manager(resume))
+
+        assert batches == [[{"user_id": "u9", "group_id": "DG2"}]]
+        assert urlparse(session.urls[1]).path == "/admin/v2/groups/DG2/users"
+        assert _query(session.urls[1])["offset"] == "100"
+
+    def test_restarts_the_page_when_the_checkpointed_parent_is_gone(self):
+        # The group was deleted since the checkpoint, so every offset behind it has shifted and
+        # there is no safe place to pick up inside the page.
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1")]),
+                self._page([{"user_id": "u1"}]),
+            ]
+        )
+        resume = CiscoDuoResumeConfig(parent_offset=0, parent_id="DGGONE", offset=100)
+
+        batches = _run("group_users", session, _manager(resume))
+
+        assert batches == [[{"user_id": "u1", "group_id": "DG1"}]]
+        assert _query(session.urls[1])["offset"] == "0"
+
+    def test_follows_the_parent_next_offset(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1")], next_offset=100),
+                self._page([{"user_id": "u1"}]),
+                self._page([self._group("DG2")]),
+                self._page([{"user_id": "u2"}]),
+            ]
+        )
+        manager = _manager()
+
+        _run("group_users", session, manager)
+
+        assert _query(session.urls[0])["offset"] == "0"
+        assert _query(session.urls[2])["offset"] == "100"
+        assert mock.call(CiscoDuoResumeConfig(parent_offset=100)) in manager.save_state.call_args_list
 
 
 class TestValidateCredentials:

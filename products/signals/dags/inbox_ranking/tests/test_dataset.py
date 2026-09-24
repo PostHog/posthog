@@ -12,7 +12,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
-from products.signals.dags.inbox_ranking.dataset import dag
+from products.signals.dags.inbox_ranking.dataset import dag, queries
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_SCHEMA,
     LABELS_SCHEMA,
@@ -31,6 +31,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     STATUS_SQL,
     hogql_rows,
     merge_label_streams,
+    region_app_host,
     utc_bound,
     valid_report_uuids,
 )
@@ -71,6 +72,22 @@ def test_cloud_requires_dedicated_bucket(monkeypatch, cloud_deployment, bucket, 
     monkeypatch.setattr(common.settings, "CLOUD_DEPLOYMENT", cloud_deployment)
     monkeypatch.setattr(common.settings, "INBOX_RANKING_DATASET_S3_BUCKET", bucket)
     assert common.dataset_unconfigured() is expected_unconfigured
+
+
+@pytest.mark.parametrize(
+    "cloud_deployment,expected",
+    [
+        ("US", "us.posthog.com"),
+        ("eu", "eu.posthog.com"),
+        (None, "localhost:8010"),
+    ],
+)
+def test_region_app_host_comes_from_the_region_not_the_site_url(monkeypatch, cloud_deployment, expected):
+    # A Dagster deployment sets CLOUD_DEPLOYMENT and leaves SITE_URL at its default, so a host
+    # read from SITE_URL matches no impression event and the shadow read grades nothing.
+    monkeypatch.setattr(queries.settings, "CLOUD_DEPLOYMENT", cloud_deployment)
+    monkeypatch.setattr(queries.settings, "SITE_URL", "http://localhost:8010")
+    assert region_app_host() == expected
 
 
 @pytest.mark.parametrize(

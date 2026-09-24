@@ -47,10 +47,12 @@ from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
+    ArtefactContentValidationError,
     ImplementationDecision,
     ImplementationDispatch,
     NoteArtefact,
     PriorityAssessment,
+    ReportLink,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -68,7 +70,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
-from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex, bounded_reviewer_reason
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
@@ -134,7 +136,7 @@ class ScoutReportSignal:
 
     description: str
     source_id: str
-    weight: float = SCOUT_SIGNAL_WEIGHT
+    weight: float
     timestamp: datetime | None = None
     extra: dict = field(default_factory=dict)
     document_id: str | None = None
@@ -587,6 +589,46 @@ def append_report_note(
     return AppendedNote(report_id=report_id, corroboration_count=corroboration_count, collapsed=collapsed)
 
 
+def append_report_links(
+    *,
+    team_id: int,
+    report_id: str,
+    links: Sequence[ReportLink],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Write typed, directed `report_link` artefacts on an existing report, returning how many landed.
+
+    Team-scoped fail-closed like every other edit path: a `report_id` the team does not own raises.
+    `add_log` enforces the link's own invariants (no self-link, a live target in the same team, no
+    cycle of one kind) and raises `ArtefactContentValidationError`, which is re-raised as an
+    `InvalidScoutReportError` so the scout tool answers with its own error shape.
+
+    Written one at a time rather than in bulk, because the cycle check has to see each link the
+    previous one added. A batch that links A to B and B to A is rejected on the second link.
+    """
+    _validate_report_id(report_id)
+    if not links:
+        return 0
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        for link in links:
+            try:
+                SignalReportArtefact.add_log(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=link,
+                    attribution=attribution,
+                )
+            except ArtefactContentValidationError as err:
+                raise InvalidScoutReportError(str(err))
+    logger.info(
+        "signals_scout.edit_report: links appended",
+        extra={"team_id": team_id, "report_id": report_id, "link_count": len(links)},
+    )
+    return len(links)
+
+
 def record_content_revision(*, team_id: int, report_id: str) -> int:
     """Count one scout rewrite of a report's title or summary and return the report's new total.
 
@@ -1012,12 +1054,23 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
         if prior is None:
             merged.append(entry)
             continue
+        prior_commits = prior.get("relevant_commits")
+        safe_commits = (
+            [
+                {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+                if isinstance(commit, dict)
+                else commit
+                for commit in prior_commits
+            ]
+            if isinstance(prior_commits, list)
+            else []
+        )
         candidate = {
             "github_login": entry.github_login,
             "user_uuid": entry.user_uuid,
             "github_name": entry.github_name if entry.github_name is not None else prior.get("github_name"),
-            "relevant_commits": entry.relevant_commits or prior.get("relevant_commits") or [],
-            "reason": entry.reason if entry.reason is not None else prior.get("reason"),
+            "relevant_commits": entry.relevant_commits or safe_commits,
+            "reason": entry.reason if entry.reason is not None else bounded_reviewer_reason(prior.get("reason")),
             # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
             # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
             # would keep a former owner, re-added as a normal reviewer, excluded from autostart

@@ -26,18 +26,17 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     expect(savedQuery.ok()).toBe(true)
     const savedQueryId = (await savedQuery.json()).id
 
-    const created = await page.request.post(
-        `/api/projects/${workspace.team_id}/warehouse_saved_queries/${savedQueryId}/checks/`,
-        {
-            ...auth,
-            data: {
-                name: CHECK_NAME,
-                check_type: 'custom_sql',
-                column_name: '',
-                config: { query: 'SELECT id FROM orders_e2e WHERE id < 0' },
-            },
-        }
-    )
+    const created = await page.request.post(`/api/projects/${workspace.team_id}/data_quality_checks/`, {
+        ...auth,
+        data: {
+            name: CHECK_NAME,
+            check_type: 'custom_sql',
+            column_name: '',
+            config: { query: 'SELECT id FROM orders_e2e WHERE id < 0' },
+            subject_type: 'view',
+            subject_uuid: savedQueryId,
+        },
+    })
     expect(created.ok()).toBe(true)
     const check = await created.json()
 
@@ -64,10 +63,7 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await saveButton.click()
 
     await expect(page.getByText('Check saved')).toBeVisible()
-    const edited = await page.request.get(
-        `/api/projects/${workspace.team_id}/warehouse_saved_queries/${savedQueryId}/checks/${check.id}/`,
-        auth
-    )
+    const edited = await page.request.get(`/api/projects/${workspace.team_id}/data_quality_checks/${check.id}/`, auth)
     const editedCheck = await edited.json()
     // The point of the whole change: an edit refines the check rather than replacing it.
     expect(editedCheck.id).toEqual(check.id)

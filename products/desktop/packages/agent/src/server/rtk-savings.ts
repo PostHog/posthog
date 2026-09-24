@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolveRtkPrefix } from "@posthog/harness/extensions/rtk";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
-import { resolveRtkPrefix } from "../adapters/claude/session/rtk";
 
 const execFileAsync = promisify(execFile);
 

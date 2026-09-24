@@ -7,6 +7,7 @@ import {
   type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
   sortChannelItems,
@@ -219,14 +220,14 @@ describe("buildChannelItems", () => {
     expect(item.repository).toBeNull();
   });
 
-  it("reads a filed session's source, and none for one started here", () => {
+  it("reads the source for filed and Desktop sessions", () => {
     const items = build({
       feedTasks: [
         task({ id: "filed", origin_product: "slack" }),
         task({ id: "own", origin_product: "user_created" }),
       ],
     });
-    expect(items.map((i) => i.source)).toEqual(["slack", null]);
+    expect(items.map((i) => i.source)).toEqual(["slack", DESKTOP_SOURCE]);
   });
 
   it("marks the sessions asking for input and the ones you haven't read", () => {
@@ -325,7 +326,7 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     pinned: false,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: ME,
@@ -436,14 +437,19 @@ describe("filterChannelItems", () => {
 });
 
 describe("channelItemSources", () => {
-  it("offers each source once, and nothing for sessions started here", () => {
+  it("offers each source once", () => {
     const items = [
       model({ id: "a", source: "slack" }),
       model({ id: "b", source: "slack" }),
       model({ id: "c", source: "error_tracking" }),
+      model({ id: "desktop", source: DESKTOP_SOURCE }),
       model({ id: "d", source: null }),
     ];
-    expect(channelItemSources(items)).toEqual(["error_tracking", "slack"]);
+    expect(channelItemSources(items)).toEqual([
+      "error_tracking",
+      "slack",
+      DESKTOP_SOURCE,
+    ]);
   });
 });
 
@@ -472,6 +478,21 @@ describe("sortChannelItems", () => {
     for (const sort of ["recent", "created", "alpha"] as const) {
       expect(sortChannelItems(pinnedLast, sort)[0]?.id).toBe("pin");
     }
+  });
+
+  // The Work column's Recent list is one of these: a pin there marks the row
+  // and nothing else, so holding it at the top would move a row nobody moved.
+  it("leaves a pin in place for a list with no pinned run", () => {
+    const pinnedOldest = [
+      ...items,
+      model({ id: "pin", title: "Z", ts: 0, createdAt: 0, pinned: true }),
+    ];
+
+    expect(
+      sortChannelItems(pinnedOldest, "recent", { pinnedRun: false }).map(
+        (i) => i.id,
+      ),
+    ).toEqual(["newest", "middle", "oldest", "pin"]);
   });
 });
 
@@ -538,6 +559,19 @@ describe("groupChannelItems", () => {
       ["Pinned", "kept"],
       ["Today", "today"],
     ]);
+  });
+
+  it("dates a pin with the rest for a list with no pinned run", () => {
+    const items = [
+      model({ id: "today", ts: at(29, 9) }),
+      model({ id: "kept", ts: at(29, 8), pinned: true }),
+    ];
+
+    expect(
+      groupChannelItems(items, "recent", NOW, "date", undefined, {
+        pinnedRun: false,
+      }).map((section) => [section.label, ...section.items.map((i) => i.id)]),
+    ).toEqual([["Today", "today", "kept"]]);
   });
 
   // Dating a created-first list by last activity would reopen a day the list

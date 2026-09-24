@@ -1,16 +1,21 @@
 import type { ReactNode } from 'react'
 
-import { LemonCollapse, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import {
     type AITriage,
+    type AITriageSource,
+    aiTriageBlockerLabel,
     aiTriageResultLabel,
     aiTriageResultTagType,
     aiTriageStatusLabel,
     aiTriageTicketTypeDescription,
     aiTriageTicketTypeLabel,
+    aiTriageVerdictLabel,
+    ticketListAiTriage,
 } from '../../types'
 
 interface AIPanelProps {
@@ -18,16 +23,14 @@ interface AIPanelProps {
 }
 
 function AITriageHeaderTag({ aiTriage }: { aiTriage?: AITriage }): JSX.Element | null {
-    if (!aiTriage?.status) {
-        return null
-    }
-    if (aiTriage.status === 'in_progress') {
+    const display = ticketListAiTriage(aiTriage)
+    if (display.kind === 'processing') {
         return <Spinner className="text-sm ml-1" />
     }
-    if (aiTriage.result) {
+    if (display.kind === 'tag') {
         return (
-            <LemonTag type={aiTriageResultTagType(aiTriage.result)} size="small" className="ml-1">
-                {aiTriageResultLabel[aiTriage.result]}
+            <LemonTag type={display.tagType} size="small" className="ml-1">
+                {display.label}
             </LemonTag>
         )
     }
@@ -36,9 +39,9 @@ function AITriageHeaderTag({ aiTriage }: { aiTriage?: AITriage }): JSX.Element |
 
 function AITriageRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
     return (
-        <div className="flex justify-between">
-            <span className="text-muted-alt">{label}</span>
-            {children}
+        <div className="flex justify-between gap-2 min-w-0">
+            <span className="text-muted-alt shrink-0">{label}</span>
+            <span className="min-w-0 text-right break-words">{children}</span>
         </div>
     )
 }
@@ -50,7 +53,57 @@ function maybeTriageRow(
     return children ? [{ label, children }] : []
 }
 
+function AITriageBulletList({ items }: { items: string[] }): JSX.Element {
+    return (
+        <ul className="m-0 pl-4 space-y-0.5 break-words">
+            {items.map((item) => (
+                <li key={item}>{item}</li>
+            ))}
+        </ul>
+    )
+}
+
+function AISourceItem({ source }: { source: AITriageSource }): JSX.Element {
+    const title = source.title || source.ref
+    const name =
+        source.source_id != null ? (
+            <Link to={urls.businessKnowledgeSource(source.source_id)} className="truncate">
+                {title}
+            </Link>
+        ) : source.url ? (
+            <Link to={source.url} target="_blank" className="truncate">
+                {title}
+            </Link>
+        ) : (
+            <span className="truncate">{title}</span>
+        )
+
+    return (
+        <li className="flex flex-col min-w-0 gap-0.5">
+            <span className="flex items-center gap-1 min-w-0">
+                {name}
+                {source.is_generated ? (
+                    <LemonTag type="highlight" size="small">
+                        Learned
+                    </LemonTag>
+                ) : null}
+            </span>
+            {source.is_generated && source.learned_from_ticket_number != null ? (
+                <Link
+                    to={urls.supportTicketDetail(source.learned_from_ticket_number)}
+                    className="text-xs text-muted truncate"
+                >
+                    Learned from ticket #{source.learned_from_ticket_number}
+                </Link>
+            ) : null}
+        </li>
+    )
+}
+
 function AITriageDetails({ aiTriage }: { aiTriage: AITriage }): JSX.Element {
+    const unknowns = (aiTriage.unknowns ?? []).filter((item) => item.trim())
+    const missing = (aiTriage.missing ?? []).filter((item) => item.trim())
+    const sources = aiTriage.sources ?? []
     const rows = [
         ...maybeTriageRow(
             'Status',
@@ -75,6 +128,16 @@ function AITriageDetails({ aiTriage }: { aiTriage: AITriage }): JSX.Element {
             ) : null
         ),
         ...maybeTriageRow(
+            'Verdict',
+            aiTriage.verdict ? <span>{aiTriageVerdictLabel[aiTriage.verdict] ?? aiTriage.verdict}</span> : null
+        ),
+        ...maybeTriageRow(
+            'Blocker',
+            aiTriage.blocker && aiTriage.blocker !== 'none' ? (
+                <span>{aiTriageBlockerLabel[aiTriage.blocker] ?? aiTriage.blocker}</span>
+            ) : null
+        ),
+        ...maybeTriageRow(
             'Confidence',
             aiTriage.confidence != null ? <span>{(aiTriage.confidence * 100).toFixed(0)}%</span> : null
         ),
@@ -92,12 +155,40 @@ function AITriageDetails({ aiTriage }: { aiTriage: AITriage }): JSX.Element {
     ]
 
     return (
-        <div className="space-y-2 text-xs">
+        <div className="space-y-2 text-xs min-w-0">
             {rows.map(({ label, children }) => (
                 <AITriageRow key={label} label={label}>
                     {children}
                 </AITriageRow>
             ))}
+            {aiTriage.investigation_summary?.trim() ? (
+                <div className="min-w-0">
+                    <div className="text-muted-alt">Investigation</div>
+                    <p className="m-0 mt-0.5 whitespace-pre-wrap break-words">{aiTriage.investigation_summary}</p>
+                </div>
+            ) : null}
+            {unknowns.length > 0 ? (
+                <div className="min-w-0">
+                    <div className="text-muted-alt">Still unknown</div>
+                    <AITriageBulletList items={unknowns} />
+                </div>
+            ) : null}
+            {missing.length > 0 ? (
+                <div className="min-w-0">
+                    <div className="text-muted-alt">Missing from knowledge</div>
+                    <AITriageBulletList items={missing} />
+                </div>
+            ) : null}
+            {sources.length > 0 ? (
+                <div className="min-w-0">
+                    <div className="text-muted-alt">Sources</div>
+                    <ul className="m-0 mt-0.5 pl-0 list-none space-y-1">
+                        {sources.map((source, index) => (
+                            <AISourceItem key={`${source.ref}-${index}`} source={source} />
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
         </div>
     )
 }
@@ -108,11 +199,12 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
     return (
         <LemonCollapse
             className="bg-surface-primary"
+            defaultActiveKey={hasData ? 'ai_triage' : undefined}
             panels={[
                 {
                     key: 'ai_triage',
                     header: (
-                        <span className="flex items-center">
+                        <span className="flex items-center min-w-0">
                             AI triage
                             <AITriageHeaderTag aiTriage={aiTriage} />
                         </span>

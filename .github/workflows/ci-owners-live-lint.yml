@@ -27,7 +27,7 @@ concurrency:
 jobs:
     owners-live-lint:
         name: Validate every ownership identity against GitHub
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
             # Plain checkout: the lint reads every owners.yaml and product.yaml in the tree.

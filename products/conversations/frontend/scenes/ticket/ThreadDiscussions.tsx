@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { IconChat } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -205,14 +205,18 @@ export function useDiscussionTimelineExtras(ticketId: string | undefined, enable
         }
     }, [enabled, ticketId, maybeLoadComments])
 
-    if (!enabled || !ticketId) {
-        return []
-    }
+    const openDiscussion = useCallback(
+        (threadId: string) => {
+            openSidePanel(SidePanelTab.Discussion, threadId)
+            // The panel selects from the URL option on change, so clicking the *same* card twice would
+            // otherwise be a no-op — after the reader collapsed that thread, the card would stop working.
+            setSelectedComment(threadId, true)
+        },
+        [openSidePanel, setSelectedComment]
+    )
 
-    return discussionTimelineExtras(commentsWithReplies, (threadId) => {
-        openSidePanel(SidePanelTab.Discussion, threadId)
-        // The panel selects from the URL option on change, so clicking the *same* card twice would
-        // otherwise be a no-op — after the reader collapsed that thread, the card would stop working.
-        setSelectedComment(threadId, true)
-    })
+    return useMemo(
+        () => (enabled && ticketId ? discussionTimelineExtras(commentsWithReplies, openDiscussion) : []),
+        [commentsWithReplies, enabled, openDiscussion, ticketId]
+    )
 }

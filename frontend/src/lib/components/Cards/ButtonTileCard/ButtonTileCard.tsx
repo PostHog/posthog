@@ -11,10 +11,10 @@ import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightC
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile } from '~/types'
 
 interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
-    buttonTile: DashboardTile<QueryBasedInsightModel>
+    buttonTile: DashboardTile
     placement: DashboardPlacement
     children?: JSX.Element
     canEnterEditModeFromEdge?: boolean

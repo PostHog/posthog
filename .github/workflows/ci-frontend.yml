@@ -73,7 +73,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -162,6 +162,8 @@ jobs:
                         - '!.github/workflows/desktop-*.yml'
                         - '!.github/actions/desktop-*/**'
                         - '!.github/scripts/desktop/**'
+                        # The personhog Python stubs sit under packages/ but no frontend code reads them
+                        - '!packages/personhog-proto/**'
                         - 'playwright/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
@@ -194,6 +196,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'common/replay-shared/src/**'
                         - 'packages/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
@@ -205,6 +208,8 @@ jobs:
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
+                        # The personhog Python stubs sit under packages/ but no frontend code reads them
+                        - '!packages/personhog-proto/**'
                         - 'playwright/**'
                         # The onboarding step components compile into the app and sit in the
                         # frontend tsconfig program, so they are code, not docs.
@@ -268,7 +273,7 @@ jobs:
     # PR takes the full matrix and a draft skips jest, deferring to its ready run.
     select-jest-tests:
         name: Select jest tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: changes
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
@@ -363,17 +368,21 @@ jobs:
                       exit 0
                   fi
 
-                  # Skip when jest config / build / lock files change — these
-                  # invalidate jest's resolver, transformer cache, or test discovery
-                  # in ways `--findRelatedTests` can't see, so no narrowed run can be
-                  # trusted. Pattern matches mirror the frontend_code paths-filter
-                  # in `changes`.
+                  # Skip selection when jest config / build / lock files change, or
+                  # when replay-shared source changes: that package sits outside
+                  # the frontend jest roots, so --findRelatedTests misses its
+                  # frontend consumers. Pattern matches mirror the frontend_code
+                  # paths-filter in `changes`.
                   while IFS= read -r f; do
                       case "$f" in
                           jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
                           .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
+                              exit 0
+                              ;;
+                          common/replay-shared/src/*)
+                              fall_back unindexed_dependency "$f"
                               exit 0
                               ;;
                       esac
@@ -441,7 +450,7 @@ jobs:
         # Not on the hourly cron: that lane exists for jest only, and formatting
         # already ran on the push that landed each commit.
         if: needs.changes.outputs.frontend == 'true' && github.event_name != 'schedule'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -525,7 +534,7 @@ jobs:
         # Not on the hourly cron: the vs-base comparison build is pull_request-only,
         # so a cron run measures an absolute size with nothing to compare it against.
         if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -769,7 +778,7 @@ jobs:
         # already ran on the push that landed each commit.
         if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule'
         # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on a 16 GB
-        # runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
+        # runner (ubuntu-24.04 and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
         # not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS and
         # declaration:false change nothing, and dropping all of products/ from include removes
         # only 891 of 13703 files because imports pull them back in. Both runners below give
@@ -856,7 +865,7 @@ jobs:
                     run: node bin/validate-setup-tasks.mjs
 
     jest:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # PRs run two selective shards over the tests reachable from the changed
         # files. The merge queue runs the full four-shard fanout.
         timeout-minutes: 20
@@ -948,7 +957,7 @@ jobs:
                           --shard=$SHARD_INDEX/$SHARD_COUNT \
                           --findRelatedTests $CHANGED_FILES
                   else
-                      # 100% = one worker per available core. Public-repo ubuntu-latest
+                      # 100% = one worker per available core. Public-repo ubuntu-24.04
                       # runners have 4 vCPUs; a hardcoded 2 left half the machine idle.
                       bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=100%
                   fi
@@ -991,7 +1000,7 @@ jobs:
               run: exit 1
 
     jest-replay-shared:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.replay_shared == 'true'
@@ -1062,7 +1071,7 @@ jobs:
     report-test-signals:
         name: Report Jest test signals
         needs: [jest]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
         permissions:
@@ -1089,7 +1098,9 @@ jobs:
               shell: bash
               run: |
                   available=false
-                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]] && grep -q -- '"jest"' .github/scripts/report_test_timings.py; then
+                  # The owners resolver is a path dep of the reporter. A base ref from before the
+                  # move to packages/owners-yaml still carries it at tools/owners, so both count.
+                  if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners-yaml || -d tools/owners ) ]] && grep -q -- '"jest"' .github/scripts/report_test_timings.py; then
                     available=true
                   fi
                   if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
@@ -1135,7 +1146,7 @@ jobs:
                 frontend_tests,
                 changes,
             ]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
@@ -1192,7 +1203,7 @@ jobs:
     capture-jest-selection:
         name: Capture jest selection
         needs: [select-jest-tests, jest]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Either the selector reached a decision, or jest ran without it (the full-run
         # baseline). Neither holds on a frontend-untouched PR, and there is nothing to
@@ -1234,7 +1245,7 @@ jobs:
     frontend_tests:
         needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

@@ -187,6 +187,13 @@ export const PendingKickoff: Story = {
   },
 };
 
+export const PendingKickoffList: Story = {
+  args: {
+    ...PendingKickoff.args,
+    rowStyle: "list",
+  },
+};
+
 export const Loading: Story = {
   args: {
     tasks: [],

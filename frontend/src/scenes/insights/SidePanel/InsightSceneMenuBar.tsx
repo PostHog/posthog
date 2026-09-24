@@ -66,7 +66,7 @@ import {
     ExporterFormat,
     InsightLogicProps,
     ItemMode,
-    QueryBasedInsightModel,
+    InsightModel,
     SidePanelTab,
 } from '~/types'
 
@@ -392,7 +392,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     <SceneMenuBarItem
                         disabled={insightDuplicating}
                         tooltip={insightDuplicating ? 'Duplicating…' : undefined}
-                        onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
+                        onClick={() => duplicateInsight(insight as InsightModel, true)}
                         data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                     >
                         <IconCopy />

@@ -794,6 +794,54 @@ export interface PatchedInsightVariableApi {
     values_query_connection_id?: string | null
 }
 
+export interface DataWarehouseManagedViewApi {
+    /** Saved query the managed viewset owns. */
+    id: string
+    /** Name of the saved query. */
+    name: string
+    /** When the saved query was created. */
+    created_at: string
+    /**
+     * User who created the saved query, or null when the sync did.
+     * @nullable
+     */
+    created_by_id: number | null
+}
+
+export interface DataWarehouseManagedViewSetResponseApi {
+    /** Saved queries in the managed viewset. */
+    views: DataWarehouseManagedViewApi[]
+    /** Number of saved queries returned. */
+    count: number
+}
+
+export interface DataWarehouseManagedViewSetApi {
+    /** Whether the managed viewset should exist. */
+    enabled: boolean
+}
+
+/**
+ * * `revenue_analytics` - Revenue Analytics
+ * * `engineering_analytics` - Engineering Analytics
+ */
+export type DataWarehouseManagedViewSetKindEnumApi =
+    (typeof DataWarehouseManagedViewSetKindEnumApi)[keyof typeof DataWarehouseManagedViewSetKindEnumApi]
+
+export const DataWarehouseManagedViewSetKindEnumApi = {
+    RevenueAnalytics: 'revenue_analytics',
+    EngineeringAnalytics: 'engineering_analytics',
+} as const
+
+export interface DataWarehouseManagedViewSetUpdateResponseApi {
+    /** State the managed viewset is now in. */
+    enabled: boolean
+    /** Managed viewset that was toggled.
+     *
+     * * `revenue_analytics` - Revenue Analytics
+     * * `engineering_analytics` - Engineering Analytics */
+    kind: DataWarehouseManagedViewSetKindEnumApi
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /**
@@ -1446,6 +1494,8 @@ export interface DataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state: IncrementalStateApi | null
+    /** Whether incremental settings participated in any materialization run. */
+    readonly has_incremental_history: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1488,12 +1538,12 @@ export interface DataWarehouseSavedQueryApi {
     /** @nullable */
     readonly latest_error: string | null
     /**
-     * Activity log ID from the last known edit. Used for conflict detection.
+     * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
      * @nullable
      */
     edited_history_id?: string | null
     /**
-     * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+     * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
      * @nullable
      */
     readonly latest_history_id: string | null
@@ -1573,6 +1623,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state?: IncrementalStateApi | null
+    /** Whether incremental settings participated in any materialization run. */
+    readonly has_incremental_history?: boolean
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
@@ -1615,12 +1667,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** @nullable */
     readonly latest_error?: string | null
     /**
-     * Activity log ID from the last known edit. Used for conflict detection.
+     * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
      * @nullable
      */
     edited_history_id?: string | null
     /**
-     * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+     * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
      * @nullable
      */
     readonly latest_history_id?: string | null
@@ -3266,6 +3318,11 @@ export interface CredentialApi {
  * * `Quo` - Quo
  * * `HeyReach` - HeyReach
  * * `MoEngage` - MoEngage
+ * * `Monaco` - Monaco
+ * * `Oneleet` - Oneleet
+ * * `Expo` - Expo
+ * * `PostNord` - PostNord
+ * * `Commslayer` - Commslayer
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4614,6 +4671,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Quo: 'Quo',
     HeyReach: 'HeyReach',
     MoEngage: 'MoEngage',
+    Monaco: 'Monaco',
+    Oneleet: 'Oneleet',
+    Expo: 'Expo',
+    PostNord: 'PostNord',
+    Commslayer: 'Commslayer',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5110,6 +5172,13 @@ export type QueryTabStateListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type QueryTabStateUserRetrieveParams = {
+    /**
+     * UUID of the user whose query-tab state to return.
+     */
+    user_id: string
 }
 
 export type SavedQueryColumnAnnotationsListParams = {

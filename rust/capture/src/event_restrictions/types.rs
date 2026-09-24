@@ -45,7 +45,7 @@ impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (names on the `AI_EVENT_NAMES` allowlist), so its restriction service
+    /// (names the deployment's `AiLanePredicate` accepts), so its restriction service
     /// must serve restrictions for all three pipelines. `Import` is an events
     /// deployment restricted to backfills, so it serves the same three.
     ///
@@ -69,7 +69,7 @@ impl Pipeline {
             // The two refuse differently, each fitting its own response
             // contract: v0's `process_events` rejects the whole request
             // (`CaptureError::NonAiEventOnAiLane`, 400), while v1's
-            // `drop_misrouted_events` drops only the offenders, because it can
+            // `drop_non_ai_events` drops only the offenders, because it can
             // report per-event outcomes. The guarantee relied on here is the
             // same either way.
             CaptureMode::Ai => vec![Self::Ai],
@@ -416,7 +416,7 @@ mod tests {
             vec![Pipeline::SessionRecordings]
         );
         // Ai serves only the AI lane: its routes are AI-only and its batch path
-        // rejects anything off the allowlist, so every event it processes
+        // rejects anything off the AI lane, so every event it processes
         // resolves to Pipeline::Ai. Widening this would load slices nothing
         // looks up; narrowing it below is only safe while both of those hold.
         assert_eq!(

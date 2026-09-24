@@ -11,6 +11,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
     DeltaTableRef,
@@ -177,9 +180,9 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError("Access Denied: not authorized to list bucket")
+            mock_delta_table.is_deltatable.side_effect = OSError("unexpected end of stream while reading response")
 
-            with pytest.raises(OSError, match="Access Denied"):
+            with pytest.raises(OSError, match="unexpected end of stream"):
                 await table_ref.get_delta_table()
 
             mock_capture.assert_called_once()
@@ -215,6 +218,38 @@ class TestGetDeltaTableUnrecoverableErrors:
             assert exc_info.value.__cause__ is original_error
             mock_capture.assert_not_called()
             cast(AsyncMock, table_ref._logger.awarning).assert_awaited_once()
+            assert table_ref.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_object_store_refusal_is_typed_and_not_captured_inline(self):
+        """The bucket refusing the read is a policy condition on PostHog's own storage, not a defect
+        in this code and not a corrupt table. Capturing inline here and then reraising the raw
+        OSError reported the same refusal twice, once from this call and once from the activity
+        interceptor, and the raw message names the `_delta_log` key it was refused on, which both
+        leaks the object key into the customer's error text and fingerprints into its own
+        error-tracking issue per table. Raising the typed error leaves one report, with a message
+        that names no key."""
+        table_ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        original_error = OSError(
+            "Kernel error -> The operation lacked the necessary privileges to complete for path "
+            "warehouse/team_42_source_7/orders/_delta_log/00000000000000000012.json"
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+        with (
+            patch.object(table_ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = original_error
+
+            with pytest.raises(ObjectStorePermissionDeniedError) as exc_info:
+                await table_ref.get_delta_table()
+
+            assert exc_info.value.__cause__ is original_error
+            assert "_delta_log" not in str(exc_info.value)
+            mock_capture.assert_not_called()
             assert table_ref.is_first_sync is False
 
     @pytest.mark.asyncio
@@ -300,7 +335,7 @@ class TestIsTableCorrupted:
         assert result is expected
 
 
-class TestPurgeS3PrefixRetriesPermissionError:
+class TestPurgeS3PrefixPermissionErrors:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
 
     # A HeadObject 403 never carries the underlying S3 error code in its body (AWS omits it for HEAD
@@ -321,16 +356,29 @@ class TestPurgeS3PrefixRetriesPermissionError:
 
         assert mock_once.await_count == 2
 
+    @parameterized.expand(
+        [
+            # A bodyless 403 keeps the whole budget, because it can still be the race above.
+            ("bodyless_403_spends_the_budget", "Forbidden", _PURGE_S3_PREFIX_MAX_ATTEMPTS, PermissionError),
+            # S3 only returns an explicit AccessDenied code when a policy refuses the call, so the
+            # remaining attempts would make the same refused DeleteObjects calls. They only delay the
+            # failure by the backoff, which is why this one has to fail on the first attempt and say
+            # what it is instead of surfacing as a bare PermissionError.
+            ("explicit_access_denied_fails_once", "Access Denied", 1, ObjectStorePermissionDeniedError),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_gives_up_after_max_attempts_on_persistent_permission_error(self):
+    async def test_persistent_permission_error(
+        self, _case: str, message: str, expected_attempts: int, expected_error: type[Exception]
+    ):
         with (
             patch(
                 f"{self._MODULE}._purge_s3_prefix_once",
-                new=AsyncMock(side_effect=PermissionError("Forbidden")),
+                new=AsyncMock(side_effect=PermissionError(message)),
             ) as mock_once,
             patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
         ):
-            with pytest.raises(PermissionError):
+            with pytest.raises(expected_error):
                 await _purge_s3_prefix(MagicMock(), "s3://bucket/prefix")
 
-        assert mock_once.await_count == _PURGE_S3_PREFIX_MAX_ATTEMPTS
+        assert mock_once.await_count == expected_attempts

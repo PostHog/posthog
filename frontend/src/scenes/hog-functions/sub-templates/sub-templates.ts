@@ -1825,6 +1825,17 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'batch-export-alerts'
         case '$feature_flag_stale':
             return 'feature-flag-alerts'
+        case '$billing_alert_firing':
+        case '$billing_alert_resolved':
+        case '$billing_alert_errored':
+        case '$billing_alert_auto_disabled':
+            return 'billing-alerts'
+        case '$replay_vision_alert_firing':
+        case '$replay_vision_alert_resolved':
+        case '$replay_vision_alert_errored':
+        case '$replay_vision_alert_auto_disabled':
+        case '$replay_vision_alert_match':
+            return 'replay-vision-alerts'
         default:
             return 'standard'
     }

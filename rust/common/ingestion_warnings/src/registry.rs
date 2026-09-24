@@ -35,9 +35,7 @@ impl WarningType {
     ///   would mean inventing an error that never gets returned.
     /// * Ones from a pipeline that has no tag vocabulary. The AI endpoints
     ///   reject via their own typed conditions, not `v1::Error`, so their tags
-    ///   would be strings no `Error` ever produces. `MisroutedEvent` is the
-    ///   same shape: a per-event drop detail set by the lane gates, never an
-    ///   `Error`. The replay endpoint is the
+    ///   would be strings no `Error` ever produces. The replay endpoint is the
     ///   same case from the other direction: its conditions are `CaptureError`
     ///   variants v1 analytics never returns, so no `Error::tag()` names them.
     ///
@@ -50,9 +48,9 @@ impl WarningType {
         Self::HighVolumeDistinctId,
         Self::DistinctIdTruncated,
         Self::InvalidAiEvent,
-        Self::MisroutedEvent,
         Self::InvalidAiPayload,
         Self::NoAiSpansIngested,
+        Self::MisroutedEvent,
         Self::MissingSessionId,
         Self::InvalidSessionId,
         Self::MissingSnapshotData,

@@ -47,8 +47,49 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelFeedMessages", () => ({
   useChannelFeedMessages: () => ({ messages: [], isLoading: false }),
   channelCreationMessage: () => null,
 }));
+vi.mock(
+  "@posthog/ui/features/canvas/components/work/useSpacePullRequests",
+  () => ({ useSpacePullRequests: () => [] }),
+);
 vi.mock("@posthog/ui/features/canvas/hooks/useFolderInstructions", () => ({
   useFolderInstructions: () => ({ data: undefined, isLoading: false }),
+}));
+vi.mock(
+  "@posthog/ui/features/canvas/hooks/useDashboards",
+  async (original) => ({
+    ...(await original<object>()),
+    useDashboards: () => ({ dashboards: [], isLoading: false }),
+  }),
+);
+vi.mock(
+  "@posthog/ui/features/archive/useArchivedTaskIds",
+  async (original) => ({
+    ...(await original<object>()),
+    useArchivedTaskIds: () => new Set<string>(),
+  }),
+);
+vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", async (original) => ({
+  ...(await original<object>()),
+  usePinnedTasks: () => ({ pinnedTaskIds: new Set<string>() }),
+}));
+vi.mock(
+  "@posthog/ui/features/canvas/hooks/useChannelItems",
+  async (original) => ({
+    ...(await original<object>()),
+    useChannelSessionFacts: () => ({
+      needsInputTaskIds: new Set<string>(),
+      viewedTimestamps: {},
+      workspaceByTaskId: new Map(),
+    }),
+  }),
+);
+vi.mock("@posthog/ui/features/auth/authClient", async (original) => ({
+  ...(await original<object>()),
+  useOptionalAuthenticatedClient: () => null,
+}));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", async (original) => ({
+  ...(await original<object>()),
+  useCurrentUser: () => ({ data: undefined }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
   useChannelTaskMutations: () => ({ fileTask: () => Promise.resolve() }),
@@ -62,6 +103,16 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() }),
+  keepPreviousData: <T,>(previous: T): T => previous,
+  useQuery: () => ({ data: undefined, isLoading: false, isPending: false }),
+  useQueries: () => [],
+  useInfiniteQuery: () => ({
+    data: undefined,
+    isLoading: false,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
+  useMutation: () => ({ mutateAsync: vi.fn(), mutate: vi.fn() }),
 }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 

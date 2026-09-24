@@ -191,7 +191,7 @@ function spaceFromTaskInputs(
   );
   if (!folderId) return null;
   return {
-    folder_id: folderId,
+    channel_id: folderId,
     name: rest.join("|"),
     outputs: defaultLoopContextOutputs(),
   };

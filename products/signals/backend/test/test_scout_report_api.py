@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -25,10 +26,12 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
+    SignalReportCheck,
     SignalSourceConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer
+from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -467,6 +470,90 @@ class TestScoutReportAPI(APIBaseTest):
         # The run records which report it edited so "which reports did this run touch?" is a column lookup.
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
+
+    def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
+        # A scout that splits one finding into a stack has to be able to record the order, and the
+        # cycle guard has to hold on this path too, not only on the REST action.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            second = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="feat(cart): second step"), format="json"
+            ).json()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": second["report_id"],
+                    "links": [
+                        {"kind": "depends_on", "report_id": first["report_id"], "reason": "shares the same module"}
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["links_appended"] == 1
+        stored = SignalReportArtefact.objects.filter(
+            report_id=second["report_id"], type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        )
+        assert [json.loads(row.content)["report_id"] for row in stored] == [first["report_id"]]
+        # Directed, so the predecessor carries nothing.
+        assert not SignalReportArtefact.objects.filter(
+            report_id=first["report_id"], type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            cycle = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": first["report_id"],
+                    "links": [{"kind": "depends_on", "report_id": second["report_id"]}],
+                },
+                format="json",
+            )
+        assert cycle.status_code == status.HTTP_400_BAD_REQUEST, cycle.json()
+
+    def test_a_links_only_edit_counts_as_an_edit(self) -> None:
+        # A links-only edit commits the link and answers 200, so it has to reach the edit tally and
+        # the report-to-run work-log link too. Left out of the `changed` predicate, the link lands
+        # while `edited_report_ids` and the run's transcript link on the report stay unset.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        target = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="depends on")
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": first["report_id"],
+                    "links": [{"kind": "depends_on", "report_id": str(target.id)}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [first["report_id"]]
+
+    def test_edit_report_rejects_an_unknown_link_kind(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            other = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="feat(cart): other"), format="json"
+            ).json()
+
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "links": [{"kind": "blocks", "report_id": other["report_id"]}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_edit_report_appends_evidence_and_moves_the_report_counts(self) -> None:
         # The evidence rail is create-only without this: a scout with fresh corroboration could only
@@ -2146,18 +2233,17 @@ class TestScoutReportAPI(APIBaseTest):
             assert captured is not None
             return captured.event_uuid
 
-        def observation(source_id: str, description: str = "Checkout errors doubled", weight: float = 1.0):
-            return ScoutReportSignal(description=description, source_id=source_id, weight=weight)
+        def observation(source_id: str, description: str = "Checkout errors doubled"):
+            return ScoutReportSignal(description=description, source_id=source_id, weight=1.0)
 
         checkout = forward([observation("checkout-errors")])
         assert checkout == forward([observation("checkout-errors")])
         # The rail carries a row per source id, so the same prose recorded twice is two observations.
         assert checkout != forward([observation("checkout-errors-eu")])
         assert checkout != forward([observation("checkout-errors", description="Signups fell")])
-        assert checkout != forward([observation("checkout-errors", weight=2.0)])
         # A description is scout-authored free text, so on a pipe-joined key a note carrying the
         # evidence part verbatim hashes like the evidence edit itself and one of the two is dropped.
-        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors",1.0]]')
+        assert checkout != forward([], note='|evidence:[["Checkout errors doubled","checkout-errors"]]')
 
     @parameterized.expand(
         [
@@ -2290,6 +2376,26 @@ class TestScoutReportAPI(APIBaseTest):
         assert not any(
             c.kwargs.get("event_name") == "$scout_report_emitted" for c in self.capture_internal_mock.call_args_list
         )
+
+    def test_edit_report_gate_refusal_carries_the_emit_remediation(self) -> None:
+        # Both channels hit the same gate, so a scout blocked on an edit needs the same next step an
+        # emit hands back. A bare reason code leaves it unable to tell a fixable block from a
+        # terminal one, and it has already spent the run by the time it reads this.
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.emit = False
+        config.save(update_fields=["emit"])
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": str(uuid4()), "append_note": "fresh evidence"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "scout_emit_disabled" in detail
+        assert remediation_for_skip("scout_emit_disabled") in detail
 
     @parameterized.expand(
         [
@@ -2549,3 +2655,111 @@ class TestReportClassificationProps(SimpleTestCase):
         assert props["is_self_improvement_report"] is is_self_improvement
         expected_kind = REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING
         assert props["report_kind"] == expected_kind
+
+
+class TestScoutReportCheckAPI(APIBaseTest):
+    """The report-check tools' gate: only a run whose skill opted into the report channel may write one."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Checkout")
+        self.scout_run = _make_run(self.team)
+        _authenticate_as_scout(self, scopes="signals_scout_reports")
+
+    def _opt_in(self, allowed_tools: list[str]) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.scout_run.skill_name,
+            description="scout",
+            body="# scout",
+            allowed_tools=allowed_tools,
+        )
+
+    def _create_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/report-check-create/"
+
+    def _payload(self) -> dict:
+        return {
+            "report_id": str(self.report.id),
+            "title": "Checkout errors stay low",
+            "kind": "metric_threshold",
+            "config": {
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}]),
+                "comparison": {"operator": "lte", "value": 10},
+            },
+            "next_run_at": (timezone.now() + timedelta(days=3)).isoformat(),
+        }
+
+    def test_an_opted_in_run_writes_a_check_attributed_to_its_task(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["check_id"])
+        assert check.task_id == self.scout_run.task_run.task_id
+        assert check.report_id == self.report.id
+
+    def test_a_run_without_the_report_channel_opt_in_is_refused(self) -> None:
+        self._opt_in([])
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
+    def test_a_token_minted_for_another_run_cannot_write_through_this_one(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        sibling = _make_run(self.team)
+        _authenticate_as_scout(self, scopes="signals_scout_reports", sandbox_task_id=sibling.task_run.task_id)
+
+        response = self.client.post(self._create_url(), self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert not SignalReportCheck.objects.for_team(self.team.id).exists()
+
+    def test_a_check_can_target_a_report_in_a_child_environment(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        report = SignalReport.objects.create(team=child, status=SignalReport.Status.READY, title="Checkout")
+
+        response = self.client.post(self._create_url(), {**self._payload(), "report_id": str(report.id)}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check = SignalReportCheck.objects.for_team(child.id).get(id=response.json()["check_id"])
+        assert check.report_id == report.id
+
+    def test_a_check_cannot_target_a_report_outside_the_canonical_team(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Other")
+        report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="Checkout")
+
+        response = self.client.post(self._create_url(), {**self._payload(), "report_id": str(report.id)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalReportCheck.objects.for_team(other_team.id).exists()
+
+    def test_listing_a_reports_checks_returns_what_the_run_wrote(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        created = self.client.post(self._create_url(), self._payload(), format="json").json()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/report-checks/",
+            {"report_id": str(self.report.id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["check_id"] for row in response.json()] == [created["check_id"]]
+
+    def test_cancelling_stops_the_check(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        created = self.client.post(self._create_url(), self._payload(), format="json").json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/report-check-cancel/",
+            {"check_id": created["check_id"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["status"] == "cancelled"

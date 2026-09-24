@@ -5,10 +5,8 @@ use anyhow::{Context, Result};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Executor, PgPool};
 
-/// So one chunk's delete fails fast on a lock instead of hanging the step.
-const STATEMENT_TIMEOUT_MS: u64 = 30_000;
-/// Rows deleted per statement.
-const RESET_CHUNK: i64 = 10_000;
+/// So a wedged delete fails the step instead of hanging it.
+const STATEMENT_TIMEOUT_MS: u64 = 300_000;
 
 pub struct ResetConfig {
     pub database_url: String,
@@ -35,7 +33,6 @@ pub async fn reset_team(cfg: &ResetConfig) -> Result<()> {
         cfg.team_id,
         &cfg.tmp_person_table,
         &cfg.tmp_pdi_table,
-        RESET_CHUNK,
     )
     .await
 }
@@ -45,7 +42,6 @@ pub async fn reset_team_on_pool(
     team_id: i64,
     tmp_person_table: &str,
     tmp_pdi_table: &str,
-    chunk: i64,
 ) -> Result<()> {
     // Distinct-id rows reference persons, so delete them first.
     for table in [
@@ -54,24 +50,13 @@ pub async fn reset_team_on_pool(
         "posthog_person",
         tmp_person_table,
     ] {
-        // Chunk the delete so millions of rows stay bounded and index-driven.
-        let mut total = 0u64;
-        loop {
-            let deleted = sqlx::query(&format!(
-                "DELETE FROM {table} WHERE team_id = $1 AND id IN \
-                 (SELECT id FROM {table} WHERE team_id = $1 LIMIT {chunk})"
-            ))
+        let deleted = sqlx::query(&format!("DELETE FROM {table} WHERE team_id = $1"))
             .bind(team_id)
             .execute(pool)
             .await
             .with_context(|| format!("resetting {table}"))?
             .rows_affected();
-            total += deleted;
-            if (deleted as i64) < chunk {
-                break;
-            }
-        }
-        tracing::info!(table, team_id, deleted = total, "reset team rows");
+        tracing::info!(table, team_id, deleted, "reset team rows");
     }
     Ok(())
 }

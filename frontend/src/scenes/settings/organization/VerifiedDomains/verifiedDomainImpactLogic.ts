@@ -41,7 +41,6 @@ export interface verifiedDomainImpactLogicActions {
                 OrganizationType,
                 | 'allow_publicly_shared_resources'
                 | 'default_anonymize_ips'
-                | 'default_experiment_stats_method'
                 | 'default_role_id'
                 | 'enforce_2fa'
                 | 'enforce_verified_domains'
@@ -61,7 +60,6 @@ export interface verifiedDomainImpactLogicActions {
             OrganizationType,
             | 'allow_publicly_shared_resources'
             | 'default_anonymize_ips'
-            | 'default_experiment_stats_method'
             | 'default_role_id'
             | 'enforce_2fa'
             | 'enforce_verified_domains'

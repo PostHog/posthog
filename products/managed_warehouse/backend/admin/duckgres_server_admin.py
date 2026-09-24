@@ -1,5 +1,6 @@
 from typing import cast
 
+from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed
@@ -15,8 +16,31 @@ from products.managed_warehouse.backend.models import DuckgresServer
 logger = structlog.get_logger(__name__)
 
 
+class DuckgresServerAdminForm(forms.ModelForm):
+    new_trino_password = forms.CharField(
+        label="New Trino password",
+        help_text="Leave blank to keep the current Trino password.",
+        widget=forms.PasswordInput(render_value=False),
+        required=False,
+        strip=False,
+    )
+
+    class Meta:
+        model = DuckgresServer
+        exclude = ("trino_password",)
+
+    def save(self, commit: bool = True) -> DuckgresServer:
+        server = super().save(commit=False)
+        if password := self.cleaned_data.get("new_trino_password"):
+            server.trino_password = password
+        if commit:
+            server.save()
+        return server
+
+
 @admin.register(DuckgresServer)
 class DuckgresServerAdmin(admin.ModelAdmin):
+    form = DuckgresServerAdminForm
     list_display = (
         "id",
         "organization_id",
@@ -32,7 +56,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     # bucket / bucket_region are control-plane-owned: provisioning persists them
     # and status_for() self-heals them on every read, so a manual admin edit
     # would just be overwritten. Show them, but read-only.
-    readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region")
+    readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region", "trino_password_configured")
     raw_id_fields = ("organization",)
 
     # Custom templates add the provision / enable-backfill / deprovision buttons.
@@ -56,6 +80,12 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             "DuckLake catalog connection",
             {
                 "fields": ("catalog_host", "catalog_port", "catalog_database", "catalog_username"),
+            },
+        ),
+        (
+            "Trino connection",
+            {
+                "fields": ("trino_password_configured", "new_trino_password"),
             },
         ),
         (
@@ -95,12 +125,22 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Trino connection",
+            {
+                "fields": ("new_trino_password",),
+            },
+        ),
+        (
             "Storage",
             {
                 "fields": ("bucket", "bucket_region"),
             },
         ),
     )
+
+    @admin.display(boolean=True, description="Trino password configured")
+    def trino_password_configured(self, obj: DuckgresServer) -> bool:
+        return bool(obj.trino_password)
 
     def get_urls(self):
         custom_urls = [
@@ -159,20 +199,19 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.provision(
-            team.organization_id, database_name, team.id, schema_name, require_enabled=False
+            team.organization_id,
+            database_name,
+            team.id,
+            schema_name,
+            require_enabled=False,
+            triggered_by=self._audit_principal(request),
         )
         if 200 <= resp.status_code < 300:
             # The control plane returns the root password exactly once, in this
             # response; afterwards it's stored only encrypted and can't be read
-            # back. Show it once here. Deliberately NOT routed through the message
-            # framework (which persists to the session/cookie store) or the audit
-            # log — only the action + actor are logged, never the credential.
-            user = cast(User, request.user)
-            logger.info(
-                "admin_managed_warehouse_action",
-                action=f"Provisioned managed warehouse for org {team.organization_id}",
-                triggered_by=user.email,
-            )
+            # back. Show it once here. It is deliberately kept out of the message
+            # framework, which persists to the session/cookie store, and out of the
+            # audit log, which records the action and the actor but never the credential.
             body = resp.data if isinstance(resp.data, dict) else {}
             return render(
                 request,
@@ -220,7 +259,13 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
-        resp = managed_warehouse.onboard_team(server.organization_id, team.id, schema_name, require_enabled=False)
+        resp = managed_warehouse.onboard_team(
+            server.organization_id,
+            team.id,
+            schema_name,
+            require_enabled=False,
+            triggered_by=self._audit_principal(request),
+        )
         self._report(request, resp, f"Onboarded team {team.id} onto the managed warehouse")
         if 200 <= resp.status_code < 300:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_change", args=[object_id]))
@@ -248,7 +293,9 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
-        resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
+        resp = managed_warehouse.deprovision(
+            server.organization_id, require_enabled=False, triggered_by=self._audit_principal(request)
+        )
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")
         if 200 <= resp.status_code < 300:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_changelist"))
@@ -277,18 +324,19 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             return None
         return team
 
+    def _audit_principal(self, request: HttpRequest) -> str:
+        return f"django-admin:{cast(User, request.user).email}"
+
     def _report(self, request: HttpRequest, resp, success_message: str) -> None:
-        """Turn a managed_warehouse Response into an admin flash message + audit log."""
-        user = cast(User, request.user)
+        """Flash the outcome, and log a failure with its actor: views.py records successes only."""
         if 200 <= resp.status_code < 300:
-            logger.info("admin_managed_warehouse_action", action=success_message, triggered_by=user.email)
             messages.success(request, f"{success_message}. (status {resp.status_code})")
             return
         detail = resp.data.get("error") if isinstance(resp.data, dict) else resp.data
         logger.warning(
             "admin_managed_warehouse_action_failed",
             action=success_message,
-            triggered_by=user.email,
+            triggered_by=self._audit_principal(request),
             status_code=resp.status_code,
             error=detail,
         )
