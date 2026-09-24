@@ -789,6 +789,8 @@ class PostgresDiscoveredSchema:
     source_schema: str
     source_table_name: str
     columns: list[tuple[str, str, bool]]
+    # The planner's estimate from the catalog, not a count. None when the catalog has no figure for the table.
+    estimated_row_count: int | None = None
 
 
 def _is_duckdb_connection(cursor: psycopg.Cursor) -> bool:
@@ -1573,15 +1575,56 @@ def _schemas_from_conn(
 
             columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
 
+        # Last, so a failure cannot abort the transaction under the queries discovery depends on.
+        row_estimates = _row_estimates_from_conn(connection, cursor, schema_placeholders, schema_params)
+
         return {
             display_name: PostgresDiscoveredSchema(
                 source_catalog=source_catalog,
                 source_schema=schema_name,
                 source_table_name=table_name,
                 columns=columns_by_table.get(display_name, []),
+                estimated_row_count=row_estimates.get((schema_name, table_name)),
             )
             for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
         }
+
+
+def _row_estimates_from_conn(
+    connection: psycopg.Connection, cursor: psycopg.Cursor, schema_placeholders: str, schema_params: dict[str, str]
+) -> dict[tuple[str, str], int]:
+    """The catalog's row estimate per (schema, table), for the HogQL cost planner.
+
+    ``reltuples`` is what the planner keeps after ANALYZE and is -1 before the first one; the stats
+    collector's ``n_live_tup`` fills that gap. Neither reads the table. Best-effort: an engine that
+    speaks the Postgres protocol without these catalogs (DuckDB) fails the query, and discovery
+    must still return its tables, so the failure is rolled back and the estimates are left out.
+    """
+    try:
+        cursor.execute(
+            f"""
+            SELECT n.nspname, c.relname, c.reltuples, s.n_live_tup
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+            WHERE n.nspname IN ({schema_placeholders}) AND c.relkind IN ('r', 'p', 'm')
+            """,
+            schema_params,
+        )
+        rows = cursor.fetchall()
+    except Exception:
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        return {}
+    estimates: dict[tuple[str, str], int] = {}
+    for schema_name, table_name, reltuples, n_live_tup in rows:
+        if reltuples is not None and float(reltuples) >= 0:
+            estimates[(str(schema_name), str(table_name))] = int(float(reltuples))
+        elif n_live_tup is not None:
+            estimates[(str(schema_name), str(table_name))] = int(n_live_tup)
+    return estimates
 
 
 def get_schemas(

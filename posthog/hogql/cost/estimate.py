@@ -9,8 +9,9 @@ headline. What is known depends on the source. For ``events``:
 
 Sessions are a daily rate scaled to the range on the session's start time, the same shape without the event share.
 A warehouse table carries the rows and bytes of its last sync, and persons and groups a count of the team's rows.
-Any other table is listed with nothing known about it, so the reader sees which part of the query the number does
-not cover. The estimate is advisory. It is compared against
+A table on a customer's database carries the row estimate its catalog reported at the last schema refresh. Any
+other table is listed with nothing known about it, so the reader sees which part of the query the number does not
+cover. The estimate is advisory. It is compared against
 ``read_rows`` in ``query_log`` (see ``accuracy.py``) and a wrong number costs a misleading hint, never a failed
 query.
 
@@ -400,7 +401,11 @@ def _other_table_estimate(scan: _OtherScan, team_id: int, provider: StatisticsPr
     if isinstance(table, S3Table):
         return TableScanEstimate(name=name, source="warehouse", precision="unknown")
     if isinstance(table, DirectSQLTable):
-        return TableScanEstimate(name=name, source="direct", precision="unknown")
+        if table.estimated_row_count is None:
+            return TableScanEstimate(name=name, source="direct", precision="unknown")
+        # The remote catalog's figure for the whole table. Nothing returns read_rows for a query that ran on
+        # the customer's database, so this entry is never scored.
+        return TableScanEstimate(name=name, source="direct", precision="size_only", rows=table.estimated_row_count)
     if isinstance(table, FunctionCallTable):
         return TableScanEstimate(name=name, source="static", precision="unknown")
     counted = _COUNTED_CLICKHOUSE_TABLES.get(type(table))

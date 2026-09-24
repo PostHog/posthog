@@ -185,7 +185,8 @@ def get_hogql_metadata(
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
-            if source is None and query.indexUsage and _scan_estimate_enabled(team):
+            # The estimate covers a direct connection too: its tables carry the remote catalog's size.
+            if query.indexUsage and _scan_estimate_enabled(team):
                 _attach_scan_estimate(response, hogql_ast, context, statistics_provider)
         else:
             raise ValueError(f"Unsupported language: {query.language}")

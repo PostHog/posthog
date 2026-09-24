@@ -18,7 +18,17 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
 from posthog.hogql.resolver import resolve_types
 
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_warehouse.backend.facade.sources import (
+    DIRECT_ESTIMATED_ROW_COUNT_OPTION,
+    DIRECT_POSTGRES_SCHEMA_OPTION,
+    DIRECT_POSTGRES_TABLE_OPTION,
+    DIRECT_POSTGRES_URL_PATTERN,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -357,6 +367,59 @@ class TestEstimateEventsScan(BaseTest):
             ("events", "measured"),
             ("persons", "size_only"),
         ]
+
+    def test_a_direct_postgres_table_lists_the_catalog_estimate_as_size_only(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        DataWarehouseTable.objects.create(
+            name="pg_orders",
+            format="Parquet",
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+            options={
+                DIRECT_POSTGRES_SCHEMA_OPTION: "public",
+                DIRECT_POSTGRES_TABLE_OPTION: "orders",
+                DIRECT_ESTIMATED_ROW_COUNT_OPTION: 812_000,
+            },
+        )
+        # A direct source's tables live only in the catalog built for that connection.
+        self.context.database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        estimate = self._estimate("SELECT count() FROM pg_orders")
+
+        assert estimate is not None
+        assert estimate.upper_bound is True
+        assert estimate.tables == (
+            TableScanEstimate(name="pg_orders", source="direct", precision="size_only", rows=812_000),
+        )
+
+        # The editor asks for metadata with the connection set, and a direct query used to get no estimate at all.
+        with (
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.metadata.ClickHouseStatisticsProvider", return_value=self.provider),
+        ):
+            response = get_hogql_metadata(
+                HogQLMetadata(
+                    kind="HogQLMetadata",
+                    language=HogLanguage.HOG_QL,
+                    query="SELECT count() FROM pg_orders",
+                    connectionId=str(source.id),
+                    indexUsage=True,
+                ),
+                self.team,
+            )
+        assert response.isValid is True
+        assert response.scan_estimate is not None
+        assert [(table.source, table.rows) for table in response.scan_estimate.tables] == [("direct", 812_000)]
 
     def test_a_synced_warehouse_table_counts_its_rows_as_a_ceiling(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
