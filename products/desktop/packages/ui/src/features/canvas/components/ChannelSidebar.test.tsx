@@ -1,11 +1,14 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
-  DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
+  DESKTOP_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  useSidebarStore,
+} from "@posthog/ui/features/sidebar/sidebarStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -103,7 +106,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     pinned: false,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: null,
@@ -133,7 +136,7 @@ function renderSidebar() {
 
 beforeEach(() => {
   useSidebarStore.setState({
-    channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+    channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
     channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
     channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
   });

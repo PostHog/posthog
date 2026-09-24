@@ -6,7 +6,6 @@ import {
 import {
   type ChannelItemModel,
   channelItemSources,
-  DEFAULT_CHANNEL_ITEM_FILTERS,
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
@@ -76,7 +75,10 @@ import { useCommandCenterStore } from "@posthog/ui/features/command-center/comma
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  useSidebarStore,
+} from "@posthog/ui/features/sidebar/sidebarStore";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import {
@@ -554,7 +556,11 @@ export function WorkColumn() {
     if (recentItems.length === 0) {
       return (
         <p className="px-2 py-1 text-[12px] text-muted-foreground">
-          {needle || hasActiveChannelItemFilters(filters)
+          {needle ||
+          hasActiveChannelItemFilters(
+            filters,
+            DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+          )
             ? "Nothing here matches."
             : "Sessions and canvases you open show up here."}
         </p>
@@ -609,7 +615,7 @@ export function WorkColumn() {
     <ChannelFilterMenu
       filters={filters}
       onFilterChange={(key, value) => setFilters({ ...filters, [key]: value })}
-      onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+      onClearFilters={() => setFilters(DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS)}
       sort={sort}
       onSortChange={setSort}
       grouping={grouping}
@@ -620,7 +626,10 @@ export function WorkColumn() {
       showRunFilters
       showKindFilter
       groupings={["date", "space", "repository"]}
-      active={hasActiveChannelItemFilters(filters)}
+      active={hasActiveChannelItemFilters(
+        filters,
+        DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+      )}
     />
   );
 
