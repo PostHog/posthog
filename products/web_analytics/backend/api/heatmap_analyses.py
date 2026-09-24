@@ -37,6 +37,7 @@ from products.web_analytics.backend.models.heatmap_analysis import HeatmapAnalys
 from products.web_analytics.backend.tasks.heatmap_analysis import analyze_heatmap
 
 ANALYSIS_IN_PROGRESS = "Another historical heatmap is being analyzed. Try again when it finishes."
+MAX_ANALYSIS_RANGE = timedelta(days=90, hours=1)
 
 
 class HeatmapAnalysisCreateSerializer(serializers.Serializer):
@@ -56,7 +57,7 @@ class HeatmapAnalysisCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         date_from, date_to = cast(datetime, attrs["date_from"]), cast(datetime, attrs["date_to"])
-        if date_to <= date_from or date_to - date_from > timedelta(days=90):
+        if date_to <= date_from or date_to - date_from > MAX_ANALYSIS_RANGE:
             raise serializers.ValidationError("Choose a date range between one second and 90 days.")
         if date_from > timezone.now():
             raise serializers.ValidationError("Choose dates in the past.")

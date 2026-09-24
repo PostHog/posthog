@@ -52,6 +52,13 @@ class TestPageVariants(SimpleTestCase):
         assert variants[0].summary()["clicks"] == [{"x": 16, "y": 24, "count": 2}]
         assert variants[1].summary()["clicks"] == [{"x": 16, "y": 24, "count": 1}]
 
+    def test_signatures_that_join_to_the_same_text_get_distinct_ids(self) -> None:
+        first, second = recording(), recording()
+        first.states[0].signature = ["A", "B:C"]
+        second.states[0].signature = ["A:B", "C"]
+        variants = group_page_states({"a": first, "b": second})
+        assert len({variant.id for variant in variants}) == 2
+
     def test_viewports_and_repeated_states_do_not_inflate_visits(self) -> None:
         first = recording()
         first.states.append(first.states[0].model_copy(update={"timestamp": 2000, "clicks": []}))
@@ -248,6 +255,19 @@ class TestHistoricalHeatmapAPI(APIBaseTest):
         )
         assert future.status_code == 202
         assert HeatmapAnalysis.objects.for_team(self.team.id).get(id=future.json()["id"]).date_to <= timezone.now()
+
+    @parameterized.expand(
+        [
+            ("ninety_days_across_fall_back", "2025-10-01T00:00:00-04:00", "2025-12-30T00:00:00-05:00", 202),
+            ("ninety_one_days", "2025-10-01T00:00:00-04:00", "2025-12-31T00:00:00-05:00", 400),
+        ]
+    )
+    @patch("products.web_analytics.backend.api.heatmap_analyses.analyze_heatmap.delay")
+    def test_range_limit_counts_calendar_days(
+        self, _name: str, date_from: str, date_to: str, expected: int, _enqueue: MagicMock
+    ) -> None:
+        response = self.client.post(self.endpoint, {**self.body, "date_from": date_from, "date_to": date_to})
+        assert response.status_code == expected, response.json()
 
     def test_replay_disabled_and_cross_team_heatmap_fail_closed(self) -> None:
         assert self.client.get(f"{self.endpoint}invalid-id/").status_code == 404
