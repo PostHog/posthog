@@ -91,7 +91,7 @@ A push from a path the workflow was not pushed from is refused, so a copied file
 Each push records the repository, path, and commit or branch when the CLI can resolve them from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.
 
 The recorded source fields need a PostHog that stores them. Until your PostHog does, it drops them, and a copied file resolves the same workflow rather than being refused.
-Every push that writes also claims the workflow as managed by code, which makes it read-only in the PostHog UI; an older PostHog drops that claim too, so the workflow stays editable there.
+Every push that writes also claims the workflow as managed by code. The PostHog editor then keeps edits to it local and never saves them, and Copy code turns them into the file to commit. An older PostHog drops that claim, so the workflow stays editable there.
 
 ## Common questions
 
@@ -102,7 +102,7 @@ The questions that come up first when a team moves workflows into a repository. 
 Run `posthog-workflows push flows/onboarding.ts`.
 The CLI resolves each workflow's `key` in the target project, creates or updates the workflow, and marks it as managed by code on every push.
 It prints one result per workflow, `created`, `updated` or `unchanged`, with the version PostHog stored and the commit or branch it recorded, and it exits non-zero when any workflow failed.
-There is nothing to sync back: the file is the source of truth, the next push wins, and PostHog shows the workflow as read-only with a link to the file.
+There is nothing to sync back: the file is the source of truth, the next push wins, and PostHog shows the workflow as managed by code with a link to the file.
 
 ### Which CI step do I set up?
 
