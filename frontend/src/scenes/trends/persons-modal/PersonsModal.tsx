@@ -78,6 +78,7 @@ export function PersonsModal({
     urlsIndex,
     urls,
     query: _query,
+    actorsQuery: _actorsQuery,
     title,
     onAfterClose,
     inline,
@@ -90,6 +91,7 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
+        actorsQuery: _actorsQuery,
         additionalSelect,
         orderBy,
     })

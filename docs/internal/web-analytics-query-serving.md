@@ -187,6 +187,15 @@ Use that ID to find the failed request in the query log.
 The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
 Errors outside the query path, such as configuration failures, may have no query ID.
 
+## Marketing conversion details
+
+Ad performance and the legacy marketing dashboard share the conversion table.
+Click a positive conversion goal value to open the people list for that goal and row.
+The list retains the table's date range, filters, attribution settings, and breakdown, including the source for campaign rows.
+It shows distinct people, so its count can differ from event totals or fractional attribution credit.
+Ad-platform reported conversions do not link to people because they do not identify PostHog persons.
+The details query reuses the attribution pipeline before aggregation and follows the table's precompute-readiness rules.
+
 ## Marketing metric chart
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.

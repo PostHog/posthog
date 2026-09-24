@@ -1256,6 +1256,9 @@
                             "$ref": "#/definitions/PathsV2ActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/MarketingAnalyticsActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -1644,6 +1647,9 @@
                 },
                 {
                     "$ref": "#/definitions/MarketingAnalyticsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsActorsQuery"
                 },
                 {
                     "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
@@ -34194,6 +34200,53 @@
             "required": ["type", "content"],
             "type": "object"
         },
+        "MarketingAnalyticsActorsBreakdown": {
+            "additionalProperties": false,
+            "properties": {
+                "source": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["value"],
+            "type": "object"
+        },
+        "MarketingAnalyticsActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "$ref": "#/definitions/MarketingAnalyticsActorsBreakdown"
+                },
+                "conversionGoalId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "MarketingAnalyticsActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/MarketingAnalyticsTableQuery"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["breakdown", "conversionGoalId", "kind", "source"],
+            "type": "object"
+        },
         "MarketingAnalyticsAggregatedQuery": {
             "additionalProperties": false,
             "properties": {
@@ -38419,6 +38472,7 @@
                 "WebAnalyticsExternalSummaryQuery",
                 "WebNotableChangesQuery",
                 "MarketingAnalyticsTableQuery",
+                "MarketingAnalyticsActorsQuery",
                 "MarketingAnalyticsAggregatedQuery",
                 "MarketingAnalyticsAttributionQuery",
                 "MarketingAnalyticsAttributionPathsQuery",

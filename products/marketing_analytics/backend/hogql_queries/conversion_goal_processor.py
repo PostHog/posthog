@@ -488,6 +488,35 @@ class ConversionGoalProcessor:
             return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
 
+    def generate_attributed_conversions_query(
+        self,
+        additional_conditions: Sequence[ast.Expr],
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> ast.SelectQuery:
+        """Return attributed conversion rows with person identity and marketing dimensions."""
+        if not self.uses_attribution_pipeline:
+            return self._generate_direct_attributed_query(additional_conditions)
+
+        if self._should_use_precompute(date_from, date_to):
+            assert date_from is not None and date_to is not None
+            try:
+                precomputed = self._build_attributed_conversions_from_precomputes(date_from, date_to)
+            except Exception:
+                CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
+                logger.exception(
+                    "conversion_goal_actors_precompute_failed",
+                    goal_id=self.goal.conversion_goal_id,
+                    team_id=self.team.pk,
+                )
+            else:
+                if precomputed is not None:
+                    return precomputed
+                raise MarketingPrecomputeNotReady(goal_id=self.goal.conversion_goal_id)
+
+        with self.timings.measure("ma_goal_actors_events_fallback"):
+            return self.build_attributed_conversions_query(self.build_array_collection_query(additional_conditions))
+
     @property
     def uses_attribution_pipeline(self) -> bool:
         """Whether this goal's rows come from the attribution pipeline rather than a direct scan.
@@ -514,16 +543,18 @@ class ConversionGoalProcessor:
     def build_attribution_pipeline(self, array_source: ast.SelectQuery) -> ast.SelectQuery:
         """Apply ARRAY JOIN, attribution and final aggregation on top of an
         array-collection source."""
+        return self._build_final_aggregation_query(self.build_attributed_conversions_query(array_source))
+
+    def build_attributed_conversions_query(self, array_source: ast.SelectQuery) -> ast.SelectQuery:
+        """Return one row per attributed conversion and touchpoint before aggregation."""
         attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
 
         if self.config.is_multi_touch:
             array_join = self._build_multi_touch_array_join_subquery(array_source, attribution_window_seconds)
-            attribution = self._build_multi_touch_attribution_subquery(array_join)
-        else:
-            array_join = self._build_single_touch_array_join_subquery(array_source, attribution_window_seconds)
-            attribution = self._build_single_touch_attribution_subquery(array_join)
+            return self._build_multi_touch_attribution_subquery(array_join)
 
-        return self._build_final_aggregation_query(attribution)
+        array_join = self._build_single_touch_array_join_subquery(array_source, attribution_window_seconds)
+        return self._build_single_touch_attribution_subquery(array_join)
 
     def _generate_funnel_query(
         self,
@@ -719,6 +750,15 @@ class ConversionGoalProcessor:
         date_to: datetime,
         touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> Optional[ast.SelectQuery]:
+        attributed = self._build_attributed_conversions_from_precomputes(date_from, date_to, touchpoints)
+        return self._build_final_aggregation_query(attributed) if attributed is not None else None
+
+    def _build_attributed_conversions_from_precomputes(
+        self,
+        date_from: datetime,
+        date_to: datetime,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
+    ) -> Optional[ast.SelectQuery]:
         """Reusable-precompute read path: ensure both the config-agnostic touchpoints and the per-goal
         conversions are materialized, then attribute at read time by feeding a precompute-sourced array
         collection through the existing pipeline (all modes). Neither precompute depends on attribution
@@ -767,7 +807,7 @@ class ConversionGoalProcessor:
             array_collection = self._build_array_collection_from_precomputes(
                 touchpoints_result.job_ids, conversions_result.job_ids, date_from, date_to, window
             )
-            return self.build_attribution_pipeline(array_collection)
+            return self.build_attributed_conversions_query(array_collection)
 
     def _build_array_collection_from_precomputes(
         self,
@@ -2200,6 +2240,67 @@ class ConversionGoalProcessor:
         else:
             # count() already returns 0 for no rows, no need for COALESCE
             return ast.Call(name="count", args=[])
+
+    def _generate_direct_attributed_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
+        table = self.get_table_name()
+        where_conditions = add_conversion_goal_property_filters(self.get_base_where_conditions(), self.goal, self.team)
+        where_conditions.extend(additional_conditions)
+
+        campaign_expr, source_expr = self.get_utm_expressions()
+        field_exprs: dict[str, ast.Expr] = {
+            "campaign": self._apply_organic_default(campaign_expr, self.config.organic_campaign),
+            "source": self._normalize_source_field(
+                self._apply_organic_default(source_expr, self.config.organic_source)
+            ),
+        }
+        for field in TRACKED_FIELDS:
+            if field.name not in field_exprs:
+                field_exprs[field.name] = self._resolve_direct_field_expr(field, table)
+
+        if self.goal.kind == "DataWarehouseNode":
+            distinct_id_field = self.goal.schema_map.get("distinct_id_field", self.config.default_distinct_id_field)
+            person_id_expr = ast.Field(chain=["pdi", "person_id"])
+            select_from = ast.JoinExpr(
+                table=ast.Field(chain=[table]),
+                alias="conversion_rows",
+                next_join=ast.JoinExpr(
+                    table=ast.Field(chain=["person_distinct_ids"]),
+                    alias="pdi",
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["pdi", "distinct_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Field(chain=["conversion_rows", distinct_id_field]),
+                                ),
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["pdi", "team_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value=self.team.pk),
+                                ),
+                            ]
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            )
+        else:
+            person_id_expr = ast.Field(chain=["events", "person_id"])
+            select_from = ast.JoinExpr(table=ast.Field(chain=[table]))
+
+        select_columns: list[ast.Expr] = [ast.Alias(alias="person_id", expr=person_id_expr)]
+        select_columns.extend(
+            ast.Alias(alias=field.attributed_name, expr=field_exprs[field.name]) for field in TRACKED_FIELDS
+        )
+        select_columns.append(ast.Alias(alias="campaign_id", expr=ast.Constant(value="-")))
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=select_from,
+            where=ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0],
+        )
 
     def _generate_direct_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Generate direct field access query for DataWarehouse nodes"""

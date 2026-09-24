@@ -149,6 +149,7 @@ export interface PersonModalLogicProps {
         | ExperimentActorsQuery
         | PathsV2ActorsQuery
         | null
+    actorsQuery?: ActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
@@ -292,12 +293,7 @@ export interface personsModalLogicMeta {
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
         selectFields: (arg: any) => string[]
-        actorsQuery: (
-            arg: any,
-            query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode> | null,
-            searchTerm: string,
-            selectFields: string[]
-        ) => ActorsQuery | null
+        actorsQuery: (arg: any, arg2: any, query: any, searchTerm: string, selectFields: string[]) => ActorsQuery | null
         exploreUrl: (actorsQuery: ActorsQuery | null) => string | null
         insightEventsQueryUrl: (actorsQuery: ActorsQuery | null) => string | null
         sessionIdsFromLoadedActors: (actors: ActorType[]) => string[]
@@ -635,31 +631,42 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         actorsQuery: [
-            (s) => [(_, p) => p.orderBy, s.query, s.searchTerm, s.selectFields],
+            (s) => [(_, p) => p.orderBy, (_, p) => p.actorsQuery, s.query, s.searchTerm, s.selectFields],
             (
                 orderBy,
+                directActorsQuery: ActorsQuery | null | undefined,
                 query: FunnelsActorsQuery | InsightActorsQuery | null,
                 searchTerm: string,
                 selectFields: string[]
             ): ActorsQuery | null => {
-                if (!query) {
+                if (!query && !directActorsQuery) {
                     return null
                 }
-                const sourceTags = { ...query.source?.tags, ...query.tags }
                 const activeScene = sceneLogic.findMounted()?.values.activeSceneId
+                const sourceTags = directActorsQuery
+                    ? { ...directActorsQuery.source?.tags, ...directActorsQuery.tags }
+                    : { ...query?.source?.tags, ...query?.tags }
                 const tags = {
                     ...sourceTags,
                     ...(activeScene && !sourceTags.scene ? { scene: activeScene } : {}),
                 }
                 return setLatestVersionsOnQuery(
-                    {
-                        kind: NodeKind.ActorsQuery,
-                        source: query,
-                        select: selectFields,
-                        orderBy: orderBy || [],
-                        search: searchTerm,
-                        ...(Object.keys(tags).length > 0 ? { tags } : {}),
-                    },
+                    directActorsQuery
+                        ? {
+                              ...directActorsQuery,
+                              select: selectFields,
+                              orderBy: orderBy || directActorsQuery.orderBy || [],
+                              search: searchTerm,
+                              ...(Object.keys(tags).length > 0 ? { tags } : {}),
+                          }
+                        : {
+                              kind: NodeKind.ActorsQuery,
+                              source: query!,
+                              select: selectFields,
+                              orderBy: orderBy || [],
+                              search: searchTerm,
+                              ...(Object.keys(tags).length > 0 ? { tags } : {}),
+                          },
                     { recursion: false }
                 )
             },

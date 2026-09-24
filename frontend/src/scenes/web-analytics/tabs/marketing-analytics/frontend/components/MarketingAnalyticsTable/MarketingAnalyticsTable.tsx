@@ -25,6 +25,8 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
+import { openMarketingAnalyticsPersonsModal } from 'products/marketing_analytics/frontend/marketingAnalyticsPersonsModal'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
@@ -97,15 +99,36 @@ export const MarketingAnalyticsTable = ({
                 return Array.from(allKnownColumns).reduce(
                     (acc, column) => {
                         const isGroupingColumn = allGroupingAliases.includes(column)
+                        const conversionGoal = conversion_goals.find((goal) => goal.conversion_goal_name === column)
                         acc[column] = {
-                            render: (props) => (
-                                <MarketingAnalyticsCell
-                                    {...props}
-                                    style={{
-                                        maxWidth: isGroupingColumn ? '200px' : undefined,
-                                    }}
-                                />
-                            ),
+                            render: (props) => {
+                                const currentValue =
+                                    typeof props.value === 'object' &&
+                                    props.value !== null &&
+                                    'value' in props.value &&
+                                    typeof props.value.value === 'number'
+                                        ? props.value.value
+                                        : null
+                                return (
+                                    <MarketingAnalyticsCell
+                                        {...props}
+                                        style={{
+                                            maxWidth: isGroupingColumn ? '200px' : undefined,
+                                        }}
+                                        onClick={
+                                            conversionGoal && currentValue !== null && currentValue > 0
+                                                ? () =>
+                                                      openMarketingAnalyticsPersonsModal({
+                                                          conversionGoalId: conversionGoal.conversion_goal_id,
+                                                          conversionGoalName: conversionGoal.conversion_goal_name,
+                                                          query: props.query as DataTableNode,
+                                                          record: props.record,
+                                                      })
+                                                : undefined
+                                        }
+                                    />
+                                )
+                            },
                         }
                         return acc
                     },
