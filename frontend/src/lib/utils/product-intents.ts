@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { isOsPreviewFrame } from 'scenes/os/bridge/osFrame'
 
 import type { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import type { TeamType } from '~/types'
@@ -11,7 +12,11 @@ export type ProductIntentProperties = {
     metadata?: ProductIntentMetadata
 }
 
+// The server adds the products of each intent to the user's "My tools", which would install an app the user only previews.
 export function addProductIntent(properties: ProductIntentProperties): Promise<TeamType | null> {
+    if (isOsPreviewFrame(window)) {
+        return Promise.resolve(null)
+    }
     return api.productIntents.update(properties)
 }
 
@@ -23,6 +28,9 @@ export type ProductCrossSellProperties = {
 }
 
 export function addProductIntentForCrossSell(properties: ProductCrossSellProperties): Promise<TeamType | null> {
+    if (isOsPreviewFrame(window)) {
+        return Promise.resolve(null)
+    }
     return api.productIntents.update({
         product_type: properties.to,
         intent_context: properties.intent_context,

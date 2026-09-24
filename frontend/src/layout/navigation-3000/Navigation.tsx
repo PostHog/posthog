@@ -9,6 +9,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
+import { OsFrameBridge } from 'scenes/os/bridge/OsFrameBridge'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
@@ -126,7 +127,19 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                {mode === 'framed' && <OsFrameBridge />}
+                <main
+                    {...(mode === 'framed' ? { ref: mainRef, id: 'main-content', role: 'main' } : {})}
+                    className={cn({
+                        'p-4': mode === 'zen',
+                        // In an OS window this element is the scroll container, so it carries the id, ref and
+                        // container name that scroll helpers, layout measurement and container queries look up.
+                        '@container/main-content flex-1 min-h-0 overflow-y-auto': mode === 'framed',
+                        'p-4 pb-0': mode === 'framed' && !noPaddingScene,
+                    })}
+                >
+                    {children}
+                </main>
             </div>
         )
     }

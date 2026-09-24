@@ -65,8 +65,10 @@ export const customProductsLogic = kea<customProductsLogicType>([
         customProducts: [
             getAppContext()?.custom_products ?? [],
             {
-                loadCustomProducts: async (): Promise<UserProductListItem[]> => {
+                loadCustomProducts: async (_, breakpoint): Promise<UserProductListItem[]> => {
                     const response = await api.userProductList.list()
+                    // Only the newest load applies, so an older answer that arrives last cannot undo a newer change.
+                    breakpoint()
 
                     return response.results ?? []
                 },

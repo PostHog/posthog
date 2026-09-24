@@ -124,6 +124,8 @@ export enum Scene {
     OnboardingCoupon = 'OnboardingCoupon',
     OrganizationCreateFirst = 'OrganizationCreate',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    Os = 'Os',
+    OsAppStore = 'OsAppStore',
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
     TwoFactorReset = 'TwoFactorReset',

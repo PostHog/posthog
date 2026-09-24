@@ -18,11 +18,15 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { sceneLogic } from './sceneLogic'
+
+// Loaded only with the os-shell flag on, so the desktop and its images stay out of everyone else's bundle.
+const OsShell = lazyWithRetry(() => import('./os/shell/OsShell').then(({ OsShell }) => ({ default: OsShell })))
 
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
@@ -38,11 +42,20 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { mode } = useValues(navigation3000Logic)
 
     return (
         <>
             <div className="contents isolate">
-                <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                {/* The OS shell opens the current URL in a window frame, so the scene renders there
+                    and not in this page. */}
+                {mode === 'os' ? (
+                    <Suspense fallback={null}>
+                        <OsShell />
+                    </Suspense>
+                ) : (
+                    <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                )}
                 <GlobalModals />
                 <GlobalShortcuts />
                 {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (
@@ -52,7 +65,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
                         </Suspense>
                     </ErrorBoundary>
                 )}
-                <Command />
+                {/* The OS page shows its own spotlight, and a window hands Cmd+K to it. */}
+                {mode !== 'os' && mode !== 'framed' && <Command />}
                 <ImpersonationNotice />
                 <WizardSyncFab />
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,

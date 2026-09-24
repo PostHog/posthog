@@ -10,6 +10,12 @@ declare module '*.png' {
     export default content
 }
 
+// This fixes TS errors when importing a .webp file
+declare module '*.webp' {
+    const content: string
+    export default content
+}
+
 // This fixes TS errors when importing a .gif file
 declare module '*.gif' {
     const content: any

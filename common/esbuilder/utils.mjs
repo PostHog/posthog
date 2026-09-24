@@ -283,6 +283,7 @@ export const commonConfig = {
         '.ttf': 'file',
         '.png': 'file',
         '.gif': 'file',
+        '.webp': 'file',
         '.svg': 'file',
         '.woff': 'file',
         '.woff2': 'file',

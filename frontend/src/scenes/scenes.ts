@@ -297,6 +297,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
+    [Scene.Os]: { projectBased: true, name: 'Desktop', layout: 'app-raw', hideProjectNotice: true },
+    [Scene.OsAppStore]: {
+        projectBased: true,
+        name: 'App Store',
+        description: 'Install the apps you use, and find new ones.',
+        iconType: 'tools',
+    },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
     },
@@ -836,6 +843,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.billingAuthorizationStatus()]: [Scene.BillingAuthorizationStatus, 'billingAuthorizationStatus'],
     [urls.organizationCreateFirst()]: [Scene.OrganizationCreateFirst, 'organizationCreateFirst'],
     [urls.organizationCreationConfirm()]: [Scene.OrganizationCreationConfirm, 'organizationCreationConfirm'],
+    [urls.os()]: [Scene.Os, 'os'],
+    [urls.osAppStore()]: [Scene.OsAppStore, 'osAppStore'],
+    [urls.osAppStore(':app')]: [Scene.OsAppStore, 'osAppStoreApp'],
     [urls.instanceStatus()]: [Scene.SystemStatus, 'instanceStatus'],
     [urls.instanceSettings()]: [Scene.SystemStatus, 'instanceSettings'],
     [urls.instanceStaffUsers()]: [Scene.SystemStatus, 'instanceStaffUsers'],

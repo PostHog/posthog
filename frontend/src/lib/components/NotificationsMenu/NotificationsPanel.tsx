@@ -15,7 +15,12 @@ import { PanelLayoutPanel } from '~/layout/panel-layout/PanelLayoutPanel'
 import { NotificationGroupRow } from './NotificationGroupRow'
 import { notificationsMenuLogic } from './notificationsMenuLogic'
 
-export function NotificationsPanel(): JSX.Element {
+export function NotificationsPanel({
+    layout = 'panel',
+}: {
+    /** `inline` fills its container instead of docking next to the navigation bar. */
+    layout?: 'panel' | 'inline'
+}): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
     const {
@@ -119,7 +124,12 @@ export function NotificationsPanel(): JSX.Element {
               ]
 
     return (
-        <PanelLayoutPanel panelName="notifications" searchField={header} panelActionsNewSceneLayout={panelActions}>
+        <PanelLayoutPanel
+            panelName="notifications"
+            layout={layout}
+            searchField={header}
+            panelActionsNewSceneLayout={panelActions}
+        >
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars

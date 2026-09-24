@@ -18,10 +18,11 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import {
@@ -63,6 +64,8 @@ import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
+import { isOsFrame } from './os/bridge/osFrame'
+import { osShellHostsPage } from './os/osShellMode'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { SceneProps } from './sceneTypes'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -756,12 +759,25 @@ export const sceneLogic = kea<sceneLogicType>([
                 params: lastParams,
             } = selectors.lastSetScenePayload(previousState)
 
+            // Under the OS shell the scene runs in a window frame with its own copy of this logic. Mounting
+            // it here as well would run every loader and side effect twice, such as a one-time OAuth code.
+            // The frame also sends the pageview and the view log, so the page skips both.
+            const osShellHostsScene =
+                !!userLogic.values.user &&
+                osShellHostsPage({
+                    osShellEnabled: !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.OS_SHELL],
+                    framed: isOsFrame(window),
+                    sceneConfig: values.sceneConfig,
+                    organizationUnavailable: !!organizationLogic.findMounted()?.values.isCurrentOrganizationUnavailable,
+                })
+
             // Do not trigger a new pageview event when only the hashParams change
             if (
-                lastSceneId !== sceneId ||
-                lastSceneKey !== sceneKey ||
-                !equal(lastParams.params, params.params) ||
-                JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
+                !osShellHostsScene &&
+                (lastSceneId !== sceneId ||
+                    lastSceneKey !== sceneKey ||
+                    !equal(lastParams.params, params.params) ||
+                    JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams)) // `equal` crashes here
             ) {
                 const productKey = values.activeSceneProductKey
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
@@ -775,7 +791,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             let newLogicErrored = false
-            if (exportedScene?.logic) {
+            if (exportedScene?.logic && !osShellHostsScene) {
                 try {
                     const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
                     const mountedLogic = cache.mountedSceneLogic
@@ -828,7 +844,10 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             const lastTracked = cache.lastTrackedScene
-            if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
+            if (
+                !osShellHostsScene &&
+                (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey)
+            ) {
                 trackFileSystemLogView({ type: 'scene', ref: sceneId })
                 cache.lastTrackedScene = { sceneId, sceneKey }
             }
