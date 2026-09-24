@@ -34,7 +34,7 @@ export function ExposureSplitNotice({
     return (
         <LemonBanner type="warning" className="mt-2">
             <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div className="flex-1 min-w-[300px]">
+                <div className="flex-1 min-w-0">
                     <div className="font-semibold">
                         {verdict.headline} <span className="font-normal">(p = {pValue.toExponential(2)})</span>
                     </div>

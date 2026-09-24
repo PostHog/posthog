@@ -31,7 +31,9 @@ SURFACE_MIN_EXPOSURES = 100
 SURFACE_MIN_SHARE = 0.05
 
 # A surface reads as skewed when its busiest variant runs this far above the share the
-# rollout expects, and as balanced when the busiest variant stays within this band of it.
+# rollout expects, and as balanced when the busiest variant stays within this band of it in
+# either direction. Under an uneven rollout the busiest variant can sit below its own share,
+# which is still a skew, so the balanced test compares the absolute deviation.
 SURFACE_SKEW_MARGIN = 0.25
 SURFACE_BALANCED_MARGIN = 0.10
 
@@ -147,7 +149,7 @@ def _find_surface_skew(
                 expected_percentage=expected_share * 100,
                 exposures=split.exposures,
             )
-        elif excess <= SURFACE_BALANCED_MARGIN:
+        elif abs(excess) <= SURFACE_BALANCED_MARGIN:
             has_balanced_surface = True
 
     return skew if has_balanced_surface else None

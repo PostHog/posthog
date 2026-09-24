@@ -183,6 +183,21 @@ class TestEvaluateSrmDiagnosis(TestCase):
         assert result is not None
         self.assertEqual(result.cause, SrmCause.UNKNOWN)
 
+    def test_dominant_variant_below_its_own_share_is_not_a_balanced_surface(self):
+        # Under 80/20, control at 50% on "/" is itself a skew toward test, so "/" cannot be the
+        # balanced surface that licenses blaming "/checkout". Both surfaces lean the same way,
+        # which puts the imbalance upstream of capture.
+        result = evaluate_srm_diagnosis(
+            p_value=1e-9,
+            expected_counts={"control": 8000.0, "test": 2000.0},
+            surface_splits=[
+                surface("/", 8000, 4000, dominant_variant="control"),
+                surface("/checkout", 2000, 2000, dominant_variant="test"),
+            ],
+        )
+        assert result is not None
+        self.assertEqual(result.cause, SrmCause.UNKNOWN)
+
     def test_expected_share_comes_from_the_configured_rollout_not_an_even_split(self):
         # An 80/20 rollout expects 80% control on every page, so 82% is not a skew.
         result = evaluate_srm_diagnosis(

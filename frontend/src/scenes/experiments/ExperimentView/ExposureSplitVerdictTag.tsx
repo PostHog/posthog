@@ -18,12 +18,12 @@ export function ExposureSplitVerdictTag({ verdict }: ExposureSplitVerdictTagProp
     return (
         <Tooltip title={tooltip}>
             <span
-                className={`flex items-center gap-1 text-xs whitespace-nowrap ${
+                className={`flex items-start gap-1 text-xs min-w-0 ${
                     verdict.isMismatch ? 'text-warning' : 'text-success'
                 }`}
                 data-attr="experiment-exposure-split-verdict"
             >
-                <Icon className="text-sm" />
+                <Icon className="text-sm shrink-0 mt-px" />
                 <span>{verdict.label}</span>
             </span>
         </Tooltip>

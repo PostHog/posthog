@@ -55,8 +55,8 @@ function describeCause(
     return {
         cause: null,
         nextStep:
-            'The two usual causes are an exposure event that fires before flags load, and assignment being overridden at serve time.',
-        suggestsExposureCriteriaFix: true,
+            'Check whether your exposure event can fire before flags have loaded, since those users are dropped from their variant. Then check that no release condition pins a variant instead of randomizing.',
+        suggestsExposureCriteriaFix: false,
     }
 }
 
