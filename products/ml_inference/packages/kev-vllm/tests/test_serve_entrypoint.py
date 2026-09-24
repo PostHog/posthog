@@ -12,7 +12,9 @@ STUBS = {
     "kev-vllm-checkpoint": 'echo verify >> "$CALLS"; [ -f "$CALLS.fetched" ] || [ -n "${VALID:-}" ]',
     "s5cmd": 'echo fetch >> "$CALLS"; touch "$CALLS.fetched"',
     "vllm": 'echo "vllm ${VLLM_CACHE_ROOT:-unset}" >> "$CALLS"; [ "${VLLM_EXITS:-}" = 1 ] && exit 0; exec sleep 30',
-    "caddy": '[ "${CADDY_EXITS:-}" = 1 ] && exit 0; exec sleep 30',
+    "caddy": (
+        'if [ "${CADDY_EXITS:-}" = 1 ]; then until grep -q "^vllm " "$CALLS" 2>/dev/null; do sleep 0.01; done; exit 0; fi\nexec sleep 30'
+    ),
 }
 
 
