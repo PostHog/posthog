@@ -24,6 +24,8 @@ import { runStreamLogic } from './runStreamLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistence'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
+const GENERIC_FAILURE = 'Failed to start a new run. Please try again.'
+
 // Minimal kea stub for the shared sandbox stream logic — gives the test full control over the busy gate
 // (`isThinking`) and `currentRunStatus`, and lets us fire `markTurnComplete` and observe `pushHumanMessage`
 // without the real SSE machinery.
@@ -1036,7 +1038,7 @@ describe('runInteractionLogic', () => {
             expect(logic.values.composerForm.draft).toBe('continue from here\n\nand check the tests')
             expect(logic.values.startingRun).toBe(false)
             expect(onRunStarted).not.toHaveBeenCalled()
-            expect(lemonToast.error).toHaveBeenCalledWith('Failed to start a new run. Please try again.')
+            expect(lemonToast.error).toHaveBeenCalledWith(GENERIC_FAILURE)
         }
     )
 
@@ -1170,11 +1172,23 @@ describe('runInteractionLogic', () => {
     })
 
     test.each([
-        [new Error('boom'), 'Failed to start a new run. Please try again.'],
+        [new Error('boom'), GENERIC_FAILURE],
         [
             new ApiError('starting', 503, undefined, { code: 'warm_run_activation_unavailable' }),
             "Couldn't start this run yet. Please try again.",
         ],
+        [
+            new ApiError('starting', 400, undefined, {
+                detail: 'A resumed run must use its previous base branch. Omit branch to resume.',
+            }),
+            'A resumed run must use its previous base branch. Omit branch to resume.',
+        ],
+        [
+            new ApiError('starting', 402, undefined, { error: 'Your organization is over its usage limit.' }),
+            'Your organization is over its usage limit.',
+        ],
+        [new ApiError('starting', 500, undefined, { detail: 'A server error occurred.' }), GENERIC_FAILURE],
+        [new ApiError('starting', 503, undefined, null), GENERIC_FAILURE],
     ])('keeps the draft and unsent context when starting a run fails with %s', async (error, message) => {
         let rejectSend!: (error: unknown) => void
         ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
