@@ -29,6 +29,7 @@ from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
+from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -48,6 +49,8 @@ from products.signals.backend.signal_metadata import SourceSliceSignalStats, fet
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
 
 if TYPE_CHECKING:
+    from posthog.models import User
+
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -1171,3 +1174,19 @@ def repair_report_actionability_cache(
     artefact write, so this only repairs rows that drifted.
     """
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
+
+
+def scout_creation_available(*, team: Team, user: "User") -> bool:
+    """Whether to offer ``user`` scout creation on ``team``'s project.
+
+    Two checks, both on the canonical project: it runs scouts (enrollment in the `signals-scout` flag
+    payload), and the user passes the scout create endpoint's own check (editor access to skills).
+    """
+    from products.signals.backend.scout_harness.team_limits import (
+        team_is_enrolled,  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
+    )
+
+    canonical_team = team.parent_team or team
+    if not team_is_enrolled(canonical_team.id):
+        return False
+    return can_create_scout(user, canonical_team)
