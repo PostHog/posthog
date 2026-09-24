@@ -1,33 +1,39 @@
-import posthog from 'posthog-js'
+import { useActions, useValues } from 'kea'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { NotebookLoadingState } from 'scenes/notebooks/Notebook/NotebookLoadingState'
 
-import { ActiveUsers } from './ActiveUsers'
-import { Activity } from './Activity'
-import { FiringAlerts } from './FiringAlerts'
-import { NewEvents } from './NewEvents'
-import { RecentlyViewed } from './RecentlyViewed'
-import { Trending } from './Trending'
+import { productAnalyticsHomeLogic } from './productAnalyticsHomeLogic'
 
 export function HomeTab(): JSX.Element {
-    useOnMountEffect(() => {
-        posthog.capture('product analytics home viewed')
-    })
+    const { homeNotebook, homeNotebookLoading, homeNotebookError } = useValues(productAnalyticsHomeLogic)
+    const { loadHomeNotebook } = useActions(productAnalyticsHomeLogic)
 
-    return (
-        <div className="py-4">
-            <div className="flex flex-col gap-4 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:items-start">
-                <div className="flex min-w-0 flex-1 flex-col gap-4">
-                    <RecentlyViewed />
-                    <FiringAlerts />
-                    <ActiveUsers />
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-4">
-                    <Trending />
-                    <NewEvents />
-                    <Activity />
-                </div>
-            </div>
-        </div>
-    )
+    if (homeNotebookLoading || (!homeNotebook && !homeNotebookError)) {
+        return <NotebookLoadingState />
+    }
+
+    if (homeNotebookError) {
+        return (
+            <LemonBanner
+                type="error"
+                className="my-4"
+                action={{
+                    children: 'Try again',
+                    loading: homeNotebookLoading,
+                    onClick: () => loadHomeNotebook(),
+                    'data-attr': 'product-analytics-home-notebook-retry',
+                }}
+            >
+                We could not load the shared product analytics notebook.
+            </LemonBanner>
+        )
+    }
+
+    if (!homeNotebook) {
+        return <NotebookLoadingState />
+    }
+
+    return <Notebook shortId={homeNotebook.short_id} mode="notebook" className="py-4" />
 }

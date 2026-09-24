@@ -23,6 +23,7 @@ class NotebookCreationSource:
     MAX_AI = "max_ai"
     TEMPORAL_AGENT = "temporal_agent"
     GROUP = "group"
+    PRODUCT_ANALYTICS_HOME = "product_analytics_home"
     # Neutral default for the generic facade create; real callers pass their own source.
     SERVER = "server"
     # The account-notebook path (max_account_notebook) is deferred; its source lands with it.

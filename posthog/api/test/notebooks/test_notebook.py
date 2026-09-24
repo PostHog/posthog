@@ -10,6 +10,7 @@ from posthog.models.user import User
 
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.product_analytics_home import PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID
 
 
 class TestNotebooks(APIBaseTest, QueryMatchingTest):
@@ -366,6 +367,56 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["short_id"] == default_visibility_notebook.short_id
+
+    def test_product_analytics_home_notebook_is_shared_and_keeps_edits(self) -> None:
+        home_url = f"/api/projects/{self.team.id}/notebooks/{PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID}"
+
+        first_response = self.client.get(home_url)
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert first_response.json()["short_id"] == PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID
+        notebook = Notebook.objects.get(team=self.team, short_id=PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID)
+        assert notebook.visibility == Notebook.Visibility.INTERNAL
+        markdown = notebook.content["content"][0]["attrs"]["markdown"]
+        assert markdown.count("<Query ") == 5
+        assert '"breakdown":"event"' in markdown
+        assert '"breakdown":"$event"' not in markdown
+
+        edited_content = build_markdown_notebook_content("# Our product metrics\n\nThis edit is shared.")
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}",
+            {"content": edited_content, "version": notebook.version},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        second_user = User.objects.create_and_join(self.organization, "second@example.com", password="")
+        self.client.force_login(second_user)
+
+        second_response = self.client.get(home_url)
+        assert second_response.status_code == status.HTTP_200_OK
+        assert second_response.json()["short_id"] == first_response.json()["short_id"]
+        assert second_response.json()["content"] == edited_content
+        assert Notebook.objects.filter(team=self.team, short_id=PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID).count() == 1
+
+    def test_product_analytics_home_notebook_repairs_the_broken_top_events_query(self) -> None:
+        home_url = f"/api/projects/{self.team.id}/notebooks/{PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID}"
+        assert self.client.get(home_url).status_code == status.HTTP_200_OK
+        notebook = Notebook.objects.get(team=self.team, short_id=PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID)
+        markdown = notebook.content["content"][0]["attrs"]["markdown"]
+        broken_markdown = markdown.replace('"breakdown":"event"', '"breakdown":"$event"') + "\n\nKeep this note."
+        notebook.content = build_markdown_notebook_content(broken_markdown)
+        notebook.text_content = broken_markdown
+        notebook.save(update_fields=["content", "text_content"])
+
+        response = self.client.get(home_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        repaired_markdown = response.json()["content"]["content"][0]["attrs"]["markdown"]
+        assert '"breakdown":"event"' in repaired_markdown
+        assert '"breakdown":"$event"' not in repaired_markdown
+        assert repaired_markdown.endswith("Keep this note.")
+        assert response.json()["version"] == notebook.version + 1
 
     def test_creating_does_not_leak_between_teams(self) -> None:
         another_org = Organization.objects.create(name="other org")
