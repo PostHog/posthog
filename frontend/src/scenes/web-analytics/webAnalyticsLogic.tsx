@@ -2052,12 +2052,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
                 // Only read the removal experiment flag where the replay tile would actually render: the
-                // analytics tab with no conversion goal. allTiles is also built for the bot-analytics tab
-                // (then discarded), and the tile is hidden whenever a conversion goal is set, so reading the
-                // flag outside this path would enroll users neither variant affects and dilute the metrics.
+                // analytics tab. allTiles is also built for the bot-analytics tab (then discarded), so reading
+                // the flag outside this path would enroll users neither variant affects and dilute the metrics.
                 const removeReplayTile =
                     productTab === ProductTab.ANALYTICS &&
-                    !conversionGoal &&
                     featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REMOVE_REPLAY_TILE] === 'test'
 
                 const includeHostMenuItem: LemonMenuItem | null =
@@ -2623,41 +2621,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             ),
                         ],
                     },
-                    !conversionGoal && errorTrackingQ
-                        ? {
-                              kind: 'error_tracking',
-                              tileId: TileId.ERROR_TRACKING,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2 2xl:col-span-1',
-                              },
-                              query: errorTrackingQ,
-                              docs: {
-                                  url: 'https://posthog.com/docs/error-tracking',
-                                  title: 'Error Tracking',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Error tracking allows you to track, investigate, and resolve
-                                                  exceptions your customers face.
-                                              </p>
-                                              <p>
-                                                  Errors are captured as <code>$exception</code> events which means that
-                                                  you can create insights, filter recordings and trigger surveys based
-                                                  on them exactly the same way you can for any other type of event.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
-
                     {
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            colSpanClassName: 'md:col-span-2 2xl:col-span-1',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
@@ -2785,58 +2753,28 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             ] as (TabsTileTab | null)[]
                         ).filter(isNotNil),
                     },
-                    !conversionGoal
+                    errorTrackingQ
                         ? {
-                              kind: 'query',
-                              tileId: TileId.RETENTION,
-                              title: 'Retention',
+                              kind: 'error_tracking',
+                              tileId: TileId.ERROR_TRACKING,
                               layout: {
                                   colSpanClassName: 'md:col-span-full',
                               },
-                              query: {
-                                  kind: NodeKind.InsightVizNode,
-                                  source: {
-                                      kind: NodeKind.RetentionQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      retentionFilter: {
-                                          retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-                                          retentionReference: 'total',
-                                          totalIntervals: isGreaterThanMd ? 8 : 5,
-                                          period: RetentionPeriod.Week,
-                                      },
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                  },
-                                  vizSpecificOptions: {
-                                      [InsightType.RETENTION]: {
-                                          hideLineGraph: true,
-                                          hideSizeColumn: !isGreaterThanMd,
-                                          useSmallLayout: !isGreaterThanMd,
-                                      },
-                                  },
-                                  embedded: true,
-                              },
-                              insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: true,
-                              canOpenModal: true,
+                              query: errorTrackingQ,
                               docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
-                                  title: 'Retention',
+                                  url: 'https://posthog.com/docs/error-tracking',
+                                  title: 'Error Tracking',
                                   description: (
                                       <>
                                           <div>
                                               <p>
-                                                  Retention creates a cohort of unique users who performed any event for
-                                                  the first time in the last week. It then tracks the percentage of
-                                                  users who return to perform any event in the following weeks.
+                                                  Error tracking allows you to track, investigate, and resolve
+                                                  exceptions your customers face.
                                               </p>
                                               <p>
-                                                  You want the numbers to be the highest possible, suggesting that
-                                                  people that come to your page continue coming to your page - and
-                                                  performing an actions. Also, the further down the table the higher the
-                                                  numbers should be (or at least as high), which would indicate that
-                                                  you're either increasing or keeping your retention at the same level.
+                                                  Errors are captured as <code>$exception</code> events which means that
+                                                  you can create insights, filter recordings and trigger surveys based
+                                                  on them exactly the same way you can for any other type of event.
                                               </p>
                                           </div>
                                       </>
@@ -2844,6 +2782,63 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               },
                           }
                         : null,
+                    {
+                        kind: 'query',
+                        tileId: TileId.RETENTION,
+                        title: 'Retention',
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts,
+                                retentionFilter: {
+                                    retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                                    retentionReference: 'total',
+                                    totalIntervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                        insightProps: createInsightProps(TileId.RETENTION),
+                        canOpenInsight: true,
+                        canOpenModal: true,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                            title: 'Retention',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Retention creates a cohort of unique users who performed any event for the
+                                            first time in the last week. It then tracks the percentage of users who
+                                            return to perform any event in the following weeks.
+                                        </p>
+                                        <p>
+                                            You want the numbers to be the highest possible, suggesting that people that
+                                            come to your page continue coming to your page - and performing an actions.
+                                            Also, the further down the table the higher the numbers should be (or at
+                                            least as high), which would indicate that you're either increasing or
+                                            keeping your retention at the same level.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
                     {
                         kind: 'tabs',
                         tileId: TileId.ACTIVE_HOURS,
@@ -2987,80 +2982,81 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             },
                         ],
                     },
-                    // Hiding if conversionGoal is set already because values aren't representative
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              tileId: TileId.GOALS,
-                              title: 'Goals',
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebGoalsQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      compareFilter,
-                                      limit: 10,
-                                      orderBy: tablesOrderBy ?? undefined,
-                                      filterTestAccounts,
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                      // Backend gate decides whether this query is actually served
-                                      // from the precomputed table; we just pass the per-team opt-in.
-                                      useWebAnalyticsPrecompute,
+                    {
+                        kind: 'query',
+                        tileId: TileId.GOALS,
+                        title: 'Goals',
+                        layout: {
+                            colSpanClassName:
+                                removeReplayTile || hiddenTiles.includes(TileId.REPLAY)
+                                    ? 'md:col-span-full'
+                                    : 'md:col-span-1 2xl:col-span-2',
+                        },
+                        query: {
+                            full: true,
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.WebGoalsQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                compareFilter,
+                                limit: 10,
+                                orderBy: tablesOrderBy ?? undefined,
+                                filterTestAccounts,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Backend gate decides whether this query is actually served
+                                // from the precomputed table; we just pass the per-team opt-in.
+                                useWebAnalyticsPrecompute,
+                            },
+                            embedded: true,
+                            showActions: true,
+                            columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
+                        },
+                        insightProps: createInsightProps(TileId.GOALS),
+                        canOpenInsight: false,
+                        extraMenuItems: useTileHeaderV2
+                            ? [
+                                  {
+                                      label: 'Manage actions',
+                                      icon: <IconOpenInNew />,
+                                      to: urls.actions(),
+                                      onClick: () => {
+                                          void addProductIntentForCrossSell({
+                                              from: ProductKey.WEB_ANALYTICS,
+                                              to: ProductKey.ACTIONS,
+                                              intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                          })
+                                      },
                                   },
-                                  embedded: true,
-                                  showActions: true,
-                                  columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
-                              },
-                              insightProps: createInsightProps(TileId.GOALS),
-                              canOpenInsight: false,
-                              extraMenuItems: useTileHeaderV2
-                                  ? [
-                                        {
-                                            label: 'Manage actions',
-                                            icon: <IconOpenInNew />,
-                                            to: urls.actions(),
-                                            onClick: () => {
-                                                void addProductIntentForCrossSell({
-                                                    from: ProductKey.WEB_ANALYTICS,
-                                                    to: ProductKey.ACTIONS,
-                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                                                })
-                                            },
-                                        },
-                                    ]
-                                  : undefined,
-                              docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
-                                  title: 'Goals',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Goals shows your pinned or most recently created actions and the
-                                                  number of conversions they've had. You can set a custom event or
-                                                  action as a{' '}
-                                                  <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
-                                                      conversion goal
-                                                  </Link>{' '}
-                                                  at the top of the dashboard for more specific metrics.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
-                    !conversionGoal && !removeReplayTile
+                              ]
+                            : undefined,
+                        docs: {
+                            url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
+                            title: 'Goals',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            Goals shows your pinned or most recently created actions and the number of
+                                            conversions they've had. You can set a custom event or action as a{' '}
+                                            <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
+                                                conversion goal
+                                            </Link>{' '}
+                                            at the top of the dashboard for more specific metrics.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
+                    !removeReplayTile
                         ? {
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
+                                  colSpanClassName: hiddenTiles.includes(TileId.GOALS)
+                                      ? 'md:col-span-full'
+                                      : 'md:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -3070,75 +3066,72 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               },
                           }
                         : null,
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              title: 'Frustrating Pages',
-                              tileId: TileId.FRUSTRATING_PAGES,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebStatsTableQuery,
-                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      properties: webAnalyticsFilters,
-                                      compareFilter,
-                                      limit: 10,
-                                      doPathCleaning: isPathCleaningEnabled,
-                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                      // The backend frustration lazy precompute gate decides whether
-                                      // this query is actually served from the precomputed table; we
-                                      // just pass the per-team opt-in through so it's eligible.
-                                      useWebAnalyticsPrecompute,
-                                  },
-                                  embedded: true,
-                                  showActions: true,
-                                  hiddenColumns: ['views'],
-                              },
-                              insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
-                              canOpenModal: true,
-                              canOpenInsight: true,
-                              docs: {
-                                  title: 'Frustrating Pages',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  See which pages are causing frustration by monitoring rage clicks,
-                                                  dead clicks, and errors.
-                                              </p>
-                                              <p>
-                                                  <ul>
-                                                      <li>
-                                                          A dead click is a click that doesn't result in any action.
-                                                          E.g. an image that looks like a button.
-                                                      </li>
-                                                      <li>
-                                                          Rageclicks are collected when a user clicks on a static
-                                                          element more than three times in a one-second window.
-                                                      </li>
-                                                      <li>
-                                                          Errors are JavaScript exceptions that occur when users
-                                                          interact with your site.
-                                                      </li>
-                                                  </ul>
-                                              </p>
-                                              <p>
-                                                  These are captured automatically and can help identify broken
-                                                  functionality, failed API calls, or other technical issues that
-                                                  frustrate users.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
+                    {
+                        kind: 'query',
+                        title: 'Frustrating Pages',
+                        tileId: TileId.FRUSTRATING_PAGES,
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            full: true,
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.WebStatsTableQuery,
+                                breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                dateRange,
+                                filterTestAccounts,
+                                properties: webAnalyticsFilters,
+                                compareFilter,
+                                limit: 10,
+                                doPathCleaning: isPathCleaningEnabled,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // The backend frustration lazy precompute gate decides whether
+                                // this query is actually served from the precomputed table; we
+                                // just pass the per-team opt-in through so it's eligible.
+                                useWebAnalyticsPrecompute,
+                            },
+                            embedded: true,
+                            showActions: true,
+                            hiddenColumns: ['views'],
+                        },
+                        insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
+                        canOpenModal: true,
+                        canOpenInsight: true,
+                        docs: {
+                            title: 'Frustrating Pages',
+                            description: (
+                                <>
+                                    <div>
+                                        <p>
+                                            See which pages are causing frustration by monitoring rage clicks, dead
+                                            clicks, and errors.
+                                        </p>
+                                        <p>
+                                            <ul>
+                                                <li>
+                                                    A dead click is a click that doesn't result in any action. E.g. an
+                                                    image that looks like a button.
+                                                </li>
+                                                <li>
+                                                    Rageclicks are collected when a user clicks on a static element more
+                                                    than three times in a one-second window.
+                                                </li>
+                                                <li>
+                                                    Errors are JavaScript exceptions that occur when users interact with
+                                                    your site.
+                                                </li>
+                                            </ul>
+                                        </p>
+                                        <p>
+                                            These are captured automatically and can help identify broken functionality,
+                                            failed API calls, or other technical issues that frustrate users.
+                                        </p>
+                                    </div>
+                                </>
+                            ),
+                        },
+                    },
                 ]
 
                 // Bot analytics tiles live in `botAnalyticsLogic` so the bot tab keeps its own
