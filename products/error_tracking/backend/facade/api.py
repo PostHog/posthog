@@ -170,19 +170,8 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
 def list_issues_detailed(
     team_id: int, *, limit: int | None = None, offset: int = 0
 ) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    rows = logic.list_issues_detailed(team_id, limit=limit, offset=offset)
-    return [_to_issue(issue) for issue in rows], _page_total(team_id, rows=rows, limit=limit, offset=offset)
-
-
-def _page_total(team_id: int, *, rows: list, limit: int | None, offset: int) -> int:
-    """Total issue count for the pagination envelope, counted only when the page cannot prove it.
-
-    A page shorter than the requested limit is the last one, so its own length gives the total.
-    That covers the common single-page read and spares it a count over the whole issue table.
-    """
-    if limit is None or len(rows) < limit:
-        return offset + len(rows)
-    return logic.count_issues(team_id)
+    rows, total = logic.list_issues_detailed(team_id, limit=limit, offset=offset)
+    return [_to_issue(issue) for issue in rows], total
 
 
 def issue_exists(team_id: int) -> bool:
