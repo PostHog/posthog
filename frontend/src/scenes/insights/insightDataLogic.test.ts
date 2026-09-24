@@ -694,12 +694,9 @@ describe('insightDataLogic', () => {
         })
 
         it('skips the PATCH even when insightSceneLogic has not yet rebuilt its insightLogicRef for this insight', async () => {
-            // insightLogicRef is set by a listener that rebuilds and mounts a new logic instance
-            // after navigating into the scene, a side effect that can still be in flight right after
-            // the user enters edit mode. insightId/dashboardId are plain reducers written by the same
-            // action that matches the URL, so they're already correct while insightLogicRef lags.
-            // Regression test: a chart-type click landing in that gap used to reach the API before
-            // insightLogicRef caught up, auto-saving the insight without an explicit Save.
+            // insightLogicRef can lag insightId/dashboardId right after the scene mounts, because a
+            // separate listener rebuilds it asynchronously. This mocks that lag: the guard must not
+            // rely on insightLogicRef being present or already correct.
             sceneLogic.mount()
             sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
             const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
