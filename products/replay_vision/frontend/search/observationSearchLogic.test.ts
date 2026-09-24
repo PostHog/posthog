@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -101,6 +102,47 @@ describe('observationSearchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.dateFrom).toBe('-90d')
         expect(logic.values.dateTo).toBeNull()
+        logic.unmount()
+    })
+
+    it('tags a session as expired only after the recordings API confirms its recording is gone', async () => {
+        // A recording keeps the retention period it was captured under, so an old observation's
+        // recording can still play; only the API's answer decides the tag.
+        const pastMinRetention = dayjs().subtract(40, 'day').toISOString()
+        const fresh = dayjs().subtract(2, 'day').toISOString()
+        searchSpy.mockImplementation(() => [
+            200,
+            {
+                results: [
+                    {
+                        observation: { id: 'obs-1', session_id: 's-deleted', created_at: pastMinRetention },
+                        distance: 0.1,
+                    },
+                    {
+                        observation: { id: 'obs-2', session_id: 's-playable', created_at: pastMinRetention },
+                        distance: 0.11,
+                    },
+                    { observation: { id: 'obs-3', session_id: 's-fresh', created_at: fresh }, distance: 0.12 },
+                ],
+            },
+        ])
+        const recordingsSpy = jest.fn(() => [200, { results: [{ id: 's-playable' }], has_next: false }])
+        useMocks({ get: { '/api/environments/:team_id/session_recordings': recordingsSpy } })
+
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        // Sessions younger than the shortest retention period cannot be expired, so one batched
+        // existence check covers only the old ones.
+        expect(recordingsSpy).toHaveBeenCalledTimes(1)
+        const requested = JSON.parse(
+            new URL(recordingsSpy.mock.calls[0][0].request.url).searchParams.get('session_ids') ?? '[]'
+        )
+        expect(requested).toEqual(['s-deleted', 's-playable'])
+        expect(logic.values.expiredSessionIds).toEqual(new Set(['s-deleted']))
         logic.unmount()
     })
 

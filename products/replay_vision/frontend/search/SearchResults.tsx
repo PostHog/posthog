@@ -49,6 +49,8 @@ interface ResultProps {
     result: ObservationSearchResultApi
     searchedQuery: string
     returnParams: Record<string, string>
+    /** True once the recordings API confirmed this result's recording no longer exists. */
+    expired: boolean
 }
 
 function WatchLink({ observation, compact }: { observation: ReplayObservationApi; compact?: boolean }): JSX.Element {
@@ -152,7 +154,13 @@ function TopMatchTag(): JSX.Element {
     )
 }
 
-function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps & { tier: Tier | null }): JSX.Element {
+function MomentCard({
+    result,
+    searchedQuery,
+    returnParams,
+    expired,
+    tier,
+}: ResultProps & { tier: Tier | null }): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
@@ -167,7 +175,7 @@ function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps &
             <div className="flex flex-col gap-1.5 p-3 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                     <ScannerName observation={observation} />
-                    <RecordingExpiredTag observation={observation} />
+                    {expired && <RecordingExpiredTag />}
                     <span className="ml-auto shrink-0 text-xs text-muted">
                         <TZLabel time={observation.created_at} />
                     </span>
@@ -189,7 +197,7 @@ function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps &
     )
 }
 
-function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.Element {
+function MomentRow({ result, searchedQuery, returnParams, expired }: ResultProps): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
@@ -201,7 +209,7 @@ function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.El
                 <div className="flex items-center gap-2 min-w-0">
                     <ScannerName observation={observation} />
                     {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
-                    <RecordingExpiredTag observation={observation} />
+                    {expired && <RecordingExpiredTag />}
                     <SubjectLink observation={observation} />
                     <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                         <TZLabel time={observation.created_at} />
@@ -293,6 +301,7 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
         pageResults,
         pageStartIndex,
         pageEndIndex,
+        expiredSessionIds,
     } = useValues(logic)
     const { setPage, setView } = useActions(logic)
 
@@ -337,6 +346,7 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                                 result={result}
                                 searchedQuery={searchedQuery ?? ''}
                                 returnParams={returnParams}
+                                expired={expiredSessionIds.has(result.observation.session_id)}
                                 tier={tierOf(result)}
                             />
                         ))}
@@ -351,6 +361,7 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                                     result={result}
                                     searchedQuery={searchedQuery ?? ''}
                                     returnParams={returnParams}
+                                    expired={expiredSessionIds.has(result.observation.session_id)}
                                 />
                             ))}
                         </div>

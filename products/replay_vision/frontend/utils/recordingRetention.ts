@@ -1,33 +1,15 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { SessionRecordingRetentionPeriod } from '~/types'
-
-// Mirrors RETENTION_PERIOD_DAYS in posthog/session_recordings/data_retention.py.
-const RETENTION_PERIOD_DAYS: Partial<Record<SessionRecordingRetentionPeriod, number>> = {
-    '30d': 30,
-    '90d': 90,
-    '1y': 365,
-    '5y': 365 * 5,
-}
+// The shortest retention period the product offers (see posthog/session_recordings/data_retention.py).
+const MIN_RETENTION_DAYS = 30
 
 /**
- * Days this project keeps a recording. An unset period reads as the product default of 30 days;
- * `legacy` has no fixed length, so it reads as null (unknown).
+ * Whether retention could have deleted this observation's recording. A recording keeps the retention
+ * period it was captured under and the team setting can change afterwards, so age against the current
+ * setting proves nothing; it only rules expiry out for sessions younger than every offered period.
+ * An observation is created after its session ends, so a fresh observation's recording still exists.
+ * For older ones, confirm absence against the recordings API before claiming expiry.
  */
-export function recordingRetentionDays(period: SessionRecordingRetentionPeriod | null | undefined): number | null {
-    return RETENTION_PERIOD_DAYS[period ?? '30d'] ?? null
-}
-
-/**
- * Whether retention has deleted the observed session's recording. An observation is created after
- * its session ends, so an observation older than the retention period means the recording is gone.
- * The reverse does not hold (a backfill can observe a session that was already old), so false means
- * "not provably expired" and the player's own not-found state stays the fallback.
- */
-export function recordingLikelyExpired(
-    observationCreatedAt: string,
-    period: SessionRecordingRetentionPeriod | null | undefined
-): boolean {
-    const days = recordingRetentionDays(period)
-    return days !== null && dayjs(observationCreatedAt).isBefore(dayjs().subtract(days, 'day'))
+export function couldRecordingBeExpired(observationCreatedAt: string): boolean {
+    return dayjs(observationCreatedAt).isBefore(dayjs().subtract(MIN_RETENTION_DAYS, 'day'))
 }
