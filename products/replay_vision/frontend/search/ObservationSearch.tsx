@@ -8,6 +8,7 @@ import { IconChevronDown, IconClock, IconPlusSmall, IconSearch, IconSparkles, Ic
 import { LemonButton, LemonInput, LemonMenu, Popover, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -105,6 +106,8 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
     const {
         query,
         scannerId,
+        dateFrom,
+        dateTo,
         results,
         searching,
         searchedQuery,
@@ -113,7 +116,7 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
         suggestedQueries,
         suggestedQueriesLoading,
     } = useValues(logic)
-    const { setQuery, setScannerId, search, clearSearch } = useActions(logic)
+    const { setQuery, setScannerId, setDateRange, search, clearSearch } = useActions(logic)
 
     const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -195,6 +198,16 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                         />
                     )}
                     {/* The input chrome focuses the field on click, which opens the palette over the picker. */}
+                    <span onClick={(event) => event.stopPropagation()}>
+                        <DateFilter
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
+                            size="small"
+                            type="secondary"
+                            placeholder="Any time"
+                        />
+                    </span>
                     <span onClick={(event) => event.stopPropagation()}>
                         <LemonMenu items={scopeItems} placement="bottom-end">
                             <LemonButton

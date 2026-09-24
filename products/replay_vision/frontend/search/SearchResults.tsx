@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ObservationThumbnail } from '../components/ObservationThumbnail'
+import { RecordingExpiredTag } from '../components/RecordingExpiredTag'
 import { ScannerOutputBadge } from '../components/ScannerOutputBadge'
 import { TimestampCitation } from '../components/TimestampCitation'
 import type { ObservationSearchResultApi, ReplayObservationApi } from '../generated/api.schemas'
@@ -166,6 +167,7 @@ function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps &
             <div className="flex flex-col gap-1.5 p-3 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                     <ScannerName observation={observation} />
+                    <RecordingExpiredTag observation={observation} />
                     <span className="ml-auto shrink-0 text-xs text-muted">
                         <TZLabel time={observation.created_at} />
                     </span>
@@ -199,6 +201,7 @@ function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.El
                 <div className="flex items-center gap-2 min-w-0">
                     <ScannerName observation={observation} />
                     {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
+                    <RecordingExpiredTag observation={observation} />
                     <SubjectLink observation={observation} />
                     <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                         <TZLabel time={observation.created_at} />

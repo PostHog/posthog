@@ -77,6 +77,33 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
+    it('sends the date range with the search, re-searches on change, and syncs it with the URL', async () => {
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setDateRange('-30d', null)
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(searchSpy).toHaveBeenCalledTimes(1)
+        const requestUrl = new URL(searchSpy.mock.calls[0][0].request.url)
+        expect(requestUrl.searchParams.get('date_from')).toBe('-30d')
+        expect(requestUrl.searchParams.get('date_to')).toBeNull()
+        expect(router.values.searchParams.date_from).toBe('-30d')
+
+        // A range change re-runs the shown search, like a scanner scope change does.
+        await expectLogic(logic, () => logic.actions.setDateRange('-7d', '-1d')).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(2)
+        const secondRequest = new URL(searchSpy.mock.calls[1][0].request.url).searchParams
+        expect([secondRequest.get('date_from'), secondRequest.get('date_to')]).toEqual(['-7d', '-1d'])
+
+        router.actions.push(urls.replayVision(), { tab: 'search', q: 'confused users', date_from: '-90d' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dateFrom).toBe('-90d')
+        expect(logic.values.dateTo).toBeNull()
+        logic.unmount()
+    })
+
     it.each([
         ['spread distances split off a top tier', [0.1, 0.12, 0.4], expect.closeTo(0.15)],
         ['clustered distances stay one tier', [0.1, 0.12, 0.14], null],
