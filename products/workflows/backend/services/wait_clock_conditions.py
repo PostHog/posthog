@@ -40,9 +40,8 @@ def find_clock_function(condition_expr: ast.Expr) -> Optional[str]:
     return finder.found
 
 
-# Group properties reach a filter as the chain `group_<index>.properties.<key>`. The matcher keys its
-# streams on person and distinct_id only, so a group change carries nothing it can look a parked job
-# up by.
+# The matcher keys its streams on person and distinct_id only, so a group change carries nothing it
+# can look a parked job up by.
 GROUP_FIELD_RE = re.compile(r"^group_\d+$")
 
 
