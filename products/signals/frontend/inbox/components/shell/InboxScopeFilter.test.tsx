@@ -103,13 +103,16 @@ describe('InboxScopeFilter', () => {
         inboxFiltersLogic.mount()
         render(<InboxScopeFilter />)
 
-        const ownRow = await screen.findByRole('menuitem', { name: `${MOCK_DEFAULT_USER.first_name} (you)` })
+        await screen.findByRole('menuitem', { name: `${MOCK_DEFAULT_USER.first_name} (you)` })
         expect(screen.queryByRole('menuitem', { name: 'For you' })).not.toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('menuitem', { name: 'Entire project' }))
         await waitFor(() => expect(screen.getByLabelText('Report scope: Entire project')).toBeInTheDocument())
 
-        fireEvent.click(ownRow)
+        inboxFiltersLogic.actions.loadAvailableReviewersSuccess([])
+        await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Ada' })).not.toBeInTheDocument())
+        const fallbackRow = await screen.findByRole('menuitem', { name: `${MOCK_DEFAULT_USER.first_name} (you)` })
+        fireEvent.click(fallbackRow)
         await waitFor(() => expect(screen.getByLabelText('Report scope: For you')).toBeInTheDocument())
     })
 })

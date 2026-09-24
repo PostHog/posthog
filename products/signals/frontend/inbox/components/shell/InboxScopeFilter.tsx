@@ -2,12 +2,38 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberSelect, type MemberSelectProps } from 'lib/components/MemberSelect'
 import { userLogic } from 'scenes/userLogic'
 
+import type { UserType } from '~/types'
+
 import { parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
-import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { type InboxReviewerOption, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
+
+function getReviewerOptions(
+    reviewers: InboxReviewerOption[],
+    user: UserType | null
+): NonNullable<MemberSelectProps['options']> {
+    const options = reviewers.map((reviewer) => ({
+        uuid: reviewer.user_uuid,
+        name: reviewer.name,
+        email: reviewer.email,
+        trailing: reviewer.user_uuid === user?.uuid ? '(you)' : undefined,
+    }))
+    if (!user || options.some((option) => option.uuid === user.uuid)) {
+        return options
+    }
+    return [
+        {
+            uuid: user.uuid,
+            name: `${user.first_name} ${user.last_name ?? ''}`.trim() || user.email,
+            email: user.email,
+            trailing: '(you)',
+        },
+        ...options,
+    ]
+}
 
 /**
  * Single-dropdown reviewer scope for the flat Reports list: one trigger that names the current
@@ -42,6 +68,8 @@ export function InboxScopeFilter(): JSX.Element {
           ? (selectedTeammateLabel ?? cachedTeammateLabel ?? 'Teammate')
           : 'Entire project'
 
+    const options = getReviewerOptions(reviewers, user)
+
     const pick = (next: InboxScope, label?: string): void => {
         const nextUuid = parseTeammateInboxScope(next)
         if (label && nextUuid) {
@@ -55,12 +83,7 @@ export function InboxScopeFilter(): JSX.Element {
         <MemberSelect
             value={selectedTeammateUuid}
             defaultLabel="Entire project"
-            options={reviewers.map((reviewer) => ({
-                uuid: reviewer.user_uuid,
-                name: reviewer.name,
-                email: reviewer.email,
-                trailing: reviewer.user_uuid === user?.uuid ? '(you)' : undefined,
-            }))}
+            options={options}
             optionsLoading={availableReviewersLoading}
             onSearch={searchAvailableReviewers}
             onChange={() => pick(INBOX_SCOPE_ENTIRE_PROJECT)}
