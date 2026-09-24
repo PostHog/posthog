@@ -260,6 +260,48 @@ describe('DynamoDBCrawlHistory', () => {
         jest.useRealTimers()
     })
 
+    it.each([
+        {
+            operation: 'read',
+            run: (history: DynamoDBCrawlHistory) => history.read(['slow']),
+            retried: { Responses: { [TABLE]: [stored(urlItem('slow'))] } },
+            requestedKeys: (command: BatchGetItemCommand | BatchWriteItemCommand) =>
+                requestedReadKeys(command as BatchGetItemCommand),
+        },
+        {
+            operation: 'write',
+            run: (history: DynamoDBCrawlHistory) => history.write([urlItem('slow')]),
+            retried: {},
+            requestedKeys: (command: BatchGetItemCommand | BatchWriteItemCommand) =>
+                requestedWrites(command as BatchWriteItemCommand).map((request) => request.PutRequest?.Item?.key?.S),
+        },
+    ])('retries a $operation command that times out', async ({ run, retried, requestedKeys }) => {
+        jest.useFakeTimers()
+        jest.spyOn(Math, 'random').mockReturnValue(0)
+        const send = jest
+            .fn()
+            .mockImplementationOnce(
+                (_command: unknown, { abortSignal }: { abortSignal: AbortSignal }) =>
+                    new Promise((_resolve, reject) =>
+                        abortSignal.addEventListener('abort', () =>
+                            reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' }))
+                        )
+                    )
+            )
+            .mockResolvedValueOnce(retried)
+
+        const outcome = run(build(send)).then(
+            () => 'completed',
+            (error: unknown) => String(error)
+        )
+        await jest.runAllTimersAsync()
+
+        expect(await outcome).toBe('completed')
+        expect(send).toHaveBeenCalledTimes(2)
+        expect(requestedKeys(send.mock.calls[1][0])).toEqual(['slow'])
+        jest.useRealTimers()
+    })
+
     it('throws after unprocessed write retries are exhausted', async () => {
         jest.useFakeTimers()
         jest.spyOn(Math, 'random').mockReturnValue(0)
