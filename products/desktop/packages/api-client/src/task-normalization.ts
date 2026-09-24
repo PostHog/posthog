@@ -2,6 +2,7 @@ import {
   type ArtifactType,
   type EffortLevel,
   effortLevelSchema,
+  isTaskCategory,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -59,6 +60,7 @@ type TaskResponseDTO = Partial<
   runtime?: unknown;
   repositories?: string[];
   description_preview?: string;
+  category?: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -246,6 +248,9 @@ export function normalizeTaskResponse(
     ...(dto.title_manually_set === undefined
       ? {}
       : { title_manually_set: dto.title_manually_set }),
+    ...(dto.category === undefined
+      ? {}
+      : { category: isTaskCategory(dto.category) ? dto.category : null }),
     description: dto.description ?? "",
     ...(dto.description_preview === undefined
       ? {}

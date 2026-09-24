@@ -1,5 +1,5 @@
 import type { TaskCreationInput, TaskCreationOutput } from "@posthog/shared";
-import type { TaskRun } from "@posthog/shared/domain-types";
+import type { TaskCategory, TaskRun } from "@posthog/shared/domain-types";
 
 /**
  * Host-side reactions to a successful task-creation: optimistic workspace
@@ -11,4 +11,5 @@ export interface TaskCreationEffects {
   onWorkspaceCreated(output: TaskCreationOutput): void;
   onCreateSuccess(output: TaskCreationOutput, input?: TaskCreationInput): void;
   onRunResumed(taskId: string, run: TaskRun): void;
+  onTaskCategorized(taskId: string, category: TaskCategory): void;
 }

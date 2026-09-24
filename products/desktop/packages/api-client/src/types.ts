@@ -44,3 +44,25 @@ export interface UpdateMcpServerInstallationOptions {
   description?: string;
   is_enabled?: boolean;
 }
+
+/** One question for the ML inference decision model; see `PostHogAPIClient.decide`. */
+export type DecisionQuestion =
+  | { type: "noul"; instructions: string }
+  | { type: "choice"; instructions: string; criteria: Record<string, string> }
+  | { type: "score"; instructions: string; criteria: string[] };
+
+export interface DecisionAnswer {
+  type: DecisionQuestion["type"];
+  probability: number | null;
+  choice: string | null;
+  score: number | null;
+  confidence: number | null;
+  probabilities: Record<string, number> | null;
+}
+
+export interface DecisionResponse {
+  model: string;
+  answers: Record<string, DecisionAnswer>;
+  input_tokens: number;
+  latency_ms: number | null;
+}

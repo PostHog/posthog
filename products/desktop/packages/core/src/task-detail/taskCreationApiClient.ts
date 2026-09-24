@@ -1,4 +1,8 @@
-import type { TaskSessionStorageAccess } from "@posthog/api-client/posthog-client";
+import type {
+  DecisionQuestion,
+  DecisionResponse,
+  TaskSessionStorageAccess,
+} from "@posthog/api-client/posthog-client";
 import type {
   Adapter,
   CloudMcpServerRelayDesignation,
@@ -7,7 +11,7 @@ import type {
   ModelAccess,
   PrAuthorshipMode,
 } from "@posthog/shared";
-import type { Task, TaskRun } from "@posthog/shared/domain-types";
+import type { Task, TaskCategory, TaskRun } from "@posthog/shared/domain-types";
 
 export interface CreateTaskRunClientOptions {
   environment?: "local" | "cloud";
@@ -56,4 +60,10 @@ export interface TaskCreationApiClient {
     runId: string,
   ): Promise<TaskSessionStorageAccess | null>;
   resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun>;
+  setTaskCategory(taskId: string, category: TaskCategory): Promise<void>;
+  decide(input: {
+    state: string;
+    questions: Record<string, DecisionQuestion>;
+    signal?: AbortSignal;
+  }): Promise<DecisionResponse>;
 }

@@ -5,7 +5,7 @@ import type {
   TaskCreationOutput,
   Workspace,
 } from "@posthog/shared";
-import type { Task, TaskRun } from "@posthog/shared/domain-types";
+import type { Task, TaskCategory, TaskRun } from "@posthog/shared/domain-types";
 import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
@@ -46,6 +46,16 @@ export const taskCreationEffects: TaskCreationEffects = {
     void client.invalidateQueries({
       queryKey: reportImplementationStatesQueryRoot,
     });
+  },
+
+  onTaskCategorized(taskId: string, category: TaskCategory): void {
+    const client = queryClient();
+    client.setQueryData<Task>(taskKeys.detail(taskId), (task) =>
+      task ? { ...task, category } : task,
+    );
+    client.setQueriesData<Task[]>({ queryKey: taskKeys.lists() }, (tasks) =>
+      tasks?.map((task) => (task.id === taskId ? { ...task, category } : task)),
+    );
   },
 
   onCreateSuccess(output: TaskCreationOutput, input?: TaskCreationInput): void {

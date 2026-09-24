@@ -12,13 +12,15 @@ import type {
   TaskCreationInput,
   TaskCreationOutput,
 } from "@posthog/shared";
-import type { Task, TaskRun } from "@posthog/shared/domain-types";
+import type { Task, TaskCategory, TaskRun } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
 import { FILE_READ_CLIENT, type FileReadClient } from "../files/identifiers";
 import { extractFilePaths, xmlToContent } from "../message-editor/content";
 import { PI_RUNNER } from "../pi-runtime/identifiers";
 import type { PiRunner } from "../pi-runtime/piRunner";
 import { TASK_CREATION_EFFECTS, TASK_CREATION_HOST } from "./identifiers";
+import { classifyTaskCategory } from "./taskCategory";
+import type { TaskCreationApiClient } from "./taskCreationApiClient";
 import type { TaskCreationEffects } from "./taskCreationEffects";
 import type { ITaskCreationHost } from "./taskCreationHost";
 import { TaskCreationSaga } from "./taskCreationSaga";
@@ -178,6 +180,15 @@ export class TaskService {
       }
     }
 
+    // Classify in parallel with creation so the category is usually ready by
+    // the time the task exists.
+    const categoryPrompt = input.taskId
+      ? ""
+      : (input.content ?? input.taskDescription ?? "");
+    const pendingCategory = categoryPrompt
+      ? classifyTaskCategory(posthogClient, categoryPrompt)
+      : null;
+
     const creator = new TaskCreationSaga(
       {
         posthogClient,
@@ -195,9 +206,31 @@ export class TaskService {
     if (result.success) {
       this.effects.onWorkspaceCreated(result.data);
       this.effects.onCreateSuccess(result.data, input);
+      if (pendingCategory) {
+        void this.applyCategory(
+          posthogClient,
+          result.data.task.id,
+          pendingCategory,
+        );
+      }
     }
 
     return result;
+  }
+
+  private async applyCategory(
+    client: TaskCreationApiClient,
+    taskId: string,
+    pendingCategory: Promise<TaskCategory | null>,
+  ): Promise<void> {
+    const category = await pendingCategory;
+    if (!category) return;
+    try {
+      await client.setTaskCategory(taskId, category);
+      this.effects.onTaskCategorized(taskId, category);
+    } catch (error) {
+      this.log.warn("Failed to save task category", { taskId, error });
+    }
   }
 
   public async getTask(taskId: string, taskRunId?: string): Promise<Task> {

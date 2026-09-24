@@ -69,6 +69,7 @@ import type {
   TaskActivityMarkReadResult,
   TaskActivityPage,
   TaskActivityReadMarker,
+  TaskCategory,
   TaskChannel,
   TaskMention,
   TaskRun,
@@ -456,6 +457,9 @@ export const MCP_CATEGORIES = [
 ] as const;
 
 import type {
+  DecisionAnswer,
+  DecisionQuestion,
+  DecisionResponse,
   McpApprovalState,
   McpAuthType,
   McpCategory,
@@ -464,6 +468,9 @@ import type {
   McpServerInstallation,
 } from "./types";
 export type {
+  DecisionAnswer,
+  DecisionQuestion,
+  DecisionResponse,
   McpApprovalState,
   McpAuthType,
   McpCategory,
@@ -3275,6 +3282,50 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async setTaskCategory(taskId: string, category: TaskCategory): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${encodeURIComponent(taskId)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ category }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to set task category: ${response.statusText}`);
+    }
+  }
+
+  /**
+   * Ask the ML inference decision model typed questions about one piece of
+   * text. Throws on any non-2xx, including the 404 a project that is not
+   * enrolled in decisions gets.
+   */
+  async decide(input: {
+    state: string;
+    questions: Record<string, DecisionQuestion>;
+    signal?: AbortSignal;
+  }): Promise<DecisionResponse> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ml_inference/decisions/decide/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          state: input.state,
+          questions: input.questions,
+        }),
+        signal: input.signal,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Decision request failed: ${response.status}`);
+    }
+    return (await response.json()) as DecisionResponse;
   }
 
   /**

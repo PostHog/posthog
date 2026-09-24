@@ -76,12 +76,41 @@ export interface OrganizationMemberBasic {
   user: UserBasic;
 }
 
+/**
+ * Conventional commit type describing the kind of change a task makes.
+ * Classified from the first prompt when the task is created.
+ */
+export const TASK_CATEGORIES = [
+  "feat",
+  "fix",
+  "perf",
+  "refactor",
+  "docs",
+  "test",
+  "chore",
+  "ci",
+  "build",
+  "style",
+  "revert",
+] as const;
+
+export type TaskCategory = (typeof TASK_CATEGORIES)[number];
+
+export function isTaskCategory(value: unknown): value is TaskCategory {
+  return (
+    typeof value === "string" &&
+    (TASK_CATEGORIES as readonly string[]).includes(value)
+  );
+}
+
 export interface Task {
   id: string;
   task_number: number | null;
   slug: string;
   title: string;
   title_manually_set?: boolean;
+  /** Null until the first prompt is classified. Absent on older responses. */
+  category?: TaskCategory | null;
   description: string;
   // First characters of the description, present instead of the full body when the
   // list was fetched with basic=true. Absent on the full and single-task responses.
