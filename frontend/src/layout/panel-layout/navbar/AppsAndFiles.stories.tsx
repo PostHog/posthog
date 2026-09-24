@@ -1,5 +1,9 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+import { useActions, useMountedLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -10,8 +14,10 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 import { NavBar } from './NavBar'
 import { navAppsTabLogic } from './tabs/navAppsTabLogic'
+import { FILES_TREE_KEY, navFilesTabLogic } from './tabs/navFilesTabLogic'
 import { navRecentsLogic } from './tabs/navRecentsLogic'
 
 const files: FileSystemEntry[] = [
@@ -38,6 +44,7 @@ const files: FileSystemEntry[] = [
     },
     { id: 'flag-1', path: 'New checkout', type: 'feature_flag', ref: '1', href: '/feature_flags/1' },
 ]
+const ownedFileIds = new Set(['dashboard-1', 'notebook-1'])
 const starred: FileSystemEntry[] = [
     { id: 'star-home', path: 'Alex Example', type: 'folder', ref: 'Users/Alex Example' },
     { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
@@ -53,6 +60,7 @@ function SidebarStory({
     overlay = false,
     empty = false,
     recentsCollapsed = false,
+    folderToOpen,
 }: {
     tab?: NavExperimentTab
     search?: string
@@ -60,20 +68,28 @@ function SidebarStory({
     overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
+    folderToOpen?: string
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
         useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
+    useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
         setNavExperimentTab(tab)
         toggleLayoutNavCollapsed(collapsed)
         setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
+        if (tab === 'files') {
+            projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actions.setSearchTerm(search)
+        }
         setRecentsCollapsed(recentsCollapsed)
         loadShortcutsSuccess(empty ? [] : starred)
+        if (folderToOpen !== undefined) {
+            navFilesTabLogic.actions.openFolder(folderToOpen)
+        }
     })
     return <NavBar />
 }
@@ -100,10 +116,22 @@ const meta: Meta<typeof SidebarStory> = {
                     const params = new URL(req.url).searchParams
                     const parent = params.get('parent')
                     const search = params.get('search')?.toLowerCase() ?? ''
+                    const type = search
+                        .split(' ')
+                        .find((part) => part.startsWith('type:'))
+                        ?.slice(5)
+                    const query = search
+                        .split(' ')
+                        .filter((part) => !part.includes(':'))
+                        .join(' ')
+                    const onlyMine = search.split(' ').includes('user:me')
                     const results = files.filter((file) =>
                         parent !== null
                             ? file.path.split('/').slice(0, -1).join('/') === parent
-                            : file.type !== 'folder' && file.path.toLowerCase().includes(search)
+                            : file.type !== 'folder' &&
+                              (!onlyMine || ownedFileIds.has(file.id)) &&
+                              (!type || file.type === type) &&
+                              file.path.toLowerCase().includes(query)
                     )
                     return [200, { results, count: results.length, next: null, has_more: false }]
                 },
@@ -130,6 +158,51 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Apps: Story = {}
 export const Files: Story = { args: { tab: 'files' } }
+export const FilesOptions: Story = {
+    ...Files,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const body = within(canvasElement.ownerDocument.body)
+        const options = await canvas.findByLabelText('Files options')
+        await userEvent.click(options)
+        await userEvent.click(body.getByText('Filters', { exact: true }))
+        await userEvent.click(body.getByText('Only my stuff', { exact: true }))
+        await userEvent.click(body.getByText('Notebook', { exact: true }))
+        await userEvent.click(body.getByText('Only my stuff', { exact: true }))
+        await userEvent.click(body.getByText('Notebook', { exact: true }))
+        await userEvent.click(canvasElement.ownerDocument.body)
+        await userEvent.click(options)
+    },
+}
+export const OpenFolder: Story = { args: { collapsed: true, folderToOpen: 'Product research' } }
+export const Chat: Story = {
+    args: { tab: 'chat' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/conversations/': [
+                    200,
+                    {
+                        results: ['Review signup trends', 'Explore checkout events'].map((title, index) => ({
+                            id: `chat-${index}`,
+                            title,
+                            status: 'idle',
+                            type: 'assistant',
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            user: MOCK_DEFAULT_BASIC_USER,
+                        })),
+                        next: null,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
+export const FilesFiltered: Story = { args: { tab: 'files', search: 'type:notebook' } }
+export const FilesOnlyMine: Story = { args: { tab: 'files', search: 'user:me' } }
+export const FilesNoResults: Story = { args: { tab: 'files', search: 'nothing-matches' } }
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
 export const Collapsed: Story = { args: { collapsed: true } }

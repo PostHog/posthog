@@ -2671,6 +2671,17 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it('allows another manual dashboard refresh after five minutes', () => {
+                const recentRefresh = now().subtract(4, 'minutes')
+                logic.actions.updateDashboardLastRefresh(recentRefresh)
+                expect(logic.values.blockRefresh).toBe(true)
+
+                const lastRefresh = now().subtract(6, 'minutes')
+                logic.actions.updateDashboardLastRefresh(lastRefresh)
+                expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
+                expect(logic.values.blockRefresh).toBe(false)
+            })
+
             it('manual refresh reloads all insights', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -3057,11 +3068,11 @@ describe('dashboardLogic', () => {
         describe('page visibility', () => {
             it('pauses auto-refresh when page is hidden and resumes when visible', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAutoRefresh(true, 1800)
+                    logic.actions.setAutoRefresh(true, 900)
                 })
                     .toDispatchActions(['setAutoRefresh', 'resetInterval'])
                     .toMatchValues({
-                        autoRefresh: { enabled: true, interval: 1800 },
+                        autoRefresh: { enabled: true, interval: 900 },
                     })
 
                 await expectLogic(logic, () => {

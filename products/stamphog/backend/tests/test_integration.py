@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import threading
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,7 @@ from products.stamphog.backend.logic.channel_resolution import (
     build_routing_context,
     resolve_destination,
 )
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
@@ -53,7 +55,12 @@ from products.stamphog.backend.temporal.constants import (
     SandboxPhaseError,
 )
 from products.stamphog.backend.tests import fakes
-from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
+from products.stamphog.backend.tests.conftest import (
+    FAST_REFUSAL_SUMMARY,
+    PRODUCT_DATABASES,
+    StamphogChain,
+    _run_activity,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 REPO = "acme/widgets"
@@ -186,8 +193,34 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha101a"
-    recorder.register_pr(REPO, 101, _pr_object(101, author, head_sha), _pr_files())
+    pr_object = _pr_object(101, author, head_sha)
+    pr_object["user"]["node_id"] = "U_devex"
+    files = [
+        {
+            "filename": "src/util.py",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 1,
+            "changes": 2,
+            "patch": "@@ -3,2 +3,2 @@\n-old\n+new\n keep",
+        }
+    ]
+    recorder.register_pr(REPO, 101, pr_object, files, commit_messages=("feat: one", "fix: two"))
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    def commit(oid: str, login: str) -> dict:
+        return {
+            "oid": oid,
+            "messageHeadline": f"feat: change ({oid})",
+            "committedDate": "2026-01-01T00:00:00Z",
+            "author": {"name": login, "user": {"login": login}},
+        }
+
+    recorder.blame_ranges["src/util.py"] = [
+        {"startingLine": 1, "endingLine": 2, "commit": commit("c-other", "someone-else")},
+        {"startingLine": 3, "endingLine": 9, "commit": commit("c-author", author)},
+    ]
+    recorder.author_history["src"] = [commit("c-author", author)]
 
     status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
     assert status == 202
@@ -196,6 +229,22 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
     assert run.verdict == ReviewVerdict.APPROVED
+
+    # The sandbox gets familiarity from GitHub facts, and only the blame ranges of changed lines ride
+    # along. It therefore needs no history, and the prefetch walks none.
+    assert run.output["merge_base_sha"] == recorder.merge_base_sha
+    context = json.loads(dict(stamphog_chain.sandbox_writes)[STAMPHOG_SANDBOX_CONTEXT_PATH].decode())
+    facts = context["familiarity_facts"]
+    assert facts["blame"] == {"src/util.py": [{"start": 3, "end": 9, "oid": "c-author"}]}
+    assert facts["path_history"] == ["c-author"]
+    assert set(facts["commits"]) == {"c-author"}
+    assert not any("rev-list" in command for command in stamphog_chain.sandbox_class.executed_commands)
+    # The checkout holds only the head and the merge base, so the engine diffs from the merge base and
+    # reads the commit trailers from the server's messages.
+    assert context["merge_base_sha"] == recorder.merge_base_sha
+    assert context["commit_messages"] == ["fix: two", "feat: one"]
+    clone_commands = " ".join(stamphog_chain.sandbox_class.executed_commands)
+    assert f"--filter=blob:none origin {recorder.merge_base_sha}" in clone_commands
 
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     assert len(approvals) == 1
@@ -213,18 +262,120 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
 
 
+def _api_file(filename: str) -> dict:
+    return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
+
+
+@pytest.mark.parametrize(
+    "files, summary, engine_breaks, expect_fast_path, expect_in_body",
+    [
+        pytest.param(
+            [_api_file("terraform/main.tf")], FAST_REFUSAL_SUMMARY, False, True, FAST_REFUSAL_SUMMARY, id="deny"
+        ),
+        pytest.param(
+            [_api_file("terraform/main.tf")],
+            None,
+            False,
+            True,
+            "deny-list: matches: infra_cicd",
+            id="deny-summary-failed",
+        ),
+        # A broken pre-check must cost only the shortcut, never the review.
+        pytest.param([_api_file("terraform/main.tf")], None, True, False, None, id="engine-breaks"),
+        # No Migration risk check has reported, so the full review can end WAIT rather than REFUSED.
+        pytest.param(
+            [_api_file("posthog/migrations/0999_add_col.py")], None, False, False, None, id="pending-migration"
+        ),
+        pytest.param(_pr_files(), None, False, False, None, id="clean"),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_sandbox_destroy_failure_does_not_mask_a_completed_review(team, stamphog_chain: StamphogChain) -> None:
-    # Teardown runs in a finally block after a successful review; if its exception propagated it
-    # would replace the success, drop the verdict, and mark the run FAILED.
+def test_a_final_gate_deny_is_refused_without_a_sandbox(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[dict],
+    summary: str | None,
+    engine_breaks: bool,
+    expect_fast_path: bool,
+    expect_in_body: str | None,
+) -> None:
+    # The engine's own pre-check runs in a real child process here: a deny the full review would
+    # also reach skips the bot wait and the sandbox, and anything else still gets the full review.
+    repo_config = _repo_config(team.id)
+    author, head_sha = "devex-dev", "sha-pregate"
+    pr_object = {**_pr_object(101, author, head_sha), "changed_files": len(files)}
+    stamphog_chain.recorder.register_pr(
+        REPO, 101, pr_object, files, commit_messages=("feat: infra\n\nGenerated-By: PostHog Code\nTask-Id: t-1",)
+    )
+
+    engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
+    with (
+        patch("products.stamphog.backend.temporal.activities.summarize_refusal", return_value=summary),
+        patch.object(activities, "run_engine_pregate", side_effect=engine_failure, wraps=activities.run_engine_pregate),
+    ):
+        assert stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4())) == 202
+
+    pull_request = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
+    if not expect_fast_path:
+        assert stamphog_chain.sandbox_class.created_configs != []
+        assert "fast_path" not in run.output
+        return
+
+    assert stamphog_chain.sandbox_class.created_configs == []
+    assert run.status == ReviewRunStatus.GATED
+    assert run.output["fast_path"] is True
+    assert "pregate" in run.output["timings_ms"]
+    # The fast path has no checkout, so the commit trailers come from the server's messages alone.
+    assert json.loads(run.output["reviewer_raw"])["provenance"]["task_ids"] == ["t-1"]
+    refusals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
+    assert len(refusals) == 1
+    assert expect_in_body in refusals[0]["body"]["body"]
+
+
+@pytest.mark.parametrize(
+    "pr_head_sha, changed_files, status, expect",
+    [
+        pytest.param("sha-run", 1, "modified", None, id="usable"),
+        pytest.param("sha-newer", 1, "modified", "head_moved", id="head-moved"),
+        pytest.param("sha-run", 3000, "modified", "file_list_incomplete", id="files-past-the-page-cap"),
+        pytest.param("sha-run", None, "modified", "file_list_incomplete", id="no-file-count"),
+        pytest.param("sha-run", 1, "renamed", "renamed_files", id="rename"),
+    ],
+)
+def test_pregate_only_trusts_a_file_list_the_sandbox_would_match(
+    pr_head_sha: str, changed_files: int | None, status: str, expect: str | None
+) -> None:
+    pr = {"head": {"sha": pr_head_sha}, "changed_files": changed_files}
+    files = [{"filename": "terraform/main.tf", "status": status}]
+
+    assert pregate_skip_reason(pr, files, "sha-run") == expect
+
+
+@pytest.mark.parametrize("teardown", ["raises", "hangs"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_sandbox_teardown_does_not_hold_up_a_completed_review(
+    team, stamphog_chain: StamphogChain, teardown: str
+) -> None:
+    # Teardown runs after a successful review. An exception from it would replace the success and
+    # mark the run FAILED, and waiting on it would hold the verdict back until the provider is done.
     _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha109a"
     recorder.register_pr(REPO, 109, _pr_object(109, author, head_sha), _pr_files())
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
-    stamphog_chain.sandbox_class.destroy_error = RuntimeError("sandbox teardown blew up")
+    blocker = threading.Event()
+    if teardown == "raises":
+        stamphog_chain.sandbox_class.destroy_error = RuntimeError("sandbox teardown blew up")
+    else:
+        stamphog_chain.sandbox_class.destroy_blocker = blocker
 
-    status = stamphog_chain.post_webhook(_opened_event(109, author, head_sha), delivery_id=str(uuid.uuid4()))
+    try:
+        status = stamphog_chain.post_webhook(_opened_event(109, author, head_sha), delivery_id=str(uuid.uuid4()))
+        if teardown == "hangs":
+            assert not stamphog_chain.sandbox_class.destroy_returned
+    finally:
+        blocker.set()
     assert status == 202
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
@@ -477,6 +628,9 @@ def test_failed_run_still_dismisses_the_stale_approval_first(team, stamphog_chai
     assert prior.approval_dismissed_at is not None
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert [w["review_id"] for w in dismissals] == [777]
+    minimized = [w for w in recorder.github_writes if w["kind"] == "minimize_review"]
+    assert [w["node_id"] for w in minimized] == ["PRR_777"]
+    assert "classifier: OUTDATED" in minimized[0]["query"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -622,7 +776,7 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
         "obo": str(team.id),
         "user": user.distinct_id,
     }
-    # The token dies with its sandbox: a best-effort revoke follows destroy.
+    # The token dies with its run: a best-effort revoke follows the reviewer.
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
     assert revoke_call.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}
@@ -1148,7 +1302,11 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
     run = ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pull_request, head_sha="sha-x", status=ReviewRunStatus.REVIEWING
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-x",
+        status=ReviewRunStatus.REVIEWING,
+        output={"review_trigger": "manual"},
     )
 
     # ph_scoped_capture is a context manager yielding the capture callable, so the patch
@@ -1167,6 +1325,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     props = capture_fn.call_args.kwargs["properties"]
     assert props["stamphog_repo"] == REPO
     assert props["stamphog_error"] == expected_stored
+    assert props["stamphog_review_trigger"] == "manual"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1831,6 +1990,33 @@ def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_o
 
     run = DigestRun.objects.for_team(team.id).get(audience_key="team-devex")
     assert (run.slack_channel_id, run.resolution_source) == ("C-STANDUP", ChannelResolutionSource.OWNERS_CONTACT)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_repository_with_no_commits_does_not_block_the_teams_other_digests(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A repository with no commits has no default branch, so its head lookup answers with a null.
+    # Treating that as an unreadable routing file took the whole team's run down, which meant one
+    # freshly connected repo silenced every other repo's morning digest.
+    _repo_config(team.id, repository="acme/charts")
+    _repo_config(team.id, repository="acme/widgets")
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.empty_repositories.add("acme/charts")
+    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = _STANDUP_REGISTRY
+    _merged_pr_with_audience(
+        team.id,
+        StamphogRepoConfig.objects.for_team(team.id).get(repository="acme/widgets"),
+        number=101,
+        audience_key="team-devex",
+    )
+    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
+
+    send_daily_digests()
+
+    assert DigestRun.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
 
 
 @pytest.mark.parametrize(
