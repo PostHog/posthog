@@ -27,13 +27,29 @@ def wait_on(hogql: str) -> dict:
     }
 
 
-class TestClockBasedWaitRejection(APIBaseTest):
+class TestUnwakeableWaitRejection(APIBaseTest):
     def _post(self, wait: dict) -> tuple[int, dict]:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             {"name": "Test Flow", "status": "active", "actions": [TRIGGER, wait]},
         )
         return response.status_code, response.json()
+
+    @parameterized.expand(
+        [
+            ("direct", "group_0.properties.plan == 'pro'"),
+            ("higher_index", "group_2.properties.seats > 5"),
+            # One group term is enough, so an AND with a person property must not launder it past.
+            ("anded_with_a_person_property", "person.properties.plan == 'pro' and group_0.properties.seats > 5"),
+        ]
+    )
+    def test_rejects_a_wait_that_reads_a_group_property(self, _name: str, hogql: str):
+        # A group change carries no person or distinct_id, so the matcher can look up no parked job
+        # for it and the wait would only ever hit its maximum wait time.
+        status, body = self._post(wait_on(hogql))
+
+        assert status == 400, body
+        assert "uses a group property" in str(body)
 
     @parameterized.expand(
         [

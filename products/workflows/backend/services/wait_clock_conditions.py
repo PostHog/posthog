@@ -1,5 +1,6 @@
 """
-Detects `wait_until_condition` conditions that only the polling re-check could ever satisfy.
+Detects `wait_until_condition` conditions that only the polling re-check could ever satisfy:
+a comparison against the clock, and a read of a group property.
 
 A wait is woken by the subscription matcher when a message arrives on one of its streams: an event,
 a person change, an internal event, a distinct_id repoint. A condition that compares against the
@@ -11,6 +12,7 @@ same intent with a delay step and a condition that guards it, and the wait is wo
 that actually happens.
 """
 
+import re
 from typing import Optional
 
 from posthog.hogql import ast
@@ -34,5 +36,28 @@ class _ClockCallFinder(TraversingVisitor):
 def find_clock_function(condition_expr: ast.Expr) -> Optional[str]:
     """Name of the first clock function the expression calls, or None if it calls none."""
     finder = _ClockCallFinder()
+    finder.visit(condition_expr)
+    return finder.found
+
+
+# Group properties reach a filter as the chain `group_<index>.properties.<key>`. The matcher keys its
+# streams on person and distinct_id only, so a group change carries nothing it can look a parked job
+# up by.
+GROUP_FIELD_RE = re.compile(r"^group_\d+$")
+
+
+class _GroupFieldFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found: Optional[str] = None
+
+    def visit_field(self, node: ast.Field) -> None:
+        if self.found is None and node.chain and GROUP_FIELD_RE.match(str(node.chain[0])):
+            self.found = str(node.chain[0])
+        super().visit_field(node)
+
+
+def find_group_field(condition_expr: ast.Expr) -> Optional[str]:
+    """Name of the first group field the expression reads, or None if it reads none."""
+    finder = _GroupFieldFinder()
     finder.visit(condition_expr)
     return finder.found
