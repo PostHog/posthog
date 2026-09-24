@@ -950,7 +950,6 @@ jobs:
                   SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
                   SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
               # WARNING: Worker count is tuned together with the Granian --workers count. Talk to #team-devex before changing.
-              # Measurements: "Raise the Playwright worker count" in docs/internal/ci-things-already-tried.md.
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
                   # Time the test step so the telemetry can turn "specs skipped" into
