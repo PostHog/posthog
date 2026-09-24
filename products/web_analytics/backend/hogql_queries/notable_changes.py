@@ -247,6 +247,10 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
     def __init__(self, runner: WebNotableChangesQueryRunner) -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
+    def query_uses_channel_type(self) -> bool:
+        # Channel is always one of the DIMENSIONS this query compares.
+        return True
+
     def get_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         period_filters = self.get_date_ranges()
         table_name = self.stats_table

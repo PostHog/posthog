@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Optional
 
+from posthog.schema import CustomChannelField, CustomChannelRule, WebStatsBreakdown
+
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
@@ -11,6 +13,10 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transf
     ChannelTypeReplacer,
     PreAggregatedPropertyTransformer,
 )
+
+# The pre-aggregated tables keep the entry pathname, but not the entry URL. Their `host` column holds the
+# event host, so a session that spans two hosts carries a host the live path would not match against.
+CUSTOM_CHANNEL_FIELDS_ABSENT_FROM_PRE_AGGREGATED = {CustomChannelField.URL, CustomChannelField.HOSTNAME}
 
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
@@ -51,7 +57,29 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         if self._is_recent_relative_date_range():
             return False
 
+        if self.query_uses_channel_type() and not self._can_apply_custom_channel_rules():
+            return False
+
         return True
+
+    def _custom_channel_type_rules(self) -> Optional[list[CustomChannelRule]]:
+        modifiers = self.runner.modifiers
+        return modifiers.customChannelTypeRules if modifiers else None
+
+    def query_uses_channel_type(self) -> bool:
+        query = self.runner.query
+
+        if getattr(query, "breakdownBy", None) == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+            return True
+
+        return any(getattr(prop, "key", None) == "$channel_type" for prop in query.properties or [])
+
+    def _can_apply_custom_channel_rules(self) -> bool:
+        return not any(
+            condition.key in CUSTOM_CHANNEL_FIELDS_ABSENT_FROM_PRE_AGGREGATED
+            for rule in self._custom_channel_type_rules() or []
+            for condition in rule.items
+        )
 
     def _is_recent_relative_date_range(self) -> bool:
         """Returns True if the query covers a short relative date range (6 hours or less ending at 'now').
@@ -76,16 +104,17 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
             )
 
-        def _wrap_with_lower(expr: ast.Expr) -> ast.Expr:
-            return ast.Call(name="lower", args=[expr])
-
+        # The default rules lower the campaign, medium and source themselves. Custom rules match the value
+        # as the user wrote it, so these must keep their original case.
         channel_type_exprs = ChannelTypeExprs(
-            campaign=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"]))),
-            medium=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
-            source=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
+            campaign=_wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"])),
+            medium=_wrap_with_null_if_empty(ast.Field(chain=["utm_medium"])),
+            source=_wrap_with_null_if_empty(ast.Field(chain=["utm_source"])),
             referring_domain=_wrap_with_null_if_empty(ast.Field(chain=["referring_domain"])),
             url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
             hostname=ast.Field(chain=["host"]),
+            # Not nulled when empty: path() returns '' both for a bare-domain entry URL and for a missing
+            # one, so nulling '' here would make a bare-domain session read as unset against the live path.
             pathname=ast.Field(chain=["entry_pathname"]),
             has_gclid=ast.Field(chain=["has_gclid"]),
             has_fbclid=ast.Field(chain=["has_fbclid"]),
@@ -101,7 +130,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         )
 
         return create_channel_type_expr(
-            custom_rules=None,  # Custom rules not supported for pre-aggregated tables yet
+            custom_rules=self._custom_channel_type_rules(),
             source_exprs=channel_type_exprs,
             timings=self.runner.timings,
         )
