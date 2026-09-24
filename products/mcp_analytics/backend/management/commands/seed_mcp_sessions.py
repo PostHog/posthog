@@ -287,6 +287,7 @@ class _SeededCall:
     timestamp: datetime
     tool_name: str
     failure: _Failure | None
+    is_retry: bool
 
 
 @frozen
@@ -311,8 +312,9 @@ class _MissingCapabilityTheme:
 # description asks agents to report them even when a workaround exists.
 FEEDBACK_TYPE_WEIGHTS: dict[str, int] = {"missing_capability": 40, "issue": 34, "praise": 18, "other": 8}
 FAILURE_LINKED_ISSUE_PROBABILITY = 0.8
-# Error types an agent cannot work around by retrying or fixing its arguments.
+# Error types an agent cannot work around by retrying or fixing its arguments, so it never retries them.
 TASK_BLOCKING_ERROR_TYPES = {"permission"}
+RETRY_AFTER_FAILURE_PROBABILITY = 0.6
 MAX_FEEDBACK_PER_SESSION = 3
 DEFAULT_FEEDBACK_COUNT = 60
 
@@ -610,6 +612,16 @@ def _render_feedback_text(rng: random.Random, text: _FeedbackText, tool: str, er
     )
 
 
+def recovering_retry(calls: list[_SeededCall], failed: _SeededCall) -> _SeededCall | None:
+    """The retry that succeeded after `failed`, following a chain of failed retries."""
+    for call in calls[calls.index(failed) + 1 :]:
+        if not call.is_retry:
+            return None
+        if call.failure is None:
+            return call
+    return None
+
+
 def failure_rate(calls: list[_SeededCall]) -> float:
     return sum(1 for call in calls if call.failure) / len(calls)
 
@@ -636,17 +648,10 @@ def build_feedback(rng: random.Random, calls: list[_SeededCall]) -> _SeededFeedb
         tool_name = anchor.tool_name
         error = failure.message
         template = FAILURE_ISSUES[failure.error_type]
-        recovery = next(
-            (
-                call
-                for call in calls
-                if call.tool_name == tool_name and call.failure is None and call.timestamp > anchor.timestamp
-            ),
-            None,
-        )
-        recovered = recovery is not None and failure.error_type not in TASK_BLOCKING_ERROR_TYPES
+        recovery = recovering_retry(calls, anchor)
+        recovered = recovery is not None
         # Report after the retry that recovered, so task_completed never precedes it.
-        if recovered and recovery is not None:
+        if recovery is not None:
             anchor = recovery
         completed_rate = 1.0 if recovered else 0.0
         sentiment_weights = {"mixed": 70, "negative": 30} if recovered else {"negative": 80, "mixed": 20}
@@ -997,11 +1002,13 @@ class Command(BaseCommand):
             session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
 
             session_calls: list[_SeededCall] = []
+            retry_tool: str | None = None
             cumulative_offset_s = 0
             for call_idx in range(calls):
                 cumulative_offset_s += call_intervals[call_idx]
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
-                tool_name = rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
+                is_retry = retry_tool is not None
+                tool_name = retry_tool or rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
@@ -1024,7 +1031,16 @@ class Command(BaseCommand):
                     tool_properties["$mcp_error_message"] = failure.message
                 tool_properties["$mcp_duration_ms"] = duration_ms
                 emit(session, "$mcp_tool_call", timestamp, tool_properties)
-                session_calls.append(_SeededCall(timestamp=timestamp, tool_name=tool_name, failure=failure))
+                session_calls.append(
+                    _SeededCall(timestamp=timestamp, tool_name=tool_name, failure=failure, is_retry=is_retry)
+                )
+                retry_tool = (
+                    tool_name
+                    if failure
+                    and failure.error_type not in TASK_BLOCKING_ERROR_TYPES
+                    and rng.random() < RETRY_AFTER_FAILURE_PROBABILITY
+                    else None
+                )
 
                 # Pair some failures with an $exception event so the tool detail
                 # "Failures" table (which reads $exception events) has data.
@@ -1099,10 +1115,18 @@ class Command(BaseCommand):
                 {**session.model_properties, **feedback.event_properties()},
             )
 
+        seeded_feedback_count = sum(feedback_per_session.values())
+        if seeded_feedback_count < feedback_count:
+            self.stderr.write(
+                self.style.ERROR(
+                    f"Seeded only {seeded_feedback_count} of {feedback_count} feedback reports: too few sessions "
+                    f"have tool calls. Raise --min-calls or --sessions."
+                )
+            )
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {session_count} sessions ({total_events} events, including "
-                f"{missing_capability_count} missing-capability reports and {sum(feedback_per_session.values())} feedback reports "
+                f"{missing_capability_count} missing-capability reports and {seeded_feedback_count} feedback reports "
                 f"from {len(feedback_per_session)} sessions) for team {team_id}."
             )
         )
