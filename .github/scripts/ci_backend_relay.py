@@ -26,6 +26,7 @@ import re
 import sys
 import json
 import time
+import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -65,7 +66,6 @@ class CheckRun:
     id: int
     # The conclusion once the check completed, its status before that.
     state: str
-    started_at: str
     pull_requests: frozenset[int]
     details_url: str
 
@@ -74,7 +74,6 @@ class CheckRun:
         return cls(
             id=int(run["id"]),
             state=str((run.get("conclusion") if run.get("status") == "completed" else run.get("status")) or ""),
-            started_at=str(run.get("started_at") or ""),
             pull_requests=frozenset(int(pr["number"]) for pr in run.get("pull_requests") or []),
             details_url=str(run.get("details_url") or ""),
         )
@@ -203,36 +202,38 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
-        """The check runs named `name`, or the last good answer when this read fails."""
+        """Read every page, reusing a cached answer only when the API confirms it with 304."""
         etag, cached = self._cache.get(name, ("", []))
-        try:
-            code, new_etag, body = self._get(self._url(name, 1), etag)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-            sys.stdout.write(f"::warning::check-runs API read failed: {error}\n")
-            return cached
-        if code == 304:
-            self._refusals = 0
-            return cached
-        if code in (401, 403):
-            self._refusals += 1
-            sys.stdout.write(f"::warning::check-runs API returned {code} ({self._refusals} in a row)\n")
-            if self._refusals >= MAX_REFUSALS:
-                raise ReadRefusedError(f"Cannot read checks for {self._sha}")
-            return cached
-        if code != 200:
-            sys.stdout.write(f"::warning::check-runs API returned {code}\n")
-            return cached
-        self._refusals = 0
-        raw = list(body.get("check_runs", []))
+        raw: list[dict[str, Any]] = []
         page = 1
-        while len(raw) == page * PAGE_SIZE:
-            page += 1
-            code, _, more = self._get(self._url(name, page))
-            if code != 200:
-                return cached
-            raw.extend(more.get("check_runs", []))
+        new_etag = ""
+        try:
+            while True:
+                code, page_etag, body = self._get(self._url(name, page), etag if page == 1 else "")
+                if page == 1 and code == 304:
+                    self._refusals = 0
+                    return cached
+                if code in (401, 403):
+                    self._refusals += 1
+                    if self._refusals >= MAX_REFUSALS:
+                        raise ReadRefusedError(f"Cannot read checks for {self._sha}")
+                if code != 200:
+                    sys.stdout.write(f"::warning::check-runs API returned {code}\n")
+                    return []
+                self._refusals = 0
+                if page == 1:
+                    new_etag = page_etag
+                batch = body["check_runs"]
+                raw.extend(batch)
+                if len(batch) < PAGE_SIZE:
+                    break
+                page += 1
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            sys.stdout.write(f"::warning::check-runs API read failed: {error}\n")
+            return []
         runs = [CheckRun.from_api(run) for run in raw]
-        self._cache[name] = (new_etag, runs)
+        # One page's ETag cannot validate the other pages of a paginated response.
+        self._cache[name] = (new_etag if page == 1 else "", runs)
         return runs
 
 

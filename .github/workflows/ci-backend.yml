@@ -4360,6 +4360,7 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
             && needs.changes.outputs.engine != 'depot'
+            && needs.changes.result == 'success'
         permissions:
             contents: read
             actions: read
@@ -4522,6 +4523,7 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
             && needs.changes.outputs.engine != 'depot'
+            && needs.changes.result == 'success'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

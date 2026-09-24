@@ -1,4 +1,6 @@
 import re
+import json
+import http.client
 import urllib.error
 import urllib.parse
 import importlib.util
@@ -58,97 +60,52 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
 
 
 @pytest.mark.parametrize(
-    "event_waits,plain_waits,gates,expected",
+    "event_waits,gates,expected",
     [
-        pytest.param([], [], [], (relay.Phase.ABSENT, ""), id="no run yet"),
-        pytest.param([run(1, "in_progress")], [], [], (relay.Phase.STARTING, "in_progress"), id="waiting for hand-off"),
-        pytest.param([run(1, "failure")], [], [], (relay.Phase.DECLINED, "failure"), id="depot declined"),
-        pytest.param([run(1, "cancelled")], [], [], (relay.Phase.CANCELLED, "cancelled"), id="run cancelled"),
+        pytest.param([], [], (relay.Phase.ABSENT, ""), id="no run yet"),
+        pytest.param([run(1, "in_progress")], [], (relay.Phase.STARTING, "in_progress"), id="waiting for hand-off"),
+        pytest.param([run(1, "failure")], [], (relay.Phase.DECLINED, "failure"), id="depot declined"),
+        pytest.param([run(1, "cancelled")], [], (relay.Phase.CANCELLED, "cancelled"), id="run cancelled"),
         pytest.param(
             [run(1, "success")],
-            [],
             [run(9, "cancelled", workflow="stale", started_at="2026-09-24T09:55:14Z")],
             (relay.Phase.RUNNING, ""),
             id="superseded run's cancelled gate is ignored",
         ),
         pytest.param(
             [run(1, "success")],
-            [],
             [run(9, "cancelled", workflow="stale"), run(10, "success")],
             (relay.Phase.FINISHED, "success"),
             id="this run's gate wins over a newer id elsewhere",
         ),
         pytest.param(
             [run(1, "success", prs=())],
-            [],
             [run(10, "success", prs=())],
             (relay.Phase.FINISHED, "success"),
             id="checks that list no pull request",
         ),
         pytest.param(
             [run(1, "cancelled", workflow="dup1"), run(2, "success", workflow="dup2")],
-            [],
             [run(10, "failure", workflow="dup2")],
             (relay.Phase.FINISHED, "failure"),
             id="duplicate run of the event replaces a cancelled one",
         ),
         pytest.param(
             [run(1, "success")],
-            [],
             [run(10, "cancelled")],
             (relay.Phase.CANCELLED, "cancelled"),
             id="this run cancelled after the hand-off",
         ),
         pytest.param(
             [run(1, "success")],
-            [],
             [run(10, "failure"), run(11, "success")],
             (relay.Phase.FINISHED, "success"),
             id="retried gate",
         ),
-        pytest.param(
-            [],
-            [run(1, "success", prs=())],
-            [run(10, "success", prs=())],
-            (relay.Phase.ABSENT, ""),
-            id="plain name without a pull request cannot identify the event",
-        ),
-        pytest.param(
-            [],
-            [run(1, "success", workflow="earlier"), run(2, "success", workflow="later")],
-            [run(10, "success", workflow="later")],
-            (relay.Phase.ABSENT, ""),
-            id="plain names from two workflows cannot identify the event",
-        ),
-        pytest.param(
-            [],
-            [run(1, "cancelled", workflow="earlier"), run(2, "success", workflow="later")],
-            [run(10, "success", workflow="later")],
-            (relay.Phase.ABSENT, ""),
-            id="plain wait cannot identify this event even with one live run",
-        ),
-        pytest.param(
-            [],
-            [run(1, "success", prs=(105000,))],
-            [run(10, "success", prs=(105000,))],
-            (relay.Phase.ABSENT, ""),
-            id="plain name for another pull request",
-        ),
-        pytest.param(
-            [],
-            [run(1, "success", started_at="2026-09-24T09:51:34Z")],
-            [],
-            (relay.Phase.ABSENT, ""),
-            id="plain name from before the event",
-        ),
     ],
 )
-def test_progress_of_this_events_run(
-    event_waits: list[Any], plain_waits: list[Any], gates: list[Any], expected: tuple[Any, str]
-) -> None:
+def test_progress_of_this_events_run(event_waits: list[Any], gates: list[Any], expected: tuple[Any, str]) -> None:
     wait = relay.newest_live(event_waits)
-    if plain_waits and not event_waits:
-        assert wait is None
     result = relay.progress(wait, gates)
     assert (result.phase, result.state) == expected
 
@@ -442,3 +399,28 @@ def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> Non
         reader.read(relay.GATE_CHECK)
     with pytest.raises(relay.ReadRefusedError):
         reader.read(relay.GATE_CHECK)
+
+
+@pytest.mark.parametrize("page", [1, 2])
+@pytest.mark.parametrize(
+    "error",
+    [ConnectionResetError("reset"), http.client.IncompleteRead(b""), ValueError("invalid JSON")],
+)
+def test_reader_retries_interrupted_pages_without_reusing_a_stale_verdict(page: int, error: Exception) -> None:
+    payload = {"id": 1, "status": "completed", "conclusion": "success"}
+    answers: list[Any] = [FakeResponse(json.dumps({"check_runs": [payload]}).encode(), '"e1"')]
+    if page == 2:
+        answers.append(FakeResponse(json.dumps({"check_runs": [payload] * relay.PAGE_SIZE}).encode(), '"e2"'))
+    answers += [error, FakeResponse(b'{"check_runs": []}', '"e3"')]
+
+    def opener(request: Any, timeout: int) -> FakeResponse:
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener)
+    assert reader.read(relay.GATE_CHECK)[0].state == "success"
+    assert reader.read(relay.GATE_CHECK) == []
+    assert reader.read(relay.GATE_CHECK) == []
+    assert not answers
