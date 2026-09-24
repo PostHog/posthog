@@ -833,7 +833,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-07T12:00:00Z',
         pageUrl: urls.mcpAnalyticsDashboard(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS],
     },
 }
 export default meta
@@ -853,10 +852,9 @@ export const DashboardNarrow: Story = {
     ),
 }
 
-// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
 export const DashboardWithMenuBar: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+        featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
     },
 }
 
@@ -887,6 +885,6 @@ export const ToolQuality: Story = {
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }
