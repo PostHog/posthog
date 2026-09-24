@@ -10,7 +10,6 @@ describe("getCleanEnv", () => {
   });
 
   it("disables the terminal prompt so a missing credential fails instead of hanging", () => {
-    process.env.GH_TOKEN = undefined;
     delete process.env.GH_TOKEN;
     delete process.env.GITHUB_TOKEN;
 

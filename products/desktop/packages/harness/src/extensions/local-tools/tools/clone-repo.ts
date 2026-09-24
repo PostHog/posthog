@@ -8,7 +8,6 @@ import {
 } from "@posthog/git/git-exec";
 import {
   describeGitAuthFailure,
-  GITHUB_AUTH_CONFIG_KEY,
   GITHUB_BASE_URL,
   isGitAuthFailure,
   withGithubAuth,
@@ -21,8 +20,6 @@ import { defineLocalTool, type LocalToolResult } from "../registry";
 
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
 const CLOUD_CLONE_ROOT = "/tmp/workspace/repos";
-
-export { GITHUB_AUTH_CONFIG_KEY };
 
 const cloneRepoSchema = {
   repo: z

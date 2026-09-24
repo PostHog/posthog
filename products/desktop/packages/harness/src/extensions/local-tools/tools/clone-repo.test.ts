@@ -4,15 +4,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { execGit } from "@posthog/git/git-exec";
+import { GITHUB_AUTH_CONFIG_KEY } from "@posthog/git/github-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../github-token", () => ({
   resolveGithubToken: vi.fn(() => undefined),
 }));
 
-const { cloneRepoTool, cloneRoot, GITHUB_AUTH_CONFIG_KEY } = await import(
-  "./clone-repo"
-);
+const { cloneRepoTool, cloneRoot } = await import("./clone-repo");
 
 const REPO_URL = "https://github.com/PostHog/posthog.git";
 
