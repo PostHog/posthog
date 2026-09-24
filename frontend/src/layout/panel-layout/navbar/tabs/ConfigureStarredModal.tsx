@@ -6,19 +6,19 @@ import { Link } from 'lib/lemon-ui/Link'
 
 import { iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
-import { sidebarToolMeta } from '../../sidebarToolMeta'
-import { appsItemName } from './appsCatalog'
-import { navAppsTabLogic } from './navAppsTabLogic'
+import { sidebarProductMeta } from '../../sidebarProductMeta'
+import { navProductsTabLogic } from './navProductsTabLogic'
+import { productsItemName } from './productsCatalog'
 
 export function ConfigureStarredModal(): JSX.Element {
-    const { configureStarredOpen, configurableApps, starredAppIds } = useValues(navAppsTabLogic)
-    const { setConfigureStarredOpen, setAppStarred } = useActions(navAppsTabLogic)
+    const { configureStarredOpen, configurableProducts, starredProductIds } = useValues(navProductsTabLogic)
+    const { setConfigureStarredOpen, setProductStarred } = useActions(navProductsTabLogic)
     const { shortcutDataHasLoaded, shortcutDataLoading } = useValues(projectTreeDataLogic)
 
     return (
         <LemonModal
             title="Configure starred"
-            description="Choose which apps appear in Starred. Changes save automatically."
+            description="Choose which products appear in Starred. Changes save automatically."
             isOpen={configureStarredOpen}
             onClose={() => setConfigureStarredOpen(false)}
             width={640}
@@ -37,15 +37,15 @@ export function ConfigureStarredModal(): JSX.Element {
                 {!shortcutDataHasLoaded ? (
                     <Spinner />
                 ) : (
-                    configurableApps.map((item) => {
-                        const { description, docsHref } = sidebarToolMeta(item)
-                        const label = appsItemName(item)
+                    configurableProducts.map((item) => {
+                        const { description, docsHref } = sidebarProductMeta(item)
+                        const label = productsItemName(item)
                         return (
                             <LemonSwitch
                                 key={item.path}
                                 className="py-2"
-                                checked={!!starredAppIds[item.path]}
-                                onChange={(starred) => setAppStarred(item.path, starred)}
+                                checked={!!starredProductIds[item.path]}
+                                onChange={(starred) => setProductStarred(item.path, starred)}
                                 loading={shortcutDataLoading}
                                 aria-label={label}
                                 bordered

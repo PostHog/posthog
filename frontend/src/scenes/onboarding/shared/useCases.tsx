@@ -1,7 +1,7 @@
 /**
- * The declarative model the onboarding spins off from. A use case defines which tools it contains,
- * which extras go to the sidebar, and (through each tool's `options`) which team settings must be
- * on for self-driving to actually see data. Tool display (name, icon) resolves from the products
+ * The declarative model the onboarding spins off from. A use case defines which products it contains,
+ * which extras go to the sidebar, and (through each product's `options`) which team settings must be
+ * on for self-driving to actually see data. Product display (name, icon) resolves from the products
  * registry via `productPath`, so the flow can't drift from the sidebar.
  */
 import { getTreeItemsProducts } from '~/products'
@@ -15,7 +15,7 @@ export type OnboardingUseCaseKey =
     | 'connect_context'
     | 'ai_app'
 
-/** A team setting a tool needs to produce data. Keys are ours; each maps to a `Team` field. */
+/** A team setting a product needs to produce data. Keys are ours; each maps to a `Team` field. */
 export type TeamOption =
     | 'session_recording' // session_recording_opt_in
     | 'replay_masking_floor' // session_recording_masking_config, only if unset
@@ -26,24 +26,24 @@ export type TeamOption =
     | 'dead_clicks' // capture_dead_clicks (admin-gated)
     | 'web_vitals' // autocapture_web_vitals_opt_in
 
-export type OnboardingToolKey =
+export type OnboardingProductKey =
     | 'product_analytics'
     | 'session_replay'
     | 'error_tracking'
     | 'web_analytics'
     | 'ai_observability'
 
-export interface OnboardingTool {
+export interface OnboardingProduct {
     productPath: string
     displayName?: string
     productKey: ProductKey
-    /** One line: what the tool contributes to the self-driving loop. */
+    /** One line: what the product contributes to the self-driving loop. */
     benefit: string
-    /** Everything that must be on for this tool to work. */
+    /** Everything that must be on for this product to work. */
     options: TeamOption[]
 }
 
-export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
+export const ONBOARDING_PRODUCTS: Record<OnboardingProductKey, OnboardingProduct> = {
     product_analytics: {
         productPath: 'Product analytics',
         productKey: ProductKey.PRODUCT_ANALYTICS,
@@ -77,8 +77,8 @@ export const ONBOARDING_TOOLS: Record<OnboardingToolKey, OnboardingTool> = {
     },
 }
 
-export const SUPPORTED_TOOL_PRODUCTS = [
-    ...Object.values(ONBOARDING_TOOLS).map((tool) => tool.productKey),
+export const SUPPORTED_ONBOARDING_PRODUCTS = [
+    ...Object.values(ONBOARDING_PRODUCTS).map((product) => product.productKey),
     ProductKey.FEATURE_FLAGS,
     ProductKey.EXPERIMENTS,
     ProductKey.SURVEYS,
@@ -89,7 +89,7 @@ export const SUPPORTED_TOOL_PRODUCTS = [
     ProductKey.CONVERSATIONS,
 ]
 
-export const ADDITIONAL_TOOL_DETAILS: Partial<Record<ProductKey, { description: string; docsUrl: string }>> = {
+export const ADDITIONAL_PRODUCT_DETAILS: Partial<Record<ProductKey, { description: string; docsUrl: string }>> = {
     [ProductKey.FEATURE_FLAGS]: {
         description: 'Roll out changes gradually and safely.',
         docsUrl: 'https://posthog.com/docs/feature-flags',
@@ -128,7 +128,7 @@ export const ADDITIONAL_TOOL_DETAILS: Partial<Record<ProductKey, { description: 
     },
 }
 
-/** Docs pages, keyed by products-registry path - covers tools and sidebar-only extras alike. */
+/** Docs pages, keyed by products-registry path - covers products and sidebar-only extras alike. */
 export const DOCS_URL_BY_PRODUCT_PATH: Record<string, string> = {
     'Product analytics': 'https://posthog.com/docs/product-analytics',
     'Session replay': 'https://posthog.com/docs/session-replay',
@@ -147,8 +147,8 @@ export const DOCS_URL_BY_PRODUCT_PATH: Record<string, string> = {
     Dashboards: 'https://posthog.com/docs/product-analytics/dashboards',
 }
 
-export function toolIconType(tool: OnboardingTool): FileSystemIconType {
-    const item = getTreeItemsProducts().find((i) => i.path === tool.productPath)
+export function productIconType(product: OnboardingProduct): FileSystemIconType {
+    const item = getTreeItemsProducts().find((i) => i.path === product.productPath)
     return item?.iconType ?? 'product_analytics'
 }
 
@@ -159,14 +159,14 @@ export type OnboardingExtraStepId = 'authorized-urls' | 'ai-observability'
 export interface OnboardingSetup {
     /** Registered as the primary product intent. */
     primaryProduct: ProductKey
-    /** Shown and configured on the tools step. */
-    tools: OnboardingToolKey[]
-    /** Intent-only ProductKeys shown on the tools step. */
-    additionalTools?: ProductKey[]
+    /** Shown and configured on the products step. */
+    products: OnboardingProductKey[]
+    /** Intent-only ProductKeys shown on the products step. */
+    additionalProducts?: ProductKey[]
     /** Intent-only ProductKeys: populate the sidebar (via the products registry's `intents`)
      * without appearing in the onboarding UI. */
     sidebarExtras: ProductKey[]
-    /** Team settings needed beyond the tools' own options. */
+    /** Team settings needed beyond the products' own options. */
     extraOptions?: TeamOption[]
     /** Steps after install that this setup can't reach its finish line without. */
     extraSteps?: OnboardingExtraStepId[]
@@ -176,8 +176,8 @@ export function productKeysForSetup(setup: OnboardingSetup): ProductKey[] {
     return Array.from(
         new Set([
             setup.primaryProduct,
-            ...setup.tools.map((key) => ONBOARDING_TOOLS[key].productKey),
-            ...(setup.additionalTools ?? []),
+            ...setup.products.map((key) => ONBOARDING_PRODUCTS[key].productKey),
+            ...(setup.additionalProducts ?? []),
             ...setup.sidebarExtras,
         ])
     )
@@ -204,8 +204,8 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
         description: 'Agents study behavior, feedback, traffic, and conversions. They identify where users get stuck.',
         done: 'first experience finding or report',
         primaryProduct: ProductKey.PRODUCT_ANALYTICS,
-        tools: ['product_analytics', 'session_replay', 'web_analytics'],
-        additionalTools: [ProductKey.SURVEYS],
+        products: ['product_analytics', 'session_replay', 'web_analytics'],
+        additionalProducts: [ProductKey.SURVEYS],
         sidebarExtras: SHARED_SIDEBAR,
         extraSteps: ['authorized-urls'],
     },
@@ -217,8 +217,8 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
             'Agents inspect errors, sessions, logs, and support context. They send findings and propose fixes.',
         done: 'first product problem finding or proposed fix',
         primaryProduct: ProductKey.ERROR_TRACKING,
-        tools: ['error_tracking', 'session_replay'],
-        additionalTools: [ProductKey.LOGS, ProductKey.CONVERSATIONS],
+        products: ['error_tracking', 'session_replay'],
+        additionalProducts: [ProductKey.LOGS, ProductKey.CONVERSATIONS],
         sidebarExtras: SHARED_SIDEBAR,
     },
     {
@@ -228,8 +228,8 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
         description: 'Agents monitor flags and experiments. They report results before you expand a rollout.',
         done: 'first rollout or experiment result',
         primaryProduct: ProductKey.FEATURE_FLAGS,
-        tools: ['product_analytics'],
-        additionalTools: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
+        products: ['product_analytics'],
+        additionalProducts: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
         sidebarExtras: SHARED_SIDEBAR,
     },
     {
@@ -239,8 +239,8 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
         description: 'Agents inspect AI traces, costs, failures, and MCP tool calls. They find issues in AI features.',
         done: 'first AI product finding or report',
         primaryProduct: ProductKey.AI_OBSERVABILITY,
-        tools: ['ai_observability', 'product_analytics'],
-        additionalTools: [ProductKey.MCP_ANALYTICS],
+        products: ['ai_observability', 'product_analytics'],
+        additionalProducts: [ProductKey.MCP_ANALYTICS],
         sidebarExtras: SHARED_SIDEBAR,
         extraSteps: ['ai-observability'],
     },
@@ -251,16 +251,16 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
         description: 'Agents use warehouse data and workflows to act on signals across your systems.',
         done: 'first workflow or report using connected context',
         primaryProduct: ProductKey.DATA_WAREHOUSE,
-        tools: ['product_analytics'],
-        additionalTools: [ProductKey.DATA_WAREHOUSE, ProductKey.WORKFLOWS],
+        products: ['product_analytics'],
+        additionalProducts: [ProductKey.DATA_WAREHOUSE, ProductKey.WORKFLOWS],
         sidebarExtras: SHARED_SIDEBAR,
     },
 ]
 
 const DEFAULT_SETUP: OnboardingSetup = {
     primaryProduct: ProductKey.PRODUCT_ANALYTICS,
-    tools: ['product_analytics', 'session_replay', 'error_tracking'],
-    additionalTools: [
+    products: ['product_analytics', 'session_replay', 'error_tracking'],
+    additionalProducts: [
         ProductKey.FEATURE_FLAGS,
         ProductKey.EXPERIMENTS,
         ProductKey.SURVEYS,
@@ -279,15 +279,16 @@ export function resolveSetup(useCase: OnboardingUseCaseKey | null): OnboardingSe
     return ONBOARDING_USE_CASES.find((u) => u.key === useCase) ?? DEFAULT_SETUP
 }
 
-/** The setup's primary tool - the use-case card's icon derives from it. */
-export function primaryTool(setup: OnboardingSetup): OnboardingTool {
-    const key = setup.tools.find((k) => ONBOARDING_TOOLS[k].productKey === setup.primaryProduct) ?? setup.tools[0]
-    return ONBOARDING_TOOLS[key]
+/** The setup's primary product - the use-case card's icon derives from it. */
+export function primaryOnboardingProduct(setup: OnboardingSetup): OnboardingProduct {
+    const key =
+        setup.products.find((k) => ONBOARDING_PRODUCTS[k].productKey === setup.primaryProduct) ?? setup.products[0]
+    return ONBOARDING_PRODUCTS[key]
 }
 
-/** Every team option the setup needs: the tools' union plus the setup's extras. */
+/** Every team option the setup needs: the products' union plus the setup's extras. */
 export function optionsForSetup(setup: OnboardingSetup): TeamOption[] {
     return Array.from(
-        new Set([...setup.tools.flatMap((key) => ONBOARDING_TOOLS[key].options), ...(setup.extraOptions ?? [])])
+        new Set([...setup.products.flatMap((key) => ONBOARDING_PRODUCTS[key].options), ...(setup.extraOptions ?? [])])
     )
 }

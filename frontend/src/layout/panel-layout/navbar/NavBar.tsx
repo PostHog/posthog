@@ -38,9 +38,9 @@ import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
-import { NavTabApps } from './tabs/NavTabApps'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 import { NavTabFiles } from './tabs/NavTabFiles'
+import { NavTabProducts } from './tabs/NavTabProducts'
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 const navBarStyles = cva({
@@ -100,9 +100,9 @@ export function PanelIndicatorIcon(): JSX.Element | null {
     )
 }
 
-// The Apps tab keeps the persisted tab ID and analytics identifiers used by Browse.
+// The Products tab keeps the persisted tab ID and analytics identifiers used by Browse.
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Apps', icon: <IconApps /> },
+    { id: 'home', label: 'Products', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
 ]
@@ -377,7 +377,7 @@ export function NavBar(): JSX.Element {
                     >
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             {isSimpleSidepanelEnabled ? (
-                                <NavTabApps />
+                                <NavTabProducts />
                             ) : isFlatNavEnabled ? (
                                 <FlatNavBrowse />
                             ) : (

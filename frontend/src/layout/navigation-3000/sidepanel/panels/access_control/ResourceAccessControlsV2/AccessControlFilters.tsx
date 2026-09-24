@@ -51,7 +51,7 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
                     />
                 )}
 
-                <ToolsFilter
+                <ProductsFilter
                     selectedResourceKeys={props.filters.resourceKeys}
                     setSelectedResourceKeys={(values) => props.setFilters({ resourceKeys: values })}
                     resources={props.resources.filter((resource) => resource.key !== 'project')}
@@ -133,7 +133,7 @@ function MembersFilter(props: {
     )
 }
 
-function ToolsFilter(props: {
+function ProductsFilter(props: {
     selectedResourceKeys: APIScopeObject[]
     setSelectedResourceKeys: (values: APIScopeObject[]) => void
     resources: { key: APIScopeObject; label: string }[]
@@ -145,8 +145,8 @@ function ToolsFilter(props: {
             overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
-                    title="Tool"
-                    placeholder="Filter by tools…"
+                    title="Product"
+                    placeholder="Filter by products…"
                     values={props.selectedResourceKeys}
                     setValues={(values) => props.setSelectedResourceKeys(values as APIScopeObject[])}
                     options={props.resources.map((r) => ({ key: r.key, label: r.label }))}
@@ -154,7 +154,7 @@ function ToolsFilter(props: {
             }
         >
             <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                Tool{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
+                Product{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
             </LemonButton>
         </LemonDropdown>
     )

@@ -69,7 +69,7 @@ export interface ProjectTreeLogicProps {
     includeRoot?: boolean
     hideFolders?: string[]
     isActiveInPanel?: boolean
-    shortcutScope?: 'apps' | 'files'
+    shortcutScope?: 'products' | 'files'
 }
 
 const FOLDER_LOADING = [
@@ -1188,8 +1188,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 if (root === 'shortcuts://' && shortcutScope) {
                     firstFolders = firstFolders.filter((item) => {
-                        const isApp = item.record?.type !== 'folder' && !item.record?.ref
-                        return shortcutScope === 'apps' ? isApp : !isApp
+                        const isProduct = item.record?.type !== 'folder' && !item.record?.ref
+                        return shortcutScope === 'products' ? isProduct : !isProduct
                     })
                 }
 

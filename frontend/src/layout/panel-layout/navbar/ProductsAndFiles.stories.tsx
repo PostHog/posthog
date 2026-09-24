@@ -16,8 +16,8 @@ import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectT
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 import { NavBar } from './NavBar'
-import { navAppsTabLogic } from './tabs/navAppsTabLogic'
 import { FILES_TREE_KEY, navFilesTabLogic } from './tabs/navFilesTabLogic'
+import { navProductsTabLogic } from './tabs/navProductsTabLogic'
 import { navRecentsLogic } from './tabs/navRecentsLogic'
 
 const files: FileSystemEntry[] = [
@@ -73,7 +73,7 @@ function SidebarStory({
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
         useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
-    const { setSearch } = useActions(navAppsTabLogic)
+    const { setSearch } = useActions(navProductsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
     useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
@@ -95,7 +95,7 @@ function SidebarStory({
 }
 
 const meta: Meta<typeof SidebarStory> = {
-    title: 'Layout/Apps and files',
+    title: 'Layout/Products and files',
     component: SidebarStory,
     parameters: {
         layout: 'fullscreen',
@@ -156,7 +156,7 @@ const meta: Meta<typeof SidebarStory> = {
 export default meta
 
 type Story = StoryObj<typeof SidebarStory>
-export const Apps: Story = {}
+export const Products: Story = {}
 export const ConfigureStarred: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -215,7 +215,7 @@ export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
 export const Collapsed: Story = { args: { collapsed: true } }
 export const FilesCollapsed: Story = { args: { collapsed: true, tab: 'files' } }
-export const AppsOverlay: Story = { args: { collapsed: true, overlay: true } }
+export const ProductsOverlay: Story = { args: { collapsed: true, overlay: true } }
 export const FilesOverlay: Story = { args: { collapsed: true, overlay: true, tab: 'files' } }
 export const Narrow: Story = {
     decorators: [

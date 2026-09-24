@@ -65,7 +65,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
                     if (
                         !product?.href ||
                         (product.flag && !(featureFlags as Record<string, boolean | string>)[product.flag]) ||
-                        // Tools the user has no access to are hidden instead of shown disabled
+                        // Products the user has no access to are hidden instead of shown disabled
                         getProductAccessDisabledReason(product)
                     ) {
                         continue

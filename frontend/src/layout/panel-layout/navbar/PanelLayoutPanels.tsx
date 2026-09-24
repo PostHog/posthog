@@ -54,7 +54,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
                 <ProjectTree
                     panelName="products"
                     root="products://"
-                    searchPlaceholder="Search tools"
+                    searchPlaceholder="Search products"
                     isActiveInPanel={activePanelIdentifier === 'Products'}
                 />
             ),

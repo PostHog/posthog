@@ -8,16 +8,16 @@ import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { ConfigureStarredModal } from './ConfigureStarredModal'
-import { NavAppRow } from './NavAppRow'
-import { NavAppsMenu } from './NavAppsMenu'
-import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
+import { NavProductRow } from './NavProductRow'
+import { NavProductsMenu } from './NavProductsMenu'
+import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
 import { NavTabSection } from './NavTabSection'
 
-export function NavTabApps(): JSX.Element {
-    const { search, groupedItems } = useValues(navAppsTabLogic)
+export function NavTabProducts(): JSX.Element {
+    const { search, groupedItems } = useValues(navProductsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
-    const { fullFileSystemFiltered: starredApps } = useValues(
-        projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'apps' })
+    const { fullFileSystemFiltered: starredProducts } = useValues(
+        projectTreeLogic({ key: PRODUCTS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'products' })
     )
 
     return (
@@ -28,31 +28,31 @@ export function NavTabApps(): JSX.Element {
                 innerClassName="px-1 pb-2"
                 styledScrollbars
             >
-                {(!search.trim() || !shortcutDataHasLoaded || starredApps.length > 0) && (
+                {(!search.trim() || !shortcutDataHasLoaded || starredProducts.length > 0) && (
                     <NavTabSection
                         label="Starred"
                         dataAttr="nav-apps-starred-toggle"
                         key={`starred-${!!search.trim()}`}
-                        actions={<NavAppsMenu />}
+                        actions={<NavProductsMenu />}
                     >
                         {!shortcutDataHasLoaded ? (
                             <Spinner className="m-2" />
-                        ) : starredApps.length > 0 ? (
+                        ) : starredProducts.length > 0 ? (
                             <ProjectTree
                                 root="shortcuts://"
-                                shortcutScope="apps"
-                                logicKey={APPS_STARRED_TREE_KEY}
+                                shortcutScope="products"
+                                logicKey={PRODUCTS_STARRED_TREE_KEY}
                                 onlyTree
                                 showShortcutHelp={false}
                             />
                         ) : (
-                            <p className="text-xs text-tertiary px-2 py-1 mb-0">Star apps to keep them here.</p>
+                            <p className="text-xs text-tertiary px-2 py-1 mb-0">Star products to keep them here.</p>
                         )}
                     </NavTabSection>
                 )}
                 <NavTabSection
                     label="Project"
-                    collapsedLabel="All apps"
+                    collapsedLabel="All products"
                     dataAttr="nav-apps-project-toggle"
                     key={`project-${!!search.trim()}`}
                 >
@@ -65,13 +65,13 @@ export function NavTabApps(): JSX.Element {
                             )}
                             <div className="flex flex-col gap-px">
                                 {group.items.map((item) => (
-                                    <NavAppRow key={`${item.path}-${item.href}`} item={item} />
+                                    <NavProductRow key={`${item.path}-${item.href}`} item={item} />
                                 ))}
                             </div>
                         </section>
                     ))}
                     {groupedItems.length === 0 && (
-                        <p className="text-xs text-tertiary px-2 py-2">No apps found. Try a different search.</p>
+                        <p className="text-xs text-tertiary px-2 py-2">No products found. Try a different search.</p>
                     )}
                 </NavTabSection>
             </ScrollableShadows>

@@ -21,7 +21,7 @@ import { FlatNavProductAnalyticsMenuItems } from './menus/FlatNavProductAnalytic
 import { FlatNavProductMenu } from './menus/FlatNavProductMenu'
 import { FlatNavSessionReplayMenuItems } from './menus/FlatNavSessionReplayMenuItems'
 
-// Keyed by product path, the same key the picked-tools list stores
+// Keyed by product path, the same key the picked-products list stores
 const PRODUCT_MENUS: Record<string, JSX.Element> = {
     'Product analytics': (
         <FlatNavProductMenu icon={<IconPlusSmall />} tooltip="New insight" data-attr="flat-nav-tool-menu-insight">
@@ -58,11 +58,11 @@ export function FlatNavProducts(): JSX.Element {
 
     return (
         <FlatNavSection
-            label="My tools"
+            label="My products"
             action={
                 <Link
                     to={urls.settings('user-navigation')}
-                    tooltip="Choose which tools to show in the sidebar"
+                    tooltip="Choose which products to show in the sidebar"
                     tooltipPlacement="top"
                     onClick={() => posthog.capture('nav tools customize clicked')}
                     buttonProps={{ iconOnly: true, size: 'xs' }}
@@ -81,7 +81,7 @@ export function FlatNavProducts(): JSX.Element {
                     ))
                 ) : productGroups.length === 0 ? (
                     <span className="text-xs text-tertiary px-2 py-1">
-                        No tools selected. Use the gear icon above to pick some.
+                        No products selected. Use the gear icon above to pick some.
                     </span>
                 ) : (
                     productGroups.map((group) => (

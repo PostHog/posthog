@@ -1,24 +1,24 @@
-import { SIDEBAR_TOOLS_WITHOUT_DOCS, sidebarToolMeta } from '~/layout/panel-layout/sidebarToolMeta'
+import { SIDEBAR_PRODUCTS_WITHOUT_DOCS, sidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
 import { getTreeItemsProducts } from '~/products'
 
-describe('sidebarToolMeta', () => {
+describe('sidebarProductMeta', () => {
     const products = getTreeItemsProducts()
 
     it.each(products.map((product) => [product.path, product] as const))(
         '%s explains itself in sidebar settings',
         (path, product) => {
-            const { description, docsHref } = sidebarToolMeta(product)
+            const { description, docsHref } = sidebarProductMeta(product)
             expect(description).toBeTruthy()
-            if (!SIDEBAR_TOOLS_WITHOUT_DOCS.has(path)) {
+            if (!SIDEBAR_PRODUCTS_WITHOUT_DOCS.has(path)) {
                 expect(docsHref).toMatch(/^https:\/\/posthog\.com\/docs\//)
             }
         }
     )
 
-    it('only exempts tools that are still missing a docs page', () => {
-        const stale = [...SIDEBAR_TOOLS_WITHOUT_DOCS].filter((path) => {
+    it('only exempts products that are still missing a docs page', () => {
+        const stale = [...SIDEBAR_PRODUCTS_WITHOUT_DOCS].filter((path) => {
             const product = products.find((candidate) => candidate.path === path)
-            return !product || sidebarToolMeta(product).docsHref
+            return !product || sidebarProductMeta(product).docsHref
         })
         expect(stale).toEqual([])
     })

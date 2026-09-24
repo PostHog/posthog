@@ -52020,7 +52020,7 @@
                 },
                 "tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Tools\" panel trigger in the Project section."
+                    "description": "\"Products\" panel trigger in the Project section."
                 }
             },
             "type": "object"
@@ -52031,11 +52031,11 @@
             "properties": {
                 "my_tools": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"My tools\" section, listing the user's selected tools."
+                    "description": "The \"My products\" section, listing the user's selected products."
                 },
                 "project": {
                     "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"Project\" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden."
+                    "description": "The \"Project\" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden."
                 },
                 "recents": {
                     "$ref": "#/definitions/UIVisibilityConfig",
