@@ -12,7 +12,7 @@ import { MlDataKey } from './keys/crypto'
 import { decryptEnvelope } from './keys/envelope-testing'
 import { MlKeyReader } from './keys/reader'
 import { sessionKeyId, tableKeyString } from './keys/schema'
-import { MlKafkaTransport, mlKafkaRecord } from './keys/transport'
+import { MlDecodedMessage, MlKafkaTransport, mlKafkaRecord } from './keys/transport'
 
 const row = (sessionId: string): MlBlockMetadataRow => ({
     session_id: sessionId,
@@ -108,6 +108,46 @@ describe('BlockMetadataBatcher', () => {
         const batcher = makeBatcher(60_000, 1)
         await expect(batcher.handleBatch([msg(0)], 0)).rejects.toThrow('s3 down')
         expect(offsets.offsetsStore).not.toHaveBeenCalled()
+    })
+
+    it('keeps the offsets for the next flush when storing them fails, without writing the rows again', async () => {
+        offsets.offsetsStore.mockImplementationOnce(() => {
+            throw new Error('Local: Erroneous state')
+        })
+        const batcher = makeBatcher(60_000, 1)
+        await expect(batcher.handleBatch([msg(0)], 0)).rejects.toThrow('Local: Erroneous state')
+
+        await batcher.flush(1)
+        expect(store.write).toHaveBeenCalledTimes(1)
+        const stored = [{ topic: 'ml_block_metadata', partition: 0, offset: 1 }]
+        expect(offsets.offsetsStore.mock.calls).toEqual([[stored], [stored]])
+    })
+
+    it('counts the bytes of a batch whose key read overlaps a flush toward the flush that takes its rows', async () => {
+        const asLegacyRows = (messages: Message[]): MlDecodedMessage[] =>
+            messages.map((message) => ({ message, original: message }))
+        const firstKeyRead = Promise.withResolvers<MlDecodedMessage[]>()
+        const keyManager = {
+            read: jest
+                .fn()
+                .mockReturnValueOnce(firstKeyRead.promise)
+                .mockImplementation((messages: Message[]) => Promise.resolve(asLegacyRows(messages))),
+        } as unknown as MlKafkaTransport
+        const batcher = new BlockMetadataBatcher(
+            store,
+            offsets,
+            { flushIntervalMs: 60_000, maxRows: 1_000, maxBytes: msg(0).value!.length * 2 },
+            0,
+            keyManager
+        )
+
+        const batchInKeyRead = batcher.handleBatch([msg(0)], 0)
+        await batcher.flush(0)
+        firstKeyRead.resolve(asLegacyRows([msg(0)]))
+        await batchInKeyRead
+        await batcher.handleBatch([msg(1)], 0)
+        expect(store.write).toHaveBeenCalledTimes(1)
+        expect(store.write.mock.calls[0][0].map((stored) => stored.session_id)).toEqual(['s0', 's1'])
     })
 
     describe('while a flush is writing', () => {

@@ -45,9 +45,6 @@ export class BlockMetadataBatcher {
 
     /** Buffers a batch and flushes once the buffer is old enough or large enough. */
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        for (const message of messages) {
-            this.bufferedBytes += message.value?.length ?? 0
-        }
         const decoded: MlDecodedMessage[] = this.keyManager
             ? await this.keyManager.read(messages, { sessionIdentity: rowSessionIdentity })
             : messages.map((message) => {
@@ -56,6 +53,10 @@ export class BlockMetadataBatcher {
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })
+        // Counted after the key read, so a flush that starts during the read cannot take these bytes without their rows.
+        for (const message of messages) {
+            this.bufferedBytes += message.value?.length ?? 0
+        }
         MlParquetSinkMetrics.incRowsRejected('key_missing', messages.length - decoded.length)
         let encryptedRows = 0
         for (const { message, key, invalid, legacy } of decoded) {
@@ -153,25 +154,25 @@ export class BlockMetadataBatcher {
                 await this.store.write(rows)
                 rows = []
             }
+            if (offsets.size > 0) {
+                // Commit after the write lands so a failed write replays; skipped-only batches still advance here.
+                this.offsetStore.offsetsStore([...offsets.values()])
+                // 'empty' means we advanced past messages that produced no rows (all skipped/malformed): healthy
+                // offset progress with zero Parquet output, the one state Kafka lag can't distinguish.
+                MlParquetSinkMetrics.incFlush(wroteObject ? 'written' : 'empty')
+            }
         } catch (error) {
             this.encryptedIndex = encryptedIndex.concat(this.encryptedIndex)
             this.encrypted = encrypted.concat(this.encrypted)
             this.buffer = rows.concat(this.buffer)
             this.bufferedBytes += bytes
             for (const [partition, offset] of offsets) {
-                // A newer offset for the partition stays, because the next flush writes these rows together with the newer ones.
+                // A newer offset for the partition stays, because the next flush stores it only after writing every row it covers.
                 if (!this.pendingOffsets.has(partition)) {
                     this.pendingOffsets.set(partition, offset)
                 }
             }
             throw error
-        }
-        if (offsets.size > 0) {
-            // Commit after the write lands so a failed write replays; skipped-only batches still advance here.
-            this.offsetStore.offsetsStore([...offsets.values()])
-            // 'empty' means we advanced past messages that produced no rows (all skipped/malformed): healthy
-            // offset progress with zero Parquet output, the one state Kafka lag can't distinguish.
-            MlParquetSinkMetrics.incFlush(wroteObject ? 'written' : 'empty')
         }
     }
 }
