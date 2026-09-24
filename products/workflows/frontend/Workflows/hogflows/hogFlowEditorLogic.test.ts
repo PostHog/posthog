@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
@@ -210,6 +212,89 @@ describe('hogFlowEditorLogic', () => {
             edge(delay.id, duplicatedAction!.id, 'continue'),
             edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
         ])
+    })
+
+    describe('deleting steps', () => {
+        const branch: HogFlowAction = {
+            id: 'branch',
+            name: 'Branch',
+            description: '',
+            type: 'conditional_branch',
+            created_at: 0,
+            updated_at: 0,
+            config: { conditions: [{ filters: {} }] },
+        }
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+        const node = (action: HogFlowAction): HogFlowActionNode => ({
+            id: action.id,
+            type: 'action',
+            data: action,
+            position: { x: 0, y: 0 },
+            deletable: true,
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            { name: 'a branching step', deleted: [node(branch)] },
+            { name: 'a selection with a branching step', deleted: [node(delay), node(branch)] },
+        ])('refuses to delete $name without changing the workflow', ({ deleted }) => {
+            const toast = jest.spyOn(lemonToast, 'error')
+            workflowLogic().actions.setWorkflowInfo({
+                actions: [NEW_WORKFLOW.actions[0], branch, delay, NEW_WORKFLOW.actions[1]],
+                edges: [
+                    edge(TRIGGER_NODE_ID, branch.id, 'continue'),
+                    edge(branch.id, delay.id, 'branch', 0),
+                    edge(branch.id, EXIT_NODE_ID, 'continue'),
+                    edge(delay.id, EXIT_NODE_ID, 'continue'),
+                ],
+            })
+            logic.actions.setNodesRaw([node(branch), node(NEW_WORKFLOW.actions[1])])
+            logic.actions.setSelectedNodeId(branch.id)
+            const workflow = logic.values.workflow
+
+            expect(logic.values.selectedNodeCanBeDeleted).toBe(false)
+
+            logic.actions.onNodesDelete(deleted)
+
+            expect(logic.values.workflow).toEqual(workflow)
+            expect(logic.values.selectedNodeId).toBe(branch.id)
+            expect(toast).toHaveBeenCalledWith('Clean up branching steps first')
+        })
+
+        it.each([
+            { name: 'a linear step', action: delay, outgoing: [edge(delay.id, EXIT_NODE_ID, 'continue')] },
+            {
+                name: 'a branch whose paths share the next step',
+                action: branch,
+                outgoing: [edge(branch.id, EXIT_NODE_ID, 'branch', 0), edge(branch.id, EXIT_NODE_ID, 'continue')],
+            },
+        ])('deletes $name before the graph layout completes', ({ action, outgoing }) => {
+            workflowLogic().actions.setWorkflowInfo({
+                actions: [NEW_WORKFLOW.actions[0], action, NEW_WORKFLOW.actions[1]],
+                edges: [edge(TRIGGER_NODE_ID, action.id, 'continue'), ...outgoing],
+            })
+            logic.actions.setNodesRaw([])
+            logic.actions.setSelectedNodeId(action.id)
+
+            expect(logic.values.selectedNodeCanBeDeleted).toBe(true)
+
+            logic.actions.onNodesDelete([node(action)])
+
+            expect(logic.values.workflow.actions.map((action) => action.id)).toEqual([TRIGGER_NODE_ID, EXIT_NODE_ID])
+            expect(logic.values.workflow.edges).toEqual([edge(TRIGGER_NODE_ID, EXIT_NODE_ID, 'continue')])
+            expect(logic.values.selectedNodeId).toBeNull()
+        })
     })
 
     describe('conditional branch naming', () => {

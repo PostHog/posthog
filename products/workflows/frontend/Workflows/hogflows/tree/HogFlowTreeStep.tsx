@@ -11,6 +11,7 @@ import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
+import { getNodesDeleteDisabledReason } from '../steps/utils'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
 import { isBranchingAction } from './workflowTree'
 
@@ -38,8 +39,7 @@ export function HogFlowTreeStep({
 
     const isSelected = selectedNode?.id === action.id
     const canHaveActions = !['trigger', 'exit'].includes(action.type)
-    const outgoingActionIds = workflow.edges.filter((edge) => edge.from === action.id).map((edge) => edge.to)
-    const canDelete = canHaveActions && (outgoingActionIds.length === 1 || new Set(outgoingActionIds).size === 1)
+    const canDelete = canHaveActions && !getNodesDeleteDisabledReason(workflow.edges, [action.id])
     const canDuplicate = canDelete && !isBranchingAction(action)
     const node =
         nodesById[action.id] ??
