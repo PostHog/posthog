@@ -13,7 +13,7 @@ _CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class DrataEndpointConfig:
     name: str
     # Path template; fan-out endpoints carry a `{parent_id}` placeholder.
@@ -125,8 +125,9 @@ DRATA_ENDPOINTS: dict[str, DrataEndpointConfig] = {
         # Failure rows carry no timestamp at all, so there is nothing stable to partition on.
         partition_key=None,
         # Excluded findings are omitted by default; keep them so the `status` column tells the
-        # whole story instead of the row silently disappearing when someone dismisses it.
-        extra_params={"includeExclusions": "true"},
+        # whole story instead of the row silently disappearing when someone dismisses it. Tags
+        # only arrive when asked for, and they are what attributes a failing resource to a team.
+        extra_params={"includeExclusions": "true", "expand[]": "tags"},
     ),
     "tasks": DrataEndpointConfig(
         name="tasks",

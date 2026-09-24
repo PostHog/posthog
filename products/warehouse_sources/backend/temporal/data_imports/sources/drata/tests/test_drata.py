@@ -401,8 +401,9 @@ class TestMonitoringTestFailureFanOut:
         # `testId` resolves, so binding the wrong field would 404 every test.
         assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/monitoring-tests/77/failures"
         # Without includeExclusions a finding vanishes when someone dismisses it, instead of
-        # staying put with status EXCLUDED.
+        # staying put with status EXCLUDED. Tags arrive only when expanded.
         assert calls[-1]["params"]["includeExclusions"] == "true"
+        assert calls[-1]["params"]["expand[]"] == "tags"
         # Both ancestor ids ride along so ["workspaceId", "monitoringTestId", "id"] stays unique:
         # `id` is only the provider's resource id, and one resource fails many tests.
         assert rows == [{"id": "bucket-1", "status": "OPEN", "monitoringTestId": 501, "workspaceId": 10}]
