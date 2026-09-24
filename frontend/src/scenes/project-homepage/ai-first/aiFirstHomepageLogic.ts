@@ -182,7 +182,7 @@ export interface aiFirstHomepageLogicActions {
     gridItemClicked: (item: HomepageGridItem) => {
         item: HomepageGridItem
     }
-    loadLatestWebTask: () => void
+    loadLatestWebTask: (_: void) => void
     loadLatestWebTaskFailure: (
         error: string,
         errorObject?: any
@@ -192,10 +192,10 @@ export interface aiFirstHomepageLogicActions {
     }
     loadLatestWebTaskSuccess: (
         latestWebTask: TaskListItemApi | null,
-        payload?: any
+        payload?: void
     ) => {
         latestWebTask: TaskListItemApi | null
-        payload?: any
+        payload?: void
     }
     returnToIdle: () => {
         value: true
@@ -324,7 +324,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         latestWebTask: [
             null as TaskListItemApi | null,
             {
-                loadLatestWebTask: async (_, breakpoint) => {
+                loadLatestWebTask: async (_: void, breakpoint) => {
                     // Without the `created_by` pin the server answers with tasks other people shared.
                     if (!values.currentTeamId || !values.user?.id) {
                         return null
