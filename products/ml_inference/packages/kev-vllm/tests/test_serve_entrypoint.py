@@ -9,7 +9,9 @@ import pytest
 
 SERVE = Path(__file__).resolve().parent.parent / "bin" / "serve.sh"
 STUBS = {
-    "kev-vllm-checkpoint": 'echo verify >> "$CALLS"; [ -f "$CALLS.fetched" ] || [ -n "${VALID:-}" ]',
+    "kev-vllm-checkpoint": (
+        'echo verify >> "$CALLS"; [ -n "${SLOW_VERIFY:-}" ] && sleep 2; [ -f "$CALLS.fetched" ] || [ -n "${VALID:-}" ]'
+    ),
     "s5cmd": 'echo fetch >> "$CALLS"; touch "$CALLS.fetched"',
     "vllm": 'echo "vllm ${VLLM_CACHE_ROOT:-unset}" >> "$CALLS"; [ "${VLLM_EXITS:-}" = 1 ] && exit 0; exec sleep 30',
     "caddy": (
@@ -79,6 +81,17 @@ def test_a_stop_signal_exits_cleanly(bash: str, tmp_path: Path) -> None:
         time.sleep(0.05)
     process.send_signal(signal.SIGTERM)
     assert process.wait(timeout=10) == 0
+
+
+def test_a_stop_during_the_weight_check_starts_no_server(bash: str, tmp_path: Path) -> None:
+    process = subprocess.Popen([bash, SERVE], env=environment(tmp_path, VALID="1", SLOW_VERIFY="1"))
+    deadline = time.monotonic() + 20
+    while not (tmp_path / "calls").exists():
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    process.send_signal(signal.SIGTERM)
+    assert process.wait(timeout=10) == 0
+    assert calls(tmp_path) == ["verify"]
 
 
 def test_an_unwritable_cache_dir_keeps_the_caches_in_the_container(bash: str, tmp_path: Path) -> None:

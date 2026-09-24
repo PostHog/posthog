@@ -18,6 +18,11 @@ export PORT=${PORT:-8000} VLLM_PORT=${VLLM_PORT:-8001} AWS_REGION=${AWS_REGION:-
 : "${DECISION_BEARER:?set DECISION_BEARER to the bearer the AI gateway sends}"
 export DECISION_BEARER
 
+# Bash as PID 1 does not pass `docker stop` on to its children. Bash runs the trap only once a foreground command ends,
+# so a stop during the weight check or fetch lands after it, and the guards below keep the servers from starting.
+stopping=0
+trap 'stopping=1; kill $(jobs -p) 2>/dev/null || true' TERM INT
+
 if kev-vllm-checkpoint verify "$MODEL_DIR" >/dev/null 2>&1; then
   echo "checkpoint at $MODEL_DIR matches its manifest" >&2
 else
@@ -37,12 +42,11 @@ else
   echo "$CACHE_DIR is not writable, so the compile caches stay in the container and every new container compiles again" >&2
 fi
 
-# Bash as PID 1 does not pass `docker stop` on to its children.
-stopping=0
-trap 'stopping=1; kill $(jobs -p) 2>/dev/null || true' TERM INT
+if [ "$stopping" = 1 ]; then exit 0; fi
 vllm serve "$MODEL_DIR" --served-model-name "$MODEL_NAME" --host 127.0.0.1 --port "$VLLM_PORT" --dtype "$DTYPE" \
   --mamba-ssm-cache-dtype float32 --max-model-len "$MAX_MODEL_LEN" --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
   --max-num-queued-tokens "$MAX_NUM_QUEUED_TOKENS" "$@" &
+if [ "$stopping" = 1 ]; then wait || true; exit 0; fi
 caddy run --config /etc/kev-vllm/Caddyfile --adapter caddyfile &
 
 status=0
