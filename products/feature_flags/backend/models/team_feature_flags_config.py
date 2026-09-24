@@ -1,9 +1,16 @@
 import logging
+from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import IntegerField, Max, Value
+from django.db.models.functions import Coalesce
 
 from posthog.models.team.extensions import register_team_extension_signal
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +49,23 @@ class FlagEvaluationsMode(models.IntegerChoices):
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
 
 
+def flag_evaluations_mode_annotation() -> Coalesce:
+    """Each team's mode, for a Team queryset. A team without a config row reads EVENTS, as every reader does."""
+    return Coalesce(
+        "teamfeatureflagsconfig__flag_evaluations_mode",
+        Value(FlagEvaluationsMode.EVENTS),
+        output_field=IntegerField(),
+    )
+
+
 class TeamFeatureFlagsConfig(models.Model):
     """Internal-only team-level feature flags settings, written by staff and never by customers.
 
-    Never expose this model through a customer-facing serializer, API endpoint, or settings UI.
+    Never let a customer-facing serializer, API endpoint, or settings UI write this model.
     It holds server-controlled behavior rollouts and staff-granted limit overrides, not
-    customer-editable preferences. The staff-only feature-flags-staff API
+    customer-editable preferences. The one customer-facing read is flag_evaluations_mode, which
+    the team serializer exposes read-only because the frontend picks the Usage tab source from it.
+    The staff-only feature-flags-staff API
     (products/feature_flags/backend/api/staff_team_config.py, gated by IsStaffUser) is the only
     interactive write surface: it changes SDK-facing behavior one team at a time after staff
     verify compatible SDK versions, and it grants per-team flag-count overrides.
@@ -87,8 +105,10 @@ class TeamFeatureFlagsConfig(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(MAX_FEATURE_FLAGS_OVERRIDE_CEILING)],
     )
 
-    # The database default keeps older writers, and raw INSERTs that omit this column, valid during
-    # rolling deploys.
+    # Set by default_values_for_team when the team is created, and changed after that only by staff
+    # or a management command. A later change to FLAG_EVALUATIONS_NEW_ORG_MODE does not move
+    # an existing team. Node ingestion reads this column straight from Postgres, so the database
+    # default keeps its raw query and older writers valid during rolling deploys.
     flag_evaluations_mode = models.SmallIntegerField(
         choices=FlagEvaluationsMode,
         default=FlagEvaluationsMode.EVENTS,
@@ -106,6 +126,37 @@ class TeamFeatureFlagsConfig(models.Model):
                 ),
             )
         ]
+
+    @classmethod
+    def default_values_for_team(cls, team: "Team") -> dict[str, Any]:
+        """Per-team values for the row the team-creation signal creates. get_or_create_team_extension
+        does not apply them, because a row it creates later must keep the EVENTS mode that every
+        reader already reported for the missing row.
+
+        A team copies the mode of a sibling team in its organization, so an organization stays on
+        one mode and a new project inherits the mode of the organization. A sibling without a
+        config row counts as EVENTS, because every reader treats a missing row that way. Only the
+        first team of an organization takes FLAG_EVALUATIONS_NEW_ORG_MODE.
+        """
+        # The query starts from Team so that a sibling without a config row still counts. type(team)
+        # gives the Team model without an import in this module. The highest mode wins when siblings
+        # disagree, because a new team has no history in the events table that a higher mode could hide.
+        sibling_mode = (
+            type(team)
+            .objects.filter(organization_id=team.organization_id)
+            .exclude(id=team.id)
+            .aggregate(mode=Max(flag_evaluations_mode_annotation()))["mode"]
+        )
+        if sibling_mode is not None:
+            return {"flag_evaluations_mode": sibling_mode}
+
+        new_org_mode = settings.FLAG_EVALUATIONS_NEW_ORG_MODE
+        if new_org_mode not in FlagEvaluationsMode.values:
+            # No database constraint holds the column to the choices, and the readers disagree on
+            # an unknown value, so an out-of-range setting falls back to the events table.
+            logger.warning("Ignoring invalid FLAG_EVALUATIONS_NEW_ORG_MODE %r", new_org_mode)
+            new_org_mode = FlagEvaluationsMode.EVENTS
+        return {"flag_evaluations_mode": new_org_mode}
 
 
 register_team_extension_signal(TeamFeatureFlagsConfig, logger=logger)

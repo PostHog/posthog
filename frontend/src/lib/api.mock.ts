@@ -180,6 +180,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     base_currency: CurrencyCode.USD,
     default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
+    flag_evaluations_mode: 0,
     receive_org_level_activity_logs: false,
     require_evaluation_contexts: false,
     feature_flag_policy_config: {

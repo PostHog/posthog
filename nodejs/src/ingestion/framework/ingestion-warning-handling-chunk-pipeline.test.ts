@@ -4,7 +4,7 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import * as ingestionWarnings from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { Team } from '~/types'
+import { FlagEvaluationsMode, Team } from '~/types'
 
 import { createContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { IngestionWarningHandlingChunkPipeline } from './ingestion-warning-handling-chunk-pipeline'
@@ -41,6 +41,7 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
         ingested_event: true,
         person_display_name_properties: null,
         minimal_flag_called_events: false,
+        flag_evaluations_mode: FlagEvaluationsMode.Events,
         test_account_filters: null,
         cookieless_server_hash_mode: null,
         timezone: 'UTC',

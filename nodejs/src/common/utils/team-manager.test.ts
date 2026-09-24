@@ -8,7 +8,7 @@ import {
     insertRow,
     updateOrganizationAvailableFeatures,
 } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
+import { FlagEvaluationsMode, Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import { closeHub, createHub } from './db/hub'
@@ -73,6 +73,7 @@ describe('TeamManager()', () => {
                   "cookieless_server_hash_mode": 2,
                   "drop_events_older_than_seconds": null,
                   "extra_settings": null,
+                  "flag_evaluations_mode": 0,
                   "heatmaps_opt_in": null,
                   "id": "<TEAM_ID>",
                   "ingested_event": true,
@@ -223,24 +224,30 @@ describe('TeamManager()', () => {
             expect(newTeamByToken!.drop_events_older_than_seconds).toBeNull()
         })
 
-        it('defaults minimal_flag_called_events to false when no TeamFeatureFlagsConfig row exists', async () => {
+        it('defaults the TeamFeatureFlagsConfig columns when no row exists', async () => {
             const newTeamId = await createTeam(postgres, organizationId)
 
             const newTeam = await teamManager.getTeam(newTeamId)
             expect(newTeam).not.toBeNull()
             expect(newTeam!.minimal_flag_called_events).toBe(false)
+            expect(newTeam!.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
         })
 
-        it('reflects minimal_flag_called_events when a TeamFeatureFlagsConfig row exists', async () => {
+        it.each([
+            ['minimal_flag_called_events', true],
+            ['flag_evaluations_mode', FlagEvaluationsMode.ReadFlagEvaluations],
+        ] as const)('reflects %s when a TeamFeatureFlagsConfig row exists', async (column, value) => {
             const newTeamId = await createTeam(postgres, organizationId)
+            // minimal_flag_called_events has no database default, so the row has to name it.
             await insertRow(postgres, 'feature_flags_teamfeatureflagsconfig', {
                 team_id: newTeamId,
-                minimal_flag_called_events: true,
+                minimal_flag_called_events: false,
+                [column]: value,
             })
 
             const newTeam = await teamManager.getTeam(newTeamId)
             expect(newTeam).not.toBeNull()
-            expect(newTeam!.minimal_flag_called_events).toBe(true)
+            expect(newTeam![column]).toBe(value)
         })
 
         it('does not leak minimal_flag_called_events across teams', async () => {

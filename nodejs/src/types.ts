@@ -185,6 +185,13 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** Mirrors FlagEvaluationsMode on TeamFeatureFlagsConfig in the Django feature_flags product. */
+export enum FlagEvaluationsMode {
+    Events = 0,
+    ReadFlagEvaluations = 1,
+    FlagEvaluationsOnly = 2,
+}
+
 export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
@@ -277,6 +284,7 @@ export interface Team {
     ingested_event: boolean
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
+    flag_evaluations_mode: FlagEvaluationsMode
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null

@@ -47,7 +47,15 @@ import {
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
-import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
+import {
+    FlagEvaluationsMode,
+    PipelineEvent,
+    PluginsServerConfig,
+    ProjectId,
+    RawClickHouseEvent,
+    RedisPool,
+    Team,
+} from '../../src/types'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from './kafka'
@@ -68,6 +76,7 @@ export const DEFAULT_TEAM: Team = {
     ingested_event: true,
     person_display_name_properties: null,
     minimal_flag_called_events: false,
+    flag_evaluations_mode: FlagEvaluationsMode.Events,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',

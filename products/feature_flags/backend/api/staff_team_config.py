@@ -24,6 +24,7 @@ from products.feature_flags.backend.flag_limits import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    FlagEvaluationsMode,
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
@@ -35,7 +36,12 @@ logger = structlog.get_logger(__name__)
 # value today by coincidence, not by requirement.
 MAX_TEAM_IDS_PER_QUERY = 50
 
-MUTABLE_SETTINGS = ("minimal_flag_called_events", "property_matching_version", "max_feature_flags_override")
+MUTABLE_SETTINGS = (
+    "minimal_flag_called_events",
+    "property_matching_version",
+    "max_feature_flags_override",
+    "flag_evaluations_mode",
+)
 
 
 def _config_row(
@@ -44,6 +50,7 @@ def _config_row(
     minimal_flag_called_events: bool,
     property_matching_version: int,
     max_feature_flags_override: int | None,
+    flag_evaluations_mode: int,
     feature_flag_count: int,
 ) -> dict[str, Any]:
     """Build the row shape shared by list() and set(), which both feed the same staff tools table."""
@@ -53,6 +60,7 @@ def _config_row(
         "property_matching_version": property_matching_version,
         "max_feature_flags_override": max_feature_flags_override,
         "effective_max_feature_flags": resolve_max_feature_flags(max_feature_flags_override),
+        "flag_evaluations_mode": flag_evaluations_mode,
         "feature_flag_count": feature_flag_count,
     }
 
@@ -89,6 +97,14 @@ class StaffTeamConfigSerializer(serializers.Serializer):
             "The flag-count limit actually enforced for this team: the override when one is set, "
             "otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting."
         )
+    )
+    flag_evaluations_mode = serializers.ChoiceField(
+        choices=FlagEvaluationsMode.choices,
+        help_text=(
+            "Which table this team's $feature_flag_called data is read from. 0 reads events, 1 and 2 read "
+            "flag_evaluations. 2 is reserved for ingestion to stop writing $feature_flag_called to events. "
+            "Ingestion ignores 2 until that support deploys, so 2 acts as 1 until then."
+        ),
     )
     feature_flag_count = serializers.IntegerField(
         help_text=(
@@ -131,6 +147,18 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
             f"New per-team flag-count limit (1-{MAX_FEATURE_FLAGS_OVERRIDE_CEILING:,}). Send null "
             "to clear the override so the team falls back to the global default. Omit to leave it "
             "unchanged."
+        ),
+    )
+    flag_evaluations_mode = serializers.ChoiceField(
+        choices=FlagEvaluationsMode.choices,
+        required=False,
+        help_text=(
+            "New flag_evaluations mode for this team. Omit to leave it unchanged. Environments of one "
+            "project and projects of one organization are expected to share a mode, so prefer the "
+            "set_flag_evaluations_mode management command for more than one team. Ingestion ignores 2 "
+            "until its support for 2 deploys, so 2 acts as 1 until then, and a team already on 2 stops "
+            "writing $feature_flag_called to events when that support deploys. After that, lowering the "
+            "mode from 2 leaves a gap in the events table for the time the team spent on mode 2."
         ),
     )
 
@@ -217,6 +245,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                     minimal_flag_called_events=config.minimal_flag_called_events,
                     property_matching_version=config.property_matching_version,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
+                    flag_evaluations_mode=config.flag_evaluations_mode,
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
             )
@@ -249,6 +278,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         old_minimal_flag_called_events = config.minimal_flag_called_events
         old_property_matching_version = config.property_matching_version
         old_max_feature_flags_override = config.max_feature_flags_override
+        old_flag_evaluations_mode = config.flag_evaluations_mode
 
         # Saving only the fields actually sent keeps two staff editing different settings on the
         # same team from overwriting each other.
@@ -285,6 +315,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         if "max_feature_flags_override" in validated:
             changed_values["old_max_feature_flags_override"] = old_max_feature_flags_override
             changed_values["new_max_feature_flags_override"] = config.max_feature_flags_override
+        if "flag_evaluations_mode" in validated:
+            changed_values["old_flag_evaluations_mode"] = old_flag_evaluations_mode
+            changed_values["new_flag_evaluations_mode"] = config.flag_evaluations_mode
 
         logger.info(
             "flags_staff_team_config_updated",
@@ -308,6 +341,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                     if team.parent_team_id is None
                     else get_max_feature_flags_override_for_team(team.parent_team_id)
                 ),
+                flag_evaluations_mode=config.flag_evaluations_mode,
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
         )

@@ -155,6 +155,12 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
 
+# TeamFeatureFlagsConfig.flag_evaluations_mode for the first team of a new organization: 0 reads
+# $feature_flag_called from events, 1 reads it from flag_evaluations. 2 also stops writing it to events
+# once ingestion supports that. Until then 2 acts as 1. Every later team copies a sibling's mode. A
+# change here never moves an existing team.
+FLAG_EVALUATIONS_NEW_ORG_MODE: int = get_from_env("FLAG_EVALUATIONS_NEW_ORG_MODE", 0, type_cast=int)
+
 # Feature flag limits to prevent memory issues during flag evaluation/caching.
 # These limits are configurable via environment variables and can be overridden
 # in Helm charts per environment.

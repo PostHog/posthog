@@ -23,7 +23,7 @@ import {
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '~/tests/helpers/sql'
-import { PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
+import { FlagEvaluationsMode, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
 
 jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
@@ -55,6 +55,7 @@ const DEFAULT_TEAM: Team = {
     ingested_event: true,
     person_display_name_properties: null,
     minimal_flag_called_events: false,
+    flag_evaluations_mode: FlagEvaluationsMode.Events,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
