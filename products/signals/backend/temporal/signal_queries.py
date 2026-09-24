@@ -891,14 +891,12 @@ def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, s
         ),
     )
 
+    matched_rows = [row for row in (result.results or []) if row[0]]
     ids_by_term: dict[str, set[str]] = {term: set() for term in terms}
-    for row in result.results or []:
-        report_id = row[0]
-        if not report_id:
-            continue
+    for row in matched_rows:
         for index, term in enumerate(terms):
             if row[1 + index]:
-                ids_by_term[term].add(report_id)
+                ids_by_term[term].add(row[0])
     return ids_by_term
 
 

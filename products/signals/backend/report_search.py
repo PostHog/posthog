@@ -22,9 +22,7 @@ _TERM_SEPARATORS = re.compile(r"[\W_]+")
 
 # One Latin letter on its own is what a possessive or a contraction leaves behind once the
 # apostrophe separates the word: "Toronto's" gives "Toronto" and "s". Every term has to match, so
-# that fragment adds a condition the caller never asked for, and it excludes any report that
-# happens to hold no "s". A single digit or a single character of a script that writes words in
-# one character is a term the caller meant, so only the Latin letter is dropped.
+# that fragment adds a condition the caller never asked for, and excludes any report holding no "s".
 _SINGLE_LATIN_LETTER = re.compile(r"[A-Za-z]")
 
 # The text of a work-log note, read out of the serialized object it is stored in. Postgres 15 has
@@ -37,10 +35,9 @@ _NOTE_TEXT_PATTERN = r'"note"\s*:\s*"((?:[^"\\]|\\.)*)"'
 
 def report_search_terms(search: str) -> list[str]:
     """Split a search string into the terms a report must match, in order, capped in count."""
-    # An accent can arrive as one character or as a letter followed by a combining mark, and the
-    # combining mark is not a letter, so the second spelling splits "Müller" into "Mu" and "ller".
-    # Composing first makes both spellings one term, and matches the composed form that the
-    # reports themselves are written in.
+    # An accent can arrive as one character or as a letter followed by a combining mark, which is
+    # not a letter, so the second spelling of "Müller" splits into "Mu" and "ller". Composing first
+    # makes both spellings one term, and matches the form the reports are written in.
     composed = unicodedata.normalize("NFC", search)
     terms = [term for term in _TERM_SEPARATORS.split(composed) if term and not _SINGLE_LATIN_LETTER.fullmatch(term)]
     return terms[:MAX_SEARCH_TERMS]

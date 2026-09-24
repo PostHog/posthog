@@ -19,9 +19,8 @@ class TestReportSearchTerms(SimpleTestCase):
             # An accented word is one word to the person who typed it. Splitting it leaves
             # single-letter fragments, and a fragment that short matches nearly every report.
             ("an accented word", "Müller", ["Müller"]),
-            # The same word typed as a letter plus a combining accent. The combining mark is not a
-            # letter, so without composing first this splits into "Mu" and "ller", and neither
-            # fragment matches the composed spelling the report is written in.
+            # The same word typed as a letter plus a combining accent, which without composing
+            # splits into "Mu" and "ller", matching neither the report nor itself.
             ("an accent typed as a combining mark", "Mu\u0308ller", ["Müller"]),
             # Terms a reader can see are terms, whatever the script.
             ("a script without spaces between words", "東京 登録", ["東京", "登録"]),
@@ -30,8 +29,8 @@ class TestReportSearchTerms(SimpleTestCase):
             # letter: "can't" would stop finding a report titled "Cancel", which holds no "t".
             ("a possessive", "Toronto's registration", ["Toronto", "registration"]),
             ("a contraction", "can't", ["can"]),
-            # Dropping is limited to a single Latin letter. A digit is a term the caller meant,
-            # and so is a single character of a script that writes a word in one character.
+            # A digit is a term the caller meant, and so is a script that writes a word in one
+            # character, so neither is dropped.
             ("a single digit", "issue 5", ["issue", "5"]),
             ("a single character word", "東 registration", ["東", "registration"]),
             # The cap is part of the documented contract on the `search` parameter.
@@ -117,9 +116,8 @@ class TestReportSearch(APIBaseTest):
 
     @parameterized.expand(
         [
-            # An object the search cannot parse. Postgres raises on a jsonb cast of it, and the
-            # note lookup runs against every report in the team, so one such row turned every
-            # nonempty search into a 500 for the whole inbox.
+            # An object the search cannot parse. A jsonb cast of it raises, and the note lookup
+            # runs against every report, so one such row turned every search into a 500.
             ("an object that does not parse", "{not json"),
             # A note written before the text was stored inside an object.
             ("plain text with no object around it", "a legacy note about the Toronto region"),
