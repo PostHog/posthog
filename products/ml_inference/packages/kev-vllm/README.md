@@ -48,7 +48,35 @@ vLLM's scheduler is the request pool, so this package adds none of its own. Each
 
 - No state persists between requests. vLLM's KV and Mamba caches hold only the rows in flight. Prefix caching is off for both models, because vLLM does not enable it for pooling models on hybrid backbones. So each row computes its state again, including the rows of one request that share it.
 - `JevK5ForDecision` reads the answer from each row's last token only. A chunked row holds no hidden states between steps, and each step's readout is one matmul for all its rows.
+- The token budget does not change throughput. A single row already keeps the GPU's compute busy, so larger steps only make each row wait longer. The entrypoint keeps vLLM's default budget.
 - vLLM's queue has no limit by default. When the queue is longer than the gateway's timeout, every request in it fails. `--max-num-queued-tokens` makes vLLM answer 503 when the prefill backlog is full, so a caller can retry elsewhere without delay. Set it to the prefill throughput multiplied by the longest wait you accept.
+
+### Load test on an L4
+
+Measured 2026-09-24 on one L4 (EC2 gr6.4xlarge), vLLM 0.29.0, JevK5 at revision `27d2d6b8` in bf16. The requests are JevBench's public items: 70% one question on a short state (median 178 tokens), 20% one question on a long state (median 1,313 tokens), and 10% three questions on one short state. Closed-loop saturation:
+
+| Token budget              | Prefill tokens/s | p90 latency at 32 concurrent |
+| ------------------------- | ---------------- | ---------------------------- |
+| 2,048 (vLLM's L4 default) | 6,000 to 6,100   | 2.9 s                        |
+| 8,192                     | 5,700 to 5,800   | 3.6 s                        |
+| 16,384                    | 5,900 to 6,000   | not measured                 |
+
+A request alone gets about 4,600 tokens/s, and short and long rows saturate at the same rate. The GPU runs at its 72 W power cap during saturation. The readout on the last token matches `AllPool`'s to a median 0.0016 (maximum 0.022, which is inside JevK5's own bf16 noise), at the same throughput.
+
+Open loop at a Poisson arrival rate, with a 10 s client timeout as the gateway uses. "OK" is the answers per second that arrive within the timeout:
+
+| Queue limit  | Offered load  | OK     | Rejected with 503 | Timed out | p99 of answers |
+| ------------ | ------------- | ------ | ----------------- | --------- | -------------- |
+| none         | 0.9x capacity | 11.4/s | 0%                | 0%        | 3.0 s          |
+| none         | 1.3x          | 7.8/s  | 0%                | 47%       | 10.0 s         |
+| none         | 2.0x          | 3.3/s  | 0%                | 86%       | 9.9 s          |
+| 5,815 (1 s)  | 0.9x          | 10.5/s | 11%               | 0%        | 1.2 s          |
+| 11,630 (2 s) | 0.9x          | 11.4/s | 4%                | 0%        | 2.0 s          |
+| 23,260 (4 s) | 0.9x          | 11.9/s | 0%                | 0%        | 3.8 s          |
+| 23,260 (4 s) | 1.3x          | 13.1/s | 19%               | 0%        | 4.9 s          |
+| 23,260 (4 s) | 2.0x          | 12.9/s | 49%               | 0%        | 5.2 s          |
+
+Without a limit, overload makes the wait longer than the timeout, and the box answers less than a third of its capacity. With a limit, it keeps answering at capacity and rejects the rest at once. The entrypoint's default is about four seconds of an L4's throughput. At that limit, the box rejects nothing below capacity, and the slowest answers under overload arrive in about half the gateway's wait. A T4 serves JevK5 at about 1,270 tokens/s, a fifth of an L4. Kev, on the same backbone, served about 69,000 on an H100. Scale the limit with the GPU.
 
 ## Container image
 
@@ -67,7 +95,7 @@ docker run -d --restart always --gpus all --network host --shm-size 8g \
 - The host network lets s5cmd read the instance role's credentials from the metadata service, and Caddy listens on the host's `PORT`. Keep the port closed to the network and reach it over the tailnet.
 - The named volume keeps the weights across container restarts; it starts owned by the serving user (uid 10001). A host directory mounted instead must be writable by that user.
 - `DTYPE=float16` on GPUs without bf16. `MODEL_NAME` (the served name the gateway asks for, default `jevk5-0.2`), `MAX_MODEL_LEN`, `GPU_MEMORY_UTILIZATION`, `PORT` and `VLLM_PORT` override the defaults; extra arguments go to `vllm serve`.
-- `MAX_NUM_BATCHED_TOKENS` is the per-step token budget (see [Batching](#batching)). The entrypoint pins the H100's default, because vLLM would otherwise give an L4 or a T4 a much smaller one. `MAX_NUM_QUEUED_TOKENS` sets vLLM's backlog limit and is unset by default.
+- `MAX_NUM_QUEUED_TOKENS` is vLLM's backlog limit, sized for an L4 (see [Load test on an L4](#load-test-on-an-l4)). Set it for any other GPU.
 - The image sets `GLOO_SOCKET_IFNAME=lo`. vLLM otherwise resolves the host name at start-up and fails with "File name too long" where a VPC's DHCP domain makes it 64 characters.
 
 `kev-vllm-checkpoint verify <dir>` is the manifest check on its own.
