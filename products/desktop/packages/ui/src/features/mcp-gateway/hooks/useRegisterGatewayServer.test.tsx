@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   refreshTools: vi.fn(),
   getCallbackUrl: vi.fn(),
   openAndWait: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -34,7 +35,7 @@ vi.mock("@posthog/host-router/react", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), warning: mocks.toastWarning },
 }));
 
 import { useRegisterGatewayServer } from "./useRegisterGatewayServer";
@@ -133,7 +134,7 @@ describe("useRegisterGatewayServer", () => {
     expect(queryClient.getQueryState(toolsKey)?.isInvalidated).toBe(true);
   });
 
-  it("still registers the server when the tool listing fails", async () => {
+  it("still registers the server when the tool listing fails, and says so", async () => {
     mocks.getServers.mockResolvedValue([gatewayServer()]);
     mocks.refreshTools.mockRejectedValue(new Error("upstream down"));
 
@@ -141,6 +142,23 @@ describe("useRegisterGatewayServer", () => {
 
     expect(outcome.created?.id).toBe("srv-1");
     expect(outcome.discoveredTools).toBe(false);
+    // The upstream reason can carry a fragment of the server's response body,
+    // so the toast stays a fixed recovery message.
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      "Added, but listing the server's tools failed. Open the server to try again.",
+    );
+  });
+
+  it("reports a server that vanished from the registry before the listing", async () => {
+    mocks.getServers.mockResolvedValue([]);
+
+    const outcome = await register();
+
+    expect(mocks.refreshTools).not.toHaveBeenCalled();
+    expect(outcome.created).toBeNull();
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      "Added, but listing the server's tools failed. Open the server to try again.",
+    );
   });
 
   it("skips the listing when the credential is still mid-OAuth", async () => {

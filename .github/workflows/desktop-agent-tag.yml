@@ -17,6 +17,8 @@ concurrency:
 
 jobs:
     tag:
+        # A manual run can start from any branch, so the ref check keeps a release tag on master.
+        if: github.ref == 'refs/heads/master'
         permissions:
             contents: write
         runs-on: depot-ubuntu-24.04
@@ -54,29 +56,47 @@ jobs:
                   MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
                   MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
 
-                  # Count commits touching the agent or harness package since the base tag. In the
-                  # monorepo an unscoped count would include every PostHog commit and
-                  # inflate patch numbers meaninglessly.
-                  PATCH=$(git rev-list "$LATEST_TAG"..HEAD --count -- \
-                    products/desktop/packages/agent \
-                    products/desktop/packages/harness)
-
-                  if [ "$PATCH" -eq 0 ]; then
-                    echo "No agent or harness commits since $LATEST_TAG. Nothing to release."
-                    exit 0
-                  fi
-
-                  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-                  TAG="agent-v$NEW_VERSION"
-
-                  if git rev-parse "$TAG" >/dev/null 2>&1; then
-                    echo "Tag $TAG already exists. Nothing new to release."
-                    exit 0
-                  fi
-
-                  echo "Creating tag: $TAG (from base tag $LATEST_TAG + $PATCH commits)"
-
+                  # Annotated tags need a local tagger identity even when the push uses an app token.
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
-                  git tag -a "$TAG" -m "Agent release $TAG"
-                  git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"
+
+                  for attempt in 1 2 3; do
+                    git fetch --quiet --no-tags origin refs/heads/master
+                    TARGET=$(git rev-parse 'FETCH_HEAD^{commit}')
+
+                    # Count commits touching the agent or harness package since the base tag. In the
+                    # monorepo an unscoped count would include every PostHog commit and
+                    # inflate patch numbers meaninglessly.
+                    PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- \
+                      products/desktop/packages/agent \
+                      products/desktop/packages/harness)
+
+                    if [ "$PATCH" -eq 0 ]; then
+                      echo "No agent or harness commits since $LATEST_TAG. Nothing to release."
+                      exit 0
+                    fi
+
+                    NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+                    TAG="agent-v$NEW_VERSION"
+
+                    if git rev-parse "$TAG" >/dev/null 2>&1; then
+                      echo "Tag $TAG already exists. Nothing new to release."
+                      exit 0
+                    fi
+
+                    echo "Creating tag: $TAG at $TARGET (from base tag $LATEST_TAG + $PATCH commits)"
+                    git tag -a "$TAG" -m "Agent release $TAG" "$TARGET"
+                    if git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"; then
+                      exit 0
+                    fi
+                    # The remote can accept a tag before the connection fails.
+                    if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+                      echo "Tag $TAG already exists on origin. Nothing new to release."
+                      exit 0
+                    fi
+                    git tag -d "$TAG"
+                    if [ "$attempt" -lt 3 ]; then
+                      sleep $((attempt * 10))
+                    fi
+                  done
+                  exit 1

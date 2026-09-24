@@ -3711,7 +3711,7 @@ export interface ScoutMemberApi {
 }
 
 /**
- * A team's enforced scout run caps and current usage.
+ * A team's enforced scout caps and current usage.
  *
  * These are the values the coordinator actually applies at dispatch (resolved per-team override →
  * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -3732,6 +3732,8 @@ export interface ScoutLimitsApi {
      * @nullable
      */
     runs_remaining_today: number | null
+    /** Most scouts the project can have switched on at once. Enabling another past this is rejected. */
+    max_enabled_scouts: number
 }
 
 /**
