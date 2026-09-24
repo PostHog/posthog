@@ -573,19 +573,6 @@ pub struct KafkaConfig {
     pub kafka_producer_message_max_bytes: u32, // message.max.bytes - max kafka message size we will produce
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
-    /// Application-level compression for session replay (snapshot) Kafka payloads.
-    /// Independent of broker-level compression; consumers must detect and decompress.
-    /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
-    #[envconfig(default = "none")]
-    pub kafka_replay_envelope_compression: EnvelopeCompression,
-    /// Refuse to boot when a registered output resolves to an empty topic
-    /// name (see `TopicTable::check_complete`). Config-only — the broker
-    /// is never probed, so topic autocreation on first publish is unaffected.
-    /// Opt-in (default off) so deployments that deliberately blank a topic
-    /// they never produce to keep booting; arm it per deployment once its
-    /// topic wiring is known-complete.
-    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
-    pub outputs_completeness_check_enabled: bool,
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
@@ -593,35 +580,6 @@ pub struct KafkaConfig {
     pub kafka_traces_topic: String,
     #[envconfig(default = "ingestion-metrics")]
     pub kafka_metrics_topic: String,
-    #[envconfig(default = "events_plugin_ingestion_overflow")]
-    pub kafka_overflow_topic: String,
-    #[envconfig(default = "events_plugin_ingestion_historical")]
-    pub kafka_historical_topic: String,
-    #[envconfig(default = "ingestion-clientwarnings-main-1")]
-    pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "error_tracking_events")]
-    pub kafka_error_tracking_topic: String,
-    #[envconfig(default = "heatmaps_ingestion")]
-    pub kafka_heatmaps_topic: String,
-    #[envconfig(default = "session_recording_snapshot_item_overflow")]
-    pub kafka_replay_overflow_topic: String,
-    #[envconfig(default = "events_plugin_ingestion_dlq")]
-    pub kafka_dlq_topic: String,
-    /// Dedicated Kafka topic for AI events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    /// Both the v0 pipeline (via `DataType::AiEvents`) and the v1 pipeline
-    /// (via `Destination::AiEvents`) divert AI events here instead of the
-    /// analytics main topic, on every deployment that accepts them — including
-    /// capture-ai, whose main topic used to double as the AI topic. Setup also
-    /// injects it into every v1 sink config.
-    #[envconfig(default = "events_plugin_ingestion_ai")]
-    pub capture_analytics_ai_events_topic: String,
-    /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
-    /// Unset means AI events never overflow (the pre-overflow behavior). When
-    /// set, the AI lane participates in the same overflow limiter and
-    /// restriction-driven force_overflow as the analytics main lane, rerouting
-    /// here instead of the analytics overflow topic. Refused at boot in import
-    /// mode because imports must never overflow.
-    pub capture_analytics_ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -636,32 +594,6 @@ pub struct KafkaConfig {
     // default is 3x metadata refresh interval so we maintain that here
     #[envconfig(default = "60000")]
     pub kafka_metadata_max_age_ms: u32,
-    #[envconfig(default = "60000")] // lib default, can tweak in env overrides
-    pub kafka_socket_timeout_ms: u32,
-    #[envconfig(default = "10000")] // librdkafka default
-    pub kafka_producer_batch_num_messages: u32, // batch.num.messages - max messages per batch
-    #[envconfig(default = "1000000")] // librdkafka default
-    pub kafka_producer_batch_size: u32, // batch.size - max batch size in bytes
-    #[envconfig(default = "1000000")] // librdkafka default
-    pub kafka_producer_max_in_flight_requests: u32, // max.in.flight.requests.per.connection
-    #[envconfig(default = "10")] // librdkafka default
-    pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
-    #[envconfig(default = "false")] // librdkafka default
-    pub kafka_producer_enable_idempotence: bool, // enable.idempotence
-    #[envconfig(default = "murmur2_random")]
-    pub kafka_producer_partitioner: String, // partitioner
-    #[envconfig(default = "")]
-    pub kafka_broker_address_family: String, // broker.address.family - v4, v6, any; empty = don't set
-    #[envconfig(default = "true")] // librdkafka default
-    pub kafka_log_connection_close: bool, // log.connection.close
-    #[envconfig(default = "100000")] // librdkafka default
-    pub kafka_producer_queue_buffering_max_messages: u32, // queue.buffering.max.messages
-    #[envconfig(default = "1000")] // librdkafka default
-    pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms
-    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
-    pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
-    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
-    pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
 
     // Traces-cluster overrides (consumed by capture-logs). When unset, the
     // traces producer reuses the corresponding `kafka_*` value above.
