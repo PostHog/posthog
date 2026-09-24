@@ -1218,9 +1218,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Create a SessionRecording object for the replay
             try:
                 # First, try to get existing recording from database
-                recording, _ = SessionRecording.objects.get_or_create(
-                    session_id=session_recording_id, team=resource.team
-                )
+                recording, _ = SessionRecording.get_or_create_for_team(session_recording_id, resource.team)
 
                 # Create a scoped JWT for the recording
                 export_access_token = ""

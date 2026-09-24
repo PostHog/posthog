@@ -19,7 +19,7 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
 )
-from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording import CrossTeamSessionIdConflict, SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 
 logger = structlog.get_logger(__name__)
@@ -117,10 +117,13 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         session_recording_id = data.get("session_recording_id")
 
         # recordings are created lazily
-        session_recording, _ = SessionRecording.objects.get_or_create(
-            session_id=session_recording_id,
-            team=team,
-        )
+        try:
+            session_recording, _ = SessionRecording.get_or_create_for_team(session_recording_id, team)
+        except CrossTeamSessionIdConflict:
+            raise serializers.ValidationError(
+                "You can't link this recording because its session ID is already in use in another project. "
+                "Contact support if you need help with this recording."
+            )
 
         data["session_recording"] = session_recording
 

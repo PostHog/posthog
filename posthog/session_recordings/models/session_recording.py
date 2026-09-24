@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, Union
 
-from django.db import models
+from django.db import IntegrityError, models
 
 import structlog
 
@@ -15,6 +15,14 @@ from posthog.session_recordings.models.metadata import RecordingMatchingEvents, 
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
 logger = structlog.get_logger(__name__)
+
+
+class CrossTeamSessionIdConflict(Exception):
+    """Another team already holds the recording row for this session_id."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"session_id {session_id} already belongs to another team")
+        self.session_id = session_id
 
 
 def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Person | None:
@@ -181,6 +189,18 @@ class SessionRecording(UUIDTModel):
         else:
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
+
+    @staticmethod
+    def get_or_create_for_team(session_id: str, team: Team) -> tuple["SessionRecording", bool]:
+        try:
+            return SessionRecording.objects.get_or_create(session_id=session_id, team=team, defaults={"deleted": False})
+        except IntegrityError:
+            # session_id is unique across all teams, not only inside one, so a row that another
+            # team owns blocks the insert and the team-scoped retry in get_or_create finds nothing.
+            recording = SessionRecording.objects.filter(session_id=session_id, team=team).first()
+            if recording is None:
+                raise CrossTeamSessionIdConflict(session_id)
+            return recording, False
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
