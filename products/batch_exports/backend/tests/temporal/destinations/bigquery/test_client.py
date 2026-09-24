@@ -1,9 +1,12 @@
+import io
 import random
 import string
+import asyncio
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from google.api_core.exceptions import GoogleAPICallError, from_http_status
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
@@ -192,3 +195,32 @@ def test_from_service_account_inputs_rejects_token_uri_that_is_not_google():
             client_email="svc@proj.iam.gserviceaccount.com",
             project_id="proj",
         )
+
+
+@pytest.mark.parametrize(
+    "status_code,should_retry",
+    [(410, True), (599, True), (402, False)],
+    ids=["gone_is_retried", "unmapped_server_error_is_retried", "client_error_is_not_retried"],
+)
+@pytest.mark.asyncio
+async def test_load_file_retries_errors_without_a_typed_exception_class(status_code: int, should_retry: bool):
+    error = from_http_status(status_code, "An internal error occurred")
+    assert type(error) is GoogleAPICallError
+
+    table = BigQueryTable(
+        "test_table",
+        (BigQueryField("id", BigQueryType("INT64", False), False),),
+        parents=("test-project", "test_dataset"),
+    )
+    mock_result = MagicMock(name="mock_result")
+    client = BigQueryClient(MagicMock())
+    client._run_load_job = MagicMock(side_effect=[error, mock_result])
+
+    with patch.object(asyncio, "sleep", AsyncMock()):
+        if should_retry:
+            assert await client.load_file(io.BytesIO(b""), "JSONLines", table) is mock_result
+            assert client._run_load_job.call_count == 2
+        else:
+            with pytest.raises(GoogleAPICallError):
+                await client.load_file(io.BytesIO(b""), "JSONLines", table)
+            assert client._run_load_job.call_count == 1
