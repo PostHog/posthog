@@ -135,6 +135,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSession,
     SandboxSnapshot,
+    SharedTaskArtifact,
     Task,
     TaskActivity,
     TaskArtifact,
@@ -163,6 +164,7 @@ from products.tasks.backend.repository_config_analytics import (
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
+    task_read_visibility_q,
     task_run_visibility_q,
     task_visibility_q,
 )
@@ -2672,28 +2674,6 @@ def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, 
     return run is not None and run.matches_task_ownership()
 
 
-def _shared_slack_thread_q() -> Q:
-    """Slack tasks whose thread is not a direct message.
-
-    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
-    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
-    has today instead of silently narrowing to the thread starter.
-
-    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
-    other task short-circuits on an indexed column before touching the mapping table.
-    """
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
-        PRIVATE_CONVERSATION_TYPES,
-        SlackThreadTaskMapping,
-    )
-
-    private_thread = SlackThreadTaskMapping.objects.filter(
-        task_id=OuterRef("pk"),
-        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
-    )
-    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
-
-
 def task_accessible_for_run_view(
     task_id: str | UUID,
     team_id: int,
@@ -2725,7 +2705,7 @@ def task_accessible_for_run_view(
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+        scope_q = task_control_q(user_id) if for_control else task_read_visibility_q(user_id)
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
@@ -5766,15 +5746,13 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     """Team-scoped live tasks, gated by read visibility — or by the narrower
     control predicate when ``for_control`` (mutations, runs, agent commands).
 
-    The read branch ORs in ``_shared_slack_thread_q()`` so a task shared in a Slack channel
+    The read branch uses ``task_read_visibility_q`` so a task shared in a Slack channel
     is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
     endpoint admits a channel collaborator while task detail returns 404 for the same task.
     """
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
-        )
+        qs = qs.filter(task_control_q(user_id) if for_control else task_read_visibility_q(user_id))
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.
         hidden = hidden_task_ids(team_id, user_id)
@@ -6205,6 +6183,37 @@ def _search_result_payload(document: TaskSearchDocument, latest_runs: dict[Any, 
     }
 
 
+def _readable_search_documents(
+    documents: list[TaskSearchDocument], team_id: int, user_id: int | None
+) -> list[TaskSearchDocument]:
+    """Drop the canvas rows the caller's per-object canvas rules deny.
+
+    A canvas document takes the channel-only visibility branch, which is the whole rule for every
+    other kind. A canvas also carries per-object access control, and a denied canvas must not
+    disclose its name, its channel, or its kind through search while the API refuses to open it.
+    """
+    from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps the access-control deps off this module's import path
+        readable_canvas_ids,
+    )
+
+    canvas_ids = []
+    for document in documents:
+        if document.kind != TaskSearchDocument.Kind.CANVAS:
+            continue
+        try:
+            canvas_ids.append(str(UUID(document.source_key)))
+        except (TypeError, ValueError):
+            continue
+    if not canvas_ids:
+        return documents
+    readable = readable_canvas_ids(canvas_ids, team_id, user_id)
+    return [
+        document
+        for document in documents
+        if document.kind != TaskSearchDocument.Kind.CANVAS or document.source_key in readable
+    ]
+
+
 def search_tasks(
     team_id: int,
     user_id: int | None,
@@ -6258,7 +6267,7 @@ def search_tasks(
             : min(page_size * _SEARCH_CANDIDATE_FACTOR, _SEARCH_MAX_CANDIDATES)
         ]
     )
-    documents = _mixed_search_page(candidates, page_size)
+    documents = _mixed_search_page(_readable_search_documents(list(candidates), team_id, user_id), page_size)
     latest_runs = _latest_runs_by_task_id((document.task_id for document in documents if document.task_id), team_id)
     return [_search_result_payload(document, latest_runs) for document in documents]
 
@@ -10933,6 +10942,235 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+def user_can_access_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Whether the task is live and visible to the user under the channel rule."""
+    try:
+        return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+    except DjangoValidationError:
+        return False
+
+
+def user_can_control_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Whether the task is live and the user may drive it, which is narrower than reading it:
+    a channeled task is controlled by its owner alone, not by everyone who can see the space."""
+    try:
+        return _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).exists()
+    except DjangoValidationError:
+        return False
+
+
+def _is_shareable_artifact(entry: dict) -> bool:
+    """Whether a manifest entry is a file the product offers for sharing.
+
+    Only the agent's deliverables are. The manifest also carries plans, context, user uploads and
+    skill bundles, which the timeline never presents as files, so a public link must never resolve
+    to one — not when it is created, and not when a same-named one arrives later and the owner
+    publishes the changes.
+    """
+    return entry.get("type") == "output" and bool(entry.get("storage_path")) and bool(entry.get("name"))
+
+
+def _output_artifact_entry(task: Task, artifact_id: str) -> dict | None:
+    for run in task.runs.only("id", "artifacts"):
+        for entry in run.artifacts or []:
+            if entry.get("id") == artifact_id and _is_shareable_artifact(entry):
+                return entry
+    return None
+
+
+def resolve_shared_task_artifact(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, artifact_id: str
+) -> contracts.SharedTaskArtifactIdentityDTO | None:
+    """The file an artifact id names, for the sharing API. ``None`` when the task isn't visible
+    to the user or the id is not a file on one of its runs. Never creates the anchor."""
+    try:
+        task = _visible_task(task_id, team_id, user_id)
+    except DjangoValidationError:
+        return None
+    if task is None:
+        return None
+    entry = _output_artifact_entry(task, artifact_id)
+    if entry is None:
+        return None
+    anchor = SharedTaskArtifact.objects.for_team(team_id).filter(task_id=task.id, name=entry["name"]).first()
+    return contracts.SharedTaskArtifactIdentityDTO(
+        task_id=task.id,
+        name=str(entry["name"]),
+        content_type=str(entry.get("content_type") or ""),
+        anchor_id=anchor.id if anchor else None,
+    )
+
+
+def _latest_artifact_entry(task_id: UUID, team_id: int, name: str) -> tuple[TaskRun, dict] | None:
+    """The newest undismissed output with this name across the task's runs, the server-side twin
+    of the desktop's version grouping (newest ``uploaded_at`` wins, then the newest run)."""
+    best: tuple[TaskRun, dict] | None = None
+    best_key = ""
+    for run in TaskRun.objects.filter(task_id=task_id, team_id=team_id).only("id", "artifacts").order_by("-created_at"):
+        for entry in run.artifacts or []:
+            if entry.get("name") != name or entry.get("dismissed_at") or not _is_shareable_artifact(entry):
+                continue
+            key = str(entry.get("uploaded_at") or "")
+            if best is None or key > best_key:
+                best, best_key = (run, entry), key
+    return best
+
+
+def get_or_create_shared_task_artifact(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, name: str, content_type: str
+) -> UUID | None:
+    """The share anchor for the file, created on first use and pinned to its newest upload.
+    Returns its id, or ``None`` when no upload of the file exists to pin."""
+    task_uuid = task_id if isinstance(task_id, UUID) else UUID(str(task_id))
+    latest = _latest_artifact_entry(task_uuid, team_id, name)
+    if latest is None:
+        return None
+    run, entry = latest
+    with transaction.atomic():
+        anchor, created = SharedTaskArtifact.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            task_id=task_uuid,
+            name=name,
+            defaults={
+                "run_id": run.id,
+                "artifact_id": str(entry["id"]),
+                "storage_path": "",
+                "content_type": content_type,
+                "created_by_id": user_id,
+            },
+        )
+        if created:
+            anchor.storage_path = _capture_shared_artifact_object(anchor, entry, team_id)
+            anchor.save(update_fields=["storage_path"])
+    return anchor.id
+
+
+def pin_shared_task_artifact(anchor_id: str | UUID, team_id: int) -> bool:
+    """Point the file's public link at its newest upload. False when there is none to pin."""
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return False
+    latest = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
+    if latest is None:
+        return False
+    run, entry = latest
+    already_pinned = anchor.artifact_id == str(entry["id"]) and bool(anchor.storage_path)
+    if already_pinned:
+        return True
+    storage_path = _capture_shared_artifact_object(anchor, entry, team_id)
+    anchor.run = run
+    anchor.artifact_id = str(entry["id"])
+    anchor.storage_path = storage_path
+    anchor.save(update_fields=["run", "artifact_id", "storage_path"])
+    return True
+
+
+def _capture_shared_artifact_object(anchor: SharedTaskArtifact, entry: dict, team_id: int) -> str:
+    """Copy an upload to a server-owned key before exposing it through a public link."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    source_path = str(entry["storage_path"])
+    target_path = f"task_shared_artifact/team_{team_id}/{anchor.id}/{entry['id']}"
+    object_storage.copy(source_path, target_path)
+    try:
+        # Copying preserves the source tags, including its 30-day expiry. Replace them so the
+        # captured object stays alive for the share.
+        object_storage.tag(target_path, {"team_id": str(team_id)})
+    except Exception:
+        object_storage.delete(target_path)
+        raise
+    return target_path
+
+
+def shared_task_artifact_versions(
+    anchor_id: str | UUID, team_id: int
+) -> contracts.SharedTaskArtifactVersionsDTO | None:
+    """The upload a file's public link is pinned to and the file's newest upload, so a client can
+    offer to publish the changes in between."""
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return None
+    latest = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
+    pinned = _pinned_artifact_entry(anchor)
+    return contracts.SharedTaskArtifactVersionsDTO(
+        shared_artifact_id=str(pinned["id"]) if pinned else None,
+        latest_artifact_id=str(latest[1]["id"]) if latest else None,
+    )
+
+
+def _pinned_artifact_entry(anchor: SharedTaskArtifact) -> dict | None:
+    """The manifest entry the anchor pins. ``None`` once the upload was dismissed or lost its file,
+    so a public link fails closed with the version it captured."""
+    for entry in anchor.run.artifacts or []:
+        if entry.get("id") != anchor.artifact_id:
+            continue
+        return entry if entry.get("storage_path") and not entry.get("dismissed_at") else None
+    return None
+
+
+def _shared_artifact_file(run: TaskRun, entry: dict) -> contracts.SharedTaskArtifactFileDTO:
+    size = entry.get("size")
+    return contracts.SharedTaskArtifactFileDTO(
+        artifact_id=str(entry.get("id") or ""),
+        run_id=run.id,
+        name=str(entry["name"]),
+        content_type=str(entry.get("content_type") or ""),
+        size=size if isinstance(size, int) else None,
+        uploaded_at=str(entry["uploaded_at"]) if entry.get("uploaded_at") else None,
+    )
+
+
+def _shared_anchor(anchor_id: str | UUID, team_id: int) -> SharedTaskArtifact | None:
+    return (
+        SharedTaskArtifact.objects.for_team(team_id)
+        .select_related("task", "run")
+        .filter(id=anchor_id, task__deleted=False)
+        .first()
+    )
+
+
+def shared_task_artifact_file(anchor_id: str | UUID, team_id: int) -> contracts.SharedTaskArtifactFileDTO | None:
+    """The upload a public link serves. ``None`` when the task is gone or that version was
+    dismissed."""
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return None
+    entry = _pinned_artifact_entry(anchor)
+    if entry is None:
+        return None
+    return _shared_artifact_file(anchor.run, entry)
+
+
+def read_shared_task_artifact(
+    anchor_id: str | UUID, team_id: int, *, max_bytes: int | None = None
+) -> tuple[bytes, contracts.SharedTaskArtifactFileDTO] | None:
+    """The bytes of the upload a public link serves, with its metadata. ``None`` when there is
+    nothing to serve or the file is larger than ``max_bytes``."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return None
+    entry = _pinned_artifact_entry(anchor)
+    if entry is None:
+        return None
+    run = anchor.run
+    file = _shared_artifact_file(run, entry)
+    if max_bytes is not None and file.size is not None and file.size > max_bytes:
+        return None
+    try:
+        content = object_storage.read_bytes(anchor.storage_path, missing_ok=True)
+    except Exception:
+        logger.exception(
+            "task_run.shared_artifact_read_failed",
+            extra={"task_run_id": str(run.id), "storage_path": anchor.storage_path},
+        )
+        return None
+    if content is None or (max_bytes is not None and len(content) > max_bytes):
+        return None
+    return content, file
 
 
 # --- Inbound GitHub App deliveries (entered from backend/webhook_consumers.py) ---
