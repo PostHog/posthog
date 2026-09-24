@@ -30,6 +30,7 @@
     },
     "scripts": {
         "build": "tsc -p tsconfig.build.json",
+        "prepack": "pnpm run build",
         "typecheck": "tsc -p tsconfig.json",
         "test": "tsc -p tsconfig.build.json && tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\""
     },
