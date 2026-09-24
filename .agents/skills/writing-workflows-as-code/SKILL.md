@@ -22,7 +22,7 @@ Done when: the file exists and exports one `workflow({ ... })`.
 - `key` is the workflow's identity in the project. It must use only letters, digits, hyphens and underscores, and it must be 400 characters or fewer. Every push resolves it, so treat it as fixed once pushed. A renamed key orphans the old workflow and creates a new one. The same file reaches a staging project and a production project without a change.
 - `on: onEvent({ event: 'user signed up' })` starts one run per occurrence, and each run has a person. Narrow it with `properties: [eventProperty('$current_url', 'icontains', '/pricing')]`. Pass `name` or `description` when the trigger action needs editor copy.
 - `on: onSchedule()` starts a run per occurrence of a cadence. A run has no person, so write a straight path and read no person property. `onSchedule()` carries no cadence, so PostHog owns it: after the first push, add the schedule to the workflow in PostHog. PostHog accepts schedule changes on a workflow managed by code, and a push leaves the schedule as it is. Until a schedule exists, the workflow does not run, `active` or not.
-- `on: trigger(config, { name, description })` passes an unsupported trigger type through unchanged. Use it only when there is no typed helper. You must know the stored config shape, so start from an existing workflow. Copy one with the Copy code button or use the `workflows-get-code` MCP tool when it is available.
+- `on: trigger(config, { name, description })` passes an unsupported trigger type through unchanged. Use it only when there is no typed helper. You must know the stored config shape, so start from an existing workflow. Read its stored shape with the `workflows-get` MCP tool or `GET /api/projects/<project id>/hog_flows/<id>/`.
 
 Done when: the key is final and the trigger matches how the workflow starts.
 
@@ -89,13 +89,13 @@ Two jobs in the repository that owns the workflow files, both plain commands, so
 
 ```yaml
 - name: Check workflows # on pull_request, no secret
-  run: pnpm exec posthog-workflows check flows/onboarding.ts
+  run: npx posthog-workflows check flows/onboarding.ts
 - name: Push workflows # on push to the default branch
   env:
     POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
     POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID }}
     POSTHOG_CLI_HOST: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
-  run: pnpm exec posthog-workflows push flows/onboarding.ts
+  run: npx posthog-workflows push flows/onboarding.ts
 ```
 
 - Filter the triggers to the paths that hold the files, so unrelated pull requests skip the job. Give the push job one concurrency group with cancellation off, so two pushes never race and the newest commit wins.
