@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -53,20 +52,9 @@ export function NotebookWidgetPreview(): JSX.Element {
 
 function SavedNotebookWidget(props: NotebookDashboardWidgetProps): JSX.Element {
     const logic = notebookDashboardWidgetLogic(props)
-    const {
-        snapshot,
-        snapshotLoading,
-        error,
-        refreshing,
-        runId,
-        polling,
-        progress,
-        stopping,
-        sourceOpen,
-        sourceLoading,
-        source,
-    } = useValues(logic)
-    const { loadSnapshot, refresh, pollRun, stopRun, setError, setSourceOpen } = useActions(logic)
+    const { snapshot, snapshotLoading, error, runId, polling, progress, sourceOpen, sourceLoading, source } =
+        useValues(logic)
+    const { loadSnapshot, pollRun, setError, setSourceOpen } = useActions(logic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { sessionBuildHashes, trustByUser } = useValues(notebookWidgetTrustLogic)
@@ -81,37 +69,6 @@ function SavedNotebookWidget(props: NotebookDashboardWidgetProps): JSX.Element {
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex flex-wrap items-center gap-2 border-b p-2">
-                <span className="text-xs text-secondary">
-                    {snapshot ? `Saved ${humanFriendlyDetailedTime(snapshot.created_at)}` : 'Saved notebook results'}
-                </span>
-                <LemonButton size="xsmall" to={urls.notebook(props.notebookShortId)}>
-                    Open notebook
-                </LemonButton>
-                {props.onSnapshotPublished ? (
-                    <LemonButton
-                        size="xsmall"
-                        loading={refreshing}
-                        disabledReason={!snapshot ? 'Load the saved results first' : undefined}
-                        onClick={() =>
-                            LemonDialog.open({
-                                title: 'Refresh from notebook?',
-                                description:
-                                    'This runs all saved data cells using the notebook’s variables. Python compute may incur charges. Dashboard filters do not change these results.',
-                                primaryButton: { children: 'Run notebook', onClick: refresh },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        }
-                    >
-                        Refresh from notebook
-                    </LemonButton>
-                ) : null}
-                {runId ? (
-                    <LemonButton size="xsmall" loading={stopping} onClick={stopRun}>
-                        Stop
-                    </LemonButton>
-                ) : null}
-            </div>
             {progress ? (
                 <div className="p-2 text-secondary text-sm" role="status">
                     {progress}
@@ -139,20 +96,22 @@ function SavedNotebookWidget(props: NotebookDashboardWidgetProps): JSX.Element {
             ) : null}
             {snapshot?.artifact_url ? (
                 <>
-                    <NotebookWidgetTrustControls
-                        variant={canRender ? 'toolbar' : 'gate'}
-                        buildHash={snapshot.build_hash}
-                        securityReview={snapshot.security_review}
-                        isEditable={false}
-                        onRun={() => {
-                            if (snapshot.build_hash) {
-                                trustBuild(user?.id ?? null, snapshot.build_hash)
-                            }
-                        }}
-                        onViewSource={() => setSourceOpen(true)}
-                    />
+                    {!canRender ? (
+                        <NotebookWidgetTrustControls
+                            variant="gate"
+                            buildHash={snapshot.build_hash}
+                            securityReview={snapshot.security_review}
+                            isEditable={false}
+                            onRun={() => {
+                                if (snapshot.build_hash) {
+                                    trustBuild(user?.id ?? null, snapshot.build_hash)
+                                }
+                            }}
+                            onViewSource={() => setSourceOpen(true)}
+                        />
+                    ) : null}
                     {canRender ? (
-                        <div className="relative min-h-40 flex-1">
+                        <div className="relative min-h-0 flex-1 overflow-hidden">
                             <WidgetArtifactFrame
                                 key={snapshot.id}
                                 artifactUrl={snapshot.artifact_url}

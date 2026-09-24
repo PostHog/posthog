@@ -41,6 +41,11 @@ const NotebookDashboardWidget = lazyWithRetry(() =>
         default: m.NotebookDashboardWidget,
     }))
 )
+const NotebookDashboardWidgetMenu = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidgetMenu').then((m) => ({
+        default: m.NotebookDashboardWidgetMenu,
+    }))
+)
 const EditNotebookWidgetModal = lazyWithRetry(() =>
     import('products/notebooks/frontend/NotebookDashboardWidget/EditNotebookWidgetModal').then((m) => ({
         default: m.EditNotebookWidgetModal,
@@ -184,6 +189,8 @@ export type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<Comp
 
 export type DashboardWidgetDefinition = {
     Component: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    MenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    bodyPadding?: boolean
     TileFilters?: DashboardWidgetSlot<DashboardWidgetTileFiltersProps>
     EditModal?: DashboardWidgetSlot<DashboardWidgetEditModalProps>
     TopHeading?: DashboardWidgetSlot<DashboardWidgetTopHeadingProps>
@@ -240,6 +247,8 @@ export type DashboardWidgetEditModalProps = {
 export const DASHBOARD_WIDGET_REGISTRY = {
     notebook_widget: {
         Component: NotebookDashboardWidget,
+        MenuItems: NotebookDashboardWidgetMenu,
+        bodyPadding: false,
         EditModal: EditNotebookWidgetModal,
         parseConfigApiError: () => null,
     },

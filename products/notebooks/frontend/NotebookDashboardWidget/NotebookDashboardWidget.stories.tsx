@@ -4,6 +4,9 @@ import { useActions } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { mswDecorator } from '~/mocks/browser'
+import { DashboardPlacement, DashboardTile } from '~/types'
+
+import { DashboardWidgetItem } from 'products/dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 
 import { notebookWidgetDashboardLogic } from '../NotebookNodeGeneratedWidget/notebookWidgetDashboardLogic'
 import { NotebookWidgetDashboardModal } from '../NotebookNodeGeneratedWidget/NotebookWidgetDashboardModal'
@@ -42,10 +45,35 @@ const snapshot = {
 const meta: Meta<typeof NotebookDashboardWidget> = {
     title: 'Products/Notebooks/Dashboard widget',
     component: NotebookDashboardWidget,
+    render: (args) => (
+        <DashboardWidgetItem
+            className="h-full"
+            tile={
+                {
+                    id: args.tileId,
+                    widget: {
+                        id: '00000000-0000-4000-8000-000000000044',
+                        widget_type: 'notebook_widget',
+                        name: 'Revenue by plan',
+                        description: '',
+                        config: args.config,
+                    },
+                } as DashboardTile
+            }
+            placement={DashboardPlacement.Dashboard}
+            result={args.result}
+            loading={args.loading}
+            onRefresh={() => undefined}
+            onUpdateWidgetTile={() => undefined}
+            onConfigPublished={args.onConfigPublished}
+            canEditDashboard={!!args.onConfigPublished}
+            showEditingControls
+        />
+    ),
     decorators: [
         mswDecorator({}),
         (Story) => (
-            <div className="h-[520px] w-full max-w-3xl rounded border bg-primary">
+            <div className="h-[520px] w-full max-w-3xl">
                 <Story />
             </div>
         ),
@@ -58,6 +86,7 @@ const meta: Meta<typeof NotebookDashboardWidget> = {
         onConfigPublished: () => undefined,
     },
     parameters: {
+        mockDate: '2026-09-01T10:30:00Z',
         msw: {
             mocks: {
                 get: {
@@ -89,7 +118,8 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SavedResults: Story = {}
-export const Empty: Story = { args: { config: {} } }
+export const Empty: Story = { args: { config: {} }, render: (args) => <NotebookDashboardWidget {...args} /> }
+export const ReadOnly: Story = { args: { onConfigPublished: undefined } }
 export const AccessDenied: Story = {
     parameters: {
         msw: {

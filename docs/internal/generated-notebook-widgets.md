@@ -21,6 +21,8 @@ Notebook widgets are added from the notebook, rather than the dashboard's generi
 Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
 Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
 Public dashboards show a placeholder instead of notebook results.
+The widget fills the dashboard tile below its header.
+Use the tile's **…** menu to open the notebook, refresh its results, view source, or check the saved time, automated review, and build ID.
 
 **Refresh from notebook** runs the saved notebook's data cells in document order through the backend notebook runner.
 Prepared embedded insights run their saved dataframe query alongside SQL and Python cells. Insights without a prepared dataframe query cannot supply widget inputs.

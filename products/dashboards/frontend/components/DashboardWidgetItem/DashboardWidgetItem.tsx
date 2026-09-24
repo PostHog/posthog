@@ -203,6 +203,7 @@ function DashboardWidgetItemContent({
     const TileFilters = definition?.TileFilters
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
+    const MenuItems = definition?.MenuItems
 
     const hasDashboardSectionActions =
         !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
@@ -241,6 +242,11 @@ function DashboardWidgetItemContent({
                 refreshControl={refreshControl}
                 moreButtonOverlay={
                     <>
+                        {!showSharedPlaceholder && hasProductAccess && MenuItems && (
+                            <Suspense fallback={null}>
+                                <MenuItems {...componentProps} />
+                            </Suspense>
+                        )}
                         {titleHref && (
                             <LemonButton to={titleHref} fullWidth>
                                 View
@@ -323,6 +329,7 @@ function DashboardWidgetItemContent({
                 />
             ) : (
                 <WidgetCardBody
+                    padding={definition?.bodyPadding}
                     locked={!hasProductAccess}
                     error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
                     onRefresh={isUnknownWidgetType ? undefined : onRefresh}
