@@ -7,7 +7,10 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingMergeResult
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
+    AutoMergeReopenedTarget,
+    FingerprintEmbeddingMergeResult,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
     IssueCreatedSnapshot,
@@ -15,6 +18,8 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowResult,
     IssueEmbeddingPreparationResult,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.workflow import run_issue_reopened_side_effects
 
 WORKFLOW_NAME = "error-tracking-issue-created"
 
@@ -105,7 +110,13 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
             if merge_result.merged_count > 0:
-                return IssueCreatedWorkflowResult(merged=True)
+                # The exception belongs to the target issue now. A dormant target that the merge
+                # put back to active owes its subscribers a reopened notification; an already
+                # active target owes nothing, which matches a fingerprint that links directly.
+                if merge_result.reopened_target is None:
+                    return IssueCreatedWorkflowResult(merged=True)
+                await run_issue_reopened_side_effects(_reopened_inputs(inputs, merge_result.reopened_target))
+                return IssueCreatedWorkflowResult(merged=True, notified=True)
 
         # Patched: executions in flight when this activity shipped replay the old sequence.
         # Dispatch runs alongside the other side effects and is always awaited, so a
@@ -144,3 +155,19 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,
         )
+
+
+def _reopened_inputs(
+    inputs: IssueCreatedWorkflowInputs, target: AutoMergeReopenedTarget
+) -> IssueReopenedWorkflowInputs:
+    return IssueReopenedWorkflowInputs(
+        notification_id=target.notification_id,
+        team_id=inputs.team_id,
+        issue_id=target.issue_id,
+        issue=target.issue,
+        # The new fingerprint and its exception: the merge moved both onto the target issue.
+        fingerprint=inputs.fingerprint,
+        event_uuid=inputs.event_uuid,
+        event_timestamp=inputs.event_timestamp,
+        assignee=target.assignee,
+    )

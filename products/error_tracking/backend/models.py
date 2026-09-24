@@ -117,6 +117,10 @@ class ErrorTrackingIssue(UUIDTModel):
             ):
                 return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, []
 
+            reopened = _target_reopens_on_merge(
+                team_id=team_id, target_status=self.status, source_issue_ids=existing_source_issue_ids
+            )
+
             locked_source_fingerprints = list(
                 ErrorTrackingIssueFingerprintV2.objects.select_for_update()
                 .filter(team_id=team_id, issue_id__in=existing_source_issue_ids)
@@ -140,9 +144,13 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
 
             # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
-            ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(
-                state_updated_at=timezone.now()
-            )
+            target_updates: dict[str, object] = {"state_updated_at": timezone.now()}
+            if reopened:
+                target_updates["status"] = ErrorTrackingIssue.Status.ACTIVE
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(**target_updates)
+            if reopened:
+                # Keep the in-memory row in sync so callers can see the reopen and notify on it.
+                self.status = ErrorTrackingIssue.Status.ACTIVE
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
@@ -281,6 +289,20 @@ def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids:
         return None
 
     return [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
+
+
+def _target_reopens_on_merge(*, team_id: int, target_status: str, source_issue_ids: list[UUID]) -> bool:
+    """Decide whether the merge target must go back to active.
+
+    An active source carries a recurrence of the error, so a dormant target is not resolved
+    any more. Suppressed targets stay suppressed, which is the same rule ingestion applies
+    when a fingerprint links straight to an existing issue.
+    """
+    if target_status in (ErrorTrackingIssue.Status.ACTIVE, ErrorTrackingIssue.Status.SUPPRESSED):
+        return False
+    return ErrorTrackingIssue.objects.filter(
+        team_id=team_id, id__in=source_issue_ids, status=ErrorTrackingIssue.Status.ACTIVE
+    ).exists()
 
 
 def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> None:

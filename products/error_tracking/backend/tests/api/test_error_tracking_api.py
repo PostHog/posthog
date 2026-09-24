@@ -87,8 +87,8 @@ class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
 
 
 class TestErrorTracking(APIBaseTest):
-    def create_issue(self, fingerprints=None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(team=self.team)
+    def create_issue(self, fingerprints=None, status="active") -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, status=status)
         fingerprints = fingerprints if fingerprints else []
         for fingerprint in fingerprints:
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
@@ -843,6 +843,28 @@ class TestErrorTracking(APIBaseTest):
         assert activity.item_id == str(issue_one.id)
         assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == [str(issue_two.id)]
+
+    def test_issue_merge_into_resolved_issue_reopens_and_reports_it(self):
+        target = self.create_issue(fingerprints=["fingerprint_one"], status="resolved")
+        source = self.create_issue(fingerprints=["fingerprint_two"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+                data={"ids": [source.id]},
+            )
+
+        assert response.status_code == 200, response.json()
+        target.refresh_from_db()
+        assert target.status == "active"
+        events = [call.kwargs["event"] for call in mock_produce.call_args_list]
+        reopened = [event for event in events if event.event == "$error_tracking_issue_reopened"]
+        assert len(reopened) == 1
+        assert reopened[0].distinct_id == str(target.id)
+        assert reopened[0].properties["previous_status"] == "Resolved"
 
     def test_issue_merge_without_effect_logs_no_activity(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])

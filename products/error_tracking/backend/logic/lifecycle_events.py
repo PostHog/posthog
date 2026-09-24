@@ -6,7 +6,6 @@ transitions that happen in Django so destinations subscribed to issue lifecycle
 events see the full picture.
 """
 
-import json
 import uuid
 import dataclasses
 from typing import Any, Optional
@@ -18,11 +17,11 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models.user import User
 
+from products.error_tracking.backend.logic.assignees import current_assignee_property
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
     ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
@@ -53,25 +52,6 @@ def status_label(status: str) -> str:
         return str(ErrorTrackingIssue.Status(status).label)
     except ValueError:
         return status
-
-
-def assignee_property(assignee: dict[str, Any]) -> str:
-    # Wire-compatible with cymbal's `Assignee` serialization on created/reopened events
-    # (compact serde JSON, adjacently tagged, numeric user ids and string role ids), so
-    # exact-match filters on the assignee property behave the same across all events.
-    assignee_id = int(assignee["id"]) if assignee["type"] == "user" else str(assignee["id"])
-    return json.dumps({"type": assignee["type"], "id": assignee_id}, separators=(",", ":"))
-
-
-def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
-    assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).only("user_id", "role_id").first()
-    if assignment is None:
-        return None
-    if assignment.user_id:
-        return assignee_property({"type": "user", "id": assignment.user_id})
-    if assignment.role_id:
-        return assignee_property({"type": "role", "id": assignment.role_id})
-    return None
 
 
 def _issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
@@ -119,7 +99,7 @@ def prepare_issue_lifecycle_event(
     # falls back to the issue's latest exception instead of an empty window around
     # the mutation.
     fingerprint = _issue_fingerprint_for_links(issue)
-    current_assignee = _current_assignee_property(issue)
+    current_assignee = current_assignee_property(issue)
     issue_id = str(issue.id)
     # The notification id names both the internal event and the alert delivery
     # workflow, so redelivered starts and retries stay idempotent per transition.
