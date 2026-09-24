@@ -39,7 +39,7 @@ fi
 
 # Bash as PID 1 does not pass `docker stop` on to its children.
 stopping=0
-trap 'stopping=1; kill $(jobs -p) 2>/dev/null' TERM INT
+trap 'stopping=1; kill $(jobs -p) 2>/dev/null || true' TERM INT
 vllm serve "$MODEL_DIR" --served-model-name "$MODEL_NAME" --host 127.0.0.1 --port "$VLLM_PORT" --dtype "$DTYPE" \
   --mamba-ssm-cache-dtype float32 --max-model-len "$MAX_MODEL_LEN" --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
   --max-num-queued-tokens "$MAX_NUM_QUEUED_TOKENS" "$@" &
