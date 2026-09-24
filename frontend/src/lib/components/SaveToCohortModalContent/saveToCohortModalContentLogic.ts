@@ -127,13 +127,15 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
             loadCohorts: async () => {
                 // The picker reads only id, name and description, so ask for the trimmed
                 // payload — the full one detoasts the JSON columns for every row.
+                // nosemgrep: prefer-codegen-api-namespaced-cohorts -- the generated client models
+                // neither the trimmed response nor the filters this call sends.
                 const response = await api.cohorts.listBasic({
                     ...values.paramsFromFilters,
                 })
                 return {
                     count: response.count,
                     // `groups` is dropped from the basic payload but required on CohortType.
-                    results: response.results.map((cohort) => ({ ...cohort, groups: [] })),
+                    results: response.results.map((cohort): CohortType => ({ ...cohort, groups: [] })),
                 }
             },
         },
