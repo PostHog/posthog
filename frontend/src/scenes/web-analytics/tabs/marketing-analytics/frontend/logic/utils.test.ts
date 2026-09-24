@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import {
     ConversionGoalFilter,
     DatabaseSchemaDataWarehouseTable,
@@ -26,9 +28,11 @@ import {
 
 describe('marketing analytics utils', () => {
     describe('getEnabledNativeMarketingSources', () => {
-        it('returns every native source when no source is flag-gated', () => {
-            const result = getEnabledNativeMarketingSources({})
-            expect([...result]).toEqual([...VALID_NATIVE_MARKETING_SOURCES])
+        it.each([undefined, false, true, 'test'])('gates AppleSearchAds when its flag is %s', (enabled) => {
+            const flags = enabled === undefined ? {} : { [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS]: enabled }
+            expect(getEnabledNativeMarketingSources(flags)).toEqual(
+                VALID_NATIVE_MARKETING_SOURCES.filter((source) => source !== 'AppleSearchAds' || enabled === true)
+            )
         })
     })
 

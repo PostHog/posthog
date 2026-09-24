@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import {
     ConversionGoalFilter,
+    MARKETING_INTEGRATION_CONFIGS,
     DatabaseSchemaDataWarehouseTable,
     InsightVizNode,
     TrendsQuery,
@@ -56,6 +57,45 @@ describe('marketingAnalyticsLogic', () => {
             logic.unmount()
         }
         localStorage.clear()
+    })
+
+    it('removes AppleSearchAds from connected sources and mapping menus when its flag turns off', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const campaignSchema = MARKETING_INTEGRATION_CONFIGS.AppleSearchAds.campaignTableName
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({
+                count: 2,
+                next: null,
+                previous: null,
+                results: [
+                    { id: 'new-source', source_type: 'AppleSearchAds', schemas: [] } as unknown as ExternalDataSource,
+                    { id: 'google-source', source_type: 'GoogleAds', schemas: [] } as unknown as ExternalDataSource,
+                ],
+            })
+        ).toFinishAllListeners()
+        databaseTableListLogic.actions.loadDatabaseSuccess({
+            tables: {
+                campaign: {
+                    id: 'campaign-table',
+                    name: `AppleSearchAds_${campaignSchema}`,
+                    type: 'data_warehouse',
+                    source: { id: 'new-source', source_type: 'AppleSearchAds' },
+                    fields: {},
+                } as DatabaseSchemaDataWarehouseTable,
+            },
+            joins: [],
+        })
+        for (const enabled of [false, true, false]) {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS]: enabled })
+            expect(logic.values.nativeSources.map((source) => source.source_type)).toEqual(
+                enabled ? ['AppleSearchAds', 'GoogleAds'] : ['GoogleAds']
+            )
+            expect(marketingAnalyticsSettingsLogic.values.integrationCampaignTables.AppleSearchAds).toBe(
+                enabled ? `AppleSearchAds_${campaignSchema}` : undefined
+            )
+        }
     })
 
     it('excludes conversion queries only in Ad performance and preserves legacy columns', async () => {

@@ -14,6 +14,11 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 ### Apple Ads in Marketing analytics
 
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
 Sync `campaigns` and `campaign_report` to include Apple Ads in Marketing analytics.
 Sync `ad_groups` and `ad_group_report` to enable the ad group breakdown.
 Apple Ads does not provide an ad-level report through this connector.

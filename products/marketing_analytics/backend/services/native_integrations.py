@@ -8,9 +8,14 @@ else before lookup.
 from collections.abc import Iterator, Mapping
 from functools import cache
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from posthog.schema import NativeMarketingSource
+
+from posthog.ph_client import feature_enabled_or_false
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 NativeIntegration = Literal[
     "apple_ads",
@@ -83,6 +88,23 @@ OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
     NativeMarketingSource.SNAPCHAT_ADS: "snapchat",
     NativeMarketingSource.TIK_TOK_ADS: "tiktok-ads",
 }
+
+
+NATIVE_SOURCE_FEATURE_FLAGS: dict[str, str] = {
+    "AppleSearchAds": "marketing-analytics-apple-ads",
+}
+
+
+def is_native_source_enabled(source_type: str, team: "Team") -> bool:
+    flag = NATIVE_SOURCE_FEATURE_FLAGS.get(source_type)
+    if flag is None:
+        return True
+    return feature_enabled_or_false(
+        flag,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
 
 
 def display_name_for_key(key: NativeIntegration) -> str:

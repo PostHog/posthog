@@ -1,4 +1,4 @@
-import type { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 
 import {
     AttributionMode,
@@ -30,10 +30,9 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'azure',
 ]
 
-// Map of native sources that require a feature flag to be enabled. Empty today
-// (all current sources are fully rolled out), but kept so a new source can be
-// gated behind a flag while it's being rolled out.
-export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {}
+export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+}
 
 /**
  * Filter native marketing sources based on feature flags
@@ -46,7 +45,7 @@ export function getEnabledNativeMarketingSources(
     return VALID_NATIVE_MARKETING_SOURCES.filter((source) => {
         const featureFlagKey = NATIVE_SOURCE_FEATURE_FLAGS[source]
         if (featureFlagKey) {
-            return !!featureFlags[featureFlagKey]
+            return featureFlags[featureFlagKey] === true
         }
         return true
     })
