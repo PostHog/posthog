@@ -71,9 +71,7 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         align: 'right',
         tooltip: 'Percentage of calls that returned $mcp_is_error = true',
     },
-    { key: 'p50_duration_ms', label: 'p50', align: 'right', tooltip: 'Median $mcp_duration_ms' },
     { key: 'p95_duration_ms', label: 'p95', align: 'right', tooltip: '95th-percentile $mcp_duration_ms' },
-    { key: 'p99_duration_ms', label: 'p99', align: 'right', tooltip: '99th-percentile $mcp_duration_ms' },
     { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
     {
         key: 'sessions',
@@ -204,9 +202,7 @@ function ToolRows(): JSX.Element {
                     <TableCell align="right">
                         <ErrorRateBadge pct={row.error_rate_pct} />
                     </TableCell>
-                    <TableCell align="right">{formatMs(row.p50_duration_ms)}</TableCell>
                     <TableCell align="right">{formatMs(row.p95_duration_ms)}</TableCell>
-                    <TableCell align="right">{formatMs(row.p99_duration_ms)}</TableCell>
                     <TableCell align="right">{formatNumber(row.users)}</TableCell>
                     <TableCell align="right">
                         <span className="tabular-nums">{formatNumber(row.sessions)}</span>
