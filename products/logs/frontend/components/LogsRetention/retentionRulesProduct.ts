@@ -23,10 +23,8 @@ type SuggestNameBody = Parameters<typeof logsRetentionRulesSuggestNameCreate>[1]
 /**
  * What separates one product's retention rules from another's.
  *
- * Logs and traces store their rules in the same table, told apart by `source`, and the rest of
- * the rule UI is identical. Everything that does differ — the API route, the filter vocabulary,
- * the scene URLs and the noun in the copy — is collected here, so both products drive the same
- * components and logics.
+ * Everything that does differ — the API route, the filter vocabulary, the scene URLs and the noun
+ * in the copy — is collected here, so both products drive the same components and logics.
  */
 export interface RetentionRulesProduct {
     /** Record kind: `logs` for `LogsRetentionRule`, `spans` for `TracesRetentionRule`. Also the kea logic key. */
@@ -58,8 +56,6 @@ export interface RetentionRulesProduct {
      * equivalent of yet.
      */
     showVolumePreview: boolean
-    /** `resourceType` for the rule scenes' title section. */
-    sceneResourceType: string
 }
 
 export const LOGS_RETENTION_PRODUCT: RetentionRulesProduct = {
@@ -86,5 +82,4 @@ export const LOGS_RETENTION_PRODUCT: RetentionRulesProduct = {
         settings: () => logsRetentionRulesSettingsUrl(),
     },
     showVolumePreview: true,
-    sceneResourceType: 'logs',
 }

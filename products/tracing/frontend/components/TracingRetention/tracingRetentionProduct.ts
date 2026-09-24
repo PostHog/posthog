@@ -13,10 +13,6 @@ import {
 } from 'products/tracing/frontend/generated/api'
 import { tracingRetentionSettingsUrl } from 'products/tracing/frontend/tracingRetentionSettingsUrl'
 
-/**
- * Span retention rules. They share the logs rules table and UI; only the route, the filter
- * vocabulary, the scene URLs and the noun differ.
- */
 export const TRACES_RETENTION_PRODUCT: RetentionRulesProduct = {
     source: 'spans',
     recordNoun: 'span',
@@ -42,5 +38,4 @@ export const TRACES_RETENTION_PRODUCT: RetentionRulesProduct = {
     },
     // Traces have no bytes-volume preview endpoint yet.
     showVolumePreview: false,
-    sceneResourceType: 'tracing',
 }

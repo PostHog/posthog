@@ -119,7 +119,6 @@ export class IngestionTracesServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
             : undefined
 
-        // Span retention rules share the log rules table; the consumer filters to `source=spans`.
         // The tracing config supplies the per-team default for spans no rule matches.
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
         const tracingConfigCache = new TracingConfigCache(this.postgres)

@@ -27,7 +27,6 @@ A retention rule keeps {record_plural} matching a filter for a given number of d
 - Keep exact: service names, attribute values, numbers.
 - Never invent details that are not in the filters."""
 
-# Record nouns for the prompt, keyed by `LogsRetentionRule.RecordSource`.
 RECORD_NOUNS = {"logs": "log", "spans": "span"}
 RECORD_NOUNS_PLURAL = {"logs": "logs", "spans": "spans"}
 
