@@ -156,9 +156,11 @@ export function MemberSelect({
                                             onSelectOption?.(option.uuid, option.name || option.email)
                                         }}
                                     >
-                                        <span className="flex items-center justify-between gap-2 flex-1">
-                                            <span>{option.name || option.email}</span>
-                                            <span className="text-secondary">{option.trailing}</span>
+                                        <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                            <span className="min-w-0 flex-1 truncate">
+                                                {option.name || option.email}
+                                            </span>
+                                            <span className="shrink-0 text-secondary">{option.trailing}</span>
                                         </span>
                                     </LemonButton>
                                 </li>
