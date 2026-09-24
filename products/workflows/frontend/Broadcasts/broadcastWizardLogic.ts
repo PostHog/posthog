@@ -866,6 +866,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 lemonToast.error("Couldn't load the latest version of the broadcast. Reload the page to see it.")
                 return
             }
+            // A save can land while the fetch runs. Do not replace that newer state with an older copy.
+            if (values.broadcast && !dayjs(fresh.updated_at).isAfter(dayjs(values.broadcast.updated_at))) {
+                return
+            }
             actions.applyExternalEdit(fresh)
         },
         setSendAtFromPicker: ({ pickerDate }) => {
