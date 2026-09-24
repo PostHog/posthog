@@ -923,7 +923,9 @@ export class LogsIngestionConsumer {
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
-                        const retentionDays = await this.defaultRetentionDays(message.teamId, logsSettings)
+                        const retentionDays = await this.retryOnDependencyUnavailable(() =>
+                            this.defaultRetentionDays(message.teamId, logsSettings)
+                        )
 
                         // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)

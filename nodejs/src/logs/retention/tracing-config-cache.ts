@@ -1,6 +1,7 @@
 import { trace } from '@opentelemetry/api'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
@@ -51,9 +52,10 @@ export class TracingConfigCache {
                 try {
                     retentionDays = await this.fetchRetentionDays(teamId)
                 } catch (error) {
-                    // Fail open, the same as the retention rules cache: a Postgres blip on the
-                    // ingestion hot path must never DLQ otherwise-valid spans. Serve the last-known
-                    // value when we have one; the stale `fetchedAtMs` retries on the next message.
+                    if (!existing && error instanceof DependencyUnavailableError) {
+                        throw error
+                    }
+                    // Serve the last-known value when we have one; the stale `fetchedAtMs` retries on the next message.
                     logger.warn('[traces-retention] tracing config fetch failed — falling back', {
                         teamId,
                         error: String(error),

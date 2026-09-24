@@ -1,3 +1,4 @@
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { DEFAULT_TRACES_RETENTION_DAYS, TracingConfigCache } from './tracing-config-cache'
@@ -32,17 +33,25 @@ describe('TracingConfigCache', () => {
         expect(query).toHaveBeenCalledTimes(1)
     })
 
-    it('fails open to the default when the fetch throws and nothing is cached', async () => {
-        query.mockRejectedValueOnce(new Error('pg down'))
+    it('rethrows a dependency outage when nothing is cached', async () => {
+        query.mockRejectedValueOnce(new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down')))
+        await expect(cache.getRetentionDays(1)).rejects.toBeInstanceOf(DependencyUnavailableError)
+    })
+
+    it('fails open to the default when the fetch throws another error and nothing is cached', async () => {
+        query.mockRejectedValueOnce(new Error('relation "tracing_teamtracingconfig" does not exist'))
         expect(await cache.getRetentionDays(1)).toBe(DEFAULT_TRACES_RETENTION_DAYS)
     })
 
-    it('serves the last-known value when a later refresh throws', async () => {
+    it.each([
+        ['a dependency outage', new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down'))],
+        ['another error', new Error('relation "tracing_teamtracingconfig" does not exist')],
+    ])('serves the last-known value when a later refresh hits %s', async (_, error) => {
         query.mockResolvedValueOnce({ rows: [{ retention_days: 90 }] })
         await cache.getRetentionDays(1)
 
         jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
-        query.mockRejectedValueOnce(new Error('pg down'))
+        query.mockRejectedValueOnce(error)
         expect(await cache.getRetentionDays(1)).toBe(90)
     })
 })
