@@ -195,11 +195,7 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_messages import (
-        load_run_footer,
-        normalize_labeled_mentions_to_bare,
-        project_web_url,
-    )
+    from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare, project_web_url
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
@@ -257,8 +253,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         or mapping.mentioning_slack_user_id
     )
 
-    handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
-    handler.run_footer = load_run_footer(task_run.id, integration_id=mapping.integration_id)
+    handler = SlackThreadHandler.for_run(context, task_run.id, actor_slack_user_id=target, turn_trace_id=input.trace_id)
 
     # The mention opens the answer, in the same line, so the reply reads as one message. An answer
     # that opens with a heading, a list, a quote, a table, or a fence is the exception: Markdown

@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 from slack_sdk import WebClient
@@ -16,6 +17,7 @@ from products.slack_app.backend.services.slack_messages import (
     context_block,
     fork_menu_actions_block,
     fork_menu_element,
+    load_run_footer,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -202,6 +204,27 @@ class SlackThreadHandler:
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
         self._code_access: bool | None = None
+
+    @classmethod
+    def for_run(
+        cls,
+        context: SlackThreadContext,
+        run_id: str | UUID,
+        *,
+        actor_slack_user_id: str | None = None,
+        turn_trace_id: str | None = None,
+    ) -> "SlackThreadHandler":
+        """A handler whose footer describes ``run_id``.
+
+        The footer's project segment is judged against the install this context posts through,
+        so the footer always loads with ``context.integration_id``.
+        """
+        return cls(
+            context,
+            load_run_footer(run_id, integration_id=context.integration_id),
+            actor_slack_user_id=actor_slack_user_id,
+            turn_trace_id=turn_trace_id,
+        )
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
