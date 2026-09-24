@@ -1,12 +1,17 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { evaluationsList, llmAnalyticsEvaluationReportsList } from '../generated/api'
 import type { EvaluationApi, EvaluationReportApi } from '../generated/api.schemas'
-import { listAllEvaluationReports, listAllEvaluations } from './evaluationsApi'
+import { EvaluationsCreateBody } from '../generated/api.zod'
+import { evaluationFromApi, listAllEvaluationReports, listAllEvaluations } from './evaluationsApi'
 
 jest.mock('../generated/api', () => ({
     evaluationsList: jest.fn(),
     evaluationsPartialUpdate: jest.fn(),
     llmAnalyticsEvaluationReportsList: jest.fn(),
 }))
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { warning: jest.fn() } }))
 
 const evaluationApi = (id: string): EvaluationApi => ({
     id,
@@ -65,6 +70,46 @@ const evaluationReportApi = (id: string, evaluation: string): EvaluationReportAp
 })
 
 describe('evaluationsApi', () => {
+    it.each([
+        { min: 0, max: 10, passing_rule: { operator: 'gte', threshold: 7 }, allows_na: true },
+        { true_is_failure: true, allows_na: false },
+        { allows_na: true },
+        {},
+    ])('preserves output settings through the generated schema: %j', (output_config) => {
+        expect(EvaluationsCreateBody.shape.output_config.parse(output_config)).toEqual(output_config)
+    })
+
+    it.each(['llm_judge', 'hog'] as const)('keeps numeric %s configurations in the list', (evaluation_type) => {
+        const output_config = {
+            min: 0,
+            max: 10,
+            allows_na: true,
+            passing_rule: { operator: 'gte' as const, threshold: 7 },
+        }
+        const evaluation = evaluationFromApi({
+            ...evaluationApi('1'),
+            evaluation_type,
+            evaluation_config: evaluation_type === 'hog' ? { source: 'return 7;' } : { prompt: 'Score correctness' },
+            output_type: 'numeric',
+            output_config,
+        })
+        expect(evaluation).toMatchObject({ evaluation_type, output_type: 'numeric', output_config })
+    })
+
+    it.each(['categorical', 'future_output'])(
+        'keeps supported rows when a page contains a future %s output',
+        async (output_type) => {
+            jest.mocked(evaluationsList).mockResolvedValueOnce({
+                count: 2,
+                next: null,
+                previous: null,
+                results: [evaluationApi('1'), { ...evaluationApi('2'), output_type } as EvaluationApi],
+            })
+
+            await expect(listAllEvaluations('1')).resolves.toEqual([expect.objectContaining({ id: '1' })])
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Refresh'), expect.any(Object))
+        }
+    )
     beforeEach(() => {
         jest.mocked(evaluationsList).mockReset()
         jest.mocked(llmAnalyticsEvaluationReportsList).mockReset()

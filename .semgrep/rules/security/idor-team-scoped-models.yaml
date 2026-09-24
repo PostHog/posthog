@@ -262,6 +262,7 @@ rules:
                               |Loop
                               |LoopFire
                               |NotebookWidgetInstance
+                              |NotebookWidgetSnapshot
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -411,6 +412,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
                               |UserInterview
@@ -684,6 +686,7 @@ rules:
                         |LoopFire
                         |LoopTrigger
                         |NotebookWidgetInstance
+                        |NotebookWidgetSnapshot
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptDependency
@@ -829,6 +832,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
                         |UserInterview

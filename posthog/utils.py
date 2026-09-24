@@ -578,6 +578,7 @@ def _build_template_context(
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
+    # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer

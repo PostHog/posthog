@@ -104,6 +104,7 @@ ActivityScope = Literal[
     "LogsAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
+    "TracesRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -362,7 +363,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "allow_publicly_shared_resources": "public sharing permissions",
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
-        "default_experiment_stats_method": "default experiment stats method",
         "is_ai_data_processing_approved": "third-party AI services",
         "uses_most_specific_access_resolution": "most-specific access resolution",
     },
@@ -512,6 +512,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
         "scope": "User",
         "activities": ["logged_in", "logged_out"],
@@ -678,6 +679,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Notebook": [
         "text_content",
         "widget_instances",
+        "widget_snapshots",
     ],
     "FeatureFlag": [
         "experiment",
