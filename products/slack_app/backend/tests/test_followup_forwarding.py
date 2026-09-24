@@ -45,6 +45,12 @@ def _make_inputs(
     )
 
 
+def _attributed(user, text: str, *, slack_user_id: str = "U_ALICE") -> str:
+    # The literal shape is pinned in `test_successful_forwarding`; every other test uses
+    # this so it keeps asserting its own regression rather than the attribution format.
+    return f"<@{slack_user_id}|{user.get_full_name() or user.email}> (posthog user {user.uuid}): {text}"
+
+
 def _make_slack_file(**overrides: object) -> dict[str, object]:
     """A file as Slack puts it on an event payload."""
     file: dict[str, object] = {
@@ -877,9 +883,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mapping.task_id == self.task.id
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert new_run.state.get("pending_user_message") == "do something"
+        assert new_run.state.get("pending_user_message") == _attributed(self.user, "do something")
         assert new_run.state.get("pending_user_message_ts") == "1234.5679"
-        assert new_run.state.get("initial_prompt_override") == "do something"
+        assert new_run.state.get("initial_prompt_override") == _attributed(self.user, "do something")
 
         # Resume path also annotates the new run with the mention-dispatch pointer.
         assert new_run.state.get("slack_mention_workflow_id") == "posthog-code-mention-T_SLACK:C123:1234.5678"
@@ -925,7 +931,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert new_run.state["initial_prompt_override"] == "check this run"
+        assert new_run.state["initial_prompt_override"] == _attributed(self.user, "check this run")
         assert "check this run" in new_run.state["pending_user_message"]
         assert (
             "Slack attachment(s) available to the agent as task files: resume.txt."
@@ -1008,7 +1014,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "gh pr checkout https://github.com/org/repo/pull/1" in prompt
         assert new_run.state["slack_recovery_from_run_id"] == str(self.task_run.id)
         assert new_run.state["slack_recovery_strategy"] == "connect_then_replan"
-        assert new_run.state["slack_recovery_user_message"] == "I connected GitHub, try again"
+        assert new_run.state["slack_recovery_user_message"] == _attributed(self.user, "I connected GitHub, try again")
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1107,7 +1113,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_signal.assert_called_once()
         assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
         signal_kwargs = mock_signal.call_args.kwargs
-        assert signal_kwargs["content"] == "Bob: please retry the build"
+        assert signal_kwargs["content"] == _attributed(bob, "please retry the build", slack_user_id="U_BOB")
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
         # No "Only the person who started" denial; the message went through.
@@ -1132,7 +1138,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         mock_signal.assert_called_once()
         signal_kwargs = mock_signal.call_args.kwargs
-        assert signal_kwargs["content"] == "bob@test.com: ping"
+        assert signal_kwargs["content"] == _attributed(bob, "ping", slack_user_id="U_BOB")
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
 
@@ -1180,8 +1186,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         new_run = self.TaskRun.objects.get(id=new_run_id)
         assert mock_execute_workflow.call_args.kwargs["user_id"] == bob.id
-        assert new_run.state.get("pending_user_message") == "Bob: fix the tests"
-        assert new_run.state.get("initial_prompt_override") == "Bob: fix the tests"
+        assert new_run.state.get("pending_user_message") == _attributed(bob, "fix the tests", slack_user_id="U_BOB")
+        assert new_run.state.get("initial_prompt_override") == _attributed(bob, "fix the tests", slack_user_id="U_BOB")
         assert new_run.state["slack_actor_user_id"] == bob.id
         assert new_run.state["slack_actor_slack_user_id"] == "U_BOB"
 
@@ -1276,7 +1282,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         assert result is True
         mock_signal.assert_called_once()
-        assert mock_signal.call_args.kwargs["content"] == "do something"
+        assert mock_signal.call_args.kwargs["content"] == _attributed(self.user, "do something")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
@@ -1295,7 +1301,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_signal.assert_called_once()
         assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
         signal_kwargs = mock_signal.call_args.kwargs
-        assert signal_kwargs["content"] == "do something"
+        # Attributed even though the sender is the person who opened the thread, which is
+        # the case that used to reach the agent anonymously.
+        assert signal_kwargs["content"] == f"<@U_ALICE|{self.user.email}> (posthog user {self.user.uuid}): do something"
         assert signal_kwargs["artifact_ids"] == []
         assert signal_kwargs["actor_user_id"] == self.user.id
         assert signal_kwargs["message_id"] is not None
@@ -1355,7 +1363,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         first_call, second_call = mock_signal.call_args_list
         assert first_call.args == (self.task_run.id, self.task.id, self.team.id)
         content = first_call.kwargs["content"]
-        assert content.startswith("Attached Slack file(s).")
+        # A message that is nothing but a file still says who posted it.
+        assert content.startswith(_attributed(self.user, "attached Slack file(s)."))
         assert "Slack attachment(s) available to the agent as task files: only-log.txt." in content
         assert first_call.kwargs["actor_user_id"] == self.user.id
         assert mock_write.call_count == 2

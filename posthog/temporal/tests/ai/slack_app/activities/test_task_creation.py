@@ -21,6 +21,7 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _build_posthog_code_task_description,
     _format_author_token,
     _indent_body,
+    _with_posthog_identity,
     build_thread_context_update,
     derive_mention_workflow_id,
 )
@@ -28,6 +29,8 @@ from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowI
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, encode_slack_file_refs
+
+_MENTIONER_UUID = "018f3c2a-0000-7000-8000-000000000001"
 
 
 def test_format_author_token_builds_labeled_mention():
@@ -45,6 +48,20 @@ def test_format_author_token_falls_back_to_generic_when_name_missing():
     assert _format_author_token(None, None) == "user"
 
 
+@pytest.mark.parametrize(
+    "posthog_user_uuid,expected",
+    [
+        (_MENTIONER_UUID, f"<@U123|alice> (posthog user {_MENTIONER_UUID})"),
+        # The task's creator can be gone by the time a follow-up lands; "(posthog user
+        # None)" would hand the agent a handle to go and look up.
+        (None, "<@U123|alice>"),
+        ("   ", "<@U123|alice>"),
+    ],
+)
+def test_with_posthog_identity_states_a_uuid_only_when_there_is_one(posthog_user_uuid, expected):
+    assert _with_posthog_identity("<@U123|alice>", posthog_user_uuid) == expected
+
+
 def test_indent_body_indents_every_line():
     text = "line one\nline two\nline three"
     assert _indent_body(text) == "  line one\n  line two\n  line three"
@@ -58,26 +75,39 @@ def test_indent_body_preserves_blank_lines_without_trailing_whitespace():
 
 
 @pytest.mark.parametrize(
-    "thread_messages,initiator_text,expected",
+    "thread_messages,initiator_text,mentioner_slack_user_id,expected",
     [
         # A single-message thread needs no context block — the initiator's text *is* the
         # entire context, and it is already the prompt below the divider.
         (
             [SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678")],
             "do something",
-            "do something",
+            "U_GEORGIY",
+            f"Requested by <@U_GEORGIY|georgiy> (posthog user {_MENTIONER_UUID}).\n\ndo something",
         ),
-        ([], "   ", "Task from Slack"),
+        (
+            [],
+            "   ",
+            "U_GEORGIY",
+            f"Requested by <@U_GEORGIY|georgiy> (posthog user {_MENTIONER_UUID}).\n\nTask from Slack",
+        ),
+        # A fork withholds the mentioner, so there is no requester to name.
+        ([], "do something", None, "do something"),
     ],
 )
-def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_messages, initiator_text, expected):
+def test_build_description_names_the_requester_without_a_context_block(
+    thread_messages, initiator_text, mentioner_slack_user_id, expected
+):
     out = _build_posthog_code_task_description(
         initiator_text,
         thread_messages,
         "1234.5678",
-        mentioner_slack_user_id="U_GEORGIY",
+        mentioner_slack_user_id=mentioner_slack_user_id,
+        mentioner_display_name="georgiy",
+        mentioner_posthog_user_uuid=_MENTIONER_UUID,
     )
     assert out == expected
+    assert _THREAD_CONTEXT_TAG not in out
 
 
 @pytest.mark.parametrize(
@@ -236,8 +266,11 @@ def test_build_description_collapses_role_annotations_when_same_person():
         ],
         "2.000",
         mentioner_slack_user_id="U_GEORGIY",
+        mentioner_posthog_user_uuid=_MENTIONER_UUID,
     )
-    assert "Thread started by and tagged the PostHog app: <@U_GEORGIY|georgiy>" in out
+    # Deciding the collapse on the rendered form would make one person look like two:
+    # the thread author carries no uuid to compare against.
+    assert f"Thread started by and tagged the PostHog app: <@U_GEORGIY|georgiy> (posthog user {_MENTIONER_UUID})" in out
     # The split form must NOT appear when the roles collapse
     assert "Thread started by:" not in out.replace("Thread started by and tagged", "")
 
@@ -253,9 +286,12 @@ def test_build_description_separates_role_annotations_when_different_people():
         ],
         "2.000",
         mentioner_slack_user_id="U_THEO",
+        mentioner_posthog_user_uuid=_MENTIONER_UUID,
     )
     assert "Thread started by: <@U_MIRA|mira>" in out
-    assert "Tagged the PostHog app: <@U_THEO|theo lin>" in out
+    assert f"Tagged the PostHog app: <@U_THEO|theo lin> (posthog user {_MENTIONER_UUID})" in out
+    # Claiming an identity for the thread author would invent an account to look up.
+    assert "<@U_MIRA|mira> (posthog user" not in out
 
 
 def test_build_description_uses_mentioner_display_name_fallback_when_not_in_thread():
@@ -395,6 +431,7 @@ def test_build_description_snapshot_matches(snapshot):
         initiator_ts="2.000",
         mentioner_slack_user_id="U_MIRA",
         mentioner_display_name="mira",
+        mentioner_posthog_user_uuid=_MENTIONER_UUID,
     )
     assert out == snapshot
 
