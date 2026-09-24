@@ -7,7 +7,8 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS, snapshot_flow_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -136,6 +137,17 @@ class TestHogFlowRevisions(APIBaseTest):
         content = self._revision_content(flow_id, 1)
         assert set(content.keys()) == set(DRAFT_CONTENT_FIELDS)
         assert content["actions"] == HogFlow.objects.get(pk=flow_id).actions
+
+    def test_revision_snapshot_resolves_a_shared_template_once(self):
+        flow = HogFlow(
+            team=self.team,
+            name="Many steps",
+            actions=[_trigger_action(), *[_webhook_action(f"action_{i}") for i in range(5)]],
+            edges=[],
+        )
+        with patch.object(HogFunctionTemplate, "get_template", wraps=HogFunctionTemplate.get_template) as lookup:
+            snapshot_flow_content(flow)
+        assert lookup.call_count == 1
 
     def test_create_then_resave_of_response_keeps_single_revision(self):
         # The editor rebaselines its form on the create response and sends that shape back on the
