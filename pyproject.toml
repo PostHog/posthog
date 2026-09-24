@@ -830,6 +830,28 @@ ignore_imports = [
     "products.**.backend.webhook_consumers -> products.**.backend.facade.**",
 ]
 
+# Error tracking reads three other products' data: roles and role members (access_control),
+# the cohort an issue points at (cohorts), and the alert destinations of a team (cdp). Each
+# read goes through that product's facade, so an upstream schema change is a change to a
+# contract a reviewer can see, not to a model class error tracking happens to hold.
+[[tool.importlinter.contracts]]
+name = "error_tracking must reach other products through their facade"
+type = "forbidden"
+source_modules = ["products.error_tracking.backend"]
+forbidden_modules = [
+    "products.access_control.backend.models",
+    "products.cdp.backend.models",
+    "products.cohorts.backend.models",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    # TODO: test fixtures still seed access_control rows directly — give the product a facade
+    # write function (or a facade/testing.py door) and drop the line
+    "products.error_tracking.backend.test_notifications -> products.access_control.backend.models.role",
+    "products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner -> products.access_control.backend.models.access_control",
+    "products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner -> products.access_control.backend.models.role",
+]
+
 # The facade is the layer below presentation. A facade that imports its product's presentation
 # inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
 # DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is
