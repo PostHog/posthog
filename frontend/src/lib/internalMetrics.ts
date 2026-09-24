@@ -2,8 +2,8 @@ import posthog from 'posthog-js'
 
 export interface TimeToSeeDataPayload {
     team_id?: number | null
-    type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' | 'property_values_load' | 'properties_load'
-    context: 'dashboard' | 'insight' | 'actors_modal' | 'filters'
+    type: 'dashboard_load' | 'insight_load'
+    context: 'dashboard' | 'insight'
     time_to_see_data_ms: number
     primary_interaction_id: string
     query_id?: string
