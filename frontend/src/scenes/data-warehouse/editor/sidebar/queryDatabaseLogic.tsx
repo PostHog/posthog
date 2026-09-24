@@ -1795,7 +1795,7 @@ const findTreePath = (items: TreeDataItem[], targetId: string, path: TreeDataIte
     return null
 }
 
-const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | null => {
+export const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | null => {
     const path = findTreePath(items, targetId)
     return path ? path[path.length - 1] : null
 }

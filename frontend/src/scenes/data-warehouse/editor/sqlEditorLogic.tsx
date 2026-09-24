@@ -44,6 +44,7 @@ import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
+import { insertTextAtClientPoint } from 'lib/monaco/textDrop'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -846,6 +847,15 @@ export interface sqlEditorLogicActions {
     initialize: () => {
         value: true
     }
+    insertTextAtClientPoint: (
+        text: string,
+        clientX: number,
+        clientY: number
+    ) => {
+        text: string
+        clientX: number
+        clientY: number
+    }
     insertTextAtCursor: (text: string) => {
         text: string
     }
@@ -1417,6 +1427,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        insertTextAtClientPoint: (text: string, clientX: number, clientY: number) => ({ text, clientX, clientY }),
         applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
         fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
@@ -1848,6 +1859,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // same suggestion flow and lands as a reviewable diff rather than a silent rewrite.
                 actions.fixErrors(values.queryInput ?? '', prompt, values.selectedConnectionId)
                 posthog.capture('sql-editor-index-fix-with-ai')
+            },
+            insertTextAtClientPoint: ({ text, clientX, clientY }) => {
+                if (props.editor) {
+                    insertTextAtClientPoint(props.editor, text, clientX, clientY)
+                }
             },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor

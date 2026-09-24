@@ -70,7 +70,7 @@ import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsL
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
-import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+import { findTreeItem, isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -117,6 +117,14 @@ export function getDragInsertText(record: Record<string, any> | undefined): stri
         default:
             return null
     }
+}
+
+function getDragReleasePoint(dragEvent: DragEndEvent): { x: number; y: number } | null {
+    const { activatorEvent, delta } = dragEvent
+    if (!(activatorEvent instanceof MouseEvent)) {
+        return null
+    }
+    return { x: activatorEvent.clientX + delta.x, y: activatorEvent.clientY + delta.y }
 }
 
 /**
@@ -204,6 +212,7 @@ export const QueryDatabase = ({
         setQueryInput,
         setSourceQuery,
         insertTextAtCursor,
+        insertTextAtClientPoint,
     } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
@@ -424,10 +433,14 @@ export const QueryDatabase = ({
             }}
             onDragCancel={clearDraggedViewState}
             onDragEnd={(dragEvent: DragEndEvent) => {
-                moveDraggedViewToDropTarget(
-                    String(dragEvent.active.id),
-                    dragEvent.over?.id ? String(dragEvent.over.id) : null
-                )
+                const viewId = String(dragEvent.active.id)
+                const dropTargetId = dragEvent.over?.id ? String(dragEvent.over.id) : null
+                const releasePoint = getDragReleasePoint(dragEvent)
+                const viewInsertText = getDragInsertText(findTreeItem(treeData, viewId)?.record)
+                if (!dropTargetId && releasePoint && viewInsertText) {
+                    insertTextAtClientPoint(viewInsertText, releasePoint.x, releasePoint.y)
+                }
+                moveDraggedViewToDropTarget(viewId, dropTargetId)
             }}
             expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={

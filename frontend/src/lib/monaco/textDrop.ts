@@ -11,6 +11,35 @@ function hasPlainText(event: DragEvent): boolean {
     return Array.from(event.dataTransfer?.types ?? []).includes('text/plain')
 }
 
+/** Inserts the text where the point falls in the editor. Returns false when the point is outside the editor. */
+export function insertTextAtClientPoint(
+    editorInstance: editor.ICodeEditor,
+    text: string,
+    clientX: number,
+    clientY: number
+): boolean {
+    const model = editorInstance.getModel()
+    const domNode = editorInstance.getDomNode()
+    if (!model || !domNode || !text || editorInstance.getOption(editor.EditorOption.readOnly)) {
+        return false
+    }
+    const bounds = domNode.getBoundingClientRect()
+    if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top || clientY > bounds.bottom) {
+        return false
+    }
+    const position = editorInstance.getTargetAtClientPoint(clientX, clientY)?.position
+    if (!position) {
+        return false
+    }
+    const range = new Range(position.lineNumber, position.column, position.lineNumber, position.column)
+    editorInstance.pushUndoStop()
+    editorInstance.executeEdits('plain-text-drop', [{ range, text, forceMoveMarkers: true }])
+    editorInstance.pushUndoStop()
+    editorInstance.setPosition(model.getPositionAt(model.getOffsetAt(position) + text.length))
+    editorInstance.focus()
+    return true
+}
+
 export function enablePlainTextDrop(editorInstance: editor.ICodeEditor): IDisposable {
     const domNode = editorInstance.getDomNode()
     if (!domNode) {
@@ -45,19 +74,10 @@ export function enablePlainTextDrop(editorInstance: editor.ICodeEditor): IDispos
 
     const onDrop = (event: DragEvent): void => {
         dropIndicator.clear()
-        const position = getDropPosition(event)
-        const model = editorInstance.getModel()
-        const text = event.dataTransfer?.getData('text/plain')
-        if (!position || !model || !text) {
-            return
+        const text = hasPlainText(event) ? event.dataTransfer?.getData('text/plain') : undefined
+        if (text && insertTextAtClientPoint(editorInstance, text, event.clientX, event.clientY)) {
+            event.preventDefault()
         }
-        event.preventDefault()
-        const range = new Range(position.lineNumber, position.column, position.lineNumber, position.column)
-        editorInstance.pushUndoStop()
-        editorInstance.executeEdits('plain-text-drop', [{ range, text, forceMoveMarkers: true }])
-        editorInstance.pushUndoStop()
-        editorInstance.setPosition(model.getPositionAt(model.getOffsetAt(position) + text.length))
-        editorInstance.focus()
     }
 
     const onDragLeave = (): void => dropIndicator.clear()

@@ -1773,7 +1773,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 </ScrollableShadows>
 
                 {/* Custom drag overlay */}
-                <DragOverlay dropAnimation={null}>
+                {/* The preview sits under the pointer, so it must not hide the drop point from hit tests */}
+                <DragOverlay dropAnimation={null} className="pointer-events-none">
                     {activeDragItem && (
                         <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)] ">
                             <div className="shrink-0">
