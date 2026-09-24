@@ -49,9 +49,6 @@ _PATCH_TARGETS = {
     "is_any_external_data_schema_paused": (
         "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused"
     ),
-    "is_buffered_snapshot_enabled": (
-        "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled"
-    ),
 }
 
 
@@ -82,21 +79,17 @@ def _make_cdc_source_and_schema(
     cdc_last_log_position: str | None = "0/12345",
     cdc_deferred_runs: list[dict] | None = None,
     initial_sync_complete: bool = True,
-    ingest_mode: str | None = None,
 ) -> tuple[ExternalDataSource, ExternalDataSchema]:
-    job_inputs = {
-        "schema": "public",
-        "cdc_enabled": True,
-        "cdc_management_mode": "posthog",
-        "cdc_slot_name": "test_slot",
-        "cdc_publication_name": "test_pub",
-    }
-    if ingest_mode is not None:
-        job_inputs["cdc_ingest_mode"] = ingest_mode
     source = ExternalDataSource.objects.create(
         team=team,
         source_type=ExternalDataSourceType.POSTGRES,
-        job_inputs=job_inputs,
+        job_inputs={
+            "schema": "public",
+            "cdc_enabled": True,
+            "cdc_management_mode": "posthog",
+            "cdc_slot_name": "test_slot",
+            "cdc_publication_name": "test_pub",
+        },
     )
     sync_type_config: dict = {
         "cdc_mode": "streaming",
@@ -121,25 +114,19 @@ def _make_cdc_source_and_schema(
 
 
 @pytest.mark.parametrize(
-    ("old_mode", "new_mode", "ingest_mode"),
+    ("old_mode", "new_mode"),
     [
-        ("consolidated", "cdc_only", None),
-        ("consolidated", "both", None),
-        ("cdc_only", "consolidated", None),
-        ("cdc_only", "both", None),
-        ("consolidated", "both", "buffered"),
+        ("consolidated", "cdc_only"),
+        ("consolidated", "both"),
+        ("cdc_only", "consolidated"),
+        ("cdc_only", "both"),
     ],
 )
-def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
-    team, user, client: HttpClient, old_mode, new_mode, ingest_mode
-):
+def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
     source, schema = _make_cdc_source_and_schema(
         team,
         cdc_table_mode=old_mode,
-        # Pending deferred runs keep a buffered source's table on the legacy lane, so only the legacy
-        # cases carry them.
-        cdc_deferred_runs=None if ingest_mode else [{"job_id": "stale", "run_uuid": "stale", "batch_results": []}],
-        ingest_mode=ingest_mode,
+        cdc_deferred_runs=[{"job_id": "stale", "run_uuid": "stale", "batch_results": []}],
     )
     running_job = ExternalDataJob.objects.create(
         team=team,
@@ -158,7 +145,6 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
         mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
         mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]) as mock_cancel,
         mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
-        mock.patch(_PATCH_TARGETS["is_buffered_snapshot_enabled"], return_value=True),
     ):
         response = client.patch(
             f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
@@ -170,8 +156,8 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
 
     schema.refresh_from_db()
     assert schema.cdc_table_mode == new_mode
-    # A buffered source's changes keep going to the buffer, which the new snapshot then replays.
-    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
+    # The table's changes keep going to the buffer, which the new snapshot then replays.
+    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     assert schema.sync_type_config.get("cdc_last_log_position") is None
     assert schema.sync_type_config.get("cdc_deferred_runs") is None

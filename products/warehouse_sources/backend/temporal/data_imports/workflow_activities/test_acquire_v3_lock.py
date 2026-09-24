@@ -68,12 +68,12 @@ class TestCheckPipelineVersionActivity:
         mock_v3_check.assert_called_once_with(TEAM_ID, "Stripe")
 
     @pytest.mark.parametrize(
-        "ingest_mode, expected_is_v3",
+        "cdc_mode, expected_is_v3",
         [
-            ("buffered", True),
-            ("legacy", False),
+            ("streaming", True),
+            ("snapshot", False),
         ],
-        ids=["flipped_forces_v3", "unflipped_follows_flag"],
+        ids=["consumer_forces_v3", "snapshot_follows_flag"],
     )
     @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=False)
     @patch(f"{MODULE}.ExternalDataSchema")
@@ -87,15 +87,14 @@ class TestCheckPipelineVersionActivity:
         mock_source_model: MagicMock,
         mock_schema_model: MagicMock,
         _mock_v3_check: MagicMock,
-        ingest_mode: str,
+        cdc_mode: str,
         expected_is_v3: bool,
     ) -> None:
         schema = MagicMock()
         schema.is_cdc = True
-        schema.cdc_mode = "streaming"
+        schema.cdc_mode = cdc_mode
         schema.cdc_table_mode = "consolidated"
         schema.initial_sync_complete = True
-        schema.source.job_inputs = {"cdc_ingest_mode": ingest_mode}
         mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = schema
         mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
 

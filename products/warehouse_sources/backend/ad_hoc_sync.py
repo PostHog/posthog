@@ -22,7 +22,8 @@ from posthog.dataclasses import frozen
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import BUFFER_LANE
 
 
 @frozen
@@ -100,14 +101,15 @@ def trigger_ad_hoc_sync(
     if reset_pipeline:
         schema.sync_type_config["reset_pipeline"] = True
         update_fields.append("sync_type_config")
-        # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
-        # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
-        # full re-snapshot. The job is created non-billable when the caller asks for that, and on
-        # completion set_initial_sync_complete transitions it back to streaming, so ongoing CDC
-        # stays billable. The save must precede the workflow start so the source reloads
-        # cdc_mode="snapshot" instead of racing on stale "streaming".
+        # A streaming CDC schema's run consumes the change buffer, which a reset cannot restart. Flip it
+        # back to snapshot so this run does a full re-snapshot. The job is created non-billable when
+        # the caller asks for that, and on completion set_initial_sync_complete transitions it back to
+        # streaming, so ongoing CDC stays billable. The save must precede the workflow start so the
+        # source reloads cdc_mode="snapshot" instead of racing on stale "streaming". The buffer keeps
+        # the changes capture writes meanwhile, which replay over the new snapshot.
         if schema.is_cdc and schema.cdc_mode == "streaming":
             schema.sync_type_config["cdc_mode"] = "snapshot"
+            schema.sync_type_config[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
             schema.sync_type_config.pop("cdc_last_log_position", None)
             schema.sync_type_config.pop("cdc_deferred_runs", None)
             schema.initial_sync_complete = False

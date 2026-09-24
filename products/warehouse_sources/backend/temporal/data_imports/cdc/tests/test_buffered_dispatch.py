@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 _SCHEMA_MODEL = "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
 _JOB_MODEL = "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob"
 _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
 _COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
+_SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
 
 
 def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
@@ -78,23 +78,26 @@ def _dispatch(
 
 
 class TestBufferedDispatch:
-    def test_a_flipped_schema_is_consumed_here_instead_of_by_the_extraction_workflow(self):
-        response = _dispatch(_schema(), _inputs())
+    # A source capture has not converted yet still reads "legacy"; its streaming tables consume the buffer too.
+    @pytest.mark.parametrize("ingest_mode", ["buffered", "legacy"])
+    def test_a_streaming_schema_is_consumed_from_the_buffer(self, ingest_mode):
+        response = _dispatch(_schema(ingest_mode), _inputs())
 
         assert response.name == "users"
         assert response.cdc_write_mode == "incremental_merge"
 
-    @pytest.mark.parametrize(
-        "overrides,ingest_mode",
-        [
-            ({}, "legacy"),
-            ({"cdc_table_mode": "something_new"}, "buffered"),
-            ({"initial_sync_complete": False}, "buffered"),
-        ],
-    )
-    def test_a_schema_the_buffer_does_not_serve_stays_with_the_extraction_workflow(self, overrides, ingest_mode):
-        with pytest.raises(CDCHandledExternally):
-            _dispatch(_schema(ingest_mode, **overrides), _inputs())
+    def test_an_unrecognized_table_mode_fails_the_run(self):
+        with pytest.raises(ValueError, match="cdc_table_mode"):
+            _dispatch(_schema(cdc_table_mode="something_new"), _inputs())
+
+    def test_a_streaming_schema_whose_data_was_deleted_runs_a_snapshot(self):
+        with (
+            patch(f"{_SOURCE}.source_requires_ssl", return_value=False),
+            patch(f"{_SOURCE}.postgres_source") as snapshot,
+        ):
+            _dispatch(_schema(initial_sync_complete=False), _inputs())
+
+        snapshot.assert_called_once()
 
     def test_a_cdc_only_schema_is_consumed_into_its_companion_table(self):
         response = _dispatch(_schema(cdc_table_mode="cdc_only"), _inputs())

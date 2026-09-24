@@ -2,7 +2,6 @@ import uuid
 import random
 import logging
 import datetime as dt
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -31,7 +30,6 @@ from products.data_warehouse.backend.logic.data_load.service import (
     a_unpause_external_data_schedule,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
-    cdc_extraction_schedule_has_running_action,
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
@@ -384,22 +382,9 @@ def test_cdc_schedule_paused_reports_the_schedule_state(paused: bool) -> None:
         assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is paused
 
 
-@pytest.mark.parametrize("running_actions,expected", [([], False), ([MagicMock()], True)])
-def test_cdc_schedule_running_action_reports_an_executing_run(running_actions: list[MagicMock], expected: bool) -> None:
-    desc = MagicMock()
-    desc.info.running_actions = running_actions
-
-    with _temporal_with_schedule(desc):
-        assert cdc_extraction_schedule_has_running_action("01a0393e-a79f-0000-0361-2cabb703888f") is expected
-
-
-@pytest.mark.parametrize(
-    "read",
-    [is_cdc_extraction_schedule_paused, cdc_extraction_schedule_has_running_action],
-)
-def test_a_missing_schedule_reads_as_neither_paused_nor_running(read: Callable[[str], bool]) -> None:
+def test_a_missing_schedule_reads_as_not_paused() -> None:
     with _temporal_with_schedule(describe_side=_not_found()):
-        assert read("01a0393e-a79f-0000-0361-2cabb703888f") is False
+        assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is False
 
 
 # --- bulk_sync_cdc_extraction_schedules (upsert: update, else create+trigger) ---

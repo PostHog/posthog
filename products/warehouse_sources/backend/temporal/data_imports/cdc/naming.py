@@ -21,3 +21,8 @@ def cdc_qualified_table_name(schema: ExternalDataSchema, default_schema: str | N
     if "." in schema.name:
         return schema.name
     return f"{default_schema or 'public'}.{schema.name}"
+
+
+# Every extraction run carries its schedule's workflow id, which is built from this prefix (see
+# `_get_cdc_extraction_schedule_id`). Tells capture's own job rows apart from a table's scheduled syncs.
+CDC_EXTRACTION_WORKFLOW_ID_PREFIX = "cdc-extraction-"

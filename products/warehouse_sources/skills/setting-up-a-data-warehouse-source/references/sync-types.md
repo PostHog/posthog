@@ -129,7 +129,7 @@ The `supports_webhooks` flag on each table in the db-schema response is the sour
   frequencies are usually wasteful for full refresh.
 - For `incremental` / `append`: `1hour` or `6hour` is a reasonable default on reasonably sized tables. The `5min`
   floor exists but is rarely needed — if the user wants real-time, prefer `cdc` or `webhook`.
-- For `cdc`: frequency doesn't really apply — CDC streams continuously.
+- For `cdc`: changes are captured continuously, and the frequency sets how often they load into the table. `5min` keeps the table close to real time.
 - For cold archive tables: `7day` or `30day` keeps the schedule alive without wasting runs.
 
 The `never` value freezes the schema — it won't sync automatically, but can still be triggered manually via

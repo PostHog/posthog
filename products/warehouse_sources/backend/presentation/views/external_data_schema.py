@@ -159,8 +159,8 @@ def _concrete_field_names(validated_data: dict[str, Any]) -> list[str]:
 def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     """Cancel any running workflow and reset schema state so the next run does a full snapshot.
 
-    Must save before triggering: the workflow reloads the schema and bails via
-    `CDCHandledExternally` if it sees `cdc_mode='streaming'`.
+    Must save before triggering: the workflow reloads the schema, and a stale
+    `cdc_mode='streaming'` sends it to the change buffer instead of the snapshot.
     """
     latest_running_job = (
         ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id).order_by("-created_at").first()
@@ -180,7 +180,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     # column, leaving no second window for the merged config to be overwritten).
     updates: dict[str, Any] = {"reset_pipeline": True, "cdc_mode": "snapshot"}
     removes = ["cdc_last_log_position", "cdc_deferred_runs"]
-    if resnapshot_stays_in_buffer(instance, logger):
+    if resnapshot_stays_in_buffer(instance):
         updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
     else:
         removes.append(CDC_SNAPSHOT_LANE_KEY)
@@ -749,7 +749,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         super().update() does a full-instance save: every column goes back to the value it held in the
         copy loaded at the start of the request. A PATCH that carries one field therefore reverts every
         field anything else wrote in between — a concurrent CDC extract activity's sync_type_config keys
-        (cdc_last_log_position, cdc_deferred_runs, cdc_mode), or the table_id, status, last_synced_at
+        (cdc_last_log_position, cdc_snapshot_lane, cdc_mode), or the table_id, status, last_synced_at
         and initial_sync_complete that `delete_table()` clears. sync_type_config additionally merges,
         because two writers own different keys of the same column. The lock is held across the save so
         nothing interleaves.
@@ -1883,12 +1883,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Reset CDC state so the next run does a full re-snapshot
             updates["cdc_mode"] = "snapshot"
             removes = ["cdc_last_log_position", "cdc_deferred_runs"]
+            if resnapshot_stays_in_buffer(instance):
+                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+            else:
+                removes.append(CDC_SNAPSHOT_LANE_KEY)
 
         # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
         # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
         # sees cdc_mode="snapshot" when it reloads the schema from DB — otherwise a race: the
-        # workflow starts, loads stale "streaming" mode, raises CDCHandledExternally, and the
-        # full-refresh never runs.
+        # workflow starts, loads stale "streaming" mode, consumes the change buffer instead, and
+        # the full-refresh never runs.
         # initial_sync_complete is saved in the same transaction as cdc_mode via extra_model_fields
         # so no reader can observe cdc_mode="snapshot" with initial_sync_complete=True.
         extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
