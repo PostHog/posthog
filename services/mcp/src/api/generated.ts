@@ -59326,6 +59326,71 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+     */
+    export interface ProjectAccessSource {
+      /** The access level that applies. */
+      access_level: string;
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+       *
+       * * `object` - object
+       * * `parent_object` - parent_object
+       * * `resource` - resource
+       * * `parent_resource` - parent_resource
+       * * `system_default` - system_default
+       * * `org_admin` - org_admin
+       * * `creator` - creator
+       * * `org_membership` - org_membership */
+      source: ResolvedAccessSourceEnum;
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+       *
+       * * `member` - member
+       * * `role` - role
+       * * `default` - default */
+      source_subject: ResolvedAccessSourceSubjectEnum | null;
+      /** The resource the deciding rule belongs to. */
+      source_resource: string;
+      /**
+         * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+         * @nullable
+         */
+      source_resource_id: string | null;
+      /**
+         * The name of the role or member whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_name: string | null;
+    }
+
+    export interface MemberProjectAccessEntry {
+      /** The project's id. */
+      team_id: number;
+      /** The project's name. */
+      team_name: string;
+      /** The member's enforced access to the project: none, member or admin. */
+      access_level: string;
+      /** The rule that supplies the level. Read `source` and `source_subject` to tell an organization admin's bypass from a member rule, a role rule or the project default. */
+      resolved: ProjectAccessSource | null;
+      /**
+         * The id of the role or organization membership whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_id: string | null;
+    }
+
+    export interface MemberProjectAccess {
+      /** The organization membership id. */
+      organization_membership_id: string;
+      /** One entry per project the caller can access, including projects the member cannot. */
+      projects: MemberProjectAccessEntry[];
+    }
+
+    export interface MemberProjectAccessResponse {
+      /** One entry per visible organization member. */
+      results: MemberProjectAccess[];
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -67851,6 +67916,41 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TraceReview[];
+    }
+
+    export interface TracesRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracesRetentionRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracesRetentionRule[];
     }
 
     /**
@@ -77191,6 +77291,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       tracing_session_id_attribute_keys?: string[];
+      /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+      retention_days?: number;
+      /** @nullable */
+      readonly retention_last_updated?: string | null;
     }
 
     /**
@@ -77370,6 +77474,32 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export interface PatchedTracesRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -97860,6 +97990,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       tracing_session_id_attribute_keys: string[];
+      /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+      retention_days?: number;
+      /** @nullable */
+      readonly retention_last_updated: string | null;
     }
 
     export interface TemplateInfo {
@@ -104124,6 +104258,13 @@ export namespace Schemas {
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
+    };
+
+    export type MembersProjectAccessRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string;
     };
 
     export type OauthApplicationsListParams = {
@@ -114753,6 +114894,28 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type TracingRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TracingRetentionRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type TracingSpansAttributesRetrieveParams = {
     /**
