@@ -177,9 +177,8 @@ class _InvestigationRunner:
         return self._finish_investigation()
 
     async def _finalize_after_tool_budget(self) -> InvestigationRunResult | None:
-        # _run_tool_calls answers every tool_use block before the loop re-reads the budget,
-        # so no tool call is in flight and a plain HumanMessage is valid here. The model API
-        # rejects a request that still holds an unanswered tool_use block.
+        # Budget exhausted — no tool_use block in flight so we can send a plain
+        # HumanMessage rather than stubbing pending tool_result pairs.
         self.messages.append(
             HumanMessage(
                 content=(
@@ -190,7 +189,10 @@ class _InvestigationRunner:
                 )
             )
         )
-        # Sonnet 5 can corrupt nested report fields on this final turn. Let it correct them once.
+        # Production traces show this finalize turn is where Sonnet 5 mangles the
+        # report args (leaked text-tool-call syntax, flattened hypothesis fields), so
+        # give the model one corrective retry with the validation error before
+        # falling back to salvage.
         for finalize_attempt in range(2):
             self._tick_heartbeat()
             try:
@@ -208,8 +210,7 @@ class _InvestigationRunner:
             final_tool_calls = getattr(final, "tool_calls", None) or []
             report_args = _final_report_args(final_tool_calls)
             if report_args is None:
-                # Plain-text final answer. Stop the finalize retries so _finish_investigation
-                # parses the text with the JSON fallback.
+                # Plain-text final answer; the text-JSON fallback below handles it.
                 return None
             self.report_args_history.append(report_args)
             try:
@@ -221,6 +222,8 @@ class _InvestigationRunner:
                     extra={"error": error_summary, "finalize_attempt": finalize_attempt},
                 )
                 if finalize_attempt == 0:
+                    # Answer every pending tool_use block or the retry request is
+                    # rejected by the API for dangling tool calls.
                     _add_report_correction_messages(self.messages, final_tool_calls, error_summary)
                     continue
         return None
@@ -241,6 +244,9 @@ class _InvestigationRunner:
     async def _run_tool_calls(self, *, tool_calls: list[dict[str, Any]], report_error: str | None) -> None:
         for call in tool_calls:
             content = await self._run_tool_call(call=call, report_error=report_error)
+            # Guard against runaway tool responses pushing the conversation past
+            # the model's context window. Keep the first slice; if the
+            # agent needs more it can issue a narrower query.
             if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
                 content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
             self.messages.append(
@@ -255,6 +261,8 @@ class _InvestigationRunner:
                 "Submit it again: hypotheses must be a JSON array of objects with title, "
                 "rationale and evidence keys; recommendations must be a JSON array of strings."
             )
+        # Enforce the cap per-call, not just per-turn — a single assistant
+        # response can emit several parallel tool_use blocks.
         if self.tool_calls_used >= MAX_TOOL_CALLS:
             return "[skipped — tool call budget exhausted]"
         self.report_args_history.clear()
@@ -283,7 +291,9 @@ class _InvestigationRunner:
                 )
         if report is None:
             text = _stringify(content).strip()
-            # Log the length only because the message can contain tenant event data.
+            # Log only length, not content: the agent's final message can echo customer event
+            # data, which must not land in centralized worker logs. The full output stays
+            # available in the run's LLM analytics trace.
             logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
             report = _fallback_report(
                 "Agent returned no final message."
