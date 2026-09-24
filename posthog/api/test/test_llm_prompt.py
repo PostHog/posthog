@@ -2392,3 +2392,26 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "Try again" in response.json()["detail"]
+
+    def test_create_rejects_references_inside_json_payloads(self):
+        self._make_prompt("guardrails", label="production")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "structured",
+                "prompt": {
+                    "messages": [{"role": "system", "content": "@@@prompt:name=guardrails|label=production@@@"}]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reference_in_non_text_prompt"
+
+        tag_free = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "structured", "prompt": {"messages": [{"role": "system", "content": "hi"}]}},
+            format="json",
+        )
+        assert tag_free.status_code == status.HTTP_201_CREATED

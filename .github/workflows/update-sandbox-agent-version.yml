@@ -298,7 +298,7 @@ jobs:
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
-                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
@@ -314,7 +314,7 @@ jobs:
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
-                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
@@ -441,7 +441,7 @@ jobs:
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
-                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"

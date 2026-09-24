@@ -11954,6 +11954,10 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -11976,6 +11980,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -12487,6 +12495,10 @@
                     "items": {},
                     "type": "array"
                 },
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -12518,6 +12530,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -19211,6 +19227,10 @@
                                     "items": {},
                                     "type": "array"
                                 },
+                                "dataComputedAt": {
+                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -19231,6 +19251,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "precomputeNotReady": {
+                                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                                    "type": "boolean"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19295,6 +19319,10 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "dataComputedAt": {
+                                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -19306,6 +19334,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "precomputeNotReady": {
+                                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                                    "type": "boolean"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -34269,6 +34301,10 @@
         "MarketingAnalyticsAggregatedQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -34280,6 +34316,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -35479,6 +35519,10 @@
                     "items": {},
                     "type": "array"
                 },
+                "dataComputedAt": {
+                    "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -35499,6 +35543,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "precomputeNotReady": {
+                    "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                    "type": "boolean"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -39851,6 +39899,7 @@
                 "Analytics",
                 "AI engineering",
                 "Behavior",
+                "Messaging",
                 "App monitoring",
                 "Features",
                 "Tools",
@@ -42783,6 +42832,10 @@
                             "items": {},
                             "type": "array"
                         },
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -42803,6 +42856,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42867,6 +42924,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -42878,6 +42939,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44288,6 +44353,10 @@
                             "items": {},
                             "type": "array"
                         },
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -44308,6 +44377,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44372,6 +44445,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dataComputedAt": {
+                            "description": "ISO timestamp of the oldest precompute window backing this result — surfaced as \"data as of X\".",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -44383,6 +44460,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "precomputeNotReady": {
+                            "description": "True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a \"computing\" state rather than empty results. Marketing analytics serves exclusively from precompute.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

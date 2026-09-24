@@ -63,7 +63,6 @@ interface TrendsBarChartProps {
 
 const EMPTY_LABELS: string[] = []
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
-const EMBEDDED_MAX_CATEGORY_LABEL_WIDTH = 64
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -302,7 +301,7 @@ export function TrendsBarChart({
             yAxisLabel: trendsFilter?.yAxisLabel,
             // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
             // so they don't grow the margin and push the plot off screen. Full value shows on hover.
-            maxCategoryLabelWidth: embedded ? EMBEDDED_MAX_CATEGORY_LABEL_WIDTH : MAX_CATEGORY_LABEL_WIDTH,
+            maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
             // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.

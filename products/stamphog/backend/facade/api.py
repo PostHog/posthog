@@ -13,7 +13,8 @@ from typing import Any, TypeVar, overload
 from uuid import UUID
 
 from django.db import IntegrityError, router, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import BooleanField, ExpressionWrapper, Q, QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 
 import structlog
@@ -138,12 +139,12 @@ _MANUAL = Q(output__has_key="manual_review")
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
-def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
+def _derive_trigger(obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool) -> ReviewTrigger:
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
     the reviewer invocation has to answer the same question before a run exists to read."""
     return derive_review_trigger(
-        has_inbox_review=bool((obj.output or {}).get("inbox_review")),
-        has_manual_review=bool((obj.output or {}).get("manual_review")),
+        has_inbox_review=has_inbox_review,
+        has_manual_review=has_manual_review,
         review_mode=obj.pull_request.repo_config.review_mode,
     )
 
@@ -167,7 +168,7 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     return qs.none()
 
 
-def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: ReviewTrigger) -> contracts.ReviewRunDTO:
     return contracts.ReviewRunDTO(
         id=obj.id,
         team_id=obj.team_id,
@@ -179,12 +180,12 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         head_sha=obj.head_sha,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
-        trigger=_derive_trigger(obj),
+        trigger=trigger,
         title=obj.pull_request.title,
         author_login=obj.pull_request.author_login,
         delivery_id=obj.delivery_id,
         gate_result=obj.gate_result,
-        output=obj.output,
+        output=output,
         error=obj.error,
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
@@ -193,6 +194,44 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
     )
+
+
+def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    output = obj.output or {}
+    trigger = _derive_trigger(
+        obj,
+        has_inbox_review=bool(output.get("inbox_review")),
+        has_manual_review=bool(output.get("manual_review")),
+    )
+    return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+# Retrieve also parses the reviewer's reasoning out of its raw stdout.
+_RETRIEVE_OUTPUT_KEYS = (*contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS, "reviewer_raw")
+
+
+def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
+    """Skip the `output` column and read only `output_keys` and the trigger's provenance flags from it."""
+    return qs.defer("output").annotate(
+        **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
+        slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
+        slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
+    )
+
+
+def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> contracts.ReviewRunDTO:
+    output = {key: value for key in output_keys if (value := getattr(obj, f"slim_output_{key}")) is not None}
+    # _slim_review_runs annotates these, so the model type does not declare them.
+    trigger = _derive_trigger(
+        obj,
+        has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
+        has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
+    )
+    return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+def _review_run_list_row_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    return _slim_review_run_to_dto(obj, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS)
 
 
 def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | None:
@@ -231,10 +270,10 @@ def has_reviewable_repo_config(team_id: int) -> bool:
 
 
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
-    obj = (
-        ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
-    )
-    return _review_run_to_dto(obj) if obj is not None else None
+    """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
+    qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
+    obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
+    return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
 
 def _clean_reviewer_text(text: str) -> str:
@@ -415,7 +454,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    return LazyDTOList(qs, _review_run_to_dto)
+    return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
 def list_pull_requests(
