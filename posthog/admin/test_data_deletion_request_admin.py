@@ -15,7 +15,12 @@ from django.utils import timezone
 from bs4 import BeautifulSoup
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
+from posthog.admin.admins.data_deletion_request_admin import (
+    EDITABLE_FIELDS,
+    STATUS_MEANINGS,
+    DataDeletionRequestAdmin,
+    dagster_run_url,
+)
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 
@@ -1111,29 +1116,15 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
         self.assertIn(request_type, self._type_values(form))
 
 
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestDataDeletionRequestAdminStatusMeaning(BaseTest):
+class TestDataDeletionRequestAdminStatusMeaning(SimpleTestCase):
     def setUp(self):
-        super().setUp()
         self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
 
-    def _request_with_status(self, status: str) -> DataDeletionRequest:
-        return DataDeletionRequest.objects.create(
-            team_id=self.team.id,
-            request_type=RequestType.EVENT_REMOVAL,
-            events=["$pageview"],
-            start_time=datetime.now() - timedelta(days=7),
-            end_time=datetime.now(),
-            status=status,
-        )
-
-    @parameterized.expand([(status.value,) for status in RequestStatus])
-    def test_every_status_explains_what_happened_to_the_data(self, status: str):
-        meaning = self.admin.status_meaning(self._request_with_status(status))
-        self.assertNotEqual(meaning, "—")
+    def test_every_status_explains_what_happened_to_the_data(self):
+        self.assertEqual(set(STATUS_MEANINGS), set(RequestStatus))
 
     def test_queued_does_not_read_as_deleted(self):
-        queued = self.admin.status_meaning(self._request_with_status(RequestStatus.QUEUED))
-        completed = self.admin.status_meaning(self._request_with_status(RequestStatus.COMPLETED))
+        queued = self.admin.status_meaning(DataDeletionRequest(status=RequestStatus.QUEUED))
+        completed = self.admin.status_meaning(DataDeletionRequest(status=RequestStatus.COMPLETED))
         self.assertIn("not deleted", queued)
         self.assertNotEqual(queued, completed)
