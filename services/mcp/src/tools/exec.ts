@@ -82,7 +82,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
         return result
     }
     return {
-        NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric and label the result noncanonical.`,
+        NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
         ...envelope,
     }
 }

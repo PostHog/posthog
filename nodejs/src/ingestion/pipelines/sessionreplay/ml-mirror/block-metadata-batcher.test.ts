@@ -48,6 +48,15 @@ const msg = (offset: number, partition = 0, value: Buffer = Buffer.from(JSON.str
 const skippedMsg = (offset: number, partition = 0): Message =>
     msg(offset, partition, Buffer.from(JSON.stringify({ session_id: `s${offset}` })))
 
+// Starts at 2026-09-22T12:00:00Z, after the v3 cutoff.
+const V3_SESSION = '01a0c8fc-b600-7000-8000-000000000003'
+
+const v3Msg = (offset: number, value: unknown = { ...row(V3_SESSION), team_id: '7', format_version: 2 }): Message =>
+    ({
+        ...msg(offset, 0, Buffer.from(JSON.stringify(value))),
+        headers: [{ ai_research_ingestion_version: Buffer.from('2') }],
+    }) as unknown as Message
+
 describe('BlockMetadataBatcher', () => {
     let store: jest.Mocked<BlockMetadataParquetStore>
     let offsets: jest.Mocked<OffsetStore>
@@ -56,7 +65,10 @@ describe('BlockMetadataBatcher', () => {
         new BlockMetadataBatcher(store, offsets, { flushIntervalMs, maxRows }, startMs)
 
     beforeEach(() => {
-        store = { write: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<BlockMetadataParquetStore>
+        store = {
+            write: jest.fn().mockResolvedValue(undefined),
+            writePlainV3: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<BlockMetadataParquetStore>
         offsets = { offsetsStore: jest.fn() }
     })
 
@@ -103,12 +115,23 @@ describe('BlockMetadataBatcher', () => {
         ])
     })
 
-    it('does not store offsets when the write fails (so the window replays)', async () => {
-        store.write.mockRejectedValueOnce(new Error('s3 down'))
-        const batcher = makeBatcher(60_000, 1)
-        await expect(batcher.handleBatch([msg(0)], 0)).rejects.toThrow('s3 down')
-        expect(offsets.offsetsStore).not.toHaveBeenCalled()
-    })
+    it.each([
+        { storage: 'legacy', message: msg(0), write: 'write' as const },
+        { storage: 'plain v3', message: v3Msg(0), write: 'writePlainV3' as const },
+    ])(
+        'does not store offsets when the $storage write fails, and the retry writes the same rows',
+        async ({ message, write }) => {
+            store[write].mockRejectedValueOnce(new Error('s3 down'))
+            const batcher = makeBatcher(60_000, 1)
+            await expect(batcher.handleBatch([message], 0)).rejects.toThrow('s3 down')
+            expect(offsets.offsetsStore).not.toHaveBeenCalled()
+
+            await batcher.flush(1)
+            expect(store[write]).toHaveBeenCalledTimes(2)
+            expect(store[write].mock.calls[1][0]).toHaveLength(1)
+            expect(offsets.offsetsStore).toHaveBeenCalledWith([{ topic: 'ml_block_metadata', partition: 0, offset: 1 }])
+        }
+    )
 
     it('keeps v2 offsets pending until the encrypted eval index upload succeeds', async () => {
         await sodium.ready
@@ -177,12 +200,21 @@ describe('BlockMetadataBatcher', () => {
         expect(store.write).toHaveBeenCalledTimes(1)
     })
 
-    it('commits offsets for a skipped-only batch without writing (so it does not replay forever)', async () => {
-        const batcher = makeBatcher(1_000, 1_000_000, 0)
-        await batcher.handleBatch([skippedMsg(7, 0)], 1_000) // all rows dropped by the parser, but offset must advance
+    it.each([
+        { storage: 'legacy', message: skippedMsg(7, 0) },
+        { storage: 'plain v3', message: v3Msg(7, { session_id: V3_SESSION, team_id: '7', format_version: 2 }) },
+    ])(
+        'commits offsets for a skipped-only $storage batch without writing (so it does not replay forever)',
+        async ({ message }) => {
+            const batcher = makeBatcher(1_000, 1_000_000, 0)
+            await batcher.handleBatch([message], 1_000) // all rows dropped by the parser, but offset must advance
 
-        expect(store.write).not.toHaveBeenCalled()
-        expect(offsets.offsetsStore).toHaveBeenCalledTimes(1)
-        expect(offsets.offsetsStore.mock.calls[0][0]).toEqual([{ topic: 'ml_block_metadata', partition: 0, offset: 8 }])
-    })
+            expect(store.write).not.toHaveBeenCalled()
+            expect(store.writePlainV3).not.toHaveBeenCalled()
+            expect(offsets.offsetsStore).toHaveBeenCalledTimes(1)
+            expect(offsets.offsetsStore.mock.calls[0][0]).toEqual([
+                { topic: 'ml_block_metadata', partition: 0, offset: 8 },
+            ])
+        }
+    )
 })
