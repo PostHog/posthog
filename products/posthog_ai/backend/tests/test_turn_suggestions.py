@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 import requests
 from parameterized import parameterized
 
-from posthog.egress.typesafe import ChoiceAnswer, NoulAnswer, SystemOneAnswers, TypeSafeRequestFailed
+from posthog.egress.typesafe import Answer, ChoiceAnswer, NoulAnswer, SystemOneResult, TypeSafeRequestFailed
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.posthog_ai.backend.turn_suggestions.benchmark import (
@@ -397,16 +397,12 @@ def _judgment(**overrides: Any) -> TurnJudgment:
     return replace(judgment, **overrides)
 
 
-def _answers(nouls: dict[str, float], choices: dict[str, str]) -> SystemOneAnswers:
-    return SystemOneAnswers(
-        model="jev-1.13.0",
-        nouls={key: NoulAnswer(noul=value) for key, value in nouls.items()},
-        choices={
-            key: ChoiceAnswer(choice=value, probabilities={value: 1.0}, confidence=1.0)
-            for key, value in choices.items()
-        },
-        input_tokens=300,
+def _answers(nouls: dict[str, float], choices: dict[str, str]) -> SystemOneResult:
+    answers: dict[str, Answer] = {key: NoulAnswer(probability=value) for key, value in nouls.items()}
+    answers.update(
+        {key: ChoiceAnswer(choice=value, probabilities={value: 1.0}, confidence=1.0) for key, value in choices.items()}
     )
+    return SystemOneResult(model="jev-1.13.0", answers=answers, input_tokens=300)
 
 
 FUNNEL_INSIGHT = replace(SAVED_INSIGHT, query_kind="FunnelsQuery")

@@ -19,9 +19,11 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe import (
-    Choice,
+    ChoiceAnswer,
+    ChoiceQuestion,
     JsonValue,
-    Noul,
+    NoulAnswer,
+    NoulQuestion,
     Question,
     TypeSafeEgressBudgetExhausted,
     TypeSafeNotConfigured,
@@ -57,7 +59,7 @@ _NO_MATCH = "none"
 # Option keys map to the percent the alert card preconfigures.
 _ALERT_CHANGE_PERCENT = {"small": 10, "moderate": 20, "large": 50}
 
-_SHOW_OFFER = Noul(
+_SHOW_OFFER = NoulQuestion(
     instructions={
         "question": "Should PostHog AI show a follow-up offer under the answer in `latest_turn`, at this point in the conversation?",
         "context": (
@@ -89,7 +91,7 @@ _SHOW_OFFER = Noul(
     criteria_false="An offer now would interrupt the user or would not help.",
 )
 
-_INTENT = Choice(
+_INTENT = ChoiceQuestion(
     instructions="What does the question in `latest_turn` ask for?",
     criteria={
         TurnIntent.METRIC_STATE: "What a metric or breakdown is right now or over a relative window, such as the last 7 days or week over week.",
@@ -125,7 +127,7 @@ _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     },
 }
 
-_SCOUT_MODE = Choice(
+_SCOUT_MODE = ChoiceQuestion(
     instructions="If PostHog AI offered a scheduled agent that reruns the analysis in `latest_turn`, which kind of run would fit?",
     criteria={
         ScoutMode.REPORT: "Posts the current numbers and what changed on every run. Fits a question about the current state of a metric.",
@@ -135,7 +137,7 @@ _SCOUT_MODE = Choice(
     },
 )
 
-_CADENCE = Choice(
+_CADENCE = ChoiceQuestion(
     instructions="If this analysis ran on a schedule, how often would a new result be useful?",
     criteria={
         ScoutCadence.DAILY: "The metric moves day to day, or the question looks at today, yesterday or a daily window.",
@@ -143,7 +145,7 @@ _CADENCE = Choice(
     },
 )
 
-_NOTEBOOK_TEMPLATE = Choice(
+_NOTEBOOK_TEMPLATE = ChoiceQuestion(
     instructions="If the conversation were saved as a notebook, which layout fits it?",
     criteria={
         NotebookTemplate.CONVERSATION: "The conversation as it is. Fits an exploration without one clear cause.",
@@ -151,7 +153,7 @@ _NOTEBOOK_TEMPLATE = Choice(
     },
 )
 
-_ALERT_DIRECTION = Choice(
+_ALERT_DIRECTION = ChoiceQuestion(
     instructions="If the user got an alert on the metric in `latest_turn`, which movement would they want to hear about?",
     criteria={
         AlertDirection.DECREASE: "A drop, such as fewer sign-ups or less revenue.",
@@ -159,7 +161,7 @@ _ALERT_DIRECTION = Choice(
     },
 )
 
-_ALERT_CHANGE = Choice(
+_ALERT_CHANGE = ChoiceQuestion(
     instructions="How large a change from one period to the next is worth a message for the metric in `latest_turn`?",
     criteria={
         "small": "About 10%. The metric is steady and small moves matter, such as revenue or a conversion rate.",
@@ -168,7 +170,7 @@ _ALERT_CHANGE = Choice(
     },
 )
 
-_ISSUE_RESOLVED = Noul(
+_ISSUE_RESOLVED = NoulQuestion(
     instructions="Does the answer in `latest_turn` say that the error the user investigated is fixed or resolved, or that its fix has shipped?",
     criteria_true="The answer says the error is fixed, resolved, or that the fix shipped.",
     criteria_false="The error is still active, or the answer does not say.",
@@ -244,7 +246,7 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
     questions: dict[str, Question] = {
         "show_offer": _SHOW_OFFER,
         "intent": _INTENT,
-        "offer": Choice(
+        "offer": ChoiceQuestion(
             instructions="Which follow-up would help the user most after `latest_turn`? Pick the lightest one that covers what they need next.",
             criteria=offer_criteria,
         ),
@@ -261,14 +263,14 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
     if transcript.saved_insights:
         insight_criteria: dict[str, JsonValue] = dict.fromkeys(_insight_options(transcript))
         insight_criteria[_NO_MATCH] = "No listed insight tracks that metric."
-        questions["insight"] = Choice(
+        questions["insight"] = ChoiceQuestion(
             instructions="Which saved insight in `saved_insights` tracks the metric the user asked about in `latest_turn`?",
             criteria=insight_criteria,
         )
     if transcript.error_issues:
         issue_criteria: dict[str, JsonValue] = dict.fromkeys(_issue_options(transcript))
         issue_criteria[_NO_MATCH] = "None of the listed issues is the error the user cares about."
-        questions["error_issue"] = Choice(
+        questions["error_issue"] = ChoiceQuestion(
             instructions="Which error tracking issue in `error_issues` is the error the user cares about in `latest_turn`?",
             criteria=issue_criteria,
         )
@@ -279,7 +281,7 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
 def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -> TurnJudgment | None:
     """One Jev request. ``None`` means the call failed, was shed, or the instance has no key."""
     try:
-        answers = system_one(
+        result = system_one(
             state=build_judge_state(transcript),
             questions=build_judge_questions(transcript, available),
             source=JUDGE_SOURCE,
@@ -294,7 +296,9 @@ def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -
         logger.warning("posthog_ai_turn_suggestion_judge_failed", exc_info=True)
         return None
 
-    choices = answers.choices
+    answers = result.answers
+    choices = {question_id: answer for question_id, answer in answers.items() if isinstance(answer, ChoiceAnswer)}
+    nouls = {question_id: answer for question_id, answer in answers.items() if isinstance(answer, NoulAnswer)}
 
     def picked(question_id: str, default: str) -> str:
         # Speculative questions are only asked when their offer is available, so an absent answer
@@ -302,7 +306,7 @@ def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -
         return choices[question_id].choice if question_id in choices else default
 
     return TurnJudgment(
-        show_probability=answers.nouls["show_offer"].noul,
+        show_probability=nouls["show_offer"].probability,
         intent=TurnIntent(choices["intent"].choice),
         offer=OfferKind(choices["offer"].choice),
         offer_probabilities=dict(choices["offer"].probabilities),
@@ -313,5 +317,5 @@ def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -
         alert_change_percent=_ALERT_CHANGE_PERCENT[picked("alert_change", "moderate")],
         insight=_insight_options(transcript).get(picked("insight", _NO_MATCH)),
         error_issue=_issue_options(transcript).get(picked("error_issue", _NO_MATCH)),
-        issue_resolved_probability=answers.nouls["issue_resolved"].noul if "issue_resolved" in answers.nouls else 0.0,
+        issue_resolved_probability=nouls["issue_resolved"].probability if "issue_resolved" in nouls else 0.0,
     )
