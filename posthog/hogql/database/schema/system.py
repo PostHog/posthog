@@ -1012,8 +1012,9 @@ feature_flags: PostgresTable = PostgresTable(
             name="archived",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])]),
             description=(
-                "1 if the flag has been archived, 0 otherwise. An archived flag is always disabled, and the flag "
-                "list and the API hide it by default, so filter on this to match the roster those surfaces show."
+                "1 if the flag has been archived, 0 otherwise. An archived flag is always disabled. The flag list "
+                "and the API hide archived and deleted flags alike, so the roster they show is "
+                "`WHERE archived = 0 AND deleted = 0`."
             ),
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
