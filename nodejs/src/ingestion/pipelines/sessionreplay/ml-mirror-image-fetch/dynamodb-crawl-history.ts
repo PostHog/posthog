@@ -44,6 +44,8 @@ interface ItemWritePlan {
 
 export type DynamoDBCrawlHistoryClient = Pick<DynamoDBClient, 'send'>
 
+class CommandTimeoutError extends Error {}
+
 function chunk<T>(items: T[], size: number): T[][] {
     const chunks: T[][] = []
     for (let index = 0; index < items.length; index += size) {
@@ -325,21 +327,27 @@ export class DynamoDBCrawlHistory implements CrawlHistoryStore {
             let pending = batch
             for (let attempt = 1; pending.length > 0; attempt++) {
                 this.requireBudget(startedAt)
-                const response = await this.sendBatchGet(
-                    new BatchGetItemCommand({
-                        RequestItems: {
-                            [this.tableName]: {
-                                Keys: pending.map((key) => ({ [KEY_ATTRIBUTE]: { S: key } })),
-                                ProjectionExpression: '#key, #expiresAt, #value',
-                                ExpressionAttributeNames: {
-                                    '#key': KEY_ATTRIBUTE,
-                                    '#expiresAt': EXPIRES_AT_ATTRIBUTE,
-                                    '#value': VALUE_ATTRIBUTE,
+                let response: BatchGetItemCommandOutput
+                try {
+                    response = await this.sendBatchGet(
+                        new BatchGetItemCommand({
+                            RequestItems: {
+                                [this.tableName]: {
+                                    Keys: pending.map((key) => ({ [KEY_ATTRIBUTE]: { S: key } })),
+                                    ProjectionExpression: '#key, #expiresAt, #value',
+                                    ExpressionAttributeNames: {
+                                        '#key': KEY_ATTRIBUTE,
+                                        '#expiresAt': EXPIRES_AT_ATTRIBUTE,
+                                        '#value': VALUE_ATTRIBUTE,
+                                    },
                                 },
                             },
-                        },
-                    })
-                )
+                        })
+                    )
+                } catch (error) {
+                    await this.backoffAfterCommandTimeout(error, attempt)
+                    continue
+                }
                 for (const item of response.Responses?.[this.tableName] ?? []) {
                     result.push(item)
                 }
@@ -376,9 +384,15 @@ export class DynamoDBCrawlHistory implements CrawlHistoryStore {
             let pending = batch
             for (let attempt = 1; pending.length > 0; attempt++) {
                 this.requireBudget(startedAt)
-                const response = await this.sendBatchWrite(
-                    new BatchWriteItemCommand({ RequestItems: { [this.tableName]: pending } })
-                )
+                let response: BatchWriteItemCommandOutput
+                try {
+                    response = await this.sendBatchWrite(
+                        new BatchWriteItemCommand({ RequestItems: { [this.tableName]: pending } })
+                    )
+                } catch (error) {
+                    await this.backoffAfterCommandTimeout(error, attempt)
+                    continue
+                }
                 pending = response.UnprocessedItems?.[this.tableName] ?? []
                 if (pending.length > 0) {
                     if (attempt >= UNPROCESSED_MAX_ATTEMPTS) {
@@ -407,6 +421,14 @@ export class DynamoDBCrawlHistory implements CrawlHistoryStore {
         }
     }
 
+    /** A batch get or batch write of the same items is idempotent, so a timed-out command is retried like unprocessed items; any other failure, or a timeout on the last attempt, is rethrown. */
+    private async backoffAfterCommandTimeout(error: unknown, attempt: number): Promise<void> {
+        if (!(error instanceof CommandTimeoutError) || attempt >= UNPROCESSED_MAX_ATTEMPTS) {
+            throw error
+        }
+        await this.backoffBeforeRetry(attempt)
+    }
+
     private async backoffBeforeRetry(attempt: number): Promise<void> {
         const maximumDelayMs = UNPROCESSED_INITIAL_BACKOFF_MS * 2 ** (attempt - 1)
         const delayMs = Math.floor(maximumDelayMs / 2 + Math.random() * (maximumDelayMs / 2))
@@ -427,6 +449,16 @@ export class DynamoDBCrawlHistory implements CrawlHistoryStore {
         timer.unref()
         try {
             return await send(abortController.signal)
+        } catch (error) {
+            if (abortController.signal.aborted) {
+                throw new CommandTimeoutError(
+                    `DynamoDB crawl-history command timed out after ${this.commandTimeoutMs}ms`,
+                    {
+                        cause: error,
+                    }
+                )
+            }
+            throw error
         } finally {
             clearTimeout(timer)
         }

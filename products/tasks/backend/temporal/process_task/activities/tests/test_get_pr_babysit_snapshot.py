@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.github.merge_queue import MergeQueueState
+from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.temporal.babysit_pr.snapshot import BODY_EXCERPT_MAX_CHARS, PRSnapshot
@@ -92,6 +94,8 @@ class TestGetPrBabysitSnapshotActivity:
     def _integration_returning(self, raw: dict) -> MagicMock:
         integration = MagicMock()
         integration.get_pull_request_babysit_snapshot.return_value = raw
+        integration.parse_pull_request_url = GitHubIntegrationBase.parse_pull_request_url
+        integration.get_pull_request_merge_queue_state.return_value = None
         return integration
 
     @pytest.mark.django_db
@@ -134,9 +138,9 @@ class TestGetPrBabysitSnapshotActivity:
         }
 
         ctx = self._ctx(run_id=str(test_task_run.id))
-        with patch(
-            f"{GET_PR_BABYSIT_SNAPSHOT_MODULE}.get_github_integration", return_value=self._integration_returning(raw)
-        ):
+        integration = self._integration_returning(raw)
+        integration.get_pull_request_merge_queue_state.return_value = MergeQueueState.TESTING
+        with patch(f"{GET_PR_BABYSIT_SNAPSHOT_MODULE}.get_github_integration", return_value=integration):
             snapshot = self._run(ctx)
 
         assert snapshot is not None
@@ -151,6 +155,20 @@ class TestGetPrBabysitSnapshotActivity:
         assert thread.body_excerpt == "rename this"
         comment = snapshot.comments[0]
         assert (comment.id, comment.body_excerpt) == ("M1", "3 nits")
+        assert snapshot.merge_queue_push_would_eject is True
+
+    @pytest.mark.django_db
+    def test_merged_pr_skips_the_queue_read(self, test_task_run):
+        test_task_run.output = {"pr_url": PR_URL}
+        test_task_run.save(update_fields=["output"])
+
+        integration = self._integration_returning({"success": True, "url": PR_URL, "state": "merged"})
+        integration.get_pull_request_merge_queue_state.side_effect = RuntimeError("comments unavailable")
+        with patch(f"{GET_PR_BABYSIT_SNAPSHOT_MODULE}.get_github_integration", return_value=integration):
+            snapshot = self._run(self._ctx(run_id=str(test_task_run.id)))
+
+        assert snapshot is not None
+        assert snapshot.is_terminal
 
     @pytest.mark.django_db
     def test_raises_transient_error_when_github_call_raises(self, test_task_run):

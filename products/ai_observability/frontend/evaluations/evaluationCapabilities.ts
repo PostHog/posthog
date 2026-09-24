@@ -3,28 +3,42 @@ import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEv
 
 // Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET in evaluation_configs.py — keep the two in step.
 const REPORTABLE_OUTPUT_TYPES_BY_TARGET: Record<string, ReadonlySet<EvaluationOutputType>> = {
-    generation: new Set(['boolean', 'sentiment']),
-    trace: new Set(['boolean']),
-    session: new Set(['boolean']),
+    generation: new Set(['boolean', 'sentiment', 'numeric']),
+    trace: new Set(['boolean', 'numeric']),
+    session: new Set(['boolean', 'numeric']),
 }
 
 export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | null | undefined): boolean {
     return outputType === 'boolean'
 }
 
-export function evaluationSupportsReports(
+export function evaluationSupportsReportHistory(
     evaluation: Pick<EvaluationConfig, 'output_type' | 'target'> | null | undefined
 ): boolean {
-    if (evaluation?.output_type == null || evaluation.target == null) {
-        return false
-    }
-    return REPORTABLE_OUTPUT_TYPES_BY_TARGET[evaluation.target]?.has(evaluation.output_type) ?? false
+    return !!evaluation && (REPORTABLE_OUTPUT_TYPES_BY_TARGET[evaluation.target]?.has(evaluation.output_type) ?? false)
+}
+
+export function evaluationSupportsReports(
+    evaluation:
+        | (Pick<EvaluationConfig, 'output_type' | 'target'> & Partial<Pick<EvaluationConfig, 'output_config'>>)
+        | null
+        | undefined
+): boolean {
+    return (
+        evaluationSupportsReportHistory(evaluation) &&
+        (evaluation?.output_type !== 'numeric' || !!evaluation.output_config?.passing_rule)
+    )
 }
 
 export function evaluationSupportsRunOutcomes(
-    evaluation: Pick<EvaluationConfig, 'output_type' | 'target'> | null | undefined
+    evaluation:
+        | (Pick<EvaluationConfig, 'output_type' | 'target'> & Partial<Pick<EvaluationConfig, 'output_config'>>)
+        | null
+        | undefined
 ): boolean {
-    return evaluation?.target === 'generation' && isBooleanEvaluationOutput(evaluation.output_type)
+    return evaluation?.output_type === 'numeric'
+        ? !!evaluation.output_config?.passing_rule
+        : isBooleanEvaluationOutput(evaluation?.output_type)
 }
 
 export function evaluationTypeUsesModelConfiguration(evaluationType: EvaluationType | null | undefined): boolean {

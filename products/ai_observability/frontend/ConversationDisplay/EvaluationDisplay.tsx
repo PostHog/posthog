@@ -10,10 +10,10 @@ import { EventType } from '~/types'
 import { EvaluationResultTag } from '../components/EvaluationResultTag'
 import { MetadataTag } from '../components/MetadataTag'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
-import { normalizeEvaluationResultProperties } from '../utils'
+import { isExplicitEvaluationPass, normalizeEvaluationResultProperties } from '../utils'
 
 export function EvaluationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
+    const { detectorEvaluationIds, evaluations } = useValues(llmEvaluationsLogic)
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
@@ -22,8 +22,11 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const evaluationId = eventProperties.$ai_evaluation_id
     const resultRun = {
         status: 'completed' as const,
-        skipped: eventProperties.$ai_evaluation_skipped === true || eventProperties.$ai_evaluation_skipped === 'true',
+        skipped: isExplicitEvaluationPass(eventProperties.$ai_evaluation_skipped),
         ...normalizeEvaluationResultProperties({
+            rawScore: eventProperties.$ai_evaluation_numeric_result,
+            rawScoreMin: eventProperties.$ai_evaluation_numeric_result_min,
+            rawScoreMax: eventProperties.$ai_evaluation_numeric_result_max,
             rawResult: eventProperties.$ai_evaluation_result,
             rawApplicable: eventProperties.$ai_evaluation_applicable,
             rawEvaluationType: eventProperties.$ai_evaluation_runtime,
@@ -36,7 +39,13 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-                <EvaluationResultTag run={resultRun} trueIsFailure={detectorEvaluationIds.includes(evaluationId)} />
+                <EvaluationResultTag
+                    run={resultRun}
+                    passingRule={
+                        evaluations?.find((evaluation) => evaluation.id === evaluationId)?.output_config.passing_rule
+                    }
+                    trueIsFailure={detectorEvaluationIds.includes(evaluationId)}
+                />
                 {evaluationName && (
                     <MetadataTag label="Evaluation" textToCopy={evaluationName}>
                         {evaluationName}

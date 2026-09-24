@@ -2,18 +2,22 @@ import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, re
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { navFilesTabLogic } from '~/layout/panel-layout/navbar/tabs/navFilesTabLogic'
 import type { ProjectTreeRef } from '~/types'
 
 import { NinePServer } from './ninepServer'
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
+import { TerminalAI } from './terminalAI'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { TerminalRuntime } from './terminalRuntime'
@@ -113,6 +117,9 @@ export interface terminalLogicActions {
     insertCommand: (command: string) => {
         command: string
     }
+    openUrl: (url: string) => {
+        url: string
+    }
     paste: () => {
         value: true
     }
@@ -176,6 +183,7 @@ export const terminalLogic = kea<terminalLogicType>([
         actions: [terminalDockLogic, ['focusTerminal', 'setRequestedFolder']],
     }),
     actions({
+        openUrl: (url: string) => ({ url }),
         setConfirmation: (confirmation: TerminalConfirmation | null) => ({ confirmation }),
         answerConfirmation: (confirmation: TerminalConfirmation, approved: boolean) => ({ confirmation, approved }),
         setDisplayFullscreen: (fullscreen: boolean) => ({ fullscreen }),
@@ -260,6 +268,21 @@ export const terminalLogic = kea<terminalLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        openUrl: ({ url }) => {
+            const target = new URL(url, window.location.origin)
+            const targetProjectId = getProjectIdentifierInPath(target.pathname)
+            if (
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL] &&
+                target.origin === window.location.origin &&
+                (targetProjectId === null || targetProjectId === String(values.currentTeamId)) &&
+                removeProjectIdIfPresent(target.pathname) === urls.projectFiles()
+            ) {
+                cache.disposables.add(() => navFilesTabLogic.mount(), 'files-navigation')
+                navFilesTabLogic.actions.openFolder(target.searchParams.get('folder') ?? '')
+            } else {
+                router.actions.push(url)
+            }
+        },
         followFolder: async (_, breakpoint) => {
             const runtime: TerminalRuntime | undefined = cache.runtime
             const filesystem: PosthogFilesystem | undefined = cache.filesystem
@@ -441,45 +464,51 @@ export const terminalLogic = kea<terminalLogicType>([
             actions.setStatus('loading')
             try {
                 let confirmationQueue = Promise.resolve(false)
-                const filesystem = new PosthogFilesystem(String(projectId), controller.signal, (confirmation) => {
-                    const pending = confirmationQueue.then(() => {
-                        if (controller.signal.aborted) {
-                            return false
-                        }
-                        return new Promise<boolean>((resolve) => {
-                            disposables.add(
-                                () => {
-                                    const blockKeyboard = (event: KeyboardEvent): void => {
-                                        event.preventDefault()
-                                        event.stopImmediatePropagation()
-                                    }
-                                    for (const type of ['keydown', 'keypress', 'keyup'] as const) {
-                                        window.addEventListener(type, blockKeyboard, true)
-                                    }
-                                    cache.answerConfirmation = (approved: boolean): void => {
-                                        resolve(approved)
-                                        disposables.dispose('confirmation')
-                                    }
-                                    actions.setConfirmation(confirmation)
-                                    return () => {
-                                        resolve(false)
-                                        cache.answerConfirmation = null
-                                        actions.setConfirmation(null)
-                                        for (const type of ['keydown', 'keypress', 'keyup'] as const) {
-                                            window.removeEventListener(type, blockKeyboard, true)
+                const filesystem = new PosthogFilesystem(
+                    String(projectId),
+                    controller.signal,
+                    (confirmation) => {
+                        const pending = confirmationQueue.then(() => {
+                            if (controller.signal.aborted) {
+                                return false
+                            }
+                            return new Promise<boolean>((resolve) => {
+                                disposables.add(
+                                    () => {
+                                        const blockKeyboard = (event: KeyboardEvent): void => {
+                                            event.preventDefault()
+                                            event.stopImmediatePropagation()
                                         }
-                                    }
-                                },
-                                'confirmation',
-                                { pauseOnPageHidden: false }
-                            )
+                                        for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+                                            window.addEventListener(type, blockKeyboard, true)
+                                        }
+                                        cache.answerConfirmation = (approved: boolean): void => {
+                                            resolve(approved)
+                                            disposables.dispose('confirmation')
+                                        }
+                                        actions.setConfirmation(confirmation)
+                                        return () => {
+                                            resolve(false)
+                                            cache.answerConfirmation = null
+                                            actions.setConfirmation(null)
+                                            for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+                                                window.removeEventListener(type, blockKeyboard, true)
+                                            }
+                                        }
+                                    },
+                                    'confirmation',
+                                    { pauseOnPageHidden: false }
+                                )
+                            })
                         })
-                    })
-                    confirmationQueue = pending
-                    return pending
-                })
+                        confirmationQueue = pending
+                        return pending
+                    },
+                    true
+                )
                 cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
+                new PosthogCommands(String(projectId), controller.signal, filesystem, actions.openUrl)
+                new TerminalAI(filesystem, String(projectId), controller.signal)
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
                     if (!controller.signal.aborted) {

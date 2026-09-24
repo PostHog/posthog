@@ -684,13 +684,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--target-memory-usage",
             type=float,
-            default=settings.TARGET_MEMORY_USAGE,
+            default=settings.TEMPORAL_TARGET_MEMORY_USAGE,
             help="Fraction of available memory to use",
         )
         parser.add_argument(
             "--target-cpu-usage",
             type=float,
-            default=settings.TARGET_CPU_USAGE,
+            default=settings.TEMPORAL_TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
         )
         parser.add_argument(

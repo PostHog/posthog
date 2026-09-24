@@ -1,0 +1,19 @@
+# The proxy in front of vLLM inside the serving image. PORT, VLLM_PORT and DECISION_BEARER come from bin/serve.sh.
+{
+	auto_https off
+	admin off
+}
+
+:{$PORT} {
+	@unauthorized {
+		not header Authorization "Bearer {$DECISION_BEARER}"
+	}
+	@served path /pooling /health /metrics
+
+	# A route keeps the written order; Caddy's default order would put the 404 before the proxy.
+	route {
+		respond @unauthorized 401
+		reverse_proxy @served 127.0.0.1:{$VLLM_PORT}
+		respond 404
+	}
+}

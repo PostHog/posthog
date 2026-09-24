@@ -47,9 +47,7 @@ Each recognized v2 ingress increments `flags_v2_config_parse_total` with a fixed
 These outcomes cover cache and PostgreSQL reads and contain no configuration values.
 
 The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
-The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.
-The cache builder consumer labels flag data parsing failures `config_format` in metrics and dead-letter queue headers and sends them to that queue without retrying.
-Inactive and deleted non-v1 flags do not fail the team's rebuild.
+The Rust and Python cache builders omit a non-v1 flag and its dependents instead of failing the team's rebuild, as the [service cache section](./hypercache-system.md#service-cache-rust) describes.
 `/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
