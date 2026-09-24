@@ -11,8 +11,8 @@ engine settles each key:
 
 Every insert carries an `insert_deduplication_token` naming its run, batch and chunk, so a
 redelivered chunk lands once and identical rows from another batch are not mistaken for one. A
-full refresh fills a per-run staging table and swaps it in with `EXCHANGE TABLES`. Whether a run
-already published is read from the live table's comment, which moves with it in the exchange.
+full refresh fills a staging table per run attempt and swaps it in with `EXCHANGE TABLES`. Whether
+a run already published is read from the live table's comment, which moves with it in the exchange.
 
 The connection comes from the ClickHouse source's `_get_client`. Dates outside 1900 to 2299 are
 clamped instead of failing the batch, and a cluster that needs `ON CLUSTER` is not supported.
@@ -50,14 +50,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     is_published_by,
     owned_marker,
     published_marker,
-    run_scope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import _get_client
 
 SYNCED_AT_COLUMN = "_ph_synced_at"
 
 # Replicated tables deduplicate inserts by default. A single-node server only does with this set.
-DEDUPLICATION_WINDOW = 1000
+# A retry resends every chunk of a staged batch, so the window must hold all of them. A staged batch
+# holds about 200 MiB of Arrow in chunks of `DEFAULT_BATCH_ROWS` rows, so 10,000 chunks need rows
+# under half a byte wide.
+DEDUPLICATION_WINDOW = 10_000
 
 # A server that does not know this setting falls back to its default instead of refusing to connect.
 SESSION_SETTINGS = {"date_time_overflow_behavior": "saturate"}
@@ -103,6 +105,10 @@ class IncompatibleTableError(RuntimeError):
 
 class ClickHouseIntegrationNotFoundError(RuntimeError):
     """The destination's integration is gone or is not a ClickHouse one."""
+
+
+class ReservedColumnError(RuntimeError):
+    """A keyed source has a column with the name this writer versions rows with."""
 
 
 @frozen
@@ -163,7 +169,10 @@ def prepare_for_insert(batch: pa.RecordBatch) -> pa.RecordBatch:
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
-    suffix = f"__ph_stage_{run_scope(ctx.run_uuid)}"
+    # The whole run uuid, because its end names the attempt. A retried attempt starts again at batch
+    # zero, so it must not add to rows an earlier attempt staged, and aborting the earlier attempt must
+    # not drop this one's table. `run_scope` keeps too little of the uuid to tell attempts apart.
+    suffix = f"__ph_stage_{ctx.run_uuid.replace('-', '')}"
     base = ctx.table_name.encode()[: _MAX_TABLE_NAME_BYTES - len(suffix)].decode(errors="ignore")
     return f"{base}{suffix}"
 
@@ -271,13 +280,21 @@ class ClickHouseDestinationWriter:
         )
 
     def _ensure_table(self, client: ClickHouseClient, table: str, schema: pa.Schema, keys: list[str]) -> None:
+        if keys and SYNCED_AT_COLUMN in schema.names:
+            raise ReservedColumnError(
+                f"{self._qualified(table)} cannot take the source column {SYNCED_AT_COLUMN}, because this "
+                "destination uses that name to keep the newest row per key. Rename or exclude the column at the source."
+            )
+
         existing = self._existing_table(client, table)
         if existing is None:
             self._ensure_database(client)
             self._create_table(client, table, schema, keys)
-            return
+            # Another schema's sync can create the same table between the check above and the create, and
+            # `CREATE TABLE IF NOT EXISTS` then leaves that table in place. Read back whose table it is.
+            existing = self._existing_table(client, table)
 
-        if not is_owned_by(existing.comment, self._ctx.schema_id):
+        if existing is None or not is_owned_by(existing.comment, self._ctx.schema_id):
             raise UnrelatedTableExistsError(
                 f"{self._qualified(table)} already exists and was not created by this sync; "
                 "refusing to write this sync's rows into it."

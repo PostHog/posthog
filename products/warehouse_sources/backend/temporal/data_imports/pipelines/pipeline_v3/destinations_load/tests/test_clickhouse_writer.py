@@ -20,14 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.clickhouse import (
     SESSION_SETTINGS,
+    SYNCED_AT_COLUMN,
     ClickHouseDestinationWriter,
     IncompatibleTableError,
+    ReservedColumnError,
     UnrelatedTableExistsError,
     staging_table_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
     published_marker,
-    run_scope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import _get_client
 
@@ -194,6 +195,22 @@ class TestFullRefresh:
         assert _read(client, database) == [(3, "c")]
         assert _tables(client, database) == {TABLE}
 
+    async def test_a_retried_attempt_stages_apart_from_the_attempt_before_it(
+        self, database: str, client: ClickHouseClient
+    ) -> None:
+        workflow_run_id = str(uuid.uuid4())
+        first_attempt = _ctx(database, "full_refresh", run_uuid=f"{workflow_run_id}-a1")
+        second_attempt = _ctx(database, "full_refresh", run_uuid=f"{workflow_run_id}-a2")
+        await _deliver(LocalClickHouseWriter(first_attempt), first_attempt, 0, _rows([1, 2], ["stale", "gone"]))
+        writer = LocalClickHouseWriter(second_attempt)
+        await _deliver(writer, second_attempt, 0, _rows([1], ["fresh"]))
+
+        await LocalClickHouseWriter(first_attempt).abort_run(first_attempt)
+        await _deliver(writer, second_attempt, 1, _rows([3], ["new"]), final=True)
+
+        assert _read(client, database) == [(1, "fresh"), (3, "new")]
+        assert _tables(client, database) == {TABLE}
+
     async def test_abort_drops_the_staging_table(self, database: str, client: ClickHouseClient) -> None:
         run = _ctx(database, "full_refresh")
         writer = LocalClickHouseWriter(run)
@@ -206,11 +223,11 @@ class TestFullRefresh:
         assert _tables(client, database) == set()
 
     def test_a_long_table_name_keeps_its_run_suffix(self) -> None:
-        run = _ctx("default", "full_refresh", run_uuid=str(uuid.uuid4()), table_name="é" * 150)
+        run = _ctx("default", "full_refresh", run_uuid=f"{uuid.uuid4()}-a1", table_name="é" * 150)
 
         name = staging_table_name(run)
 
-        assert name.endswith(f"__ph_stage_{run_scope(run.run_uuid)}")
+        assert name.endswith(f"__ph_stage_{run.run_uuid.replace('-', '')}")
         assert len(name.encode()) <= 200
 
 
@@ -268,6 +285,21 @@ class TestIncremental:
         rows = client.query(f"SELECT id, name, email FROM `{database}`.`{TABLE}` ORDER BY id").result_rows
         assert [tuple(row) for row in rows] == [(1, "a", None), (2, "b", "b@example.com")]
 
+    async def test_a_keyed_source_column_named_like_the_row_version_is_refused(
+        self, database: str, client: ClickHouseClient
+    ) -> None:
+        run = _ctx(database, "incremental", primary_keys=("id",))
+        writer = LocalClickHouseWriter(run)
+        await _deliver(writer, run, 0, _rows([1], ["a"]))
+        grown = pa.RecordBatch.from_pydict(
+            {"id": pa.array([1], pa.int64()), "name": ["b"], SYNCED_AT_COLUMN: ["2000-01-01 00:00:00"]}
+        )
+
+        with pytest.raises(ReservedColumnError):
+            await _deliver(writer, run, 1, grown)
+
+        assert _read(client, database) == [(1, "a")]
+
 
 class TestTableOwnership:
     def _create_unrelated_table(self, client: ClickHouseClient, database: str) -> None:
@@ -294,6 +326,21 @@ class TestTableOwnership:
 
         with pytest.raises(UnrelatedTableExistsError):
             await _deliver(LocalClickHouseWriter(run), run, 0, _rows([2], ["ours"]), final=True)
+
+        assert _read(client, database) == [(1, "theirs")]
+
+    async def test_refuses_a_table_another_schema_created_after_the_check(
+        self, database: str, client: ClickHouseClient
+    ) -> None:
+        other_schema = _ctx(database, "incremental", schema_id="other-schema")
+        await _deliver(LocalClickHouseWriter(other_schema), other_schema, 0, _rows([1], ["theirs"]))
+        run = _ctx(database, "incremental")
+        writer = LocalClickHouseWriter(run)
+        theirs = writer._existing_table(client, TABLE)
+
+        with mock.patch.object(writer, "_existing_table", side_effect=[None, theirs]):
+            with pytest.raises(UnrelatedTableExistsError):
+                await _deliver(writer, run, 0, _rows([2], ["ours"]))
 
         assert _read(client, database) == [(1, "theirs")]
 
