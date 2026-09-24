@@ -206,6 +206,25 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.stripVisible).toBe(false)
     })
 
+    // The members this guard serves send the read on every tab open, so leaving before the 403
+    // lands is routine and must not turn the refusal into a report.
+    it('reports nothing when a refusal lands after the strip unmounts', async () => {
+        let refuse: (error: ApiError) => void = () => {}
+        mockList.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        logic.unmount()
+        refuse(new ApiError('nope', 403))
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
     it.each([
         ['never scanned', 'empty', null],

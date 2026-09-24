@@ -339,6 +339,8 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                         // keep the current batch instead of reporting them. Anything else, notably
                         // a 5xx, still throws so a real backend failure reaches error tracking.
                         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            // The strip can unmount before the refusal lands, and the `values` read throws then.
+                            breakpoint()
                             return values.suggestionSet
                         }
                         throw error
