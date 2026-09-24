@@ -1229,13 +1229,15 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
+        RANKING_SCORE = "ranking_score"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
-    #   - status artefacts describe the report's current state (judgments, repo selection,
-    #     suggested reviewers, channel assignments). They are appended on each change; the
-    #     report's *current* status is the latest row of that type by `created_at` (the serializer
-    #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
+    #   - status artefacts describe the report's current state (judgments and repo selection among
+    #     them, and the model's current ranking score). They are appended on each change; the
+    #     report's *current* status is the latest row of that type by `created_at`. A member does
+    #     not have to reach the API: the serializer derives priority/actionability/reviewers with
+    #     `order_by("-created_at")[:1]` subqueries, and the rest are read by the pipeline alone.
     #   - log artefacts record discrete work done on a report (code references, commits,
     #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
@@ -1251,6 +1253,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
+            ArtefactType.RANKING_SCORE,
         }
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
