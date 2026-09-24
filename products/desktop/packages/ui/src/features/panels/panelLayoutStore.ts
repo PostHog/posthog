@@ -502,36 +502,37 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
       },
 
       splitPanelWithCopy: (taskId, panelId, direction, source) => {
+        let changed = false;
         set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              coreSplitPanelWithCopy(
-                layout,
-                panelId,
-                direction,
-              ) as Partial<TaskLayout>,
-          ),
+          updateTaskLayout(state, taskId, (layout) => {
+            const updates = coreSplitPanelWithCopy(layout, panelId, direction);
+            changed = Object.keys(updates).length > 0;
+            return updates as Partial<TaskLayout>;
+          }),
         );
 
-        track(ANALYTICS_EVENTS.PANEL_SPLIT, {
-          source,
-          direction,
-          task_id: taskId,
-        });
+        if (changed) {
+          track(ANALYTICS_EVENTS.PANEL_SPLIT, {
+            source,
+            direction,
+            task_id: taskId,
+          });
+        }
       },
 
       closePanel: (taskId, panelId, source) => {
+        let changed = false;
         set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) => coreClosePanel(layout, panelId) as Partial<TaskLayout>,
-          ),
+          updateTaskLayout(state, taskId, (layout) => {
+            const updates = coreClosePanel(layout, panelId);
+            changed = Object.keys(updates).length > 0;
+            return updates as Partial<TaskLayout>;
+          }),
         );
 
-        track(ANALYTICS_EVENTS.PANEL_CLOSED, { source, task_id: taskId });
+        if (changed) {
+          track(ANALYTICS_EVENTS.PANEL_CLOSED, { source, task_id: taskId });
+        }
       },
 
       updateSizes: (taskId, groupId, sizes) => {

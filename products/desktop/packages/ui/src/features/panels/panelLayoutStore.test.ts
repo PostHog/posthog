@@ -665,6 +665,14 @@ describe("panelLayoutStore", () => {
 
       expect(track).not.toHaveBeenCalled();
     });
+
+    it("stays silent when the pane does not exist", () => {
+      const state = usePanelLayoutStore.getState();
+      state.splitPanelWithCopy("task-1", "missing", "right", "shortcut");
+      state.closePanel("task-1", "missing", "shortcut");
+
+      expect(track).not.toHaveBeenCalled();
+    });
   });
 
   describe("updateSizes", () => {

@@ -4,6 +4,7 @@ import {
   closePanel,
   closeTab,
   createInitialTaskLayout,
+  openReadonlyTab,
   openTab,
   setActiveTab,
   splitPanelWithCopy,
@@ -226,6 +227,28 @@ describe("panelLayoutTransforms", () => {
         "logs",
       ]);
       expect(closed.panelTree.content.activeTabId).toBe("logs");
+    });
+
+    it("lets a main-placed artifact open in the pane that survived the main pane", () => {
+      const layout = createInitialTaskLayout();
+      const { next: split, newPane } = splitMainPanelRight(layout);
+      const closed = applyUpdates(split, closePanel(split, "main-panel"));
+
+      const opened = applyUpdates(
+        closed,
+        openReadonlyTab(
+          closed,
+          "artifact-1",
+          "report.md",
+          { type: "artifact", runId: "run-1", artifactId: "1" },
+          "main",
+        ),
+      );
+
+      expect(findTabInTree(opened.panelTree, "artifact-1")?.panelId).toBe(
+        newPane.id,
+      );
+      expect(opened.focusedPanelId).toBe(newPane.id);
     });
   });
 

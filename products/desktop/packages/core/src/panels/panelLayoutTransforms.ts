@@ -271,10 +271,10 @@ export function openReadonlyTab(
   }
 
   if (placement === "main") {
-    const mainPanel = getLeafPanel(
-      layout.panelTree,
-      DEFAULT_PANEL_IDS.MAIN_PANEL,
-    );
+    // closePanel can remove the main pane, so fall back to a surviving one.
+    const mainPanel =
+      getLeafPanel(layout.panelTree, DEFAULT_PANEL_IDS.MAIN_PANEL) ??
+      findNonMainLeafPanel(layout.panelTree);
     if (!mainPanel) return {};
     const panelTree = updateTreeNode(
       layout.panelTree,
