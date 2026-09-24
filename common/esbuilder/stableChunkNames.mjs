@@ -25,7 +25,7 @@ export const STABLE_NAME_MARKER = 'S'
 
 const SOURCE_MAP_COMMENT = /\n\/\/# sourceMappingURL=[^\n]*\s*$/
 
-function shortHash(value) {
+export function shortHash(value) {
     return createHash('sha256').update(value).digest('hex').slice(0, 10).toUpperCase()
 }
 

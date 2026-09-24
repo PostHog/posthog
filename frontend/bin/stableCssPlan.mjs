@@ -1,7 +1,5 @@
-import { createHash } from 'node:crypto'
-
 import { CSS_LOAD_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
-import { chunkIdentity } from '@posthog/esbuilder/stableChunkNames.mjs'
+import { chunkIdentity, shortHash } from '@posthog/esbuilder/stableChunkNames.mjs'
 
 /**
  * Split stylesheets for the stable build.
@@ -29,10 +27,6 @@ const BOOT_ENTRIES = [
     'src/scenes/AuthenticatedShell.tsx',
 ]
 const isStylesheet = (file) => /\.(s?css|sass)$/.test(file)
-
-function shortHash(value) {
-    return createHash('sha256').update(value).digest('hex').slice(0, 10).toUpperCase()
-}
 
 function eagerLayer(file) {
     if (file.endsWith('tailwind/tailwind.css')) {
