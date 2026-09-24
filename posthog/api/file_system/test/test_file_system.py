@@ -68,6 +68,63 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["count"], 0)
         self.assertEqual(response_data["results"], [])
 
+    @parameterized.expand([(False,), (True,)])
+    def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
+        markdown = Notebook.objects.create(
+            team=self.team,
+            short_id="markdown",
+            content={
+                "type": "doc",
+                "content": [{"type": "ph-markdown-notebook", "attrs": {"markdown": "# Example"}}],
+            },
+        )
+        legacy = Notebook.objects.create(
+            team=self.team, short_id="legacy", content={"type": "doc", "content": [{"type": "paragraph"}]}
+        )
+        sql = Insight.objects.create(
+            team=self.team,
+            short_id="sqlquery",
+            query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+        )
+        trend = Insight.objects.create(
+            team=self.team, short_id="trend", query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        Notebook.objects.create(team=other_team, short_id="foreign", content=markdown.content)
+        entries = [
+            ("Markdown", "notebook", markdown.short_id, "text/markdown"),
+            ("Legacy", "notebook", legacy.short_id, "application/json"),
+            ("SQL", "insight", sql.short_id, "application/sql"),
+            ("Trend", "insight", trend.short_id, "application/json"),
+            ("Missing", "notebook", "foreign", "application/json"),
+        ]
+        for name, entry_type, ref, _ in entries:
+            FileSystem.objects.create(
+                team=self.team, path=f"Reports/{name}", depth=2, type=entry_type, ref=ref, meta={"label": "example"}
+            )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"parent": "Reports", "depth": "2", "include_content_type": str(include_content_type).lower()},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = {item["ref"]: item for item in response.json()["results"]}
+        self.assertEqual(set(results), {ref for _, _, ref, _ in entries})
+        for _, _, ref, content_type in entries:
+            expected_meta = {"label": "example"}
+            if include_content_type:
+                expected_meta["content_type"] = content_type
+            self.assertEqual(results[ref]["meta"], expected_meta)
+            self.assertNotIn("content", results[ref])
+            self.assertNotIn("query", results[ref])
+        if include_content_type:
+            markdown.content = legacy.content
+            markdown.save()
+            refreshed = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/",
+                {"ref": str(markdown.short_id), "include_content_type": "true"},
+            )
+            self.assertEqual(refreshed.json()["results"][0]["meta"]["content_type"], "application/json")
+
     def test_create_file(self):
         """
         Ensure that we can create a FileSystem object for our team.

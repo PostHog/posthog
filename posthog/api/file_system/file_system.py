@@ -7,11 +7,12 @@ from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
 
+from django.apps import apps
 from django.db import transaction
-from django.db.models import Case, Exists, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -551,15 +552,70 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    def _add_content_types(self, results: builtins.list[dict[str, object]]) -> None:
+        content_types: dict[tuple[str, str], str] = {}
+        for entry_type, app_label, model_name in (
+            ("notebook", "notebooks", "Notebook"),
+            ("insight", "product_analytics", "Insight"),
+        ):
+            refs = {
+                item["ref"]
+                for item in results
+                if item.get("type") == entry_type
+                and item.get("user_access_level") != "none"
+                and isinstance(item.get("ref"), str)
+                and item["ref"]
+            }
+            if not refs:
+                continue
+            model = apps.get_model(app_label, model_name)
+            queryset = model.objects.filter(team__project_id=self.team.project_id, short_id__in=refs, deleted=False)
+            if entry_type == "notebook":
+                queryset = queryset.alias(
+                    _markdown_type=Func(
+                        F("content__content__0__attrs__markdown"), function="jsonb_typeof", output_field=CharField()
+                    )
+                ).filter(
+                    visibility="default",
+                    content__content__0__type="ph-markdown-notebook",
+                    content__content__1__isnull=True,
+                    _markdown_type="string",
+                )
+                content_type = "text/markdown"
+            else:
+                queryset = queryset.filter(query__source__kind="HogQLQuery")
+                content_type = "application/sql"
+            for ref in queryset.values_list("short_id", flat=True):
+                content_types[(entry_type, ref)] = content_type
+        for item in results:
+            if item.get("type") not in ("notebook", "insight"):
+                continue
+            meta = item.get("meta")
+            item["meta"] = {
+                **(meta if isinstance(meta, dict) else {}),
+                "content_type": content_types.get((str(item["type"]), str(item.get("ref"))), "application/json"),
+            }
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_content_type",
+                OpenApiTypes.BOOL,
+                description="Include meta.content_type for notebooks and insights on this page, without their contents.",
+            )
+        ]
+    )
     def list(self, request, *args, **kwargs):
         order_by_param = request.query_params.get("order_by")
         # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
         # search term — one query function, no join, no COUNT(*).
         if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
-            return self._list_recents(request, descending=order_by_param == "-last_viewed_at")
-
-        response = super().list(request, *args, **kwargs)
-        response.data["users"] = self._created_by_users(response.data.get("results", []))
+            response = self._list_recents(request, descending=order_by_param == "-last_viewed_at")
+        else:
+            response = super().list(request, *args, **kwargs)
+            response.data["users"] = self._created_by_users(response.data.get("results", []))
+        if str_to_bool(request.query_params.get("include_content_type", "false")):
+            self._add_content_types(response.data.get("results", []))
         return response
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:

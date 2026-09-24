@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { router } from 'kea-router'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
@@ -41,6 +42,9 @@ export default meta
 
 export const Folder: StoryObj<typeof ProjectFilesScene> = { args: { folder: 'Research' } }
 export const ProjectRoot: StoryObj<typeof ProjectFilesScene> = {}
+export const FolderFromUrl: StoryObj<typeof ProjectFilesScene> = {
+    play: () => router.actions.push('/files?folder=Research'),
+}
 export const LongFolder: StoryObj<typeof ProjectFilesScene> = {
     args: { folder: 'Research' },
     parameters: { fileCount: 80 },

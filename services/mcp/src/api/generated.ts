@@ -109031,6 +109031,10 @@ export namespace Schemas {
 
     export type FileSystemListParams = {
     /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
