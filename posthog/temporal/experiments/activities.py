@@ -173,7 +173,6 @@ def _calculate_experiment_regular_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
-    metric_obj = build_metric(metric_dict)
 
     if not experiment.start_date:
         return ExperimentRegularMetricResult(
@@ -189,6 +188,9 @@ def _calculate_experiment_regular_metric_sync(
     query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
+        # Inside the try so a malformed stored metric dict follows the same
+        # failure path as a query error instead of escaping the activity.
+        metric_obj = build_metric(metric_dict)
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
@@ -495,7 +497,6 @@ def _calculate_experiment_saved_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
-    metric_obj = build_metric(query)
 
     if not experiment.start_date:
         return ExperimentSavedMetricResult(
@@ -511,6 +512,9 @@ def _calculate_experiment_saved_metric_sync(
     query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
+        # Inside the try so a malformed stored metric dict follows the same
+        # failure path as a query error instead of escaping the activity.
+        metric_obj = build_metric(query)
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
