@@ -175,11 +175,6 @@ export const EndpointsDestroyParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const EndpointsLogsRetrieveParams = () => zod.object({
     name: zod.string(),
     project_id: zod

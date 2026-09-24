@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BillingAlertsCreateParams = () => zod.object({
     organization_id: zod
         .string()
@@ -125,11 +120,6 @@ export const BillingAlertsCreateBody = () => zod.object({
         .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BillingAlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this billing alert configuration.'),
     organization_id: zod

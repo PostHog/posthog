@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsCreateBodyNameMax = 400
 
 export const pulseBriefConfigsCreateBodyFocusPromptMax = 2000
@@ -111,11 +106,6 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsUpdateBodyNameMax = 400
 
 export const pulseBriefConfigsUpdateBodyFocusPromptMax = 2000
@@ -213,11 +203,6 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsPartialUpdateBodyNameMax = 400
 
 export const pulseBriefConfigsPartialUpdateBodyFocusPromptMax = 2000
@@ -319,11 +304,6 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefsGenerateCreateBodyPeriodOneDaysMax = 90
 
 export const PulseBriefsGenerateCreateBody = /* @__PURE__ */ zod.object({

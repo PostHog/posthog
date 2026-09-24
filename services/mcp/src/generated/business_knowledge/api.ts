@@ -58,11 +58,6 @@ export const BusinessKnowledgeDocumentsSearchListQueryParams = () => zod.object(
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BusinessKnowledgeSourcesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -85,11 +80,6 @@ export const BusinessKnowledgeSourcesListQueryParams = () => zod.object({
         .describe('Filter to a single source type (text, url, or file).'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BusinessKnowledgeSourcesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -120,11 +110,6 @@ export const BusinessKnowledgeSourcesCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BusinessKnowledgeSourcesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this knowledge source.'),
     project_id: zod
@@ -134,11 +119,6 @@ export const BusinessKnowledgeSourcesRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BusinessKnowledgeSourcesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this knowledge source.'),
     project_id: zod

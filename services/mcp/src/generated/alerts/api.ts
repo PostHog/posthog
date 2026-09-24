@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AlertsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -42,11 +37,6 @@ export const AlertsListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AlertsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1366,11 +1356,6 @@ export const AlertsCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AlertsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
@@ -1403,11 +1388,6 @@ export const AlertsRetrieveQueryParams = () => zod.object({
         .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
@@ -2753,11 +2733,6 @@ export const AlertsPartialUpdateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AlertsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod

@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const EarlyAccessFeatureListParams = () => zod.object({
     project_id: zod
         .string()
@@ -26,11 +21,6 @@ export const EarlyAccessFeatureListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const EarlyAccessFeatureCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -78,11 +68,6 @@ export const EarlyAccessFeatureCreateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const EarlyAccessFeatureRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
@@ -92,11 +77,6 @@ export const EarlyAccessFeatureRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const EarlyAccessFeaturePartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
@@ -142,11 +122,6 @@ export const EarlyAccessFeaturePartialUpdateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const EarlyAccessFeatureDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod

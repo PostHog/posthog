@@ -59,11 +59,6 @@ export const getDataModelingDagsListUrl = (projectId: string, params?: DataModel
         : `/api/projects/${projectId}/data_modeling_dags/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsList = async (
     projectId: string,
     params?: DataModelingDagsListParams,
@@ -79,11 +74,6 @@ export const getDataModelingDagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_dags/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsCreate = async (
     projectId: string,
     dagApi: NonReadonly<DagApi>,
@@ -101,11 +91,6 @@ export const getDataModelingDagsRetrieveUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_dags/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsRetrieve = async (
     projectId: string,
     id: string,
@@ -121,11 +106,6 @@ export const getDataModelingDagsPartialUpdateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/data_modeling_dags/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -144,11 +124,6 @@ export const getDataModelingDagsDestroyUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_dags/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingDagsDestroyUrl(projectId, id), {
         ...options,
@@ -172,11 +147,6 @@ export const getDataModelingEdgesListUrl = (projectId: string, params?: DataMode
         : `/api/projects/${projectId}/data_modeling_edges/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingEdgesList = async (
     projectId: string,
     params?: DataModelingEdgesListParams,
@@ -192,11 +162,6 @@ export const getDataModelingEdgesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_edges/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingEdgesCreate = async (
     projectId: string,
     edgeApi: NonReadonly<EdgeApi>,
@@ -214,11 +179,6 @@ export const getDataModelingEdgesRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingEdgesRetrieve = async (
     projectId: string,
     id: string,
@@ -234,11 +194,6 @@ export const getDataModelingEdgesUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingEdgesUpdate = async (
     projectId: string,
     id: string,
@@ -257,11 +212,6 @@ export const getDataModelingEdgesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingEdgesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -280,11 +230,6 @@ export const getDataModelingEdgesDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingEdgesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingEdgesDestroyUrl(projectId, id), {
         ...options,
@@ -308,11 +253,6 @@ export const getDataModelingNodesListUrl = (projectId: string, params?: DataMode
         : `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesList = async (
     projectId: string,
     params?: DataModelingNodesListParams,
@@ -328,11 +268,6 @@ export const getDataModelingNodesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesCreate = async (
     projectId: string,
     nodeApi: NonReadonly<NodeApi>,
@@ -350,11 +285,6 @@ export const getDataModelingNodesRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesRetrieve = async (
     projectId: string,
     id: string,
@@ -370,11 +300,6 @@ export const getDataModelingNodesUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesUpdate = async (
     projectId: string,
     id: string,
@@ -393,11 +318,6 @@ export const getDataModelingNodesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -416,11 +336,6 @@ export const getDataModelingNodesDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingNodesDestroyUrl(projectId, id), {
         ...options,

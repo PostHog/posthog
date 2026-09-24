@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -50,11 +45,6 @@ export const DashboardTemplatesListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dashboard template.'),
     project_id: zod
@@ -64,11 +54,6 @@ export const DashboardTemplatesRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -97,11 +82,6 @@ export const DashboardsListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -210,11 +190,6 @@ export const DashboardsCreateBody = () => zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
@@ -246,11 +221,6 @@ export const DashboardsRetrieveQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
@@ -1377,11 +1347,6 @@ export const DashboardsDeleteTileBody = () => zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsMoveTilePartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
@@ -1405,11 +1370,6 @@ export const DashboardsMoveTilePartialUpdateBody = () => zod.object({
         .describe('Tile to move, identified by its dashboard tile ID.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsReorderTilesCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
@@ -1493,11 +1453,6 @@ export const DashboardsRunInsightsRetrieveQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod

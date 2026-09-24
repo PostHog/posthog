@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsCreateBodyNameMax = 400
 
 export const hogFunctionsCreateBodyInputsSchemaItemRequiredDefault = false
@@ -288,11 +283,6 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsUpdateBodyNameMax = 400
 
 export const hogFunctionsUpdateBodyInputsSchemaItemRequiredDefault = false
@@ -567,11 +557,6 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsPartialUpdateBodyNameMax = 400
 
 export const hogFunctionsPartialUpdateBodyInputsSchemaItemRequiredDefault = false
@@ -846,11 +831,6 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsEnableBackfillsCreateBodyNameMax = 400
 
 export const hogFunctionsEnableBackfillsCreateBodyInputsSchemaItemRequiredDefault = false
@@ -1135,11 +1115,6 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
@@ -1618,11 +1593,6 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsPublishCreateBodyConfirmDefault = false
 
 export const HogFunctionsPublishCreateBody = /* @__PURE__ */ zod.object({
@@ -1729,11 +1699,6 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const hogFunctionsRevisionsRestoreCreateBodyOverwriteDefault = false
 
 export const HogFunctionsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({

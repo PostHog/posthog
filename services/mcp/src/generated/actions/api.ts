@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ActionsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -42,11 +37,6 @@ export const ActionsListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ActionsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -480,11 +470,6 @@ export const ActionsCreateBody = () => zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ActionsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
@@ -498,11 +483,6 @@ export const ActionsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ActionsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod

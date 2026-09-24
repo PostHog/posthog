@@ -42,9 +42,6 @@ export const getStreamlitAppsListUrl = (projectId: string, params?: StreamlitApp
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary List streamlit apps
  */
 export const streamlitAppsList = async (
@@ -63,9 +60,6 @@ export const getStreamlitAppsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Create a streamlit app
  */
 export const streamlitAppsCreate = async (
@@ -86,9 +80,6 @@ export const getStreamlitAppsRetrieveUrl = (projectId: string, shortId: string) 
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Retrieve a streamlit app
  */
 export const streamlitAppsRetrieve = async (
@@ -107,9 +98,6 @@ export const getStreamlitAppsUpdateUrl = (projectId: string, shortId: string) =>
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Update a streamlit app
  */
 export const streamlitAppsUpdate = async (
@@ -131,9 +119,6 @@ export const getStreamlitAppsPartialUpdateUrl = (projectId: string, shortId: str
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Partially update a streamlit app
  */
 export const streamlitAppsPartialUpdate = async (
@@ -155,9 +140,6 @@ export const getStreamlitAppsDestroyUrl = (projectId: string, shortId: string) =
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Delete a streamlit app
  */
 export const streamlitAppsDestroy = async (
@@ -176,9 +158,6 @@ export const getStreamlitAppsActivateVersionCreateUrl = (projectId: string, shor
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Activate an existing app version
  */
 export const streamlitAppsActivateVersionCreate = async (
@@ -200,9 +179,6 @@ export const getStreamlitAppsConnectInfoRetrieveUrl = (projectId: string, shortI
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get iframe connection info for a running app
  */
 export const streamlitAppsConnectInfoRetrieve = async (
@@ -221,9 +197,6 @@ export const getStreamlitAppsCreateVersionFromSourceCreateUrl = (projectId: stri
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Create an app version from source code
  */
 export const streamlitAppsCreateVersionFromSourceCreate = async (
@@ -245,9 +218,6 @@ export const getStreamlitAppsRestartCreateUrl = (projectId: string, shortId: str
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Restart the app sandbox
  */
 export const streamlitAppsRestartCreate = async (
@@ -266,9 +236,6 @@ export const getStreamlitAppsStartCreateUrl = (projectId: string, shortId: strin
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Start the app sandbox
  */
 export const streamlitAppsStartCreate = async (
@@ -287,9 +254,6 @@ export const getStreamlitAppsStatusRetrieveUrl = (projectId: string, shortId: st
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get app sandbox status
  */
 export const streamlitAppsStatusRetrieve = async (
@@ -308,9 +272,6 @@ export const getStreamlitAppsStopCreateUrl = (projectId: string, shortId: string
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Stop the app sandbox
  */
 export const streamlitAppsStopCreate = async (
@@ -329,9 +290,6 @@ export const getStreamlitAppsUploadVersionCreateUrl = (projectId: string, shortI
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Upload a new app version
  */
 export const streamlitAppsUploadVersionCreate = async (
@@ -353,9 +311,6 @@ export const getStreamlitAppsVersionsRetrieveUrl = (projectId: string, shortId: 
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary List app versions
  */
 export const streamlitAppsVersionsRetrieve = async (

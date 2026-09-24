@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const createBodyNameMax = 64
 
 export const CreateBody = /* @__PURE__ */ zod.object({
@@ -62,11 +57,6 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const updateBodyNameMax = 64
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
@@ -115,11 +105,6 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const partialUpdateBodyNameMax = 64
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -168,11 +153,6 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
@@ -180,11 +160,6 @@ export const MembersUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
@@ -258,11 +233,6 @@ export const RolesRoleMembershipsCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod.uuid(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const advancedActivityLogsExportCreateBodyUserDistinctIdMax = 200
 
 export const advancedActivityLogsExportCreateBodyUserFirstNameMax = 150
@@ -331,11 +301,6 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const approvalPoliciesCreateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesCreateBody = /* @__PURE__ */ zod.object({
@@ -349,11 +314,6 @@ export const ApprovalPoliciesCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const approvalPoliciesUpdateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesUpdateBody = /* @__PURE__ */ zod.object({
@@ -367,11 +327,6 @@ export const ApprovalPoliciesUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const approvalPoliciesPartialUpdateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -443,11 +398,6 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.uuid().nullish(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const commentsUpdateBodyScopeMax = 79
 
 export const commentsUpdateBodyIsTaskDefault = false
@@ -474,11 +424,6 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.uuid().nullish(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const commentsPartialUpdateBodyScopeMax = 79
 
 export const commentsPartialUpdateBodyIsTaskDefault = false

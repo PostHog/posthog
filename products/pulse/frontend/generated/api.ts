@@ -52,11 +52,6 @@ export const getPulseBriefConfigsListUrl = (projectId: string, params?: PulseBri
         : `/api/projects/${projectId}/pulse/brief_configs/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsList = async (
     projectId: string,
     params?: PulseBriefConfigsListParams,
@@ -72,11 +67,6 @@ export const getPulseBriefConfigsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/pulse/brief_configs/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsCreate = async (
     projectId: string,
     briefConfigApi: NonReadonly<BriefConfigApi>,
@@ -94,11 +84,6 @@ export const getPulseBriefConfigsRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/pulse/brief_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsRetrieve = async (
     projectId: string,
     id: string,
@@ -114,11 +99,6 @@ export const getPulseBriefConfigsUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/pulse/brief_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsUpdate = async (
     projectId: string,
     id: string,
@@ -137,11 +117,6 @@ export const getPulseBriefConfigsPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/pulse/brief_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -160,11 +135,6 @@ export const getPulseBriefConfigsDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/pulse/brief_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefConfigsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getPulseBriefConfigsDestroyUrl(projectId, id), {
         ...options,
@@ -188,11 +158,6 @@ export const getPulseBriefsListUrl = (projectId: string, params?: PulseBriefsLis
         : `/api/projects/${projectId}/pulse/briefs/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefsList = async (
     projectId: string,
     params?: PulseBriefsListParams,
@@ -208,11 +173,6 @@ export const getPulseBriefsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/pulse/briefs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefsRetrieve = async (
     projectId: string,
     id: string,
@@ -228,11 +188,6 @@ export const getPulseBriefsGenerateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/pulse/briefs/generate/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const pulseBriefsGenerateCreate = async (
     projectId: string,
     generateBriefRequestApi?: GenerateBriefRequestApi,

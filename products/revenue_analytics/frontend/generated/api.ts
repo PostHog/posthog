@@ -14,11 +14,6 @@ export const getRevenueAnalyticsJoinsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/revenue_analytics/joins/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const revenueAnalyticsJoinsCreate = async (
     projectId: string,
     revenueAnalyticsJoinApi: RevenueAnalyticsJoinApi,
@@ -36,11 +31,6 @@ export const getRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) 
     return `/api/projects/${projectId}/revenue_analytics/taxonomy/values/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const revenueAnalyticsTaxonomyValuesRetrieve = async (
     projectId: string,
     options?: RequestInit

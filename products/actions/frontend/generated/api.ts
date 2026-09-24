@@ -58,11 +58,6 @@ export const getActionsListUrl = (projectId: string, params?: ActionsListParams)
         : `/api/projects/${projectId}/actions/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsList = async (
     projectId: string,
     params?: ActionsListParams,
@@ -90,11 +85,6 @@ export const getActionsCreateUrl = (projectId: string, params?: ActionsCreatePar
         : `/api/projects/${projectId}/actions/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsCreate = async (
     projectId: string,
     actionApi?: NonReadonly<ActionApi>,
@@ -125,11 +115,6 @@ export const getActionsRetrieveUrl = (projectId: string, id: number, params?: Ac
         : `/api/projects/${projectId}/actions/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsRetrieve = async (
     projectId: string,
     id: number,
@@ -158,11 +143,6 @@ export const getActionsUpdateUrl = (projectId: string, id: number, params?: Acti
         : `/api/projects/${projectId}/actions/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsUpdate = async (
     projectId: string,
     id: number,
@@ -194,11 +174,6 @@ export const getActionsPartialUpdateUrl = (projectId: string, id: number, params
         : `/api/projects/${projectId}/actions/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsPartialUpdate = async (
     projectId: string,
     id: number,
@@ -261,11 +236,6 @@ export const getActionsReferencesListUrl = (projectId: string, id: number, param
         : `/api/projects/${projectId}/actions/${id}/references/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsReferencesList = async (
     projectId: string,
     id: number,

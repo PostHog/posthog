@@ -402,11 +402,6 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
         .describe('Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const mcpServerInstallationsCreateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsCreateBodyUrlMax = 2048
@@ -418,11 +413,6 @@ export const McpServerInstallationsCreateBody = /* @__PURE__ */ zod.object({
     is_enabled: zod.boolean().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const mcpServerInstallationsUpdateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsUpdateBodyUrlMax = 2048
@@ -434,11 +424,6 @@ export const McpServerInstallationsUpdateBody = /* @__PURE__ */ zod.object({
     is_enabled: zod.boolean().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const McpServerInstallationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().optional(),
     description: zod.string().optional(),
@@ -465,11 +450,6 @@ export const McpServerInstallationsCallToolCreateBody = /* @__PURE__ */ zod.obje
         .describe('Arguments object passed straight to the tool, matching its input schema.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const mcpServerInstallationsProxyCreateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsProxyCreateBodyUrlMax = 2048
@@ -481,11 +461,6 @@ export const McpServerInstallationsProxyCreateBody = /* @__PURE__ */ zod.object(
     is_enabled: zod.boolean().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const McpServerInstallationsToolsPartialUpdateBody = /* @__PURE__ */ zod.object({
     approval_state: zod
         .enum(['approved', 'needs_approval', 'do_not_use'])
@@ -493,11 +468,6 @@ export const McpServerInstallationsToolsPartialUpdateBody = /* @__PURE__ */ zod.
         .describe('\* `approved` - approved\n\* `needs_approval` - needs_approval\n\* `do_not_use` - do_not_use'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const mcpServerInstallationsToolsRefreshCreateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsToolsRefreshCreateBodyUrlMax = 2048
@@ -509,11 +479,6 @@ export const McpServerInstallationsToolsRefreshCreateBody = /* @__PURE__ */ zod.
     is_enabled: zod.boolean().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const mcpServerInstallationsInstallCustomCreateBodyNameMax = 200
 
 export const mcpServerInstallationsInstallCustomCreateBodyUrlMax = 2048
@@ -567,11 +532,6 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
         .describe('In-app path to land back on after the OAuth round-trip. Must be a same-app relative path.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const mcpServerInstallationsInstallTemplateCreateBodyApiKeyDefault = ``
 export const mcpServerInstallationsInstallTemplateCreateBodyInstallSourceDefault = `posthog`
 export const mcpServerInstallationsInstallTemplateCreateBodyPosthogCodeCallbackUrlDefault = ``

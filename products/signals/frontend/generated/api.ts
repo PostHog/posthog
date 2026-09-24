@@ -267,11 +267,6 @@ export const getSignalsReportsListUrl = (projectId: string, params?: SignalsRepo
         : `/api/projects/${projectId}/signals/reports/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsReportsList = async (
     projectId: string,
     params?: SignalsReportsListParams,
@@ -287,11 +282,6 @@ export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsReportsRetrieve = async (
     projectId: string,
     id: string,
@@ -542,9 +532,6 @@ export const getSignalsReportPrReviewCommentUpdateUrl = (
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Edit one of the requesting user's own review comments
  */
 export const signalsReportPrReviewCommentUpdate = async (
@@ -588,9 +575,6 @@ export const getSignalsReportPrReviewCommentDestroyUrl = (
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Delete one of the requesting user's own review comments
  */
 export const signalsReportPrReviewCommentDestroy = async (
@@ -628,9 +612,6 @@ export const getSignalsReportPrReviewCommentReactionsCreateUrl = (
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary React to a review comment as the requesting user
  */
 export const signalsReportPrReviewCommentReactionsCreate = async (
@@ -675,9 +656,6 @@ export const getSignalsReportPrReviewCommentReactionDestroyUrl = (
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Remove one of the requesting user's own reactions from a review comment
  */
 export const signalsReportPrReviewCommentReactionDestroy = async (
@@ -1093,9 +1071,6 @@ export const getSignalsReportsAvailableReviewersRetrieveUrl = (
 }
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary List the org members who can be suggested as reviewers
  */
 export const signalsReportsAvailableReviewersRetrieve = async (
@@ -2183,11 +2158,6 @@ export const getSignalsSourceConfigsListUrl = (projectId: string, params?: Signa
         : `/api/projects/${projectId}/signals/source_configs/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsSourceConfigsList = async (
     projectId: string,
     params?: SignalsSourceConfigsListParams,
@@ -2203,11 +2173,6 @@ export const getSignalsSourceConfigsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/source_configs/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsSourceConfigsCreate = async (
     projectId: string,
     signalSourceConfigApi: NonReadonly<SignalSourceConfigApi>,
@@ -2225,11 +2190,6 @@ export const getSignalsSourceConfigsRetrieveUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/signals/source_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsSourceConfigsRetrieve = async (
     projectId: string,
     id: string,
@@ -2245,11 +2205,6 @@ export const getSignalsSourceConfigsUpdateUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/signals/source_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsSourceConfigsUpdate = async (
     projectId: string,
     id: string,
@@ -2268,11 +2223,6 @@ export const getSignalsSourceConfigsPartialUpdateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/signals/source_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsSourceConfigsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -2291,11 +2241,6 @@ export const getSignalsSourceConfigsDestroyUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/signals/source_configs/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const signalsSourceConfigsDestroy = async (
     projectId: string,
     id: string,

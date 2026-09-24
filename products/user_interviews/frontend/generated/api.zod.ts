@@ -312,11 +312,6 @@ export const UserInterviewTopicsIntervieweesBulkCreateBody = /* @__PURE__ */ zod
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const userInterviewsCreateBodyIntervieweeEmailsItemMax = 254
 
 export const UserInterviewsCreateBody = /* @__PURE__ */ zod.object({
@@ -331,11 +326,6 @@ export const UserInterviewsCreateBody = /* @__PURE__ */ zod.object({
     audio: zod.url(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const userInterviewsUpdateBodyIntervieweeEmailsItemMax = 254
 
 export const UserInterviewsUpdateBody = /* @__PURE__ */ zod.object({
@@ -350,11 +340,6 @@ export const UserInterviewsUpdateBody = /* @__PURE__ */ zod.object({
     audio: zod.url(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax = 254
 
 export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({

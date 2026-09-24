@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const reusableWidgetsUpdateDemoDataBodyFrameNameMax = 200
 
 export const reusableWidgetsUpdateDemoDataBodyRowsMax = 20
@@ -30,21 +25,11 @@ export const ReusableWidgetsUpdateDemoDataBody = /* @__PURE__ */ zod.object({
         .describe("Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows."),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ReusableWidgetsDiscardVersionBody = /* @__PURE__ */ zod.object({
     pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
     expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const reusableWidgetsGenerateBodyPromptMax = 50000
 
 export const reusableWidgetsGenerateBodyModelDefault = `claude-sonnet-5`
@@ -80,21 +65,11 @@ export const ReusableWidgetsGenerateBody = /* @__PURE__ */ zod.object({
         .describe('Current widget version the improvement is based on. Required for improve operations.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ReusableWidgetsRestoreBody = /* @__PURE__ */ zod.object({
     version_id: zod.uuid().describe('Published version to copy into a new latest version.'),
     expected_current_version_id: zod.uuid().describe('Latest version observed before restoring.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ReusableWidgetsSaveVersionBody = /* @__PURE__ */ zod.object({
     pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
     expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),

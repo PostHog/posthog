@@ -163,11 +163,6 @@ export const getConversationsTicketsPartialUpdateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsTicketsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -186,11 +181,6 @@ export const getConversationsTicketsDestroyUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsTicketsDestroy = async (
     projectId: string,
     id: string,
@@ -507,11 +497,6 @@ export const getConversationsViewsListUrl = (projectId: string, params?: Convers
         : `/api/projects/${projectId}/conversations/views/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsViewsList = async (
     projectId: string,
     params?: ConversationsViewsListParams,
@@ -527,11 +512,6 @@ export const getConversationsViewsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/views/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsViewsCreate = async (
     projectId: string,
     ticketViewApi: NonReadonly<TicketViewApi>,
@@ -549,11 +529,6 @@ export const getConversationsViewsRetrieveUrl = (projectId: string, shortId: str
     return `/api/projects/${projectId}/conversations/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsViewsRetrieve = async (
     projectId: string,
     shortId: string,
@@ -569,11 +544,6 @@ export const getConversationsViewsPartialUpdateUrl = (projectId: string, shortId
     return `/api/projects/${projectId}/conversations/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsViewsPartialUpdate = async (
     projectId: string,
     shortId: string,
@@ -592,11 +562,6 @@ export const getConversationsViewsDestroyUrl = (projectId: string, shortId: stri
     return `/api/projects/${projectId}/conversations/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsViewsDestroy = async (
     projectId: string,
     shortId: string,
@@ -612,11 +577,6 @@ export const getConversationsZendeskImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/zendesk_imports/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsZendeskImportsCreate = async (
     projectId: string,
     zendeskImportStartApi: ZendeskImportStartApi,
@@ -634,11 +594,6 @@ export const getConversationsZendeskImportsStatusRetrieveUrl = (projectId: strin
     return `/api/projects/${projectId}/conversations/zendesk_imports/status/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const conversationsZendeskImportsStatusRetrieve = async (
     projectId: string,
     options?: RequestInit

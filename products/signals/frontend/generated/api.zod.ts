@@ -252,9 +252,6 @@ export const SignalsReportPrReviewCommentsCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Edit one of the requesting user's own review comments
  */
 export const signalsReportPrReviewCommentUpdateBodyBodyMax = 65536
@@ -270,9 +267,6 @@ export const SignalsReportPrReviewCommentUpdateBody = /* @__PURE__ */ zod
     .describe("Request body for editing a review comment's markdown body.")
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary React to a review comment as the requesting user
  */
 export const SignalsReportPrReviewCommentReactionsCreateBody = /* @__PURE__ */ zod
@@ -2365,11 +2359,6 @@ export const SignalsScoutScratchpadForgetBody = /* @__PURE__ */ zod
     })
     .describe('Request body for `forget`.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .enum([
@@ -2462,11 +2451,6 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .enum([
@@ -2559,11 +2543,6 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .enum([

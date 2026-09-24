@@ -30,11 +30,6 @@ export const getNotificationsListUrl = (projectId: string, params?: Notification
         : `/api/projects/${projectId}/notifications/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsList = async (
     projectId: string,
     params?: NotificationsListParams,
@@ -50,11 +45,6 @@ export const getNotificationsArchiveCreateUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/notifications/${id}/archive/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsArchiveCreate = async (
     projectId: string,
     id: string,
@@ -70,11 +60,6 @@ export const getNotificationsMarkReadCreateUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/notifications/${id}/mark_read/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsMarkReadCreate = async (
     projectId: string,
     id: string,
@@ -90,11 +75,6 @@ export const getNotificationsMarkUnreadCreateUrl = (projectId: string, id: strin
     return `/api/projects/${projectId}/notifications/${id}/mark_unread/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsMarkUnreadCreate = async (
     projectId: string,
     id: string,
@@ -110,11 +90,6 @@ export const getNotificationsArchiveAllCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/archive_all/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsArchiveAllCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotificationsArchiveAllCreateUrl(projectId), {
         ...options,
@@ -126,11 +101,6 @@ export const getNotificationsArchiveBulkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/archive_bulk/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsArchiveBulkCreate = async (
     projectId: string,
     bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
@@ -148,11 +118,6 @@ export const getNotificationsMarkAllReadCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/mark_all_read/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsMarkAllReadCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotificationsMarkAllReadCreateUrl(projectId), {
         ...options,
@@ -164,11 +129,6 @@ export const getNotificationsMarkReadBulkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/mark_read_bulk/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsMarkReadBulkCreate = async (
     projectId: string,
     bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
@@ -186,11 +146,6 @@ export const getNotificationsMarkUnreadBulkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/mark_unread_bulk/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsMarkUnreadBulkCreate = async (
     projectId: string,
     bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
@@ -208,11 +163,6 @@ export const getNotificationsUnreadCountRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/unread_count/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const notificationsUnreadCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotificationsUnreadCountRetrieveUrl(projectId), {
         ...options,

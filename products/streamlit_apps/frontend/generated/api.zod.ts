@@ -10,9 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Create a streamlit app
  */
 export const StreamlitAppsCreateBody = /* @__PURE__ */ zod.object({
@@ -23,9 +20,6 @@ export const StreamlitAppsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Update a streamlit app
  */
 export const StreamlitAppsUpdateBody = /* @__PURE__ */ zod.object({
@@ -36,9 +30,6 @@ export const StreamlitAppsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Partially update a streamlit app
  */
 export const StreamlitAppsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -49,9 +40,6 @@ export const StreamlitAppsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Activate an existing app version
  */
 export const StreamlitAppsActivateVersionCreateBody = /* @__PURE__ */ zod.object({
@@ -61,9 +49,6 @@ export const StreamlitAppsActivateVersionCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Create an app version from source code
  */
 export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
@@ -94,9 +79,6 @@ export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zo
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Upload a new app version
  */
 export const StreamlitAppsUploadVersionCreateBody = /* @__PURE__ */ zod.object({

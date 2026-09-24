@@ -353,11 +353,6 @@ export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFla
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const orgFeatureFlagsRetrieve = async (
     organizationId: string,
     featureFlagKey: string,
@@ -373,11 +368,6 @@ export const getFeatureFlagsCopyFlagsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/feature_flags/copy_flags/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureFlagsCopyFlagsCreate = async (
     organizationId: string,
     copyFlagsRequestApi: CopyFlagsRequestApi,
@@ -395,11 +385,6 @@ export const getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl = (organiza
     return `/api/organizations/${organizationId}/feature_flags/copy_flags/dependency_requirements/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
     organizationId: string,
     copyFlagsDependencyRequirementsRequestApi: CopyFlagsDependencyRequirementsRequestApi,
@@ -533,11 +518,6 @@ export const getFeatureFlagRequestUsageListUrl = (projectId: string, params: Fea
         : `/api/projects/${projectId}/feature_flag_request_usage/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureFlagRequestUsageList = async (
     projectId: string,
     params: FeatureFlagRequestUsageListParams,

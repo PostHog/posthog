@@ -214,11 +214,6 @@ export const getExperimentSavedMetricsListUrl = (projectId: string, params?: Exp
         : `/api/projects/${projectId}/experiment_saved_metrics/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const experimentSavedMetricsList = async (
     projectId: string,
     params?: ExperimentSavedMetricsListParams,
@@ -234,11 +229,6 @@ export const getExperimentSavedMetricsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiment_saved_metrics/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const experimentSavedMetricsCreate = async (
     projectId: string,
     experimentSavedMetricApi: NonReadonly<ExperimentSavedMetricApi>,
@@ -256,11 +246,6 @@ export const getExperimentSavedMetricsRetrieveUrl = (projectId: string, id: numb
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const experimentSavedMetricsRetrieve = async (
     projectId: string,
     id: number,
@@ -276,11 +261,6 @@ export const getExperimentSavedMetricsUpdateUrl = (projectId: string, id: number
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const experimentSavedMetricsUpdate = async (
     projectId: string,
     id: number,
@@ -299,11 +279,6 @@ export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id:
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const experimentSavedMetricsPartialUpdate = async (
     projectId: string,
     id: number,
@@ -322,11 +297,6 @@ export const getExperimentSavedMetricsDestroyUrl = (projectId: string, id: numbe
     return `/api/projects/${projectId}/experiment_saved_metrics/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const experimentSavedMetricsDestroy = async (
     projectId: string,
     id: number,

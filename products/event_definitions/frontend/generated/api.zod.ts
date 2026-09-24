@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const eventDefinitionsCreateBodyNameMax = 400
 
 export const eventDefinitionsCreateBodyPrimaryPropertyMax = 400
@@ -41,11 +36,6 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const eventDefinitionsUpdateBodyNameMax = 400
 
 export const eventDefinitionsUpdateBodyPrimaryPropertyMax = 400
@@ -73,11 +63,6 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const eventDefinitionsPartialUpdateBodyNameMax = 400
 
 export const eventDefinitionsPartialUpdateBodyPrimaryPropertyMax = 400

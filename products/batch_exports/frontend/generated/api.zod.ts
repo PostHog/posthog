@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const batchExportsCreateBodyDestinationOneOneConfigUseVariantTypeDefault = true
 export const batchExportsCreateBodyDestinationOneOneConfigUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsCreateBodyDestinationOneTwoConfigPrefixDefault = ``
@@ -730,11 +725,6 @@ export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for a BatchExportRun model.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const batchExportsUpdateBodyDestinationOneOneConfigUseVariantTypeDefault = true
 export const batchExportsUpdateBodyDestinationOneOneConfigUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsUpdateBodyDestinationOneTwoConfigPrefixDefault = ``
@@ -1204,11 +1194,6 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
         'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const batchExportsPartialUpdateBodyDestinationOneOneConfigUseVariantTypeDefault = true
 export const batchExportsPartialUpdateBodyDestinationOneOneConfigUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsPartialUpdateBodyDestinationOneTwoConfigPrefixDefault = ``
@@ -2134,11 +2119,6 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for a BatchExport model.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneOneUseVariantTypeDefault = true
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneOneUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneTwoPrefixDefault = ``
@@ -3058,11 +3038,6 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for a BatchExport model.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneOneUseVariantTypeDefault = true
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneOneUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneTwoPrefixDefault = ``

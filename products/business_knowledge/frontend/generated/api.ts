@@ -305,11 +305,6 @@ export const getBusinessKnowledgeSourcesListUrl = (projectId: string, params?: B
         : `/api/projects/${projectId}/business_knowledge/sources/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesList = async (
     projectId: string,
     params?: BusinessKnowledgeSourcesListParams,
@@ -325,11 +320,6 @@ export const getBusinessKnowledgeSourcesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/business_knowledge/sources/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesCreate = async (
     projectId: string,
     createTextSourceApi: CreateTextSourceApi,
@@ -347,11 +337,6 @@ export const getBusinessKnowledgeSourcesRetrieveUrl = (projectId: string, id: st
     return `/api/projects/${projectId}/business_knowledge/sources/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesRetrieve = async (
     projectId: string,
     id: string,
@@ -367,11 +352,6 @@ export const getBusinessKnowledgeSourcesPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/business_knowledge/sources/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -390,11 +370,6 @@ export const getBusinessKnowledgeSourcesDestroyUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/business_knowledge/sources/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesDestroy = async (
     projectId: string,
     id: string,
@@ -426,11 +401,6 @@ export const getBusinessKnowledgeSourcesDocumentsListUrl = (
         : `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesDocumentsList = async (
     projectId: string,
     id: string,
@@ -450,11 +420,6 @@ export const getBusinessKnowledgeSourcesRefreshCreateUrl = (projectId: string, i
     return `/api/projects/${projectId}/business_knowledge/sources/${id}/refresh/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesRefreshCreate = async (
     projectId: string,
     id: string,
@@ -473,11 +438,6 @@ export const getBusinessKnowledgeSourcesTextRetrieveUrl = (projectId: string, id
     return `/api/projects/${projectId}/business_knowledge/sources/${id}/text/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesTextRetrieve = async (
     projectId: string,
     id: string,

@@ -152,32 +152,12 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
         'Request body for `POST \/conversations\/{id}\/open\/`. A string `content` processes a turn; a\nnull\/absent `content` warms a sandbox that idles awaiting the first message.'
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const coreMemoryCreateBodyTextMax = 10000
 
 export const CoreMemoryCreateBody = /* @__PURE__ */ zod.object({
@@ -196,11 +176,6 @@ export const CoreMemoryCreateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const coreMemoryUpdateBodyTextMax = 10000
 
 export const CoreMemoryUpdateBody = /* @__PURE__ */ zod.object({
@@ -219,11 +194,6 @@ export const CoreMemoryUpdateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const coreMemoryPartialUpdateBodyTextMax = 10000
 
 export const CoreMemoryPartialUpdateBody = /* @__PURE__ */ zod.object({

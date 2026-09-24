@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsCreateBodyNameMax = 400
 
 export const actionsCreateBodySlackMessageFormatMax = 1200
@@ -437,11 +432,6 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsUpdateBodyNameMax = 400
 
 export const actionsUpdateBodySlackMessageFormatMax = 1200
@@ -865,11 +855,6 @@ export const ActionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const actionsPartialUpdateBodyNameMax = 400
 
 export const actionsPartialUpdateBodySlackMessageFormatMax = 1200

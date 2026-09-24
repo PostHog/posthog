@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LlmSkillsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -40,11 +35,6 @@ export const LlmSkillsListQueryParams = () => zod.object({
     search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LlmSkillsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -151,11 +141,6 @@ export const LlmSkillsMarketplaceInstallCommandCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNameRetrieveParams = () => zod.object({
@@ -191,11 +176,6 @@ export const LlmSkillsNameRetrieveQueryParams = () => zod.object({
         .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNamePartialUpdatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNamePartialUpdateParams = () => zod.object({
@@ -327,11 +307,6 @@ export const LlmSkillsNamePartialUpdateBody = () => zod.object({
         .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNameArchiveCreateParams = () => zod.object({
@@ -343,11 +318,6 @@ export const LlmSkillsNameArchiveCreateParams = () => zod.object({
     skill_name: zod.string().regex(llmSkillsNameArchiveCreatePathSkillNameRegExp),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameDuplicateCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNameDuplicateCreateParams = () => zod.object({
@@ -368,11 +338,6 @@ export const LlmSkillsNameDuplicateCreateBody = () => zod.object({
         .describe('Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNameFilesCreateParams = () => zod.object({
@@ -409,11 +374,6 @@ export const LlmSkillsNameFilesCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesRenameCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNameFilesRenameCreateParams = () => zod.object({
@@ -444,11 +404,6 @@ export const LlmSkillsNameFilesRenameCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesRetrievePathFilePathRegExp = new RegExp('^.+$')
 export const llmSkillsNameFilesRetrievePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
@@ -470,11 +425,6 @@ export const LlmSkillsNameFilesRetrieveQueryParams = () => zod.object({
         .describe('Specific skill version to fetch. If omitted, the latest version is returned.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesDestroyPathFilePathRegExp = new RegExp('^.+$')
 export const llmSkillsNameFilesDestroyPathSkillNameRegExp = new RegExp('^[^\/]+$')
 
@@ -498,11 +448,6 @@ export const LlmSkillsNameFilesDestroyQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameRenameCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
 
 export const LlmSkillsNameRenameCreateParams = () => zod.object({

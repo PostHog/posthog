@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SubscriptionsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -44,11 +39,6 @@ export const SubscriptionsListQueryParams = () => zod.object({
         .describe('Filter by delivery channel: email, Slack, or Microsoft Teams.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SubscriptionsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -270,11 +260,6 @@ export const SubscriptionsCreateBody = () => zod
     })
     .describe('Standard Subscription serializer.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SubscriptionsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
@@ -284,11 +269,6 @@ export const SubscriptionsRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SubscriptionsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
@@ -522,11 +502,6 @@ export const SubscriptionsDestroyParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const SubscriptionsTestDeliveryCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod

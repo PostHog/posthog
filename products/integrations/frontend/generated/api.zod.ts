@@ -23,11 +23,6 @@ export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ z
     .looseObject({})
     .describe('Serializer for organization-level integrations.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const roleExternalReferencesCreateBodyProviderMax = 32
 
 export const roleExternalReferencesCreateBodyProviderOrganizationIdMax = 255
@@ -63,11 +58,6 @@ export const RoleExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
     role: zod.uuid().describe('PostHog role UUID this external role maps to.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const IntegrationsCreateBody = /* @__PURE__ */ zod
     .object({
         kind: zod
@@ -128,11 +118,6 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Integration serializer.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const IntegrationsEmailPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         kind: zod
@@ -194,11 +179,6 @@ export const IntegrationsEmailPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Integration serializer.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const IntegrationsEmailVerifyCreateBody = /* @__PURE__ */ zod
     .object({
         kind: zod

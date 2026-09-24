@@ -37,12 +37,11 @@ def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     return queryset.order_by(*stable_ordering)
 
 
+# Adds the primary key as a final ordering term to each queryset that the viewset pages.
+# TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
+# Keep this a comment: drf-spectacular reads inherited class docstrings as the operation
+# description of every viewset that has no docstring of its own.
 class StableOrderingPaginationMixin(_GenericViewSet):
-    """Add the primary key as a final ordering term to each queryset that the viewset pages.
-
-    TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
-    """
-
     def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
         if self.paginator is not None and isinstance(queryset, QuerySet):
             queryset = stable_queryset_ordering(queryset)

@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const groupsCreateBodyGroupTypeIndexMin = -2147483648
 export const groupsCreateBodyGroupTypeIndexMax = 2147483647
 
@@ -25,20 +20,10 @@ export const GroupsCreateBody = /* @__PURE__ */ zod.object({
     group_properties: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const GroupsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
     $unset: zod.string().describe('Name of the property to delete.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().describe('Name of the property to set.'),
     value: zod

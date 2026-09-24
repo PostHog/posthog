@@ -62,11 +62,6 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const billingUsageRetrieveQueryAfterMax = 512
 
 export const billingUsageRetrieveQueryPageSizeMax = 1000

@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const earlyAccessFeatureCreateBodyNameMax = 200
 
 export const earlyAccessFeatureCreateBodyDocumentationUrlOneMax = 800
@@ -53,11 +48,6 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const earlyAccessFeatureUpdateBodyNameMax = 200
 
 export const earlyAccessFeatureUpdateBodyDocumentationUrlOneMax = 800
@@ -89,11 +79,6 @@ export const EarlyAccessFeatureUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const earlyAccessFeaturePartialUpdateBodyNameMax = 200
 
 export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlOneMax = 800

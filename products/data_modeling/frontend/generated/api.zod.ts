@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsCreateBodyNameMax = 2048
 
 export const DataModelingDagsCreateBody = /* @__PURE__ */ zod.object({
@@ -27,11 +22,6 @@ export const DataModelingDagsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingDagsPartialUpdateBodyNameMax = 2048
 
 export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -49,41 +39,21 @@ export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const DataModelingEdgesPartialUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid().optional(),
     properties: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesCreateBodyNameMax = 2048
 
 export const dataModelingNodesCreateBodyDescriptionMax = 1024
@@ -100,11 +70,6 @@ export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesUpdateBodyNameMax = 2048
 
 export const dataModelingNodesUpdateBodyDescriptionMax = 1024
@@ -121,11 +86,6 @@ export const DataModelingNodesUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().max(dataModelingNodesUpdateBodyDescriptionMax).optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const dataModelingNodesPartialUpdateBodyNameMax = 2048
 
 export const dataModelingNodesPartialUpdateBodyDescriptionMax = 1024

@@ -141,11 +141,6 @@ export const ConversationsTicketsRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsTicketsPartialUpdateParams = () => zod.object({
     id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
     project_id: zod
@@ -307,11 +302,6 @@ export const ConversationsTicketsReplyCreateBody = () => zod
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsViewsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -325,11 +315,6 @@ export const ConversationsViewsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsViewsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -483,11 +468,6 @@ export const ConversationsViewsCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsViewsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -497,11 +477,6 @@ export const ConversationsViewsRetrieveParams = () => zod.object({
     short_id: zod.string(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ConversationsViewsPartialUpdateParams = () => zod.object({
     project_id: zod
         .string()

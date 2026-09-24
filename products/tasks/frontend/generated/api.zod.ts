@@ -954,9 +954,6 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
     .describe("Request body for posting a system announcement into a channel's feed.")
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Update a channel
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
@@ -1000,9 +997,6 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const TaskChannelsContextGenerationUpdateBody = /* @__PURE__ */ zod
@@ -1166,9 +1160,6 @@ export const TaskChannelsSetupCreateBody = /* @__PURE__ */ zod
     .describe('Request body for starting the task that sets a space up for a goal or a feature.')
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Star or unstar a channel for the requesting user
  */
 export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod

@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -32,11 +27,6 @@ export const HogFunctionsListQueryParams = () => zod.object({
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -291,11 +281,6 @@ export const HogFunctionsCreateBody = () => zod.object({
         .describe('Execution priority for transformations. Lower values run first.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -305,11 +290,6 @@ export const HogFunctionsRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -583,11 +563,6 @@ export const HogFunctionsDestroyParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsDiscardDraftCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -597,11 +572,6 @@ export const HogFunctionsDiscardDraftCreateParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsInvocationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -1098,11 +1068,6 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsLogsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -1143,11 +1108,6 @@ export const HogFunctionsLogsRetrieveQueryParams = () => zod.object({
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsMetricsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -1188,11 +1148,6 @@ export const HogFunctionsMetricsRetrieveQueryParams = () => zod.object({
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsPublishCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -1219,11 +1174,6 @@ export const HogFunctionsPublishCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsRevisionsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -1238,11 +1188,6 @@ export const HogFunctionsRevisionsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsRevisionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
@@ -1253,11 +1198,6 @@ export const HogFunctionsRevisionsRetrieveParams = () => zod.object({
     version: zod.number().describe('Function version to fetch.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const HogFunctionsRevisionsRestoreCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod

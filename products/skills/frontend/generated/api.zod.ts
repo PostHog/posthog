@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const communitySkillsInstallCreateBodyNewNameMax = 64
 
 export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
@@ -30,11 +25,6 @@ export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsCreateBodyNameMax = 64
 
 export const llmSkillsCreateBodyDescriptionMax = 1024
@@ -109,11 +99,6 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Create serializer — accepts bundled files and owners as write-only input on POST.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LlmSkillsImportCreateBody = /* @__PURE__ */ zod.object({
     file: zod
         .url()
@@ -138,11 +123,6 @@ export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 1024
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
@@ -263,11 +243,6 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameDuplicateCreateBodyNewNameMax = 64
 
 export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
@@ -277,11 +252,6 @@ export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesCreateBodyPathMax = 500
 
 export const llmSkillsNameFilesCreateBodyContentTypeDefault = `text/plain`
@@ -307,11 +277,6 @@ export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesRenameCreateBodyOldPathMax = 500
 
 export const llmSkillsNameFilesRenameCreateBodyNewPathMax = 500
@@ -330,12 +295,6 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
-
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneMax = 64
 
@@ -387,11 +346,6 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameRenameCreateBodyNewNameMax = 64
 
 export const LlmSkillsNameRenameCreateBody = /* @__PURE__ */ zod.object({

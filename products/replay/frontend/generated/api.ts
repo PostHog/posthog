@@ -84,11 +84,6 @@ export const getSessionRecordingPlaylistsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/session_recording_playlists/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsCreate = async (
     projectId: string,
     sessionRecordingPlaylistApi?: NonReadonly<SessionRecordingPlaylistApi>,
@@ -106,11 +101,6 @@ export const getSessionRecordingPlaylistsRetrieveUrl = (projectId: string, short
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsRetrieve = async (
     projectId: string,
     shortId: string,
@@ -126,11 +116,6 @@ export const getSessionRecordingPlaylistsUpdateUrl = (projectId: string, shortId
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsUpdate = async (
     projectId: string,
     shortId: string,
@@ -149,11 +134,6 @@ export const getSessionRecordingPlaylistsPartialUpdateUrl = (projectId: string, 
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsPartialUpdate = async (
     projectId: string,
     shortId: string,
@@ -190,11 +170,6 @@ export const getSessionRecordingPlaylistsRecordingsRetrieveUrl = (projectId: str
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsRecordingsRetrieve = async (
     projectId: string,
     shortId: string,
@@ -214,11 +189,6 @@ export const getSessionRecordingPlaylistsRecordingsCreateUrl = (
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsRecordingsCreate = async (
     projectId: string,
     shortId: string,
@@ -242,11 +212,6 @@ export const getSessionRecordingPlaylistsRecordingsDestroyUrl = (
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingPlaylistsRecordingsDestroy = async (
     projectId: string,
     shortId: string,
@@ -275,11 +240,6 @@ export const getSessionRecordingsListUrl = (projectId: string, params?: SessionR
         : `/api/projects/${projectId}/session_recordings/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingsList = async (
     projectId: string,
     params?: SessionRecordingsListParams,
@@ -295,11 +255,6 @@ export const getSessionRecordingsRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingsRetrieve = async (
     projectId: string,
     id: string,
@@ -315,11 +270,6 @@ export const getSessionRecordingsUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingsUpdate = async (
     projectId: string,
     id: string,
@@ -338,11 +288,6 @@ export const getSessionRecordingsPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -361,11 +306,6 @@ export const getSessionRecordingsDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const sessionRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
         ...options,

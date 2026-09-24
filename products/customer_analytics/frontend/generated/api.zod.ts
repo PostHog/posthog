@@ -9,11 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountRelationshipDefinitionsCreateBodyNameMax = 400
 
 export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
@@ -39,11 +34,6 @@ export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountRelationshipDefinitionsUpdateBodyNameMax = 400
 
 export const accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault = true
@@ -69,11 +59,6 @@ export const AccountRelationshipDefinitionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
 
 export const accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault = true
@@ -100,11 +85,6 @@ export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ z
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountTrackRulesUpdateBodyVersionMin = 0
 
 export const AccountTrackRulesUpdateBody = /* @__PURE__ */ zod.object({
@@ -151,11 +131,6 @@ export const AccountTrackRulesUpdateBody = /* @__PURE__ */ zod.object({
     ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountTrackRulesPreviewCreateBodyVersionMin = 0
 
 export const AccountTrackRulesPreviewCreateBody = /* @__PURE__ */ zod.object({
@@ -202,21 +177,11 @@ export const AccountTrackRulesPreviewCreateBody = /* @__PURE__ */ zod.object({
     ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
     idempotency_key: zod.uuid(),
     confirmed: zod.boolean(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -282,11 +247,6 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
     definition: zod.uuid().describe('UUID of the custom property definition whose value to set for this account.'),
     value: zod
@@ -296,11 +256,6 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountsNotebooksCreateBodyTitleMax = 256
 
 export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
@@ -318,11 +273,6 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
     .object({
         definition: zod.uuid().describe('Id of the relationship definition to assign.'),
@@ -330,11 +280,6 @@ export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Input for assigning a user to an account relationship.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountsUpdateBodyNameMax = 400
 
 export const accountsUpdateBodyExternalIdMax = 400
@@ -400,11 +345,6 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const accountsPartialUpdateBodyNameMax = 400
 
 export const accountsPartialUpdateBodyExternalIdMax = 400
@@ -481,11 +421,6 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
     channels: zod
@@ -515,11 +450,6 @@ export const CalendarSyncSyncNowCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request body of the calendar sync-now trigger.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
 export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
@@ -608,11 +538,6 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
         "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
 
 export const customPropertyDefinitionsUpdateBodyTargetTypeDefault = `account`
@@ -701,11 +626,6 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
         "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
 export const customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault = `account`
@@ -796,11 +716,6 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customPropertySourcesCreateBodySourceColumnMax = 400
 
 export const customPropertySourcesCreateBodyKeyColumnMax = 400
@@ -858,11 +773,6 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
         'Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.'
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customPropertySourcesUpdateBodySourceColumnMax = 400
 
 export const customPropertySourcesUpdateBodyKeyColumnMax = 400
@@ -888,11 +798,6 @@ export const CustomPropertySourcesUpdateBody = /* @__PURE__ */ zod
         "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
 
 export const customPropertySourcesPartialUpdateBodyKeyColumnMax = 400
@@ -918,11 +823,6 @@ export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
         "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customerJourneysCreateBodyNameMax = 400
 
 export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
@@ -931,11 +831,6 @@ export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customerJourneysUpdateBodyNameMax = 400
 
 export const CustomerJourneysUpdateBody = /* @__PURE__ */ zod.object({
@@ -944,11 +839,6 @@ export const CustomerJourneysUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customerJourneysPartialUpdateBodyNameMax = 400
 
 export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -957,11 +847,6 @@ export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
@@ -972,11 +857,6 @@ export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
     sidebar: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
@@ -987,11 +867,6 @@ export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
     sidebar: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
@@ -1003,11 +878,6 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
     sidebar: zod.unknown().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customerTasksCreateBodyNameMax = 400
 
 export const customerTasksCreateBodyStatusDefault = `open`
@@ -1029,11 +899,6 @@ export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customerTasksUpdateBodyNameMax = 400
 
 export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
@@ -1056,11 +921,6 @@ export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1250,11 +1110,6 @@ export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request body for adding or removing an event-stream member account.')
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureRequestProductAreasCreateBodyNameMax = 200
 
 export const featureRequestProductAreasCreateBodyDisplayOrderDefault = 0
@@ -1275,11 +1130,6 @@ export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
         .describe('Whether editors can select this product area for new requests.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureRequestProductAreasUpdateBodyNameMax = 200
 
 export const featureRequestProductAreasUpdateBodyDisplayOrderDefault = 0
@@ -1300,11 +1150,6 @@ export const FeatureRequestProductAreasUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Whether editors can select this product area for new requests.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureRequestProductAreasPartialUpdateBodyNameMax = 200
 
 export const featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault = 0
@@ -1329,11 +1174,6 @@ export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.o
         .describe('Whether editors can select this product area for new requests.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureRequestsCreateBodyTitleMax = 400
 
 export const featureRequestsCreateBodyDescriptionDefault = ``
@@ -1399,12 +1239,6 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional first evidence item to create for the selected account.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
-
 export const featureRequestsUpdateBodyTitleMax = 400
 
 export const FeatureRequestsUpdateBody = /* @__PURE__ */ zod.object({
@@ -1446,12 +1280,6 @@ export const FeatureRequestsUpdateBody = /* @__PURE__ */ zod.object({
             'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
         ),
 })
-
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 
 export const featureRequestsPartialUpdateBodyTitleMax = 400
 
@@ -1495,12 +1323,6 @@ export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
         ),
 })
-
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 
 export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
@@ -1557,11 +1379,6 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional first evidence item to create for the account in the same change.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsAddEvidenceCreateBodyEvidenceSourceMax = 200
@@ -1606,24 +1423,12 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
     account_link_id: zod.uuid().describe('Active account link that owns this evidence.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
-
 export const FeatureRequestsArchiveCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
         .number()
         .min(1)
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
-
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 
 export const FeatureRequestsLinkGithubCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().min(1).describe('GitHub integration ID connected to this project.'),
@@ -1634,24 +1439,12 @@ export const FeatureRequestsLinkGithubCreateBody = /* @__PURE__ */ zod.object({
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
-
 export const FeatureRequestsPauseGithubCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
         .number()
         .min(1)
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
-
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 
 export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
@@ -1661,24 +1454,12 @@ export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.objec
     evidence_id: zod.uuid().describe('Evidence item to delete.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
-
 export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
         .number()
         .min(1)
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
-
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 
 export const FeatureRequestsResumeGithubCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
@@ -1687,12 +1468,6 @@ export const FeatureRequestsResumeGithubCreateBody = /* @__PURE__ */ zod.object(
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
-
 export const FeatureRequestsUnlinkGithubCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
         .number()
@@ -1700,11 +1475,6 @@ export const FeatureRequestsUnlinkGithubCreateBody = /* @__PURE__ */ zod.object(
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const featureRequestsUpdateEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax = 200
@@ -1749,11 +1519,6 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
     evidence_id: zod.uuid().describe('Evidence item to replace.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const groupsTypesMetricsCreateBodyNameMax = 255
 
 export const groupsTypesMetricsCreateBodyFormatDefault = `numeric`
@@ -1806,11 +1571,6 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const groupsTypesMetricsUpdateBodyNameMax = 255
 
 export const groupsTypesMetricsUpdateBodyFormatDefault = `numeric`
@@ -1863,11 +1623,6 @@ export const GroupsTypesMetricsUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const groupsTypesMetricsPartialUpdateBodyNameMax = 255
 
 export const groupsTypesMetricsPartialUpdateBodyFormatDefault = `numeric`

@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ReusableWidgetsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -27,11 +22,6 @@ export const ReusableWidgetsListQueryParams = () => zod.object({
     search: zod.string().optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const ReusableWidgetsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod

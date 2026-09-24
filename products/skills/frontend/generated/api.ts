@@ -75,11 +75,6 @@ export const getCommunitySkillsListUrl = (projectId: string, params?: CommunityS
         : `/api/projects/${projectId}/community_skills/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const communitySkillsList = async (
     projectId: string,
     params?: CommunitySkillsListParams,
@@ -95,11 +90,6 @@ export const getCommunitySkillsRetrieveUrl = (projectId: string, slug: string) =
     return `/api/projects/${projectId}/community_skills/${slug}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const communitySkillsRetrieve = async (
     projectId: string,
     slug: string,
@@ -115,11 +105,6 @@ export const getCommunitySkillsInstallCreateUrl = (projectId: string, slug: stri
     return `/api/projects/${projectId}/community_skills/${slug}/install/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const communitySkillsInstallCreate = async (
     projectId: string,
     slug: string,
@@ -138,11 +123,6 @@ export const getCommunitySkillsVoteCreateUrl = (projectId: string, slug: string)
     return `/api/projects/${projectId}/community_skills/${slug}/vote/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const communitySkillsVoteCreate = async (
     projectId: string,
     slug: string,
@@ -170,11 +150,6 @@ export const getLlmSkillsListUrl = (projectId: string, params?: LlmSkillsListPar
         : `/api/projects/${projectId}/llm_skills/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsList = async (
     projectId: string,
     params?: LlmSkillsListParams,
@@ -190,11 +165,6 @@ export const getLlmSkillsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_skills/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsCreate = async (
     projectId: string,
     lLMSkillCreateApi: NonReadonly<LLMSkillCreateApi>,
@@ -242,11 +212,6 @@ export const getLlmSkillsImportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_skills/import/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsImportCreate = async (
     projectId: string,
     lLMSkillImportApi: LLMSkillImportApi,
@@ -324,11 +289,6 @@ export const getLlmSkillsNameRetrieveUrl = (
         : `/api/projects/${projectId}/llm_skills/name/${skillName}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameRetrieve = async (
     projectId: string,
     skillName: string,
@@ -345,11 +305,6 @@ export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillName: s
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNamePartialUpdate = async (
     projectId: string,
     skillName: string,
@@ -368,11 +323,6 @@ export const getLlmSkillsNameArchiveCreateUrl = (projectId: string, skillName: s
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/archive/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameArchiveCreate = async (
     projectId: string,
     skillName: string,
@@ -388,11 +338,6 @@ export const getLlmSkillsNameDuplicateCreateUrl = (projectId: string, skillName:
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/duplicate/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameDuplicateCreate = async (
     projectId: string,
     skillName: string,
@@ -427,11 +372,6 @@ export const getLlmSkillsNameExportRetrieveUrl = (
         : `/api/projects/${projectId}/llm_skills/name/${skillName}/export/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameExportRetrieve = async (
     projectId: string,
     skillName: string,
@@ -448,11 +388,6 @@ export const getLlmSkillsNameFilesCreateUrl = (projectId: string, skillName: str
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/files/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesCreate = async (
     projectId: string,
     skillName: string,
@@ -471,11 +406,6 @@ export const getLlmSkillsNameFilesRenameCreateUrl = (projectId: string, skillNam
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/files-rename/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesRenameCreate = async (
     projectId: string,
     skillName: string,
@@ -511,11 +441,6 @@ export const getLlmSkillsNameFilesRetrieveUrl = (
         : `/api/projects/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesRetrieve = async (
     projectId: string,
     skillName: string,
@@ -550,11 +475,6 @@ export const getLlmSkillsNameFilesDestroyUrl = (
         : `/api/projects/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameFilesDestroy = async (
     projectId: string,
     skillName: string,
@@ -572,11 +492,6 @@ export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, ski
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/publish-community/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNamePublishCommunityCreate = async (
     projectId: string,
     skillName: string,
@@ -595,11 +510,6 @@ export const getLlmSkillsNameRenameCreateUrl = (projectId: string, skillName: st
     return `/api/projects/${projectId}/llm_skills/name/${skillName}/rename/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsNameRenameCreate = async (
     projectId: string,
     skillName: string,
@@ -672,11 +582,6 @@ export const getLlmSkillsResolveNameRetrieveUrl = (
         : `/api/projects/${projectId}/llm_skills/resolve/name/${skillName}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsResolveNameRetrieve = async (
     projectId: string,
     skillName: string,
@@ -705,11 +610,6 @@ export const getLlmSkillsSearchRetrieveUrl = (projectId: string, params: LlmSkil
         : `/api/projects/${projectId}/llm_skills/search/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const llmSkillsSearchRetrieve = async (
     projectId: string,
     params: LlmSkillsSearchRetrieveParams,

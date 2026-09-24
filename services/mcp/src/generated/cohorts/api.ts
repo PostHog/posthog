@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CohortsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -44,11 +39,6 @@ export const CohortsListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CohortsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -195,11 +185,6 @@ export const CohortsCreateBody = () => zod.object({
     _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CohortsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
@@ -209,11 +194,6 @@ export const CohortsRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CohortsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
@@ -367,11 +347,6 @@ export const CohortsPartialUpdateBody = () => zod.object({
     _create_static_person_ids: zod.array(zod.string()).optional(),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CohortsAddPersonsToStaticCohortPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod
@@ -385,11 +360,6 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateBody = () => zod.object
     person_ids: zod.array(zod.string()).optional().describe('List of person UUIDs to add to the cohort'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this cohort.'),
     project_id: zod

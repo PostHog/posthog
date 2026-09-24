@@ -109,11 +109,6 @@ export const getRoleExternalReferencesListUrl = (organizationId: string, params?
         : `/api/organizations/${organizationId}/role_external_references/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const roleExternalReferencesList = async (
     organizationId: string,
     params?: RoleExternalReferencesListParams,
@@ -129,11 +124,6 @@ export const getRoleExternalReferencesCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/role_external_references/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const roleExternalReferencesCreate = async (
     organizationId: string,
     roleExternalReferenceApi: NonReadonly<RoleExternalReferenceApi>,
@@ -151,11 +141,6 @@ export const getRoleExternalReferencesDestroyUrl = (organizationId: string, id: 
     return `/api/organizations/${organizationId}/role_external_references/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const roleExternalReferencesDestroy = async (
     organizationId: string,
     id: string,
@@ -186,11 +171,6 @@ export const getRoleExternalReferencesLookupRetrieveUrl = (
         : `/api/organizations/${organizationId}/role_external_references/lookup/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const roleExternalReferencesLookupRetrieve = async (
     organizationId: string,
     params: RoleExternalReferencesLookupRetrieveParams,
@@ -218,11 +198,6 @@ export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsL
         : `/api/projects/${projectId}/integrations/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsList = async (
     projectId: string,
     params?: IntegrationsListParams,
@@ -238,11 +213,6 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsCreate = async (
     projectId: string,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
@@ -260,11 +230,6 @@ export const getIntegrationsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsRetrieve = async (
     projectId: string,
     id: number,
@@ -280,11 +245,6 @@ export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getIntegrationsDestroyUrl(projectId, id), {
         ...options,
@@ -296,11 +256,6 @@ export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: s
     return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
     projectId: string,
     id: number,
@@ -316,11 +271,6 @@ export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId:
     return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
     projectId: string,
     id: number,
@@ -336,11 +286,6 @@ export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: stri
     return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsAnthropicManagedAgentsRetrieve = async (
     projectId: string,
     id: number,
@@ -372,11 +317,6 @@ export const getIntegrationsChannelsRetrieveUrl = (
         : `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
@@ -393,11 +333,6 @@ export const getIntegrationsClickupListsRetrieveUrl = (projectId: string, id: nu
     return `/api/projects/${projectId}/integrations/${id}/clickup_lists/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsClickupListsRetrieve = async (
     projectId: string,
     id: number,
@@ -413,11 +348,6 @@ export const getIntegrationsClickupSpacesRetrieveUrl = (projectId: string, id: n
     return `/api/projects/${projectId}/integrations/${id}/clickup_spaces/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsClickupSpacesRetrieve = async (
     projectId: string,
     id: number,
@@ -433,11 +363,6 @@ export const getIntegrationsClickupWorkspacesRetrieveUrl = (projectId: string, i
     return `/api/projects/${projectId}/integrations/${id}/clickup_workspaces/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsClickupWorkspacesRetrieve = async (
     projectId: string,
     id: number,
@@ -453,11 +378,6 @@ export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: numb
     return `/api/projects/${projectId}/integrations/${id}/email/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
@@ -476,11 +396,6 @@ export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: numbe
     return `/api/projects/${projectId}/integrations/${id}/email/verify/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
@@ -515,11 +430,6 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
         : `/api/projects/${projectId}/integrations/${id}/github_branches/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsGithubBranchesRetrieve = async (
     projectId: string,
     id: number,
@@ -552,11 +462,6 @@ export const getIntegrationsGithubReposRetrieveUrl = (
         : `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
@@ -573,11 +478,6 @@ export const getIntegrationsGithubReposRefreshCreateUrl = (projectId: string, id
     return `/api/projects/${projectId}/integrations/${id}/github_repos/refresh/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsGithubReposRefreshCreate = async (
     projectId: string,
     id: number,
@@ -609,11 +509,6 @@ export const getIntegrationsGithubTeamsRetrieveUrl = (
         : `/api/projects/${projectId}/integrations/${id}/github_teams/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsGithubTeamsRetrieve = async (
     projectId: string,
     id: number,
@@ -630,11 +525,6 @@ export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: st
     return `/api/projects/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsGoogleAccessibleAccountsRetrieve = async (
     projectId: string,
     id: number,
@@ -650,11 +540,6 @@ export const getIntegrationsGoogleConversionActionsRetrieveUrl = (projectId: str
     return `/api/projects/${projectId}/integrations/${id}/google_conversion_actions/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsGoogleConversionActionsRetrieve = async (
     projectId: string,
     id: number,
@@ -670,11 +555,6 @@ export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: nu
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
     id: number,
@@ -690,11 +570,6 @@ export const getIntegrationsLinearTeamsRetrieveUrl = (projectId: string, id: num
     return `/api/projects/${projectId}/integrations/${id}/linear_teams/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
     id: number,
@@ -710,11 +585,6 @@ export const getIntegrationsLinkedinAdsAccountsRetrieveUrl = (projectId: string,
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_accounts/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsLinkedinAdsAccountsRetrieve = async (
     projectId: string,
     id: number,
@@ -730,11 +600,6 @@ export const getIntegrationsLinkedinAdsConversionRulesRetrieveUrl = (projectId: 
     return `/api/projects/${projectId}/integrations/${id}/linkedin_ads_conversion_rules/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     projectId: string,
     id: number,
@@ -750,11 +615,6 @@ export const getIntegrationsTwilioPhoneNumbersRetrieveUrl = (projectId: string, 
     return `/api/projects/${projectId}/integrations/${id}/twilio_phone_numbers/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsTwilioPhoneNumbersRetrieve = async (
     projectId: string,
     id: number,
@@ -786,11 +646,6 @@ export const getIntegrationsUsersRetrieveUrl = (
         : `/api/projects/${projectId}/integrations/${id}/users/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsUsersRetrieve = async (
     projectId: string,
     id: number,
@@ -807,11 +662,6 @@ export const getIntegrationsAuthorizeRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/authorize/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsAuthorizeRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getIntegrationsAuthorizeRetrieveUrl(projectId), {
         ...options,
@@ -847,11 +697,6 @@ export const getIntegrationsDomainConnectCheckRetrieveUrl = (projectId: string) 
     return `/api/projects/${projectId}/integrations/domain-connect/check/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const integrationsDomainConnectCheckRetrieve = async (
     projectId: string,
     options?: RequestInit

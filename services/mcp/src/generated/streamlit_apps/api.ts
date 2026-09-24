@@ -9,9 +9,6 @@
 import * as zod from 'zod'
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary List streamlit apps
  */
 export const StreamlitAppsListParams = () => zod.object({
@@ -28,9 +25,6 @@ export const StreamlitAppsListQueryParams = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Create a streamlit app
  */
 export const StreamlitAppsCreateParams = () => zod.object({
@@ -49,9 +43,6 @@ export const StreamlitAppsCreateBody = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Retrieve a streamlit app
  */
 export const StreamlitAppsRetrieveParams = () => zod.object({
@@ -64,9 +55,6 @@ export const StreamlitAppsRetrieveParams = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Partially update a streamlit app
  */
 export const StreamlitAppsPartialUpdateParams = () => zod.object({
@@ -86,9 +74,6 @@ export const StreamlitAppsPartialUpdateBody = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Delete a streamlit app
  */
 export const StreamlitAppsDestroyParams = () => zod.object({
@@ -101,9 +86,6 @@ export const StreamlitAppsDestroyParams = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Create an app version from source code
  */
 export const StreamlitAppsCreateVersionFromSourceCreateParams = () => zod.object({
@@ -143,9 +125,6 @@ export const StreamlitAppsCreateVersionFromSourceCreateBody = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Start the app sandbox
  */
 export const StreamlitAppsStartCreateParams = () => zod.object({
@@ -158,9 +137,6 @@ export const StreamlitAppsStartCreateParams = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Get app sandbox status
  */
 export const StreamlitAppsStatusRetrieveParams = () => zod.object({
@@ -173,9 +149,6 @@ export const StreamlitAppsStatusRetrieveParams = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary Stop the app sandbox
  */
 export const StreamlitAppsStopCreateParams = () => zod.object({
@@ -188,9 +161,6 @@ export const StreamlitAppsStopCreateParams = () => zod.object({
 })
 
 /**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
  * @summary List app versions
  */
 export const StreamlitAppsVersionsRetrieveParams = () => zod.object({

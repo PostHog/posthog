@@ -50,11 +50,6 @@ export const BusinessKnowledgeSettingsPartialUpdateBody = /* @__PURE__ */ zod.ob
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
 export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false
@@ -77,11 +72,6 @@ export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const businessKnowledgeSourcesPartialUpdateBodyNameMax = 255
 
 export const BusinessKnowledgeSourcesPartialUpdateBody = /* @__PURE__ */ zod
@@ -103,9 +93,4 @@ export const BusinessKnowledgeSourcesPartialUpdateBody = /* @__PURE__ */ zod
         'PATCH payload for text sources. All fields optional, at least one\nrequired. `text` triggers a re-chunk; `name` or `always_include` alone does not.'
     )
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const BusinessKnowledgeSourcesRefreshCreateBody = /* @__PURE__ */ zod.looseObject({})

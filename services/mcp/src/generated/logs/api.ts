@@ -8,11 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsAlertsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -27,11 +22,6 @@ export const LogsAlertsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsAlertsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -1814,11 +1804,6 @@ export const LogsAlertsCreateBody = () => zod.object({
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsAlertsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
@@ -1828,11 +1813,6 @@ export const LogsAlertsRetrieveParams = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsAlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
@@ -3609,11 +3589,6 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsAlertsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
@@ -5499,11 +5474,6 @@ export const LogsAnomaliesSeriesBandsCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsAttributesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
@@ -5618,11 +5588,6 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
         .describe('Filter attributes to those appearing in logs from these services.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsCountCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -5717,11 +5682,6 @@ export const LogsCountCreateBody = () => zod.object({
         .describe('The count query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsCountRangesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -5835,11 +5795,6 @@ export const LogsCountRangesCreateBody = () => zod.object({
         .describe('The bucketed-count query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsFacetValuesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -5978,11 +5933,6 @@ export const LogsFacetValuesCreateBody = () => zod.object({
         .describe('The facet values query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsPatternsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6089,11 +6039,6 @@ export const LogsPatternsCreateBody = () => zod.object({
         .describe('The patterns query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsPatternsDiffCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6219,11 +6164,6 @@ export const LogsPatternsDiffCreateBody = () => zod.object({
         ),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsQueryCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6359,11 +6299,6 @@ export const LogsQueryCreateBody = () => zod.object({
         .describe('The logs query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsServicesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6470,11 +6405,6 @@ export const LogsServicesCreateBody = () => zod.object({
         .describe('The services aggregation query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsSparklineCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6602,11 +6532,6 @@ export const LogsSparklineCreateBody = () => zod.object({
         .describe('The sparkline query to execute.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const LogsValuesRetrieveParams = () => zod.object({
     project_id: zod
         .string()

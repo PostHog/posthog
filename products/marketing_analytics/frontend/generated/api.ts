@@ -355,11 +355,6 @@ export const getMarketingAnalyticsTestMappingCreateUrl = (projectId: string) => 
     return `/api/projects/${projectId}/marketing_analytics/test_mapping/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const marketingAnalyticsTestMappingCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getMarketingAnalyticsTestMappingCreateUrl(projectId), {
         ...options,

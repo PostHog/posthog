@@ -121,11 +121,6 @@ export const MetricsCharacterizeCreateBody = () => zod.object({
         .describe('The anomaly characterization to run.'),
 })
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const MetricsQueryCreateParams = () => zod.object({
     project_id: zod
         .string()

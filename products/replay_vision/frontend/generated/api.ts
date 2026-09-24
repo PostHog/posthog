@@ -113,11 +113,6 @@ export const getVisionAlertsListUrl = (projectId: string, params?: VisionAlertsL
         : `/api/projects/${projectId}/vision/alerts/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const visionAlertsList = async (
     projectId: string,
     params?: VisionAlertsListParams,
@@ -133,11 +128,6 @@ export const getVisionAlertsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/alerts/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const visionAlertsCreate = async (
     projectId: string,
     visionAlertConfigurationApi: NonReadonly<VisionAlertConfigurationApi>,
@@ -155,11 +145,6 @@ export const getVisionAlertsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/alerts/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const visionAlertsRetrieve = async (
     projectId: string,
     id: string,
@@ -175,11 +160,6 @@ export const getVisionAlertsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/alerts/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const visionAlertsUpdate = async (
     projectId: string,
     id: string,
@@ -198,11 +178,6 @@ export const getVisionAlertsPartialUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/vision/alerts/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const visionAlertsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -221,11 +196,6 @@ export const getVisionAlertsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/alerts/${id}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const visionAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getVisionAlertsDestroyUrl(projectId, id), {
         ...options,
@@ -615,11 +585,6 @@ export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/quota/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const environmentVisionQuotaRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -634,11 +599,6 @@ export const getEnvironmentVisionQuotaSpendSeriesRetrieveUrl = (projectId: strin
     return `/api/projects/${projectId}/vision/quota/spend_series/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const environmentVisionQuotaSpendSeriesRetrieve = async (
     projectId: string,
     options?: RequestInit

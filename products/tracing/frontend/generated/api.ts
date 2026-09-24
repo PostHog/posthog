@@ -326,11 +326,6 @@ export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/aggregate/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansAggregateCreate = async (
     projectId: string,
     _tracingAggregationRequestApi: _TracingAggregationRequestApi,
@@ -348,11 +343,6 @@ export const getTracingSpansAttributeBreakdownCreateUrl = (projectId: string) =>
     return `/api/projects/${projectId}/tracing/spans/attribute-breakdown/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansAttributeBreakdownCreate = async (
     projectId: string,
     _tracingAttributeBreakdownRequestApi: _TracingAttributeBreakdownRequestApi,
@@ -385,11 +375,6 @@ export const getTracingSpansAttributesRetrieveUrl = (
         : `/api/projects/${projectId}/tracing/spans/attributes/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansAttributesRetrieve = async (
     projectId: string,
     params?: TracingSpansAttributesRetrieveParams,
@@ -405,11 +390,6 @@ export const getTracingSpansCountCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/count/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansCountCreate = async (
     projectId: string,
     _tracingCountRequestApi: _TracingCountRequestApi,
@@ -427,11 +407,6 @@ export const getTracingSpansDurationHistogramCreateUrl = (projectId: string) => 
     return `/api/projects/${projectId}/tracing/spans/duration-histogram/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansDurationHistogramCreate = async (
     projectId: string,
     _tracingDurationHistogramRequestApi: _TracingDurationHistogramRequestApi,
@@ -472,11 +447,6 @@ export const getTracingSpansHasSpansRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/has_spans/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansHasSpansRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -491,11 +461,6 @@ export const getTracingSpansImpactCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/impact/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansImpactCreate = async (
     projectId: string,
     _tracingImpactRequestApi: _TracingImpactRequestApi,
@@ -513,11 +478,6 @@ export const getTracingSpansLatencyHeatmapCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/latency-heatmap/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansLatencyHeatmapCreate = async (
     projectId: string,
     _tracingLatencyHeatmapRequestApi: _TracingLatencyHeatmapRequestApi,
@@ -535,11 +495,6 @@ export const getTracingSpansQueryCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/query/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansQueryCreate = async (
     projectId: string,
     _tracingQueryRequestApi: _TracingQueryRequestApi,
@@ -572,11 +527,6 @@ export const getTracingSpansServiceNamesRetrieveUrl = (
         : `/api/projects/${projectId}/tracing/spans/service-names/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansServiceNamesRetrieve = async (
     projectId: string,
     params?: TracingSpansServiceNamesRetrieveParams,
@@ -592,11 +542,6 @@ export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/sparkline/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansSparklineCreate = async (
     projectId: string,
     _tracingSparklineRequestApi: _TracingSparklineRequestApi,
@@ -614,11 +559,6 @@ export const getTracingSpansSymbolStatsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/symbol-stats/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansSymbolStatsCreate = async (
     projectId: string,
     _symbolStatsRequestApi: _SymbolStatsRequestApi,
@@ -636,11 +576,6 @@ export const getTracingSpansTraceCreateUrl = (projectId: string, traceId: string
     return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansTraceCreate = async (
     projectId: string,
     traceId: string,
@@ -659,11 +594,6 @@ export const getTracingSpansTreeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/tree/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansTreeCreate = async (
     projectId: string,
     _tracingTreeRequestApi: _TracingTreeRequestApi,
@@ -693,11 +623,6 @@ export const getTracingSpansValuesRetrieveUrl = (projectId: string, params: Trac
         : `/api/projects/${projectId}/tracing/spans/values/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingSpansValuesRetrieve = async (
     projectId: string,
     params: TracingSpansValuesRetrieveParams,
@@ -725,11 +650,6 @@ export const getTracingViewsListUrl = (projectId: string, params?: TracingViewsL
         : `/api/projects/${projectId}/tracing/views/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingViewsList = async (
     projectId: string,
     params?: TracingViewsListParams,
@@ -745,11 +665,6 @@ export const getTracingViewsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/views/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingViewsCreate = async (
     projectId: string,
     tracingViewApi: NonReadonly<TracingViewApi>,
@@ -767,11 +682,6 @@ export const getTracingViewsRetrieveUrl = (projectId: string, shortId: string) =
     return `/api/projects/${projectId}/tracing/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingViewsRetrieve = async (
     projectId: string,
     shortId: string,
@@ -787,11 +697,6 @@ export const getTracingViewsUpdateUrl = (projectId: string, shortId: string) => 
     return `/api/projects/${projectId}/tracing/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingViewsUpdate = async (
     projectId: string,
     shortId: string,
@@ -810,11 +715,6 @@ export const getTracingViewsPartialUpdateUrl = (projectId: string, shortId: stri
     return `/api/projects/${projectId}/tracing/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingViewsPartialUpdate = async (
     projectId: string,
     shortId: string,
@@ -833,11 +733,6 @@ export const getTracingViewsDestroyUrl = (projectId: string, shortId: string) =>
     return `/api/projects/${projectId}/tracing/views/${shortId}/`
 }
 
-/**
- * Add the primary key as a final ordering term to each queryset that the viewset pages.
- *
- * TeamAndOrgViewSetMixin inherits this. A viewset without that mixin inherits it directly.
- */
 export const tracingViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getTracingViewsDestroyUrl(projectId, shortId), {
         ...options,
