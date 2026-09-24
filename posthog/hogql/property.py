@@ -1683,6 +1683,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
+                    _validate_regex(step.href)
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Regex,
@@ -1709,6 +1710,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
+                    _validate_regex(value)
                     exprs.append(
                         parse_expr(
                             "arrayExists(x -> x =~ {value}, elements_chain_texts)",
@@ -1744,6 +1746,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                     right=ast.Constant(value=step.url),
                 )
             elif step.url_matching == "regex":
+                _validate_regex(step.url)
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(

@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+import pytest
 from posthog.test.base import BaseTest, _create_event
 
 from posthog.hogql import ast
@@ -176,3 +177,15 @@ class TestActionToExpr(BaseTest):
             clear_locations(steps_to_expr([], self.team)),
             clear_locations(parse_expr("true")),
         )
+
+
+class TestStepsToExprRegexValidation:
+    """#96347: a stored action step with an RE2-invalid regex fails with a clear
+    QueryError instead of a ClickHouse CANNOT_COMPILE_REGEXP 500."""
+
+    def test_invalid_step_regex_raises_query_error(self):
+        from posthog.hogql.errors import QueryError
+
+        step = ActionStepJSON(event="$pageview", url="/shardlibrary/\\d+\\", url_matching="regex")
+        with pytest.raises(QueryError, match="Invalid regular expression"):
+            steps_to_expr([step], team=None)  # type: ignore[arg-type]
