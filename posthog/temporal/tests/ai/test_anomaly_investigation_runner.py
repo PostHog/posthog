@@ -339,15 +339,16 @@ _VALID_REPORT_ARGS = {
 
 
 @pytest.mark.parametrize(
-    "report_args,following_turns,expected_verdict,expected_tool_calls",
+    "report_args,following_turns,expected_verdict,expected_tool_calls,tool_error",
     [
-        pytest.param(_UNRECOVERABLE_REPORT_ARGS, [], "true_positive", 1, id="salvage_previous_report"),
-        pytest.param({"verdict": "maybe", "summary": "x"}, [], "inconclusive", 1, id="fallback_without_salvage"),
+        pytest.param(_UNRECOVERABLE_REPORT_ARGS, [], "true_positive", 1, False, id="salvage_previous_report"),
+        pytest.param({"verdict": "maybe", "summary": "x"}, [], "inconclusive", 1, False, id="fallback_without_salvage"),
         pytest.param(
             _UNRECOVERABLE_REPORT_ARGS,
             [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
             "inconclusive",
             2,
+            False,
             id="do_not_salvage_report_before_new_evidence",
         ),
         pytest.param(
@@ -358,6 +359,7 @@ _VALID_REPORT_ARGS = {
             ],
             "true_positive",
             2,
+            False,
             id="salvage_report_after_new_evidence",
         ),
         pytest.param(
@@ -373,6 +375,7 @@ _VALID_REPORT_ARGS = {
             ],
             "inconclusive",
             2,
+            False,
             id="do_not_salvage_report_before_tool_in_same_turn",
         ),
         pytest.param(
@@ -388,12 +391,33 @@ _VALID_REPORT_ARGS = {
             ],
             "inconclusive",
             2,
+            False,
             id="do_not_salvage_report_after_tool_in_same_turn",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            True,
+            id="salvage_report_after_failed_tool",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "missing_tool", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            False,
+            id="salvage_report_after_unknown_tool",
         ),
     ],
 )
 async def test_loop_failure_keeps_best_report_and_tool_count(
-    report_args: dict, following_turns: list[AIMessage], expected_verdict: str, expected_tool_calls: int
+    report_args: dict,
+    following_turns: list[AIMessage],
+    expected_verdict: str,
+    expected_tool_calls: int,
+    tool_error: bool,
 ) -> None:
     llm = MagicMock()
     llm.bind_tools.side_effect = lambda tools: _ScriptedRunnable(
@@ -412,6 +436,7 @@ async def test_loop_failure_keeps_best_report_and_tool_count(
             "posthog.temporal.ai.anomaly_investigation.runner.InvestigationToolkit.fetch_metric_series",
             new_callable=AsyncMock,
             return_value="New metric evidence",
+            side_effect=RuntimeError("tool failed") if tool_error else None,
         ),
     ):
         mock_module.default_client = None
