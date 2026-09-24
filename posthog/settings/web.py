@@ -624,6 +624,7 @@ SPECTACULAR_SETTINGS = {
             # class carries them. The lists are derived from those literals.
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
+            "RuleWriteOutcomeEnum": "products.access_control.backend.facade.enums.RULE_WRITE_OUTCOME_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are

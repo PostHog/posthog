@@ -152,6 +152,76 @@ export interface AccessControlPropertyRulesResponseApi {
     results: AccessControlPropertyRuleApi[]
 }
 
+/**
+ * A rule for everyone in the project without a member or role rule of their own.
+ */
+export interface AccessControlDefaultRuleRequestApi {
+    /** The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property. */
+    resource: string
+    /**
+     * The object the rule applies to: an object's primary key, or a property definition id when `resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.
+     * @nullable
+     */
+    resource_id?: string | null
+    /**
+     * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+     * @nullable
+     */
+    access_level: string | null
+}
+
+/**
+ * * `created` - created
+ * * `updated` - updated
+ * * `cleared` - cleared
+ * * `noop` - noop
+ */
+export type RuleWriteOutcomeEnumApi = (typeof RuleWriteOutcomeEnumApi)[keyof typeof RuleWriteOutcomeEnumApi]
+
+export const RuleWriteOutcomeEnumApi = {
+    Created: 'created',
+    Updated: 'updated',
+    Cleared: 'cleared',
+    Noop: 'noop',
+} as const
+
+/**
+ * One stored rule, the same shape for object, resource, project and property rules.
+ */
+export interface AccessControlStoredRuleApi {
+    /** The rule's scope, as sent in the request. */
+    resource: string
+    /**
+     * The object or property definition the rule applies to. Null for a resource-type rule.
+     * @nullable
+     */
+    resource_id: string | null
+    /** The stored level. */
+    access_level: string
+    /**
+     * The organization membership the rule is for. Null unless it is a member rule.
+     * @nullable
+     */
+    organization_member: string | null
+    /**
+     * The role the rule is for. Null unless it is a role rule.
+     * @nullable
+     */
+    role: string | null
+}
+
+export interface AccessControlRuleWriteResponseApi {
+    /** What the write did: `created` or `updated` a rule, `cleared` an existing rule, or `noop` when asked to clear a rule that did not exist.
+     *
+     * * `created` - created
+     * * `updated` - updated
+     * * `cleared` - cleared
+     * * `noop` - noop */
+    outcome: RuleWriteOutcomeEnumApi
+    /** The rule as stored after the write. Null when the rule was cleared or absent. */
+    rule: AccessControlStoredRuleApi | null
+}
+
 export interface AccessControlResourceDefaultApi {
     /**
      * The stored default level for this resource type. Null when the PostHog default applies.
@@ -194,6 +264,26 @@ export interface AccessControlDefaultsResponseApi {
     resource_access_levels: AccessControlDefaultsResponseApiResourceAccessLevels
     /** The resource types that accept rules on single objects, with the levels each accepts. */
     object_rule_resources: AccessControlObjectRuleResourceApi[]
+}
+
+/**
+ * A rule for one organization member.
+ */
+export interface AccessControlMemberRuleRequestApi {
+    /** The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property. */
+    resource: string
+    /**
+     * The object the rule applies to: an object's primary key, or a property definition id when `resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.
+     * @nullable
+     */
+    resource_id?: string | null
+    /**
+     * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+     * @nullable
+     */
+    access_level: string | null
+    /** The organization membership id, as `organization_membership_id` in the members endpoint. */
+    organization_member: string
 }
 
 export interface AccessControlMemberUserApi {
@@ -312,6 +402,26 @@ export interface AccessControlMembersResponseApi {
     can_edit: boolean
     /** One entry per organization member. */
     results: AccessControlMemberAccessApi[]
+}
+
+/**
+ * A rule for every member of one role.
+ */
+export interface AccessControlRoleRuleRequestApi {
+    /** The scope of the rule: `project` for the project itself, a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property. */
+    resource: string
+    /**
+     * The object the rule applies to: an object's primary key, or a property definition id when `resource` is `property_definition`. Omit it for a rule on the whole resource type or on the project.
+     * @nullable
+     */
+    resource_id?: string | null
+    /**
+     * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+     * @nullable
+     */
+    access_level: string | null
+    /** The role id, as `role_id` in the roles endpoint. */
+    role: string
 }
 
 /**

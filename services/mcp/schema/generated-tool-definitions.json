@@ -29,6 +29,36 @@
         },
         "feature_entitlement": "access_control"
     },
+    "access-control-default-rule-set-execute": {
+        "description": "Step 2 of 2 for change the default access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. Read access-control-defaults-get first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear the default access rule for a scope (execute)",
+        "title": "Set or clear the default access rule for a scope (execute)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "access_control"
+    },
+    "access-control-default-rule-set-prepare": {
+        "description": "Step 1 of 2 for change the default access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. Read access-control-defaults-get first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear the default access rule for a scope (prepare)",
+        "title": "Set or clear the default access rule for a scope (prepare)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "access_control"
+    },
     "access-control-defaults-get": {
         "description": "The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or a role.",
         "category": "Access control",
@@ -74,6 +104,36 @@
         },
         "feature_entitlement": "access_control"
     },
+    "access-control-member-rule-set-execute": {
+        "description": "Step 2 of 2 for change a member's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level one organization member gets for one scope. A member rule applies to that person only and wins over their role rules and the default. The scope is the project (`resource: project`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's rule, so they fall back to their role rules or the default. When several people need the same change, prefer a role rule. Read access-control-members-list with `member_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one member's access rule for a scope (execute)",
+        "title": "Set or clear one member's access rule for a scope (execute)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "access_control"
+    },
+    "access-control-member-rule-set-prepare": {
+        "description": "Step 1 of 2 for change a member's access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level one organization member gets for one scope. A member rule applies to that person only and wins over their role rules and the default. The scope is the project (`resource: project`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's rule, so they fall back to their role rules or the default. When several people need the same change, prefer a role rule. Read access-control-members-list with `member_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one member's access rule for a scope (prepare)",
+        "title": "Set or clear one member's access rule for a scope (prepare)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "access_control"
+    },
     "access-control-members-list": {
         "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access skill explains how the levels combine.",
         "category": "Access control",
@@ -111,6 +171,36 @@
         "summary": "List a role's property rules",
         "title": "List a role's property rules",
         "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "role_based_access"
+    },
+    "access-control-role-rule-set-execute": {
+        "description": "Step 2 of 2 for change a role's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one role's access rule for a scope (execute)",
+        "title": "Set or clear one role's access rule for a scope (execute)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "role_based_access"
+    },
+    "access-control-role-rule-set-prepare": {
+        "description": "Step 1 of 2 for change a role's access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one role's access rule for a scope (prepare)",
+        "title": "Set or clear one role's access rule for a scope (prepare)",
+        "required_scopes": ["access_control:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

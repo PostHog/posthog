@@ -995,6 +995,44 @@ describe('rename_params', () => {
         expect(result.renamedFields).toEqual({ property_key: '$unset' })
     })
 
+    it('describes a renamed field through its alias without losing the rename', () => {
+        // The override is keyed by the alias the agent sees, but the Orval shape only has the
+        // original name; and the rename step must not replace the described field afterwards.
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            rename_params: { organization_member: 'member_id' },
+            param_overrides: { member_id: { description: 'The membership id.' } },
+        }
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    organization_member: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain(
+            "member_id: ThingsCreateBody.shape['organization_member'].describe('The membership id.')"
+        )
+        expect(result.schemaExpr).toContain(".omit({ 'organization_member': true })")
+        expect(result.schemaExpr).not.toContain(".extend({ member_id: ThingsCreateBody.shape['organization_member'] })")
+        expect(result.renamedFields).toEqual({ member_id: 'organization_member' })
+    })
+
     it('generates handler that maps alias to original body key', () => {
         const config: ToolConfig = {
             operation: 'things_create',
