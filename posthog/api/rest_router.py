@@ -9,6 +9,7 @@ from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
+from posthog.api.terminal import TerminalViewSet
 from posthog.api.wizard import http as wizard
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
@@ -256,6 +257,7 @@ projects_router.register(
 )
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(r"terminal", TerminalViewSet, "project_terminal", ["team_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
 
 

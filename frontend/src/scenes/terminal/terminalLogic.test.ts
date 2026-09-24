@@ -15,6 +15,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { initKeaTests } from '~/test/init'
 
+import { ModalTerminalRuntime } from './ModalTerminalRuntime'
 import { PosthogFilesystem } from './posthogFilesystem'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
@@ -32,6 +33,15 @@ jest.mock('./terminalRuntime', () => ({
         resize: jest.fn(),
         syncClock: jest.fn(),
         changeDirectory: jest.fn(() => true),
+        read: jest.fn(() => ''),
+    })),
+}))
+jest.mock('./ModalTerminalRuntime', () => ({
+    ModalTerminalRuntime: jest.fn().mockImplementation(() => ({
+        start: jest.fn(async (size) => size),
+        stop: jest.fn(async () => {}),
+        write: jest.fn(),
+        resize: jest.fn(),
         read: jest.fn(() => ''),
     })),
 }))
@@ -66,6 +76,31 @@ describe('terminal lifecycle', () => {
     })
 
     afterEach(() => jest.restoreAllMocks())
+
+    it('starts the selected Modal size and prevents a new session until Stop finishes', async () => {
+        terminalLogic.actions.setEnvironment('modal')
+        terminalLogic.actions.setSandboxSize('high_memory')
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(ModalTerminalRuntime).mock.results[0].value
+        expect(runtime.start).toHaveBeenCalledWith('high_memory')
+        expect(TerminalRuntime).not.toHaveBeenCalled()
+        window.posthogTerminal?.write('pwd\r')
+        expect(runtime.write).toHaveBeenCalledWith('pwd\r')
+        let finishStop!: () => void
+        runtime.stop.mockReturnValue(
+            new Promise<void>((resolve) => {
+                finishStop = resolve
+            })
+        )
+        terminalLogic.actions.stop()
+        expect(terminalLogic.values.status).toBe('stopping')
+        terminalLogic.actions.start()
+        expect(ModalTerminalRuntime).toHaveBeenCalledTimes(1)
+        finishStop()
+        await waitFor(() => expect(terminalLogic.values.status).toBe('idle'))
+        expect(window.posthogTerminal).toBeUndefined()
+    })
 
     it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {
         featureFlagLogic.actions.setFeatureFlags([], {

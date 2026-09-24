@@ -232,6 +232,7 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/admin/")
         assert "frame-ancestors 'none'" not in response["Content-Security-Policy"]
         assert "connect-src 'self'" in response["Content-Security-Policy-Report-Only"]
+        assert "wss://*.modal.host" in response["Content-Security-Policy-Report-Only"]
 
     @parameterized.expand(
         [

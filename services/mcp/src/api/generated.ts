@@ -98373,6 +98373,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `small` - Small
+     * * `balanced` - Balanced
+     * * `large` - Large
+     * * `high_memory` - High memory
+     */
+    export type TerminalSandboxSizeEnum = typeof TerminalSandboxSizeEnum[keyof typeof TerminalSandboxSizeEnum];
+
+
+    export const TerminalSandboxSizeEnum = {
+      Small: 'small',
+      Balanced: 'balanced',
+      Large: 'large',
+      HighMemory: 'high_memory',
+    } as const;
+
+    export interface TerminalSandbox {
+      /** Opaque terminal session identifier. */
+      id: string;
+      /** Authenticated Modal connection endpoint. */
+      url: string;
+      /** Connection token scoped to this sandbox. */
+      token: string;
+      /** Provisioned sandbox size.
+       *
+       * * `small` - Small
+       * * `balanced` - Balanced
+       * * `large` - Large
+       * * `high_memory` - High memory */
+      sandbox_size: TerminalSandboxSizeEnum;
+    }
+
+    export interface TerminalSandboxRequest {
+      /** Compute size for the Modal sandbox.
+       *
+       * * `small` - Small
+       * * `balanced` - Balanced
+       * * `large` - Large
+       * * `high_memory` - High memory */
+      sandbox_size?: TerminalSandboxSizeEnum;
+    }
+
+    /**
      * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
      * @nullable
      */

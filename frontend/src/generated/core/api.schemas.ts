@@ -4208,6 +4208,47 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+/**
+ * * `small` - Small
+ * * `balanced` - Balanced
+ * * `large` - Large
+ * * `high_memory` - High memory
+ */
+export type TerminalSandboxSizeEnumApi = (typeof TerminalSandboxSizeEnumApi)[keyof typeof TerminalSandboxSizeEnumApi]
+
+export const TerminalSandboxSizeEnumApi = {
+    Small: 'small',
+    Balanced: 'balanced',
+    Large: 'large',
+    HighMemory: 'high_memory',
+} as const
+
+export interface TerminalSandboxRequestApi {
+    /** Compute size for the Modal sandbox.
+     *
+     * * `small` - Small
+     * * `balanced` - Balanced
+     * * `large` - Large
+     * * `high_memory` - High memory */
+    sandbox_size?: TerminalSandboxSizeEnumApi
+}
+
+export interface TerminalSandboxApi {
+    /** Opaque terminal session identifier. */
+    id: string
+    /** Authenticated Modal connection endpoint. */
+    url: string
+    /** Connection token scoped to this sandbox. */
+    token: string
+    /** Provisioned sandbox size.
+     *
+     * * `small` - Small
+     * * `balanced` - Balanced
+     * * `large` - Large
+     * * `high_memory` - High memory */
+    sandbox_size: TerminalSandboxSizeEnumApi
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */

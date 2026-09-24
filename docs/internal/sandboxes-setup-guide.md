@@ -430,3 +430,16 @@ cd products/desktop/packages/agent && pnpm build
 | `DEBUG` not set                                                                                              | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Re-run `python manage.py setup_background_agents` to write it                                                                                                                                                                                                                                                                                                            |
 | `... sandbox is for local development only` (RuntimeError at import)                                         | The `docker` / `MODAL_DOCKER` providers require `DEBUG=1` (or `TEST=1`, which pytest sets). `DEBUG=1` is normally injected by the flox env (`.flox/env/manifest.toml` `[vars]`) — this fires when you're outside `flox activate` or explicitly unset `DEBUG` (e.g. to escape the cloud-DEBUG guard). Keep `DEBUG` on and use `CLOUD_DEPLOYMENT=E2E` for cloud-mode dev instead. See [dev-env-vars.md](dev-env-vars.md) |
 | `git commit is disabled in PostHog Desktop`                                                                  | A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) blocks `git commit` and `git push` so unsigned commits can't leave the sandbox. Stage changes with `git add`, then use the `git_signed_commit` tool. To bypass during debugging, set `POSTHOG_ALLOW_UNSIGNED_GIT=1`                                                                                                                                             |
+
+## Terminal sandboxes
+
+The terminal environment selector offers a Modal sandbox behind `posthog-terminal`.
+It uses the notebook sandbox image and the same Modal credentials and image configuration as notebooks.
+Stop the browser terminal, select **Modal sandbox**, and open the size control to choose Small (1 CPU, 2 GB), Balanced (4 CPUs, 8 GB), Large (8 CPUs, 16 GB), or High memory (8 CPUs, 32 GB).
+The sandbox provides a standalone Linux filesystem with notebook Python packages and Node.js; the browser terminal's `/posthog` mount and `ph` commands are not available there.
+
+Each user can have one terminal sandbox per project.
+Starting again reconnects to that sandbox; choosing a different size replaces it.
+**Stop** destroys the sandbox and its files.
+The provider enforces a one-hour lifetime even if the browser closes or cleanup fails.
+Shell connections use sandbox-scoped Modal connect tokens over WebSockets.

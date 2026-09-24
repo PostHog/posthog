@@ -1,0 +1,115 @@
+import { terminalCreate, terminalDestroy } from '~/generated/core/api'
+import type { TerminalSandboxApi, TerminalSandboxSizeEnumApi } from '~/generated/core/api.schemas'
+
+export class ModalTerminalRuntime {
+    private socket: WebSocket | null = null
+    private request: Promise<TerminalSandboxApi> | null = null
+    private stopping: Promise<void> | null = null
+    private stopped = false
+    private columns = 80
+    private rows = 24
+    private output = ''
+    private decoder = new TextDecoder()
+
+    constructor(
+        private projectId: string,
+        private onOutput: (bytes: Uint8Array) => void,
+        private onClose: () => void
+    ) {}
+
+    async start(size: TerminalSandboxSizeEnumApi): Promise<TerminalSandboxSizeEnumApi> {
+        this.request = terminalCreate(this.projectId, { sandbox_size: size })
+        const session = await this.request
+        if (this.stopped) {
+            return session.sandbox_size
+        }
+        const url = new URL('/terminal', session.url)
+        url.protocol = 'wss:'
+        url.searchParams.set('_modal_connect_token', session.token)
+        const socket = new WebSocket(url)
+        this.socket = socket
+        socket.binaryType = 'arraybuffer'
+        await new Promise<void>((resolve, reject) => {
+            let connected = false
+            const timeout = setTimeout(() => {
+                reject(new Error('The sandbox connection timed out. Stop the terminal and try again.'))
+                socket.close()
+            }, 30_000)
+            socket.onopen = () => {
+                clearTimeout(timeout)
+                if (this.stopped) {
+                    socket.close()
+                    resolve()
+                    return
+                }
+                connected = true
+                this.resize(this.columns, this.rows)
+                resolve()
+            }
+            socket.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => {
+                if (this.stopped) {
+                    return
+                }
+                const bytes = new Uint8Array(data)
+                this.output = (this.output + this.decoder.decode(bytes, { stream: true })).slice(-20_000)
+                this.onOutput(bytes)
+            }
+            socket.onerror = () => {
+                clearTimeout(timeout)
+                reject(new Error('Could not connect to the Modal sandbox. Stop the terminal and try again.'))
+                socket.close()
+            }
+            socket.onclose = () => {
+                clearTimeout(timeout)
+                if (!connected) {
+                    reject(new Error('The sandbox connection closed before it was ready.'))
+                }
+                if (!this.stopped) {
+                    this.onClose()
+                }
+            }
+        })
+        return session.sandbox_size
+    }
+
+    write(data: string): void {
+        while (data && this.socket?.readyState === WebSocket.OPEN) {
+            let length = Math.min(data.length, 8000)
+            if (length < data.length && /[\uD800-\uDBFF]/.test(data[length - 1])) {
+                length--
+            }
+            this.socket.send(JSON.stringify(data.slice(0, length)))
+            data = data.slice(length)
+        }
+    }
+
+    resize(columns: number, rows: number): void {
+        this.columns = columns
+        this.rows = rows
+        if (this.socket?.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({ columns, rows }))
+        }
+    }
+
+    read(): string {
+        return this.output
+    }
+
+    stop(): Promise<void> {
+        if (this.stopping) {
+            return this.stopping
+        }
+        this.stopped = true
+        this.socket?.close()
+        this.stopping = (async () => {
+            const session = await this.request?.catch(() => null)
+            if (session) {
+                await terminalDestroy(this.projectId, session.id)
+            }
+        })().catch((error) => {
+            this.stopping = null
+            throw error
+        })
+        return this.stopping
+    }
+}

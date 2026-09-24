@@ -83,6 +83,8 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    TerminalSandboxApi,
+    TerminalSandboxRequestApi,
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
@@ -2449,6 +2451,34 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getTerminalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/terminal/`
+}
+
+export const terminalCreate = async (
+    projectId: string,
+    terminalSandboxRequestApi?: TerminalSandboxRequestApi,
+    options?: RequestInit
+): Promise<TerminalSandboxApi> => {
+    return apiMutator<TerminalSandboxApi>(getTerminalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(terminalSandboxRequestApi),
+    })
+}
+
+export const getTerminalDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/terminal/${id}/`
+}
+
+export const terminalDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTerminalDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

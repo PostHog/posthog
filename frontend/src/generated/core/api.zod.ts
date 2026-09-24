@@ -1096,6 +1096,18 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+export const terminalCreateBodySandboxSizeDefault = `small`
+
+export const TerminalCreateBody = /* @__PURE__ */ zod.object({
+    sandbox_size: zod
+        .enum(['small', 'balanced', 'large', 'high_memory'])
+        .describe('\* `small` - Small\n\* `balanced` - Balanced\n\* `large` - Large\n\* `high_memory` - High memory')
+        .default(terminalCreateBodySandboxSizeDefault)
+        .describe(
+            'Compute size for the Modal sandbox.\n\n\* `small` - Small\n\* `balanced` - Balanced\n\* `large` - Large\n\* `high_memory` - High memory'
+        ),
+})
+
 /**
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.

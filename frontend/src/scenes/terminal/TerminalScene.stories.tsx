@@ -313,6 +313,26 @@ export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
 
+export const ModalSandbox: StoryObj<typeof TerminalScene> = {
+    play: async () => {
+        terminalLogic.actions.stop()
+        terminalLogic.actions.setEnvironment('modal')
+        await waitFor(() => expect(document.querySelector('[data-attr="terminal-sandbox-settings"]')).not.toBeNull())
+        await userEvent.click(document.querySelector('[data-attr="terminal-sandbox-settings"]')!)
+    },
+}
+
+export const ModalSandboxNarrow: StoryObj<typeof TerminalScene> = {
+    ...ModalSandbox,
+    decorators: [
+        (Story) => (
+            <div className="max-w-lg">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
 export const LiveRuntime: StoryObj<typeof TerminalScene> = {
     tags: ['!test'],
     parameters: { liveRuntime: true },

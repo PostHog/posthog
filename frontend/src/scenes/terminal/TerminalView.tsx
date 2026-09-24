@@ -6,7 +6,16 @@ import { LemonBanner, LemonButton, LemonMenu, LemonSelect, LemonTag, Popover } f
 
 import { IconClipboardEdit } from 'lib/lemon-ui/icons'
 
-import { terminalLogic } from './terminalLogic'
+import type { TerminalSandboxSizeEnumApi } from '~/generated/core/api.schemas'
+
+import { TerminalEnvironment, terminalLogic } from './terminalLogic'
+
+const sandboxSizes: { value: TerminalSandboxSizeEnumApi; label: string }[] = [
+    { value: 'small', label: 'Small · 1 CPU · 2 GB RAM' },
+    { value: 'balanced', label: 'Balanced · 4 CPUs · 8 GB RAM' },
+    { value: 'large', label: 'Large · 8 CPUs · 16 GB RAM' },
+    { value: 'high_memory', label: 'High memory · 8 CPUs · 32 GB RAM' },
+]
 
 const examples = [
     {
@@ -56,10 +65,13 @@ export function TerminalView({
     active?: boolean
     onClose?: () => void
 }): JSX.Element {
-    const { status, error, saveError, hasSelection, pasting, clipboardError } = useValues(terminalLogic)
-    const { start, stop, attach, detach, insertCommand, copy, paste } = useActions(terminalLogic)
+    const { status, error, saveError, hasSelection, pasting, clipboardError, environment, sandboxSize } =
+        useValues(terminalLogic)
+    const { start, stop, attach, detach, insertCommand, copy, paste, setEnvironment, setSandboxSize } =
+        useActions(terminalLogic)
     const container = useRef<HTMLDivElement>(null)
     const [infoOpen, setInfoOpen] = useState(false)
+    const [sizeOpen, setSizeOpen] = useState(false)
     useEffect(() => {
         const host = container.current
         if (!host || !visible) {
@@ -69,7 +81,7 @@ export function TerminalView({
         return () => detach(host)
     }, [attach, detach, visible])
 
-    const active = status !== 'idle' && status !== 'error'
+    const active = status !== 'idle' && (status !== 'error' || environment === 'modal')
     const starting = status === 'loading' || status === 'booting'
 
     return (
@@ -77,7 +89,9 @@ export function TerminalView({
             <div className="flex shrink-0 items-center gap-1 flex-wrap px-1">
                 <LemonSelect
                     size="xsmall"
-                    value="posthog-linux-wasm"
+                    value={environment}
+                    onChange={(value) => setEnvironment(value as TerminalEnvironment)}
+                    disabledReason={active ? 'Stop the terminal to change environments' : undefined}
                     aria-label="Environment"
                     data-attr="terminal-environment"
                     className="min-w-0 max-w-full"
@@ -90,10 +104,45 @@ export function TerminalView({
                                     value: 'posthog-linux-wasm',
                                     label: 'PostHog Linux WASM (in-browser, experimental)',
                                 },
+                                { value: 'modal', label: 'Modal sandbox (cloud, experimental)' },
                             ],
                         },
                     ]}
                 />
+                {environment === 'modal' && (
+                    <Popover
+                        visible={sizeOpen}
+                        onClickOutside={() => setSizeOpen(false)}
+                        placement="bottom-start"
+                        overlay={
+                            <div className="flex max-w-80 flex-col gap-2 p-1">
+                                <span className="font-semibold">Sandbox size</span>
+                                <LemonSelect
+                                    size="small"
+                                    value={sandboxSize}
+                                    aria-label="Sandbox size"
+                                    data-attr="terminal-sandbox-size"
+                                    options={sandboxSizes}
+                                    disabledReason={active ? 'Stop the sandbox to change its size' : undefined}
+                                    onChange={(value) => setSandboxSize(value)}
+                                />
+                                <span className="text-xs text-secondary">
+                                    New sandboxes use this size. Sandboxes expire after one hour.
+                                </span>
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => setSizeOpen(!sizeOpen)}
+                            aria-expanded={sizeOpen}
+                            data-attr="terminal-sandbox-settings"
+                        >
+                            {sandboxSizes.find(({ value }) => value === sandboxSize)?.label}
+                        </LemonButton>
+                    </Popover>
+                )}
                 <LemonButton
                     size="xsmall"
                     type="primary"
@@ -102,7 +151,7 @@ export function TerminalView({
                     disabledReason={active ? 'The terminal is already running' : undefined}
                     data-attr="terminal-start"
                 >
-                    Start Linux
+                    {environment === 'modal' ? 'Start sandbox' : 'Start Linux'}
                 </LemonButton>
                 <LemonButton
                     size="xsmall"
@@ -110,7 +159,14 @@ export function TerminalView({
                     aria-label="Stop"
                     tooltip="Stop"
                     onClick={stop}
-                    disabledReason={status === 'idle' ? 'Start the terminal first' : undefined}
+                    loading={status === 'stopping'}
+                    disabledReason={
+                        status === 'idle'
+                            ? 'Start the terminal first'
+                            : status === 'stopping'
+                              ? 'Stopping the sandbox'
+                              : undefined
+                    }
                     data-attr="terminal-stop"
                 />
                 <LemonButton
@@ -133,7 +189,15 @@ export function TerminalView({
                     data-attr="terminal-paste"
                 />
                 <LemonMenu
-                    items={examples.map(({ title, commands }) => ({
+                    items={(environment === 'modal'
+                        ? [
+                              {
+                                  title: 'Sandbox tools',
+                                  commands: ['python --version', 'node --version', 'pip list', 'pwd', 'ls -la', 'htop'],
+                              },
+                          ]
+                        : examples
+                    ).map(({ title, commands }) => ({
                         title,
                         items: commands.map((command) => ({
                             label: <code className="whitespace-normal break-words">{command}</code>,
@@ -152,15 +216,17 @@ export function TerminalView({
                     </LemonButton>
                 </LemonMenu>
                 <span role="status" className="text-secondary ml-auto text-xs">
-                    {status === 'loading'
-                        ? 'Starting terminal…'
-                        : status === 'booting'
-                          ? 'Starting Linux…'
-                          : status === 'ready'
-                            ? 'Ready'
-                            : status === 'error'
-                              ? 'Could not start'
-                              : 'Stopped'}
+                    {status === 'stopping'
+                        ? 'Stopping sandbox…'
+                        : status === 'loading'
+                          ? 'Starting terminal…'
+                          : status === 'booting'
+                            ? 'Starting Linux…'
+                            : status === 'ready'
+                              ? 'Ready'
+                              : status === 'error'
+                                ? 'Could not start'
+                                : 'Stopped'}
                 </span>
                 <Popover
                     visible={infoOpen}
@@ -170,15 +236,25 @@ export function TerminalView({
                         <div className="flex max-w-80 flex-col items-start gap-3 p-1 text-sm">
                             <LemonTag type="warning">Experiment</LemonTag>
                             <p className="mb-0">
-                                Linux in your browser, with your PostHog project mounted at <code>/posthog</code>. The
-                                first start downloads Linux and bundled tools.
+                                {environment === 'modal' ? (
+                                    <>
+                                        A cloud Linux sandbox with the same Python and Node.js tools as notebooks. The
+                                        sandbox has its own filesystem; your PostHog project is not mounted.
+                                    </>
+                                ) : (
+                                    <>
+                                        Linux in your browser, with your PostHog project mounted at{' '}
+                                        <code>/posthog</code>. The first start downloads Linux and bundled tools.
+                                    </>
+                                )}
                             </p>
                             <p className="mb-0">
-                                Commands and file edits can change real data. Local files and unsaved edits disappear
-                                when you reload PostHog or stop Linux.
+                                {environment === 'modal'
+                                    ? 'Stop destroys the sandbox and its files. Sandboxes expire after one hour, including when you close PostHog.'
+                                    : 'Commands and file edits can change real data. Local files and unsaved edits disappear when you reload PostHog or stop Linux.'}
                             </p>
                             <p className="mb-0">
-                                Choose an example to insert it, then press Enter. Tab completes paths and ph commands.
+                                Choose an example to insert it, then press Enter. Tab completes commands and paths.
                                 Ctrl+C interrupts. Scroll up for history.
                             </p>
                             <p className="mb-0">
