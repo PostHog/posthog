@@ -23,7 +23,7 @@ class TestAPIDocsSchema(APIBaseTest):
 
     def test_x_internal_operations_are_only_in_the_codegen_schema(self) -> None:
         self.client.logout()
-        internal_suffix = "/access_control_member_rules/"
+        internal_suffix = "/access_control_members/"
 
         served_paths = self.client.get("/api/schema/").data["paths"]
         assert not [p for p in served_paths if p.endswith(internal_suffix)]
