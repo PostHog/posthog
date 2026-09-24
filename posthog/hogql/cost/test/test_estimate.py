@@ -20,6 +20,9 @@ from posthog.hogql.resolver import resolve_types
 
 from products.data_warehouse.backend.facade.sources import (
     DIRECT_ESTIMATED_ROW_COUNT_OPTION,
+    DIRECT_MYSQL_SCHEMA_OPTION,
+    DIRECT_MYSQL_TABLE_OPTION,
+    DIRECT_MYSQL_URL_PATTERN,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
     DIRECT_POSTGRES_URL_PATTERN,
@@ -368,38 +371,54 @@ class TestEstimateEventsScan(BaseTest):
             ("persons", "size_only"),
         ]
 
-    def test_a_direct_postgres_table_lists_the_catalog_estimate_as_size_only(self):
+    @parameterized.expand(
+        [
+            (
+                "postgres",
+                "Postgres",
+                {"host": "localhost", "port": 5432, "schema": "public"},
+                DIRECT_POSTGRES_URL_PATTERN,
+                {DIRECT_POSTGRES_SCHEMA_OPTION: "public", DIRECT_POSTGRES_TABLE_OPTION: "orders"},
+            ),
+            (
+                "mysql",
+                "MySQL",
+                {"host": "localhost", "port": 3306, "database": "app", "schema": "app"},
+                DIRECT_MYSQL_URL_PATTERN,
+                {DIRECT_MYSQL_SCHEMA_OPTION: "app", DIRECT_MYSQL_TABLE_OPTION: "orders"},
+            ),
+        ]
+    )
+    def test_a_direct_table_lists_the_catalog_estimate_as_size_only(
+        self, _name, source_type, job_inputs, url_pattern, location_options
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="src",
             connection_id="conn",
             destination_id="dest",
-            source_type="Postgres",
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
-            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+            job_inputs=job_inputs,
         )
         DataWarehouseTable.objects.create(
-            name="pg_orders",
+            name="remote_orders",
             format="Parquet",
             team=self.team,
-            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            url_pattern=url_pattern,
             external_data_source=source,
             columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
-            options={
-                DIRECT_POSTGRES_SCHEMA_OPTION: "public",
-                DIRECT_POSTGRES_TABLE_OPTION: "orders",
-                DIRECT_ESTIMATED_ROW_COUNT_OPTION: 812_000,
-            },
+            options={**location_options, DIRECT_ESTIMATED_ROW_COUNT_OPTION: 812_000},
         )
         # A direct source's tables live only in the catalog built for that connection.
         self.context.database = Database.create_for(team=self.team, connection_id=str(source.id))
 
-        estimate = self._estimate("SELECT count() FROM pg_orders")
+        estimate = self._estimate("SELECT count() FROM remote_orders")
 
         assert estimate is not None
         assert estimate.upper_bound is True
         assert estimate.tables == (
-            TableScanEstimate(name="pg_orders", source="direct", precision="size_only", rows=812_000),
+            TableScanEstimate(name="remote_orders", source="direct", precision="size_only", rows=812_000),
         )
 
         # The editor asks for metadata with the connection set, and a direct query used to get no estimate at all.
@@ -411,7 +430,7 @@ class TestEstimateEventsScan(BaseTest):
                 HogQLMetadata(
                     kind="HogQLMetadata",
                     language=HogLanguage.HOG_QL,
-                    query="SELECT count() FROM pg_orders",
+                    query="SELECT count() FROM remote_orders",
                     connectionId=str(source.id),
                     indexUsage=True,
                 ),

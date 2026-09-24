@@ -833,6 +833,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
         )
 
+        estimated_row_count = self.options.get(DIRECT_ESTIMATED_ROW_COUNT_OPTION)
+
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
@@ -849,7 +851,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 if isinstance(self.options.get(DIRECT_POSTGRES_TABLE_OPTION), str)
                 else self.name
             )
-            estimated_row_count = self.options.get(DIRECT_ESTIMATED_ROW_COUNT_OPTION)
             return DirectPostgresTable(
                 name=self.name,
                 fields=fields,
@@ -881,6 +882,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+                estimated_row_count=estimated_row_count if isinstance(estimated_row_count, int) else None,
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:

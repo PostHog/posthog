@@ -276,6 +276,28 @@ class TestSchemaDiscovery:
         assert "table_schema = %(schema)s" in sql
         assert params["schema"] == "app"
 
+    def test_get_row_estimates_keys_by_display_name_and_skips_tables_without_a_figure(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("app", "users", 812_000),
+            ("app", "orders", None),
+            ("app", "not_requested", 5),
+        ]
+
+        estimates = impl.get_row_estimates(
+            _connection_for_cursor(cursor), _make_config(schema="app"), ["users", "orders"]
+        )
+
+        assert estimates == {"users": 812_000}
+        sql, params = cursor.execute.call_args.args
+        assert "information_schema.TABLES" in sql
+        assert set(params["names"]) == {"users", "orders"}
+        assert params["schema"] == "app"
+
+    def test_get_row_estimates_is_empty_when_the_catalog_is_not_readable(self, impl, cursor):
+        cursor.execute.side_effect = RuntimeError("SELECT command denied")
+
+        assert impl.get_row_estimates(_connection_for_cursor(cursor), _make_config(schema="app"), ["users"]) == {}
+
     def test_get_columns_uses_qualified_table_names_when_schema_blank(self, impl, cursor):
         cursor.fetchall.return_value = [
             ("app", "users", "id", "int", "NO"),

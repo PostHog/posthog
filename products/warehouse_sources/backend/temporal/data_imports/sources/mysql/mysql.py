@@ -1178,6 +1178,57 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             result[display_name].append((column_name, data_type, is_nullable == "YES"))
         return dict(result)
 
+    def get_row_estimates(
+        self,
+        conn: pymysql.Connection,
+        config: MySQLSourceConfig,
+        tables: list[str],
+    ) -> dict[str, int]:
+        """``TABLE_ROWS`` per table in one query. An InnoDB estimate, never a scan.
+
+        Best-effort like ``get_primary_keys``: a deployment that restricts ``information_schema.TABLES``
+        must still get its tables, only without a size.
+        """
+        if not tables:
+            return {}
+        configured_schema = _configured_schema(config)
+        requested_names = set(tables)
+        schema_filter = "TABLE_SCHEMA NOT IN %(system_schemas)s"
+        params: dict[str, Any] = {"names": _source_table_names(tables, configured_schema=configured_schema)}
+        if configured_schema is not None:
+            schema_filter = "TABLE_SCHEMA = %(schema)s"
+            params["schema"] = configured_schema
+        else:
+            params["system_schemas"] = _SYSTEM_SCHEMAS
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_ROWS
+                    FROM information_schema.TABLES
+                    WHERE {schema_filter}
+                    AND TABLE_NAME IN %(names)s
+                    """,
+                    params,
+                )
+                rows = cursor.fetchall()
+        except Exception:
+            return {}
+
+        estimates: dict[str, int] = {}
+        for source_schema, table_name, table_rows in rows:
+            if table_rows is None or not _matches_requested_name(
+                requested_names,
+                source_schema=source_schema,
+                table_name=table_name,
+                configured_schema=configured_schema,
+            ):
+                continue
+            display_name = _display_table_name(source_schema, table_name, configured_schema=configured_schema)
+            estimates[display_name] = int(table_rows)
+        return estimates
+
     def get_primary_keys(
         self,
         conn: pymysql.Connection,

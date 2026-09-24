@@ -15,7 +15,11 @@ from products.data_warehouse.backend.direct_motherduck import (
     DIRECT_MOTHERDUCK_SCHEMA_OPTION,
     DIRECT_MOTHERDUCK_TABLE_OPTION,
 )
-from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
+from products.data_warehouse.backend.direct_mysql import (
+    DIRECT_MYSQL_SCHEMA_OPTION,
+    DIRECT_MYSQL_TABLE_OPTION,
+    DIRECT_MYSQL_URL_PATTERN,
+)
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_ESTIMATED_ROW_COUNT_OPTION,
     DIRECT_POSTGRES_CATALOG_OPTION,
@@ -47,6 +51,7 @@ __all__ = [
     "DIRECT_MOTHERDUCK_TABLE_OPTION",
     "DIRECT_MYSQL_SCHEMA_OPTION",
     "DIRECT_MYSQL_TABLE_OPTION",
+    "DIRECT_MYSQL_URL_PATTERN",
     "DIRECT_POSTGRES_CATALOG_OPTION",
     "DIRECT_POSTGRES_SCHEMA_OPTION",
     "DIRECT_ESTIMATED_ROW_COUNT_OPTION",

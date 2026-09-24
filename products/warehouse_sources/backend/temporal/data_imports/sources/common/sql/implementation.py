@@ -167,6 +167,19 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     ) -> dict[str, int | None]:
         return {}
 
+    def get_row_estimates(
+        self,
+        conn: ConnT,
+        config: ConfigT,
+        tables: list[str],
+    ) -> dict[str, int]:
+        """The catalog's row estimate per table, for the HogQL cost planner.
+
+        Unlike ``get_row_counts`` this never reads a table, so discovery can call it every time. An
+        engine with no cheap figure returns nothing and its tables are shown without a size.
+        """
+        return {}
+
     def get_foreign_keys(
         self,
         conn: ConnT,
