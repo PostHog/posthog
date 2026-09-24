@@ -16,15 +16,20 @@ export type SlackDestinationPickerProps = {
     onChannelChange: (channel: string | null) => void
     /** Extra classes for the picker container; not applied to the loading/not-configured states. */
     className?: string
+    /** Replaces the lead sentence of the banner shown when the project has no Slack workspace. */
+    notConfiguredDescription?: string
+    onConnectClick?: () => void
 }
 
-/** Slack workspace + channel picker shared by the comment composer and the send-to-Slack modal. */
+/** Slack workspace + channel picker shared by the comment composer, the send-to-Slack modal and PostHog AI cards. */
 export function SlackDestinationPicker({
     integrationId,
     channel,
     onIntegrationChange,
     onChannelChange,
     className,
+    notConfiguredDescription,
+    onConnectClick,
 }: SlackDestinationPickerProps): JSX.Element {
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const selectedIntegration = slackIntegrations?.find((integration) => integration.id === integrationId)
@@ -39,7 +44,13 @@ export function SlackDestinationPicker({
     }
 
     if (!slackIntegrations?.length) {
-        return <SlackNotConfiguredBanner onConnected={onIntegrationChange} />
+        return (
+            <SlackNotConfiguredBanner
+                description={notConfiguredDescription}
+                onConnected={onIntegrationChange}
+                onConnectClick={onConnectClick}
+            />
+        )
     }
 
     return (
