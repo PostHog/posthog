@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel
@@ -11,6 +11,8 @@ from posthog.schema import (
     LifecycleDataWarehouseNode,
     RetentionEntity,
 )
+
+from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 
@@ -69,7 +71,7 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 }
 
 
-@dataclass
+@frozen(frozen=False)
 class _WarehouseCatalog:
     """Warehouse reads shared by one fingerprint and every view definition it walks.
 
