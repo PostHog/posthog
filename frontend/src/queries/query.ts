@@ -1,4 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -67,6 +68,16 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
+
+/**
+ * A transient gateway failure (502/503/504) means the request never reached the backend, so the
+ * query it carried has not started and one more attempt usually lands. Submitting again is safe:
+ * a query is a read, and the `client_query_id` is reused, so the server joins a run that did start
+ * instead of computing it twice. `getInsightWithRetry` gives the dashboard insight route the same
+ * treatment, which is why a blip there is invisible while the same blip here kills the query.
+ */
+const TRANSIENT_SUBMIT_ATTEMPTS = 3
+const TRANSIENT_SUBMIT_DELAY_MS = 600
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -186,19 +197,30 @@ async function executeQuery<N extends DataNode>(
      */
     acceptStaleCache = false,
     /** True on the retry below, so a failed retry cannot start another one. */
-    retriedAfterExpiry = false
+    retriedAfterPollFailure = false
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        let response
+        for (let attempt = 1; ; attempt++) {
+            try {
+                response = await api.query(queryNode, {
+                    requestOptions: methodOptions,
+                    clientQueryId: queryId,
+                    refresh: refreshParam,
+                    filtersOverride,
+                    variablesOverride,
+                    limitContext,
+                })
+                break
+            } catch (e: any) {
+                if (attempt >= TRANSIENT_SUBMIT_ATTEMPTS || !isTransientServerError(e)) {
+                    throw e
+                }
+                await delay(TRANSIENT_SUBMIT_DELAY_MS * attempt, methodOptions?.signal)
+            }
+        }
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -240,12 +262,12 @@ async function executeQuery<N extends DataNode>(
         // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
         // view may only read, so it cannot submit at all; report the expired status rather than
         // the permission error the server would answer with.
-        if (
-            retriedAfterExpiry ||
-            e?.status !== 404 ||
-            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
-            isSharedView()
-        ) {
+        //
+        // A transient gateway failure is the other status worth another attempt: the poll never
+        // reached the backend, so it says nothing about the query, which is most likely still
+        // running. Re-entering resumes polling it.
+        const expiredStatus = e?.status === 404 && e?.code !== MANAGED_WAREHOUSE_UNAVAILABLE_CODE
+        if (retriedAfterPollFailure || isSharedView() || !(expiredStatus || isTransientServerError(e))) {
             throw e
         }
         return await executeQuery(

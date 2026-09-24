@@ -375,6 +375,54 @@ describe('query', () => {
         })
     })
 
+    describe('a gateway that could not reach the backend', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const refused = (): ApiError => new ApiError('', 503, undefined, {})
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it('submits again when the gateway refused the submit, and returns what the retry gets', async () => {
+            jest.useFakeTimers()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(refused())
+                .mockResolvedValueOnce({ results: ['ok'] } as any)
+
+            const promise = performQuery(query, undefined, 'blocking')
+            await jest.advanceTimersByTimeAsync(600)
+
+            await expect(promise).resolves.toMatchObject({ results: ['ok'] })
+            expect(querySpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('reports the failure once the gateway refuses every attempt', async () => {
+            jest.useFakeTimers()
+            const querySpy = jest.spyOn(api, 'query').mockRejectedValue(refused())
+
+            const settled = performQuery(query, undefined, 'blocking').catch((e) => e)
+            await jest.advanceTimersByTimeAsync(1800)
+
+            await expect(settled).resolves.toMatchObject({ status: 503 })
+            expect(querySpy).toHaveBeenCalledTimes(3)
+        })
+
+        it('resumes polling when the gateway refused a status poll', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce({ query_status: { id: 'running', complete: false } } as any)
+                .mockResolvedValueOnce({ results: ['ok'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(refused())
+
+            await expect(performQuery(query, undefined, 'async')).resolves.toMatchObject({ results: ['ok'] })
+
+            // Same ID, so the resumed run is the one the user is already waiting for.
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe('running')
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
