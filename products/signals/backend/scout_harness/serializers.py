@@ -3552,7 +3552,11 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        if value is None and isinstance(self.instance, SignalScoutConfig):
+        if (
+            value is None
+            and isinstance(self.instance, SignalScoutConfig)
+            and self.instance.structured_output_schema is not None
+        ):
             _refuse_clearing_shipped_schema(self.instance.skill_name)
         return _validate_structured_output_schema(value)
 

@@ -479,7 +479,9 @@ Read it:
   sessions, so the denominator stays every MCP session of the source. The same disqualifiers as
   everywhere else apply: a share over a handful of sessions is one developer.
 - `LIMIT 20 BY source` returns the top 20 tools of each source, so one busy source cannot crowd
-  another out. These rows are what the scout records as `tool_session_share`.
+  another out. These rows are what the scout records as `tool_session_share` — the schema's fields
+  only. `users_with_call` and `prior_sessions_total` are evidence for the report, not record fields,
+  and the closed schema rejects a batch that carries them.
 - For detection, rank by the change instead of the level. Run it again with
   `ORDER BY source, session_share_pct - share_pct_prior_window DESC NULLS LAST`, so a tool that
   rose from a low share is not cut behind tools that sit high and flat.
