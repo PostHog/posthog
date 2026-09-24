@@ -566,6 +566,22 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertTrue(OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists())
         self.assertEqual(mock_capture.call_args.kwargs["event"], "organization member removal blocked")
 
+    def test_deactivated_owner_does_not_let_the_last_active_owner_leave(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        User.objects.create_and_join(
+            self.organization,
+            "gone@posthog.com",
+            None,
+            level=OrganizationMembership.Level.OWNER,
+            is_active=False,
+        )
+
+        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists())
+
     def test_owner_can_lower_own_level_when_another_owner_remains(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()

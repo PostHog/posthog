@@ -612,9 +612,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
-        if membership.level == OrganizationMembership.Level.OWNER and not membership.has_other_owner():
-            raise ValidationError("Cannot leave the organization as its only owner!")
         with transaction.atomic():
+            # `has_other_owner` locks the organization's owner transitions, so the check and the
+            # departure have to sit in one transaction.
+            if membership.level == OrganizationMembership.Level.OWNER and not membership.has_other_owner():
+                raise ValidationError("Cannot leave the organization as its only owner!")
             membership.delete()
             if self.current_organization == organization:
                 self.current_organization = self.organizations.first()

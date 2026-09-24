@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
@@ -132,13 +133,16 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )
-        for attr, value in validated_data.items():
-            if attr == "level":
-                requesting_membership.validate_update(
-                    updated_membership, cast(OrganizationMembership.Level | None, value)
-                )
-            setattr(updated_membership, attr, value)
-        updated_membership.save()
+        # `validate_update` locks the organization's owner transitions when an owner steps down,
+        # so the check and the new level have to sit in one transaction.
+        with transaction.atomic():
+            for attr, value in validated_data.items():
+                if attr == "level":
+                    requesting_membership.validate_update(
+                        updated_membership, cast(OrganizationMembership.Level | None, value)
+                    )
+                setattr(updated_membership, attr, value)
+            updated_membership.save()
         return updated_membership
 
 
