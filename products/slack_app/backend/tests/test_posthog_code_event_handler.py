@@ -1662,7 +1662,9 @@ class TestUntaggedFollowupPrompt(SimpleTestCase):
         blocks = slack.client.chat_postEphemeral.call_args.kwargs["blocks"]
         assert blocks[-1] == {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"You can change this in the {expected_label}."}],
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {expected_label} you can set what happens in threads you start."}
+            ],
         }
 
 

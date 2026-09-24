@@ -3220,7 +3220,7 @@ def _post_untagged_followup_prompt(
                 "type": "mrkdwn",
                 "text": (
                     "I'm working in this thread. Want me to pick up your message? "
-                    "Only you can see this — nothing happens unless you say so."
+                    "Only you can see this, and I won't reply or start work unless you say so."
                 ),
             },
         },
@@ -3245,7 +3245,9 @@ def _post_untagged_followup_prompt(
         },
         {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"You can change this in the {home_tab_label}."}],
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {home_tab_label} you can set what happens in threads you start."}
+            ],
         },
     ]
 
