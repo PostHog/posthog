@@ -145,7 +145,7 @@ postHogCapture({
             default: 'POST',
             required: false,
             description:
-                'HTTP method to allow for the request. A tracking pixel or any other GET endpoint has to set this to GET, or the request is refused with a 405.',
+                'HTTP method to allow for the request. Requests with any other method are refused with a 405. For a GET request such as a tracking pixel, choose GET and read values from query parameters with {request.query.x} in the fields above.',
         },
         {
             key: 'debug',
