@@ -78,15 +78,24 @@ describe('workflowLogic auto-save', () => {
             source_path: 'workflows/welcome.ts',
         }
         let patchBodies: Record<string, unknown>[]
+        let scheduleWrites: number
 
         beforeEach(() => {
             patchBodies = []
+            scheduleWrites = 0
         })
 
         const mocksFor = (loaded: HogFlow): Parameters<typeof useMocks>[0] => ({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': loaded,
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/environments/:team_id/hog_flows/:id/schedules': [],
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/schedules': () => {
+                    scheduleWrites += 1
+                    return [200, { id: 'sched-1', rrule: 'FREQ=DAILY', starts_at: '2026-07-01T00:00:00.000Z' }]
+                },
             },
             patch: {
                 '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
@@ -146,6 +155,39 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.originalWorkflow?.status).toBe('draft')
             expect(logic.values.workflow.name).toBe('Edited in the UI')
             expect(logic.values.workflowChanged).toBe(true)
+        })
+
+        it('saves the schedule of a code-managed workflow on its own and keeps the graph edits', async () => {
+            useMocks(mocksFor(makeWorkflow(codeManagedFields)))
+            await mountLogic()
+
+            logic.actions.setWorkflowInfo({ name: 'Edited in the UI' })
+            logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+            logic.actions.saveSchedule()
+            await expectLogic(logic).toDispatchActions(['saveScheduleFinished']).toFinishAllListeners()
+
+            expect(scheduleWrites).toBe(1)
+            expect(patchBodies).toEqual([])
+            expect(logic.values.isSavingSchedule).toBe(false)
+            expect(logic.values.workflow.name).toBe('Edited in the UI')
+        })
+
+        it.each([
+            { description: 'writes it for a workflow the app owns', overrides: {}, expectedWrites: 1 },
+            {
+                description: 'leaves it staged for a code-managed workflow',
+                overrides: codeManagedFields,
+                expectedWrites: 0,
+            },
+        ])('a status save with a staged schedule $description', async ({ overrides, expectedWrites }) => {
+            useMocks(mocksFor(makeWorkflow({ ...overrides, status: 'active' })))
+            await mountLogic()
+
+            logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+            expect(scheduleWrites).toBe(expectedWrites)
         })
 
         it('refuses publish and discard on a code-managed workflow with a staged draft', async () => {

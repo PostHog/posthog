@@ -84,6 +84,28 @@ describe('StepTriggerConfiguration', () => {
         })
     })
 
+    it.each([
+        { description: 'shows a schedule save for a code-managed workflow', managedBy: 'code' as const, shown: true },
+        { description: 'shows no schedule save for a workflow the app owns', managedBy: undefined, shown: false },
+    ])('$description', ({ managedBy, shown }) => {
+        const logic = workflowLogic(LOGIC_PROPS)
+        logic.actions.loadWorkflowSuccess({ ...logic.values.workflow, managed_by: managedBy })
+        const action = {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            config: { type: 'schedule' },
+        } as TriggerAction
+        render(
+            <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
+                <StepTriggerConfiguration node={{ id: action.id, data: action } as Node<TriggerAction>} />
+            </BindLogic>
+        )
+
+        expect(screen.queryByText('Save schedule') !== null).toBe(shown)
+    })
+
     it('shows a global HogQL property filter stored on the event trigger', async () => {
         renderTrigger([{ type: 'hogql', key: "properties.plan = 'pro'" }])
 

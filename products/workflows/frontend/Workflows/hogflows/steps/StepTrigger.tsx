@@ -551,21 +551,49 @@ function StepTriggerConfigurationManual(): JSX.Element {
 }
 
 function WorkflowRecurringSchedulePicker(): JSX.Element {
-    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
-    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+    const {
+        scheduleState,
+        scheduleStartsAt,
+        scheduleTimezone,
+        isScheduleRepeating,
+        isCodeManaged,
+        pendingSchedule,
+        isSavingSchedule,
+    } = useValues(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating, saveSchedule } =
         useActions(workflowLogic)
 
     return (
-        <RecurringSchedulePicker
-            state={scheduleState}
-            startsAt={scheduleStartsAt}
-            timezone={scheduleTimezone}
-            repeating={isScheduleRepeating}
-            onStateChange={setScheduleState}
-            onStartsAtChange={setScheduleStartsAtFromPicker}
-            onTimezoneChange={setScheduleTimezone}
-            onRepeatingChange={setScheduleRepeating}
-        />
+        <>
+            <RecurringSchedulePicker
+                state={scheduleState}
+                startsAt={scheduleStartsAt}
+                timezone={scheduleTimezone}
+                repeating={isScheduleRepeating}
+                onStateChange={setScheduleState}
+                onStartsAtChange={setScheduleStartsAtFromPicker}
+                onTimezoneChange={setScheduleTimezone}
+                onRepeatingChange={setScheduleRepeating}
+            />
+            {/* The file declares a schedule trigger but not when it runs, so the schedule saves here. */}
+            {isCodeManaged && (
+                <div className="flex items-center justify-between gap-2 flex-wrap mt-2">
+                    <span className="text-xs text-secondary">
+                        This workflow is managed by code, but its schedule is saved here.
+                    </span>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={saveSchedule}
+                        loading={isSavingSchedule}
+                        disabledReason={pendingSchedule === false ? 'No schedule changes to save' : undefined}
+                        data-attr="workflow-save-schedule"
+                    >
+                        Save schedule
+                    </LemonButton>
+                </div>
+            )}
+        </>
     )
 }
 
