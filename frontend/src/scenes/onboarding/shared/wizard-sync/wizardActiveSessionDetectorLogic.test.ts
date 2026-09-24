@@ -49,6 +49,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     describe('isSessionActive', () => {
@@ -145,10 +146,41 @@ describe('wizardActiveSessionDetectorLogic', () => {
         }).toDispatchActions(['setLastError'])
 
         expect(captureSpy).toHaveBeenCalledTimes(captured ? 1 : 0)
-        captureSpy.mockRestore()
     })
 
-    it('stops polling after repeated network failures and polls again when the browser comes online', async () => {
+    it('skips the poll while the browser is offline', async () => {
+        jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+
+        expect(mockLatestRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        {
+            name: 'the browser comes online',
+            resume: (): void => {
+                window.dispatchEvent(new Event('online'))
+            },
+        },
+        {
+            name: 'the project changes',
+            resume: (): void => {
+                logic.actions.resetSessionState()
+                logic.actions.check()
+            },
+        },
+        {
+            name: 'the backoff window ends',
+            resume: (): void => {
+                const afterWindow = Date.now() + 10 * 60 * 1000 + 1
+                jest.spyOn(Date, 'now').mockReturnValue(afterWindow)
+                logic.actions.check()
+            },
+        },
+    ])('stops polling after repeated network failures and polls again when $name', async ({ resume }) => {
         mockLatestRetrieve.mockRejectedValue(new NetworkError('network'))
         for (let i = 0; i < 5; i++) {
             await expectLogic(logic, () => {
@@ -163,9 +195,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(5)
 
         mockLatestRetrieve.mockResolvedValue(null)
-        await expectLogic(logic, () => {
-            window.dispatchEvent(new Event('online'))
-        }).toDispatchActions(['markInactive'])
+        await expectLogic(logic, resume).toDispatchActions(['markInactive'])
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(6)
     })
 

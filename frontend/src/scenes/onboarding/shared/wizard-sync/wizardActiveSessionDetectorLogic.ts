@@ -464,6 +464,9 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         resetSessionState: () => {
             cache.markInactiveAt = undefined
             cache.disposables.dispose('mark-inactive-grace')
+            cache.pollSeq = (cache.pollSeq ?? 0) + 1
+            cache.networkBackoffUntil = undefined
+            cache.consecutiveNetworkFailures = 0
         },
         scheduleMarkInactive: () => {
             // Idempotent: if a teardown timer is already scheduled, keep the
