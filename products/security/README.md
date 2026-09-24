@@ -39,4 +39,5 @@ Change the hub's copy first, then copy it here, and keep both test suites passin
 ## Alerts
 
 Alert when `time() - posthog_security_access_rules_last_sync_timestamp_seconds` exceeds 30 minutes, and when `posthog_security_access_decision_errors_total` rises.
+A hub that refuses the region's token is a configuration fault, not a server fault: the pull returns instead of raising, and counts under `posthog_security_access_rules_sync_total{result="auth_rejected"}`. Alert on that label separately from `result="failed"`.
 Every process that calls `current_snapshot()` — web, Celery and the worker — refreshes both gauges from the shared Redis state at most every 30 seconds, not only the worker that runs the sync. This keeps the alert accurate on any pod, including one that has never run a sync itself.

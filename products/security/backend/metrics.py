@@ -17,7 +17,7 @@ SKIPPED_RULES_COUNTER = Counter(
 SYNC_COUNTER = Counter(
     "posthog_security_access_rules_sync_total",
     "Snapshot pulls from the security hub, by result",
-    labelnames=["result"],  # updated | unchanged | not_configured | failed | stale
+    labelnames=["result"],  # updated | unchanged | not_configured | failed | stale | auth_rejected
 )
 LAST_SYNC_GAUGE = Gauge(
     "posthog_security_access_rules_last_sync_timestamp_seconds",

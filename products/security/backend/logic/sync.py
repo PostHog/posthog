@@ -20,6 +20,7 @@ logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 10
 SNAPSHOT_PATH = "/webhooks/access-rules/snapshot"
+_AUTH_REJECTED_STATUSES = {401, 403}
 _LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 
 
@@ -29,7 +30,7 @@ class InvalidSnapshot(Exception):
 
 @frozen
 class SyncResult:
-    status: Literal["updated", "unchanged", "not_configured", "stale"]
+    status: Literal["updated", "unchanged", "not_configured", "stale", "auth_rejected"]
     rule_count: int | None = None
 
 
@@ -86,6 +87,11 @@ def sync_access_rules() -> SyncResult:
             _mark_success()
             SYNC_COUNTER.labels(result="unchanged").inc()
             return SyncResult(status="unchanged")
+        if response.status_code in _AUTH_REJECTED_STATUSES:
+            # A retry cannot mint a token the hub accepts, so this returns instead of raising.
+            logger.warning("security_hub_rejected_rules_token", status_code=response.status_code)
+            SYNC_COUNTER.labels(result="auth_rejected").inc()
+            return SyncResult(status="auth_rejected")
         response.raise_for_status()
         body = response.json()
         generated_at_ms = _parse_generated_at_ms(body.get("generatedAt")) if isinstance(body, dict) else None
