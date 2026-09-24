@@ -81,7 +81,7 @@ import {
     ReasoningAnswer,
     RecordingsWidget,
     ThreadView,
-    TurnFeedbackActions,
+    TurnTrailerActions,
     type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
@@ -156,13 +156,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackTaskId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackTaskId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                />
+                <TurnTrailerActions trailer={trailer} sessionId={feedbackTaskId} run={feedbackRun} />
             ) : null,
         [feedbackTaskId, feedbackRun]
     )
