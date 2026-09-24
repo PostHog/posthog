@@ -136,7 +136,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self._put_project_access_control({"organization_member": "not-a-valid-uuid", "access_level": "member"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert res.json()["attr"] == "organization_member"
+        assert res.json()["attr"] == "member_id"
         # Should not mention "UUID" in the error message
         assert "UUID" not in res.json()["detail"]
         # Should provide helpful guidance
@@ -2795,9 +2795,9 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
 
     def _subject(self, subject: str) -> dict:
         if subject == "member":
-            return {"organization_member": str(self.colleague_membership.id)}
+            return {"member_id": str(self.colleague_membership.id)}
         if subject == "role":
-            return {"role": str(self.role.id)}
+            return {"role_id": str(self.role.id)}
         return {}
 
     def _put(self, subject: str, body: dict, **kwargs):
@@ -2823,16 +2823,16 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         row = AccessControl.objects.get(team=self.team, resource=body["resource"])
         assert row.resource_id == expected_resource_id
         assert row.access_level == body["access_level"]
-        assert str(row.organization_member_id or "") == self._subject(subject).get("organization_member", "")
-        assert str(row.role_id or "") == self._subject(subject).get("role", "")
+        assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
+        assert str(row.role_id or "") == self._subject(subject).get("role_id", "")
         assert res.json() == {
             "outcome": "created",
             "rule": {
                 "resource": body["resource"],
                 "resource_id": expected_resource_id,
                 "access_level": body["access_level"],
-                "organization_member": self._subject(subject).get("organization_member"),
-                "role": self._subject(subject).get("role"),
+                "member_id": self._subject(subject).get("member_id"),
+                "role_id": self._subject(subject).get("role_id"),
             },
         }
 
@@ -2869,14 +2869,14 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
     def test_member_rule_requires_a_visible_member(self):
         res = self._put("member", {"resource": "dashboard", "access_level": "viewer"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert res.json()["attr"] == "organization_member"
+        assert res.json()["attr"] == "member_id"
 
         other_org = Organization.objects.create(name="Other org")
         other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", None)
         other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
         res = self._put(
             "member",
-            {"resource": "dashboard", "access_level": "viewer", "organization_member": str(other_membership.id)},
+            {"resource": "dashboard", "access_level": "viewer", "member_id": str(other_membership.id)},
         )
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
@@ -2889,7 +2889,7 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
 
     def test_role_rule_requires_the_role_based_access_feature_and_an_org_role(self):
         other_role = Role.objects.create(name="Other org role", organization=Organization.objects.create(name="O"))
-        res = self._put("role", {"resource": "dashboard", "access_level": "viewer", "role": str(other_role.id)})
+        res = self._put("role", {"resource": "dashboard", "access_level": "viewer", "role_id": str(other_role.id)})
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
         self.organization.available_product_features = [
@@ -2947,8 +2947,8 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         assert res.json()["outcome"] == "created"
         assert res.json()["rule"]["access_level"] == "none"
         row = PropertyAccessControl.objects.get(team=self.team, property_definition=prop)
-        assert str(row.organization_member_id or "") == self._subject(subject).get("organization_member", "")
-        assert str(row.role_id or "") == self._subject(subject).get("role", "")
+        assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
+        assert str(row.role_id or "") == self._subject(subject).get("role_id", "")
 
         assert self._put(subject, {**body, "access_level": "read"}).json()["outcome"] == "updated"
         assert self._put(subject, {**body, "access_level": None}).json() == {"outcome": "cleared", "rule": None}

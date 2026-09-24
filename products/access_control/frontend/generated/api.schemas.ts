@@ -202,12 +202,12 @@ export interface AccessControlStoredRuleApi {
      * The organization membership the rule is for. Null unless it is a member rule.
      * @nullable
      */
-    organization_member: string | null
+    member_id: string | null
     /**
      * The role the rule is for. Null unless it is a role rule.
      * @nullable
      */
-    role: string | null
+    role_id: string | null
 }
 
 export interface AccessControlRuleWriteResponseApi {
@@ -283,7 +283,7 @@ export interface AccessControlMemberRuleRequestApi {
      */
     access_level: string | null
     /** The organization membership id, as `organization_membership_id` in the members endpoint. */
-    organization_member: string
+    member_id: string
 }
 
 export interface AccessControlMemberUserApi {
@@ -421,7 +421,7 @@ export interface AccessControlRoleRuleRequestApi {
      */
     access_level: string | null
     /** The role id, as `role_id` in the roles endpoint. */
-    role: string
+    role_id: string
 }
 
 /**

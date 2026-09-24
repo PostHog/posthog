@@ -318,7 +318,7 @@ const AccessControlMemberRuleSetSchema = () => {
             id: OrganizationsProjectsAccessControlMemberRulesUpdateParams.shape['id']
                 .describe('Project id. If omitted, uses the active project.')
                 .optional(),
-            member_id: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['organization_member'].describe(
+            member_id: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['member_id'].describe(
                 'The organization membership id, as `organization_membership_id` in access-control-members-list.'
             ),
             resource: OrganizationsProjectsAccessControlMemberRulesUpdateBody.shape['resource'].describe(
@@ -331,7 +331,6 @@ const AccessControlMemberRuleSetSchema = () => {
                 "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
             ),
         })
-        .omit({ organization_member: true })
 }
 
 const AccessControlMemberRuleSetSchemaExecute = z.strictObject({
@@ -407,7 +406,7 @@ const accessControlMemberRuleSetExecute = (): ToolBase<
             body['access_level'] = params.access_level
         }
         if (params.member_id !== undefined) {
-            body['organization_member'] = params.member_id
+            body['member_id'] = params.member_id
         }
         const result = await context.api.request<Schemas.AccessControlRuleWriteResponse>({
             method: 'PUT',
@@ -566,7 +565,7 @@ const AccessControlRoleRuleSetSchema = () => {
             id: OrganizationsProjectsAccessControlRoleRulesUpdateParams.shape['id']
                 .describe('Project id. If omitted, uses the active project.')
                 .optional(),
-            role_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['role'].describe(
+            role_id: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['role_id'].describe(
                 'The role id, as `role_id` in access-control-roles-list or `id` in roles-list.'
             ),
             resource: OrganizationsProjectsAccessControlRoleRulesUpdateBody.shape['resource'].describe(
@@ -579,7 +578,6 @@ const AccessControlRoleRuleSetSchema = () => {
                 "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
             ),
         })
-        .omit({ role: true })
 }
 
 const AccessControlRoleRuleSetSchemaExecute = z.strictObject({
@@ -655,7 +653,7 @@ const accessControlRoleRuleSetExecute = (): ToolBase<
             body['access_level'] = params.access_level
         }
         if (params.role_id !== undefined) {
-            body['role'] = params.role_id
+            body['role_id'] = params.role_id
         }
         const result = await context.api.request<Schemas.AccessControlRuleWriteResponse>({
             method: 'PUT',
