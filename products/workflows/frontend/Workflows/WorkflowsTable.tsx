@@ -21,6 +21,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
+import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 import {
     WORKFLOW_TRIGGER_TYPE_OPTIONS,
     WorkflowStatusFilter,
@@ -28,6 +29,7 @@ import {
     WorkflowTypeFilter,
     workflowsLogic,
 } from './workflowsLogic'
+import { WorkflowStepMatches } from './WorkflowStepMatches'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
@@ -173,17 +175,23 @@ export function WorkflowsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return item.status === 'archived' ? (
-                    <Tooltip title="Restore this workflow to make changes">
-                        <span className="font-semibold text-sm text-muted">{item.name}</span>
-                    </Tooltip>
-                ) : (
-                    <LemonTableLink
-                        to={urls.workflow(item.id, 'workflow')}
-                        title={item.name}
-                        description={item.description}
-                        truncateDescription
-                    />
+                const stepMatches = findMatchingWorkflowSteps(item, filters.search)
+                return (
+                    <>
+                        {item.status === 'archived' ? (
+                            <Tooltip title="Restore this workflow to make changes">
+                                <span className="font-semibold text-sm text-muted">{item.name}</span>
+                            </Tooltip>
+                        ) : (
+                            <LemonTableLink
+                                to={urls.workflow(item.id, 'workflow')}
+                                title={item.name}
+                                description={item.description}
+                                truncateDescription
+                            />
+                        )}
+                        {stepMatches.length > 0 && <WorkflowStepMatches workflow={item} matches={stepMatches} />}
+                    </>
                 )
             },
         },

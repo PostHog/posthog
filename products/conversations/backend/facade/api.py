@@ -55,6 +55,7 @@ from products.conversations.backend.models import (
     Status,
     Ticket,
 )
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack import get_support_slack_bot_token
@@ -140,6 +141,101 @@ def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     from products.conversations.backend.services import slack_events  # noqa: PLC0415
 
     return slack_events.slack_delivery_ownership(delivery)
+
+
+def accept_teams_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    teams_events.accept_teams_event(delivery)
+
+
+def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Teams tenant is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    return teams_events.teams_delivery_ownership(delivery)
+
+
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun inbox route enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_inbound_message(delivery)
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun outbound capture route enters conversations here."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_outbound_message(delivery)
+
+
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun catch-all route enters conversations here, for either direction."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_captured_message(delivery)
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the delivery's inbox address belongs to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the captured message was sent from."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_outbound_delivery_ownership(delivery)
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the catch-all delivery belongs to."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_capture_delivery_ownership(delivery)
+
+
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel sending as this address.
+
+    The other region asks before it ingests a captured outbound message, because a sender active
+    in both regions would otherwise land on the wrong team's thread.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_sender_is_active_here(sender_email)
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The answer the outbound route owes a region that still probes it with `sender_lookup=1`.
+
+    Delete this with the provider that reaches it, once both regions run the ingress version.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_legacy_sender_lookup_status(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:
@@ -366,6 +462,7 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
         "AI",
         "human",
         "support",
+        WORKFLOW_AUTHOR_TYPE,
     }
     context_name = _get_first_string(
         context,

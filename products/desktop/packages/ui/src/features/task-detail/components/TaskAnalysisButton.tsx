@@ -1,4 +1,3 @@
-import { Button } from "@posthog/quill";
 import {
   ANALYTICS_EVENTS,
   isTerminalStatus,
@@ -6,7 +5,6 @@ import {
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
-import type { ReactElement } from "react";
 import { useAuthenticatedMutation } from "../../../hooks/useAuthenticatedMutation";
 import { track } from "../../../shell/analytics";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
@@ -53,26 +51,4 @@ export function useTaskAnalysis(task: Task): TaskAnalysisControls {
     isPending: mutation.isPending,
     run: () => mutation.mutate(),
   };
-}
-
-export function TaskAnalysisButton({
-  task,
-}: {
-  task: Task;
-}): ReactElement | null {
-  const { canAnalyze, isPending, run } = useTaskAnalysis(task);
-
-  if (!canAnalyze) return null;
-
-  return (
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={run}
-      loading={isPending}
-      disabled={isPending}
-    >
-      Run analysis
-    </Button>
-  );
 }

@@ -19,6 +19,12 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 
+class TraceNeighborsQueryDateRange(QueryDateRange):
+    # Navigation has to reach every trace the list shows, and the list ends a calendar-day
+    # `date_to` at the last moment of that day.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
+
+
 class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse]):
     """
     Query runner to find the older and newer traces relative to a given trace.
@@ -33,6 +39,7 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
             query=self._build_query(),
             placeholders=self._get_placeholders(),
             team=self.team,
+            user=self.user,
             query_type="TraceNeighborsQuery",
             fall_back_to_events=True,
             timings=self.timings,
@@ -136,14 +143,14 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
     def _date_range(self):
         # Use the provided date range, or fall back to a range centered around the trace timestamp
         if self.query.dateRange and (self.query.dateRange.date_from or self.query.dateRange.date_to):
-            return QueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
+            return TraceNeighborsQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
         # Default: 3 days before and after the trace timestamp for finding neighbors
         # This is more performant for large customers while still covering most navigation scenarios
         from posthog.schema import DateRange
 
         trace_ts = datetime.fromisoformat(self.query.timestamp.replace("Z", "+00:00"))
-        return QueryDateRange(
+        return TraceNeighborsQueryDateRange(
             DateRange(
                 date_from=(trace_ts - timedelta(days=3)).isoformat(),
                 date_to=(trace_ts + timedelta(days=3)).isoformat(),

@@ -6,6 +6,7 @@ on:
             - master
         paths:
             - 'products/desktop/packages/agent/**'
+            - 'products/desktop/packages/harness/**'
             - '.github/workflows/desktop-agent-tag.yml'
             - '.github/workflows/desktop-agent-release.yml'
     workflow_dispatch:
@@ -53,13 +54,15 @@ jobs:
                   MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
                   MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
 
-                  # Count commits touching the agent package since the base tag. In the
+                  # Count commits touching the agent or harness package since the base tag. In the
                   # monorepo an unscoped count would include every PostHog commit and
                   # inflate patch numbers meaninglessly.
-                  PATCH=$(git rev-list "$LATEST_TAG"..HEAD --count -- products/desktop/packages/agent)
+                  PATCH=$(git rev-list "$LATEST_TAG"..HEAD --count -- \
+                    products/desktop/packages/agent \
+                    products/desktop/packages/harness)
 
                   if [ "$PATCH" -eq 0 ]; then
-                    echo "No agent commits since $LATEST_TAG. Nothing to release."
+                    echo "No agent or harness commits since $LATEST_TAG. Nothing to release."
                     exit 0
                   fi
 

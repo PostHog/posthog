@@ -65,7 +65,14 @@ _HARD = Q(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult
 # would drive `headroom` to zero and label a snapshot somebody already signed
 # off on as `at_risk`. `BELOW_THRESHOLD` needs no such filter: only the
 # threshold path writes it.
-_SOFT = Q(result=SnapshotResult.UNCHANGED) & (
+#
+# The `__in` repeats what the OR below already implies. Postgres only uses a
+# column to bound an index scan from a plain equality or IN, so without it the
+# read walks every exact match in the run to reach the absorbed rows.
+_SOFT = Q(
+    result=SnapshotResult.UNCHANGED,
+    classification_reason__in=(ClassificationReason.BELOW_THRESHOLD, ClassificationReason.TOLERATED_HASH),
+) & (
     Q(classification_reason=ClassificationReason.BELOW_THRESHOLD)
     | Q(
         classification_reason=ClassificationReason.TOLERATED_HASH,
@@ -147,7 +154,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
       - 1 values-only query for the current baseline hash per identifier
       - 1 grouped query for the rate span's run count per run type
       - 1 grouped query for hard activity per identity and day, which the
-        `snapshot_run_result` index serves because non-unchanged rows are rare
+        `snapshot_run_result_reason` index serves because non-unchanged rows are rare
       - 1 grouped query for variant count and mean diff
       - 1 grouped query for soft activity per identity and day, bounded to the
         identifiers that can produce a row
@@ -214,21 +221,25 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     universe_identifiers = list({key.identifier for key in baseline_hash_by_key})
     universe_baseline_hashes = list(set(baseline_hash_by_key.values()))
 
-    # The window every rate, timestamp and strip tick is measured over. Joined
-    # on the run rather than passed as a list of run ids: an active repo lands
-    # hundreds of default-branch runs in a month, and the same predicate
-    # already serves the neighbouring queries here.
+    # The window every rate, timestamp and strip tick is measured over, passed
+    # to the activity reads as a list of run ids. A join on the run instead lets
+    # the planner scan the whole snapshot table, which holds every repo's
+    # history; anchored on run ids, the reads are index-only scans of
+    # `snapshot_run_result_reason`, one range per run.
     strip_start = today - timedelta(days=FLAKINESS_WINDOW_DAYS - 1)
     rate_start = today - timedelta(days=FLAKINESS_RATE_DAYS - 1)
-    in_window = Q(
-        run__repo_id=repo_id,
-        run__branch__in=run_queries._DEFAULT_BRANCHES,
-        run__status=RunStatus.COMPLETED,
-        # Calendar days, matching the strip. A timestamp cutoff would reach into
-        # the day before the first tick, so `last_flaked_at` could name a day the
-        # strip does not draw.
-        run__created_at__date__gte=strip_start,
+    window_run_ids = list(
+        Run.objects.filter(
+            repo_id=repo_id,
+            branch__in=run_queries._DEFAULT_BRANCHES,
+            status=RunStatus.COMPLETED,
+            # Calendar days, matching the strip. A timestamp cutoff would reach into
+            # the day before the first tick, so `last_flaked_at` could name a day the
+            # strip does not draw.
+            created_at__date__gte=strip_start,
+        ).values_list("id", flat=True)
     )
+    in_window = Q(run_id__in=window_run_ids)
 
     # The rate denominator, per run type, over the same calendar days the
     # numerators are summed over. A timestamp cutoff here instead would cover
@@ -237,13 +248,11 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # reach the numerator. That deflates every rate, and late in the day it can
     # drop a snapshot failing every run below the `broken` band and mark a
     # quarantine decision-ready while its last failure is still inside the span.
+    #
+    # Counted from the captured run ids, so a run that completes between the two
+    # reads cannot join the denominator without its rows joining the numerator.
     rate_runs_by_type: dict[str, int] = dict(
-        Run.objects.filter(
-            repo_id=repo_id,
-            branch__in=run_queries._DEFAULT_BRANCHES,
-            status=RunStatus.COMPLETED,
-            created_at__date__gte=rate_start,
-        )
+        Run.objects.filter(id__in=window_run_ids, created_at__date__gte=rate_start)
         .values("run_type")
         .annotate(run_count=Count("id"))
         .values_list("run_type", "run_count")
@@ -315,7 +324,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # Grouping the whole history by `baseline_hash` instead would read more
     # precisely, but it admits every historical row rather than the rare event
     # rows, which is the shape `baseline_overview` documents as ~7s and an OOM
-    # on the web pod. This uses the `snapshot_run_result` index the same way its
+    # on the web pod. This uses the `snapshot_run_result_reason` index the same way its
     # neighbour does. The history it reads reaches back only as far as retention
     # keeps default-branch runs, which is
     # `retention.DEFAULT_BRANCH_RUN_RETENTION_DAYS`.
@@ -542,7 +551,7 @@ def _read_activity(
         queryset.annotate(day=TruncDate("run__created_at"))
         .values("run__run_type", "identifier", "day")
         .annotate(
-            day_count=Count("id"),
+            day_count=Count("*"),
             latest=Max("run__created_at"),
             worst_diff=Max("diff_percentage"),
         )

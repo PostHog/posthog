@@ -35,7 +35,7 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutNameToSkillName } from './scannerScout'
+import { isScannerScoutConfig, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -118,7 +118,6 @@ export interface scannerScoutLogicValues {
     createTemplateKey: ScannerScoutTemplateKey | null
     creating: boolean
     enrolled: boolean | null
-    expanded: boolean
     expandedSkillNames: string[]
     latestReportRow: ScoutReportApi | null
     latestRun: SignalScoutRunSummary | null
@@ -311,9 +310,6 @@ export interface scannerScoutLogicActions {
     setScoutConfigsFailed: (failed: boolean) => {
         failed: boolean
     }
-    toggleExpanded: () => {
-        value: true
-    }
     toggleScoutExpanded: (skillName: string) => {
         skillName: string
     }
@@ -402,7 +398,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
 
     actions({
         setScoutConfigsFailed: (failed: boolean) => ({ failed }),
-        toggleExpanded: true,
         toggleScoutExpanded: (skillName: string) => ({ skillName }),
         openReport: (reportId: string) => ({ reportId }),
         closeReport: true,
@@ -552,13 +547,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             {
                 toggleScoutExpanded: (state, { skillName }) =>
                     state.includes(skillName) ? state.filter((name) => name !== skillName) : [...state, skillName],
-            },
-        ],
-        // Whether the Overview card shows the whole digest or the clipped preview.
-        expanded: [
-            false,
-            {
-                toggleExpanded: (state) => !state,
             },
         ],
         creating: [
@@ -765,6 +753,25 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             }
         }
 
+        /** Records the name the person typed. Nothing else keeps it (the skill name is derived from
+         * the scanner and the template), so this runs for every scout rather than only the ones with
+         * a name too long to slug. Best-effort: the scout is already created by this point, so a
+         * failure here leaves it named after its skill rather than unsaved. Returns whether the name
+         * was recorded, so the create toast can say when it was not. */
+        const applyDisplayName = async (config: SignalScoutConfigApi, name: string): Promise<boolean> => {
+            const teamId = teamLogic.values.currentTeamId
+            const displayName = name.trim()
+            if (!teamId || !displayName) {
+                return true
+            }
+            try {
+                await signalsScoutConfigUpdate(String(teamId), config.id, { display_name: displayName })
+                return true
+            } catch {
+                return false
+            }
+        }
+
         /** Soft-deletes a scout's webhook destination without touching its config, for the delete
          * path where the config is already gone. */
         const clearScoutWebhook = async (
@@ -807,7 +814,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             [scoutFleetLogic.actionTypes.loadScoutRunsSuccess]: refetchReportsIfChanged,
             createScout: async ({ form }) => {
                 const teamId = teamLogic.values.currentTeamId
-                if (!teamId || !form.body.trim()) {
+                // The template the form was opened from, which the skill name is derived from
+                // instead of the typed name. Held until `createScoutFinished` clears it.
+                const templateKey = values.createTemplateKey
+                if (!teamId || !templateKey || !form.body.trim()) {
                     actions.createScoutFinished()
                     return
                 }
@@ -822,7 +832,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 // of asking the person to refresh.
                 const burnedNames: string[] = []
                 const create = async (): Promise<SignalScoutConfigApi> => {
-                    const skillName = scoutNameToSkillName(form.name, props.scannerName, [
+                    const skillName = scoutSkillName(props.scannerName, templateKey, [
                         ...(values.scoutConfigs ?? []).map((config) => config.skill_name),
                         ...burnedNames,
                     ])
@@ -850,12 +860,13 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             }
                         }
                     }
-                    const created = { config: config! }
-                    const delivered = await reconcileDelivery(created.config, form)
+                    const created = config!
+                    const named = await applyDisplayName(created, form.name)
+                    const delivered = await reconcileDelivery(created, form)
                     lemonToast.success(
-                        delivered
+                        delivered && named
                             ? 'Scout created. Its first report arrives after the next scheduled run.'
-                            : "Scout created, but its delivery wasn't set up. Open its settings to try again."
+                            : `Scout created, but ${!named ? "its name wasn't saved" : "its delivery wasn't set up"}. Open its settings to try again.`
                     )
                     actions.loadScoutConfigs()
                 } catch (error: any) {

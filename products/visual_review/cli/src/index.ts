@@ -60,6 +60,7 @@ program
     .description('Compare local screenshots against baseline (no API calls)')
     .requiredOption('--dir <path>', 'Directory containing PNG screenshots')
     .requiredOption('--baseline <path>', 'Path to snapshots.yml baseline file')
+    .option('--partial', 'Screenshots cover only part of the baseline (a shard); skip the removed check')
     .action(async (options: VerifyOptions) => {
         try {
             const exitCode = await runVerify(options)
@@ -171,6 +172,7 @@ program.parse()
 interface VerifyOptions {
     dir: string
     baseline: string
+    partial?: boolean
 }
 
 interface SubmitOptions {
@@ -496,14 +498,19 @@ async function runVerify(options: VerifyOptions): Promise<number> {
 
     const scanned = scanDirectory(dirPath)
 
-    if (scanned.length === 0) {
-        console.error('No PNGs found in directory')
-        return 1
-    }
-
     const baselineHashes = readBaselineHashes(baselinePath)
     if (Object.keys(baselineHashes).length === 0) {
         console.error('No baseline hashes found — run `vr submit` on a PR first')
+        return 1
+    }
+
+    if (scanned.length === 0) {
+        // A shard whose story files all skip their screenshot writes no PNG, and that is not a mismatch.
+        if (options.partial) {
+            log('No PNGs found in directory, nothing to verify')
+            return 0
+        }
+        console.error('No PNGs found in directory')
         return 1
     }
 
@@ -527,7 +534,7 @@ async function runVerify(options: VerifyOptions): Promise<number> {
     }
 
     const currentIds = new Set(scanned.map((s) => s.identifier))
-    const removed = Object.keys(baselineHashes).filter((id) => !currentIds.has(id))
+    const removed = options.partial ? [] : Object.keys(baselineHashes).filter((id) => !currentIds.has(id))
 
     const unchanged = scanned.length - changed.length - added.length
     log(

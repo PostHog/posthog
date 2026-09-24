@@ -1088,7 +1088,6 @@ export async function handleStreamEvent(
     context.emittedToolCalls,
   )) {
     await client.sessionUpdate(notification);
-    context.session.notificationHistory.push(notification);
   }
 }
 

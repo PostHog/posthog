@@ -5,7 +5,7 @@ import datetime as dt
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
-from typing import Any, TypedDict, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -13,20 +13,19 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast, errors
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -52,15 +51,27 @@ from posthog.security.url_validation import (
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
+from products.batch_exports.backend.hogql_source import (
+    DATA_INTERVAL_START_PLACEHOLDER,
+    UnsupportedHogQLQueryError,
+    find_interval_placeholders,
+    parse_hogql_select_for_batch_export,
+    serialize_batch_export_query,
+    validate_hogql_query_for_batch_export,
+)
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
+    OBJECT_STORAGE_DESTINATIONS,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
+    BatchExportSource,
 )
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
@@ -158,6 +169,15 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
 
 class BatchExportRunSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExportRun model."""
+
+    # Underlying model can be null for on demand batch exports. But scheduled
+    # batch exports always have a data_interval_end given by the schedule
+    # itself (even if that isn't used by the underlying HogQL query). This
+    # narrows the API contract so any consumers don't have to deal with
+    # nullable data_interval_end.
+    data_interval_end = serializers.DateTimeField(
+        required=True, allow_null=False, help_text="The end of the data interval."
+    )
 
     class Meta:
         model = BatchExportRun
@@ -377,6 +397,15 @@ class PostgresDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+LEGACY_PARQUET_EXTENSION_HELP_TEXT = (
+    "Whether Parquet files keep the compression codec in their extension, for example "
+    "'.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new "
+    "exports leave it out. An export that already wrote Parquet files before this setting existed "
+    "keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON "
+    "Lines, which always carries the codec in its extension."
+)
+
+
 class AzureBlobDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for an Azure Blob Storage batch-export destination.
 
@@ -411,6 +440,11 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
         help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
     )
 
+    legacy_parquet_extension = serializers.BooleanField(
+        required=False,
+        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
+    )
+
 
 class S3FamilyDestinationConfigSerializer(serializers.Serializer):
     """Shared non-credential configuration for S3-family batch-export destinations.
@@ -441,6 +475,11 @@ class S3FamilyDestinationConfigSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
+    )
+
+    legacy_parquet_extension = serializers.BooleanField(
+        required=False,
+        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
     )
 
 
@@ -777,6 +816,17 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     pass
 
 
+HOGQL_QUERY_HELP_TEXT = (
+    "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. "
+    "The query may reference the {data_interval_start} and {data_interval_end} placeholders, "
+    "replaced with each run's data interval bounds, for example: "
+    "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. "
+    "Without them every run exports all rows the query returns. "
+    "With model 'events', it defines a custom schema of columns to export instead. "
+    "Required when model is 'hogql'."
+)
+
+
 class BatchExportRequestSerializer(serializers.Serializer):
     """Request body for create/partial_update on BatchExportViewSet.
 
@@ -789,7 +839,10 @@ class BatchExportRequestSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
         choices=BatchExport.Model.choices,
         required=False,
-        help_text="Which data model to export (events, persons, sessions).",
+        help_text=(
+            "Which data model to export: events, persons, sessions, or hogql. "
+            "The hogql model exports the results of hogql_query."
+        ),
     )
     destination = BatchExportDestinationRequestField(
         help_text="Destination configuration. Required integration_id is enforced per destination type.",
@@ -801,7 +854,8 @@ class BatchExportRequestSerializer(serializers.Serializer):
     paused = serializers.BooleanField(required=False, help_text="Whether the batch export is paused.")
     hogql_query = serializers.CharField(
         required=False,
-        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
+        allow_null=True,
+        help_text=HOGQL_QUERY_HELP_TEXT,
     )
     filters = serializers.JSONField(
         required=False,
@@ -840,6 +894,56 @@ S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
     BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
     BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
+
+
+def _writes_compressed_parquet(config: dict[str, typing.Any]) -> bool:
+    """Whether a config produces Parquet file names that carry a compression codec."""
+    return config.get("file_format") == "Parquet" and config.get("compression") is not None
+
+
+def _uses_legacy_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> bool:
+    """Whether an export's stored config already writes the codec into its Parquet file names.
+
+    Reads through `coerce_config_to_declared_types`, because `EncryptedJSONField` stringifies
+    scalars on write and the string "False" is truthy.
+    """
+    coerced = coerce_config_to_declared_types(destination_type, stored_config)
+    stored = coerced.get("legacy_parquet_extension")
+    if stored is None:
+        # export was created before the `legacy_parquet_extension` field was added
+        # so will use the legacy extension if it writes compressed Parquet files
+        return _writes_compressed_parquet(coerced)
+    return bool(stored)
+
+
+def _set_default_parquet_extension(destination_type: str, config: dict[str, typing.Any]) -> None:
+    """Opt a newly created destination into the standard `.parquet` extension.
+
+    The workflow input dataclasses default this to `True`, so that an export whose Temporal
+    schedule predates the field keeps the same file extension as before in order to maintain
+    compatibility.
+    """
+    if destination_type in OBJECT_STORAGE_DESTINATIONS:
+        config.setdefault("legacy_parquet_extension", False)
+
+
+def _pin_existing_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> None:
+    """Record what an export's file names already look like, before a patch can change its format.
+
+    An export that predates this setting has no value for it, and a missing value reads as the
+    legacy naming. That is correct only for an export that already writes names carrying a codec,
+    which means Parquet with a compression codec set. An export on JSON Lines, or on Parquet with
+    no compression, has no such names to keep, so moving it to compressed Parquet has to produce
+    `.parquet` rather than `.parquet.zst`.
+
+    Takes the config as stored, before the incoming patch merges into it, so the value reflects
+    what the export has been running rather than what it is moving to. An explicit value in the
+    patch still wins, because the merge applies afterwards.
+    """
+    if destination_type not in OBJECT_STORAGE_DESTINATIONS:
+        return
+
+    stored_config.setdefault("legacy_parquet_extension", _writes_compressed_parquet(stored_config))
 
 
 def _coerce_integration_id(value: typing.Any) -> int | None:
@@ -1013,46 +1117,41 @@ def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.An
     return (new_value, True)
 
 
-@extend_schema_field(OpenApiTypes.STR)
-class HogQLSelectQueryField(serializers.Field):
-    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectSetQuery:
-        """Parse a HogQL SelectQuery from a string query."""
-        try:
-            parsed_query = parse_select(data)
-        except Exception:
-            raise serializers.ValidationError("Failed to parse query")
+def parse_events_hogql_query(hogql_query: str, team_id: int, user: User | None) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse a HogQL SelectQuery from a string query."""
+    try:
+        parsed_query = parse_select(hogql_query)
+    except Exception:
+        raise serializers.ValidationError("Failed to parse query")
 
-        try:
-            prepared_select_query: ast.SelectQuery = cast(
-                ast.SelectQuery,
-                prepare_ast_for_printing(
-                    parsed_query,
-                    context=HogQLContext(
-                        team_id=self.context["team_id"],
-                        user=self.context["request"].user,
-                        enable_select_queries=True,
-                        modifiers=HogQLQueryModifiers(
-                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                        ),
-                    ),
-                    dialect="clickhouse",
-                ),
-            )
-        except errors.ExposedHogQLError as e:
-            raise serializers.ValidationError(f"Invalid HogQL query: {e}")
+    try:
+        restricted_properties = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        context = HogQLContext(
+            team_id=team_id,
+            user=user,
+            enable_select_queries=True,
+            restricted_properties=restricted_properties,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+        if restricted_properties:
+            # A restricted query is stored without its HogQL text, so no run can recompile it for
+            # the native source, where a materialized column does not exist.
+            context.modifiers.materializationMode = MaterializationMode.DISABLED
+        use_native_schema = context.uses_new_events_schema()
+        prepared_select_query = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(
+                parsed_query, context=context, dialect="hogql" if use_native_schema else "clickhouse"
+            ),
+        )
+        if use_native_schema:
+            resolve_types(clone_expr(parsed_query, clear_types=True), context=context, dialect="clickhouse")
+    except errors.ExposedHogQLError as e:
+        raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
-        return prepared_select_query
-
-
-class BatchExportsField(TypedDict):
-    expression: str
-    alias: str
-
-
-class BatchExportsSchema(TypedDict):
-    fields: list[BatchExportsField]
-    values: dict[str, Any]
-    hogql_query: str
+    return prepared_select_query
 
 
 class _SubqueryFinder(TraversingVisitor):
@@ -1102,9 +1201,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
         choices=BATCH_EXPORT_INTERVALS,
         help_text="How often the batch export should run.",
     )
-    hogql_query = HogQLSelectQueryField(
+    hogql_query = serializers.CharField(
         required=False,
-        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
+        allow_null=True,
+        help_text=HOGQL_QUERY_HELP_TEXT,
     )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
@@ -1203,7 +1303,27 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
                 attrs["interval_offset"] = None
 
+        self._validate_model_query(attrs)
+
         return attrs
+
+    def _validate_model_query(self, attrs: dict) -> None:
+        """Validate `hogql_query` for the model the batch export ends up with."""
+        current_model = (self.instance.model if self.instance is not None else None) or BatchExport.Model.EVENTS
+        model = attrs.get("model") or current_model
+
+        if self.instance is not None and model != current_model and BatchExport.Model.HOGQL in (model, current_model):
+            raise serializers.ValidationError(
+                {"model": "Changing the model to or from 'hogql' is not supported. Create a new batch export instead."}
+            )
+
+        if model == BatchExport.Model.HOGQL:
+            self._validate_hogql(attrs)
+            return
+
+        if (hogql_query := attrs.get("hogql_query")) is not None:
+            # For events model, we need the resolved AST.
+            attrs["hogql_query"] = self._validate_events_hogql_query(hogql_query)
 
     def validate_interval(self, interval: str) -> str:
         """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
@@ -1304,26 +1424,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 )
         return filters
 
-    def validate_model(self, model) -> str:
-        if model == "hogql":
-            team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
-            if not posthoganalytics.feature_enabled(
-                "hogql-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("HogQL batch exports are not enabled for this team.")
-
-        return model
-
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
@@ -1345,6 +1445,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
                 "Delete this batch export and create a new one with the new destination type."
+            )
+
+        # This setting is used for grandfathered exports that used the legacy Parquet file extension,
+        # and is a one-way migration; once exports use the new `.parquet` extension it is not
+        # possible to go back to using the legacy extension.
+        if config.get("legacy_parquet_extension") is True and not _uses_legacy_parquet_extension(
+            destination_type, existing_config
+        ):
+            raise serializers.ValidationError(
+                "'legacy_parquet_extension' can only stay on for an export that already writes the "
+                "compression codec into its Parquet file names. It cannot be turned on for a new "
+                "export, or turned back on once an export moved to the standard '.parquet' extension."
             )
 
         # The legacy `S3` type predates both the AwsS3/S3Compatible split and integration-backed
@@ -1625,83 +1737,86 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
+        model = validated_data.get("model") or BatchExport.Model.EVENTS
+        hogql_query = validated_data.pop("hogql_query", None)
 
-        hogql_query = None
-        if hogql_query := validated_data.pop("hogql_query", None):
-            batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-            validated_data["schema"] = batch_export_schema
+        source = None
+        if model == BatchExport.Model.HOGQL:
+            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query)
+        elif hogql_query is not None:
+            # TODO: Migrate batch exports using a HogQL query to HogQL model.
+            validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
+
+        _set_default_parquet_extension(destination_data["type"], destination_data["config"])
 
         destination = BatchExportDestination(**destination_data)
-        batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
+        batch_export = BatchExport(team_id=team_id, destination=destination, source=source, **validated_data)
 
         sync_batch_export(batch_export, created=True)
 
         with transaction.atomic():
             destination.save()
+
+            if source is not None:
+                source.save()
+
             batch_export.save()
 
         return batch_export
 
     def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
         """Return a batch export schema from a HogQL query ast."""
+        request = self.context.get("request")
+        user = request.user if request is not None else None
+        restricted_properties = get_restricted_properties_with_group_type_index_for_team(
+            user=user, team_id=self.context["team_id"]
+        )
+        context = HogQLContext(
+            team_id=self.context["team_id"],
+            user=user,
+            enable_select_queries=True,
+            limit_top_select=False,
+            restricted_properties=restricted_properties,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+        )
+        if context.uses_new_events_schema():
+            context.modifiers.materializationMode = MaterializationMode.DISABLED
         try:
-            # Print the query in ClickHouse dialect to catch unresolved field errors, and discard the result
-            context = HogQLContext(
-                team_id=self.context["team_id"],
-                enable_select_queries=True,
-                limit_top_select=False,
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-            )
-            print_prepared_ast(hogql_query, context=context, dialect="clickhouse")
-
-            # Recreate the context
-            context = HogQLContext(
-                team_id=self.context["team_id"],
-                enable_select_queries=True,
-                limit_top_select=False,
-            )
-            batch_export_schema: BatchExportsSchema = {
-                "fields": [],
-                "values": {},
-                "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
-            }
+            schema = serialize_batch_export_query(hogql_query, context)
         except errors.ExposedHogQLError:
             raise serializers.ValidationError("Unsupported HogQL query")
+        if context.restricted_properties:
+            schema.pop("hogql_query", None)
+        return schema
 
-        for field in hogql_query.select:
-            if isinstance(field, ast.Alias):
-                expression = print_prepared_ast(
-                    field.expr,
-                    context=context,
-                    dialect="clickhouse",
-                )
-                alias = escape_clickhouse_identifier(field.alias)
-            else:
-                expression = print_prepared_ast(
-                    field,
-                    context=context,
-                    dialect="clickhouse",
-                )
-                # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
-                # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
-                if isinstance(field, ast.Constant) and isinstance(field.value, str):
-                    alias = escape_clickhouse_identifier(field.value)
-                else:
-                    alias = escape_clickhouse_identifier(expression)
+    def _validate_hogql(self, attrs: dict[str, typing.Any]) -> None:
+        """Validate the source of a batch export with the 'hogql' model.
 
-            batch_export_field: BatchExportsField = {
-                "expression": expression,
-                "alias": alias,
-            }
-            batch_export_schema["fields"].append(batch_export_field)
+        On update, a query missing from the request keeps the one stored in the source.
+        """
+        if attrs.get("filters"):
+            raise serializers.ValidationError({"filters": "'filters' are not supported when 'model' is 'hogql'"})
 
-        batch_export_schema["values"] = context.values
+        team = self.context["get_team"]()
+        check_hogql_batch_exports_enabled(team)
 
-        return batch_export_schema
+        source = self.instance.source if self.instance is not None else None
+        if source is not None and "hogql_query" not in attrs:
+            return
 
-    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+        hogql_query = attrs.get("hogql_query", source.hogql_query if source is not None else None)
+        if not hogql_query:
+            raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
+
+        user = self.context["request"].user
+        try:
+            validate_hogql_query_for_batch_export(hogql_query, team, user=user)
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError({"hogql_query": str(e)}) from e
+
+    def _validate_events_hogql_query(self, hogql_query: str) -> ast.SelectQuery:
         """Validate a HogQL query being used for events batch exports.
 
         This method essentially checks that a query is supported by batch exports:
@@ -1711,11 +1826,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
         4. Subqueries in SELECT expressions are not supported.
         5. Query must select only from those fields we expose from the events table.
         """
+        parsed = parse_events_hogql_query(
+            hogql_query, team_id=self.context["team_id"], user=self.context["request"].user
+        )
 
-        if isinstance(hogql_query, ast.SelectSetQuery):
+        if isinstance(parsed, ast.SelectSetQuery):
             raise serializers.ValidationError("UNIONs are not supported")
 
-        parsed = cast(ast.SelectQuery, hogql_query)
+        parsed = cast(ast.SelectQuery, parsed)
 
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
@@ -1753,16 +1871,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 f"Supported fields are: {', '.join(sorted(EXPORTABLE_EVENTS_MODEL_FIELDS))}."
             )
 
-        return hogql_query
+        return parsed
 
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
+        hogql_query_provided = "hogql_query" in validated_data
+        hogql_query = validated_data.pop("hogql_query", None)
 
         with transaction.atomic():
             if destination_data:
                 # Type changes are rejected by `validate_destination` — the incoming `type`
                 # (if any) always equals the existing type by the time we get here.
+                _pin_existing_parquet_extension(batch_export.destination.type, batch_export.destination.config)
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),
@@ -1770,9 +1891,16 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 integration = destination_data.get("integration", batch_export.destination.integration)
                 batch_export.destination.integration = integration
 
-            if hogql_query := validated_data.pop("hogql_query", None):
-                batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-                validated_data["schema"] = batch_export_schema
+            if batch_export.model == BatchExport.Model.HOGQL:
+                if hogql_query is not None:
+                    source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
+                    source.hogql_query = hogql_query
+                    source.save()
+                    batch_export.source = source
+            elif hogql_query is not None:
+                validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
+            elif hogql_query_provided:
+                validated_data["schema"] = None
 
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
@@ -1818,7 +1946,12 @@ def recursive_dict_merge(
 )
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
-    queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
+    queryset = (
+        BatchExport.objects.exclude(deleted=True)
+        .order_by("-created_at")
+        .prefetch_related("destination", "source")
+        .all()
+    )
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
 
@@ -2072,6 +2205,18 @@ def create_backfill(
             send_feature_flag_events=False,
         ):
             raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
+        if batch_export.model == BatchExport.Model.HOGQL and (hogql_query := batch_export.hogql_query) is not None:
+            try:
+                parsed = parse_hogql_select_for_batch_export(hogql_query)
+            except UnsupportedHogQLQueryError as e:
+                raise ValidationError(str(e)) from e
+            if DATA_INTERVAL_START_PLACEHOLDER in find_interval_placeholders(parsed):
+                # TODO: We should maybe support beginning-of-time backfills with this placeholder.
+                raise ValidationError(
+                    "This query references {data_interval_start}, which is unavailable when backfilling from the "
+                    "beginning of time. Provide 'start_at' or remove {data_interval_start} from the query."
+                )
 
     concurrency_limit = settings.BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM
     active_backfills = BatchExportBackfill.objects.filter(

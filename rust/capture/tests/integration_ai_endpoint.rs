@@ -12,7 +12,7 @@ use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::time::TimeSource;
-use capture::v0_request::{OverflowReason, ProcessedEvent};
+use capture::v0_request::{AiLanePredicate, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
 use common_ingestion_warnings::test_support::CollectingEmitter;
 use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_EVENTS};
@@ -133,6 +133,10 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
+    setup_ai_test_router_with_predicate(AiLanePredicate::Allowlist)
+}
+
+fn setup_ai_test_router_with_predicate(ai_lane_predicate: AiLanePredicate) -> Router {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = TestSink;
@@ -167,8 +171,9 @@ fn setup_ai_test_router() -> Router {
         1_i64,
         false,
         0.0_f32,
-        26_214_400,       // 25MB default for AI endpoint
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        26_214_400, // 25MB default for AI endpoint
+        983_040,    // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        ai_lane_predicate,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -226,6 +231,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,
@@ -681,6 +687,41 @@ async fn test_invalid_ai_event_type_returns_400() {
             response.status(),
             StatusCode::BAD_REQUEST,
             "Event type {event_name} should be rejected"
+        );
+    }
+}
+
+/// Under `CAPTURE_AI_LANE_PREDICATE=prefix` the endpoint accepts any `$ai_*`
+/// name and refuses the rest with a message naming the prefix rule, not the
+/// allowlist. `$ai_model` is still required either way.
+#[tokio::test]
+async fn prefix_predicate_accepts_any_ai_prefixed_name_on_the_ai_endpoint() {
+    let router = setup_ai_test_router_with_predicate(AiLanePredicate::Prefix);
+    let test_client = TestClient::new(router);
+    let token = Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3");
+
+    for event_name in ["$ai_generation", "$ai_unknown", "$ai_custom"] {
+        let form = create_ai_event_form(event_name, "test_user", json!({"$ai_model": "m"}));
+        let response = send_multipart_request(&test_client, form, token).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Event type {event_name} should be accepted under prefix"
+        );
+    }
+
+    for event_name in ["$pageview", "ai_generation", "$aigeneration"] {
+        let form = create_ai_event_form(event_name, "test_user", json!({"$ai_model": "m"}));
+        let response = send_multipart_request(&test_client, form, token).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "Event type {event_name} should be rejected under prefix"
+        );
+        let body = response.text().await;
+        assert!(
+            body.contains("must start with '$ai_'"),
+            "rejection must name the prefix rule, got: {body}"
         );
     }
 }
@@ -1294,8 +1335,9 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         1_i64,
         false,
         0.0_f32,
-        26_214_400,       // 25MB default for AI endpoint
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        26_214_400, // 25MB default for AI endpoint
+        983_040,    // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1966,6 +2008,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
         983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2033,6 +2076,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
         983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2295,7 +2339,8 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2455,6 +2500,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2597,6 +2643,7 @@ fn ai_router(
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,

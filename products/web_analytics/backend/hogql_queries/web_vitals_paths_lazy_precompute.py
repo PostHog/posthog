@@ -31,7 +31,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
-    LAZY_TTL_SECONDS,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
     LazyPrecomputeIneligible,
@@ -39,6 +38,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     floor_utc_day,
+    lazy_ttl_schedule,
     test_account_filter_expr,
     user_filter_expr,
 )
@@ -213,7 +213,7 @@ def ensure_web_vitals_paths_precomputed(
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=LAZY_TTL_SECONDS,
+        ttl_seconds=lazy_ttl_schedule(runner.team),
         table=LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_vitals_paths_lazy_insert",

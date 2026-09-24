@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -13,8 +14,12 @@ from ..db import READER_DB, WRITER_DB
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
 from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Run
-from . import errors, repos
+from . import errors, github_api, repos
 from .run_queries import SnapshotKey
+
+# How long a lift stays scoped to its commit. A branch that forked before the lift and is still
+# open after this has usually merged the default branch since; past it, the lift applies everywhere.
+LIFT_SCOPE_DAYS = 30
 
 
 def list_quarantined_identifiers(
@@ -105,36 +110,50 @@ def quarantine_identifier(
     # quarantine itself still wins; we just lose the "what was wrong" pointer.
     # We fetch (not just .exists()) so the facade can serialize source_run
     # without a lazy-load on the freshly-created row.
-    source_run: Run | None = None
-    if source_run_id is not None:
-        source_run = Run.objects.using(WRITER_DB).filter(id=source_run_id, repo_id=repo_id, team_id=team_id).first()
-    QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
-        repo_id=repo_id,
-        identifier=identifier,
-        run_type=run_type,
-        team_id=team_id,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
-    return QuarantinedIdentifier.objects.using(WRITER_DB).create(
-        repo_id=repo_id,
-        identifier=identifier,
-        run_type=run_type,
-        team_id=team_id,
-        reason=reason,
-        expires_at=expires_at,
-        created_by_id=user_id,
-        source_run=source_run,
-        source=source,
-    )
+    # The source run is locked first, in the same order as the retention sweep,
+    # so a run the sweep deletes meanwhile resolves to None instead of failing
+    # the insert.
+    with transaction.atomic(using=WRITER_DB):
+        source_run: Run | None = None
+        if source_run_id is not None:
+            source_run = (
+                Run.objects.using(WRITER_DB)
+                .select_for_update()
+                .filter(id=source_run_id, repo_id=repo_id, team_id=team_id)
+                .first()
+            )
+        QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
+            repo_id=repo_id,
+            identifier=identifier,
+            run_type=run_type,
+            team_id=team_id,
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
+        return QuarantinedIdentifier.objects.using(WRITER_DB).create(
+            repo_id=repo_id,
+            identifier=identifier,
+            run_type=run_type,
+            team_id=team_id,
+            reason=reason,
+            expires_at=expires_at,
+            created_by_id=user_id,
+            source_run=source_run,
+            source=source,
+        )
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
-    repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    repo = repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    # Take the cutoff before the GitHub request, and lift only rows that existed at the cutoff. A
+    # quarantine that somebody creates while the request is in flight must survive this lift.
+    now = timezone.now()
+    lifted_at_sha = github_api.default_branch_head_sha(repo)
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=repo_id,
         identifier=identifier,
         run_type=run_type,
         team_id=team_id,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
+        created_at__lte=now,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now, lifted_at_sha=lifted_at_sha)
 
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
@@ -145,10 +164,50 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
     except QuarantinedIdentifier.DoesNotExist as e:
         raise errors.RunNotFoundError(f"Quarantine entry {entry_id} not found or already expired") from e
 
+    # The cutoff is `now`, taken before the GitHub request, for the same reason as in
+    # `unquarantine_identifier`.
+    lifted_at_sha = github_api.default_branch_head_sha(entry.repo)
     # Expire all active entries for the same identifier/run_type, not just this one
     QuarantinedIdentifier.objects.using(WRITER_DB).filter(
         repo_id=entry.repo_id,
         identifier=entry.identifier,
         run_type=entry.run_type,
         team_id=team_id,
-    ).filter(active).update(expires_at=now)
+        created_at__lte=now,
+    ).filter(active).update(expires_at=now, lifted_at_sha=lifted_at_sha)
+
+
+def identifiers_lifted_after_commit(run: Run, *, now: datetime) -> set[str]:
+    """Identifiers in `run` whose quarantine was lifted at a commit that `run`'s commit does not contain.
+
+    Such a run is on a branch that forked before the lift. The quarantine still applies there,
+    because the branch lacks what the lift relied on. It stops applying once the branch merges the
+    default branch. Only the latest quarantine event of an identifier counts, so a lift that a
+    newer quarantine replaced no longer applies. A lift whose ancestry GitHub cannot confirm keeps
+    applying the quarantine, because a missed gate costs less than a red run that nobody on the
+    branch can fix.
+    """
+    latest_events = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(
+            repo_id=run.repo_id,
+            run_type=run.run_type,
+            team_id=run.team_id,
+            identifier__in=run.snapshots.using(WRITER_DB).values("identifier"),
+        )
+        .order_by("identifier", "-created_at")
+        .distinct("identifier")
+        .values_list("identifier", "lifted_at_sha", "expires_at")
+    )
+    scope_start = now - timedelta(days=LIFT_SCOPE_DAYS)
+    identifiers_by_sha: dict[str, set[str]] = defaultdict(set)
+    for identifier, lifted_at_sha, expires_at in latest_events:
+        if lifted_at_sha is not None and expires_at is not None and scope_start < expires_at <= now:
+            identifiers_by_sha[lifted_at_sha].add(identifier)
+
+    return {
+        identifier
+        for lifted_at_sha, identifiers in identifiers_by_sha.items()
+        if not github_api.commit_contains(run.repo, lifted_at_sha, run.commit_sha)
+        for identifier in identifiers
+    }

@@ -1,5 +1,6 @@
 from django.db import IntegrityError
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers
 from rest_framework.viewsets import GenericViewSet
 
@@ -14,7 +15,11 @@ class MaxCoreMemorySerializer(serializers.ModelSerializer):
         model = CoreMemory
         fields = ["id", "text", "scraping_status"]
 
-    text = serializers.CharField(allow_blank=True, max_length=CORE_MEMORY_MAX_CHARACTERS)
+    text = serializers.CharField(
+        allow_blank=True,
+        max_length=CORE_MEMORY_MAX_CHARACTERS,
+        help_text="What Max remembers about the project, as free-form text.",
+    )
 
     def create(self, validated_data):
         try:
@@ -26,6 +31,7 @@ class MaxCoreMemorySerializer(serializers.ModelSerializer):
             raise Conflict("Core memory already exists for this environment.")
 
 
+@extend_schema(extensions={"x-product": "posthog_ai"})
 class MaxCoreMemoryViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

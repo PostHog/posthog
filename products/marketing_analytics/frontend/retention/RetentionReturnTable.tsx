@@ -6,17 +6,11 @@ import { VariationCell } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { MarketingAnalyticsRetentionSummaryRow } from '~/queries/schema/schema-general'
 
+import { ReturnRow, pairWithPrevious, returnRate } from './retentionSummary'
+
 const CountCell = VariationCell({ reserveTrendSpace: false })
 const RateCell = VariationCell({ isPercentage: true })
 const DaysCell = VariationCell({ neutral: true, formatValue: (value) => value.toFixed(1) })
-
-type ReturnRow = MarketingAnalyticsRetentionSummaryRow & { comparison?: MarketingAnalyticsRetentionSummaryRow }
-
-function returnRate(row: MarketingAnalyticsRetentionSummaryRow | undefined, days: 7 | 30): number | null {
-    const eligible = days === 7 ? row?.eligible7d : row?.eligible30d
-    const returned = days === 7 ? row?.returned7d : row?.returned30d
-    return eligible ? (returned ?? 0) / eligible : null
-}
 
 export function RetentionReturnTable({
     rows,
@@ -31,10 +25,8 @@ export function RetentionReturnTable({
     compare: boolean
     onlyNewUsers: boolean
 }): JSX.Element {
-    const previous = new Map(rows.filter((row) => row.previous).map((row) => [row.breakdownValue, row]))
-    const current = rows.filter((row) => !row.previous)
-    const total = current.reduce((sum, row) => sum + row.acquired, 0)
-    const data: ReturnRow[] = current.map((row) => ({ ...row, comparison: previous.get(row.breakdownValue) }))
+    const data = pairWithPrevious(rows)
+    const total = data.reduce((sum, row) => sum + row.acquired, 0)
     const columns: LemonTableColumn<ReturnRow, keyof ReturnRow | undefined>[] = [
         {
             title: dimensionLabel,
@@ -76,7 +68,7 @@ export function RetentionReturnTable({
                 ),
                 key: `return${days}`,
                 align: 'right',
-                tooltip: `People with a second session within ${days} days of acquisition. Only users who have had the full ${days} days are eligible.`,
+                tooltip: `People with a new session on a later calendar day within ${days} days of acquisition, using the project's timezone. Same-day visits do not count. Only users who have had the full ${days} days are eligible.`,
                 sorter: (a, b) => (returnRate(a, days) ?? -1) - (returnRate(b, days) ?? -1),
                 render: (_, row) => {
                     const rate = returnRate(row, days)
@@ -105,11 +97,11 @@ export function RetentionReturnTable({
             dataIndex: 'medianReturnDays',
             align: 'right',
             tooltip:
-                'Estimated median days from the first to the second session, among people observed returning within 30 days. Recent users have had less time to return.',
+                "Estimated median calendar days from the first session to the first return on a later day, using the project's timezone. Same-day visits do not count. Includes returns within 30 days. Recent users have had less time to return.",
             sorter: (a, b) => (a.medianReturnDays ?? Infinity) - (b.medianReturnDays ?? Infinity),
             render: (_, row) =>
                 row.medianReturnDays === null ? (
-                    <Tooltip title="No second sessions observed within 30 days.">
+                    <Tooltip title="No returns on a later day observed within 30 days.">
                         <span className="text-muted">–</span>
                     </Tooltip>
                 ) : (
@@ -139,8 +131,8 @@ export function RetentionReturnTable({
                 emptyState='No users match this acquisition period. Widen the date range or turn off "Only new users".'
             />
             <div className="text-secondary text-xs">
-                Return rates include only users who completed each window. Days to return includes observed returns
-                within 30 days and may change as recent users return.
+                Same-day visits do not count. Return rates include only users who completed each window. Days to return
+                includes observed returns within 30 days and may change as recent users return.
             </div>
         </div>
     )

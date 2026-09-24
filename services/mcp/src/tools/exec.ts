@@ -15,7 +15,7 @@ import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { type ExecLearnCatalog } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -29,9 +29,11 @@ import {
     type ZodObjectAny,
 } from './types'
 
-/** Upper bound on a `search` regex pattern — keeps a pathological pattern from
- *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 400
+/** Upper bound on the size of a `search` regex — wide enough for an anchored
+ *  alternation of a whole toolset, the longest pattern an agent composes.
+ *  Length is all it bounds: matching cost rides on the pattern's shape, and a
+ *  dozen characters are enough to backtrack catastrophically. */
+const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
  *  requires these three hints (plus idempotent) to be present, not just defined
@@ -162,26 +164,9 @@ export interface ExecCommandMeta {
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
-/**
- * Session-scoped skill-usage markers backing the skills-first gate. Product
- * `call`s in a session that ran no `learn` load are rejected with a retryable
- * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
- * which agents demonstrably rationalize their way past when it is advisory only.
- * `call --no-skills` acknowledges that no skill applies and opens the gate for
- * the rest of the session.
- */
-export interface SkillsSessionState {
-    hasLearned(): Promise<boolean>
-    markLearned(): Promise<void>
-    hasAcknowledgedNoSkills(): Promise<boolean>
-    markAcknowledgedNoSkills(): Promise<void>
-}
-
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     learnCatalog?: ExecLearnCatalog
-    /** Present only when skill distribution is enabled and the client has a session. */
-    skillsSession?: SkillsSessionState
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -212,10 +197,7 @@ export interface ExecToolOptions {
     builtInSkillHint?: BuiltInSkillHint
 }
 
-const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
-
-const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> <json_input>'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -229,58 +211,6 @@ function classifyLearnError(error: unknown): unknown {
     }
     const reason: ExecCommandErrorReason = error.message.startsWith('Unknown ') ? 'unknown_learn_topic' : 'usage'
     return new ExecCommandError(error.message, reason)
-}
-
-/**
- * True when a `learn` input loads skill content (a qualified `source:skill` read,
- * including file reads within a skill). Generic guide reads, listings, searches,
- * and describes don't count — a guide is not a skill, and opening the gate on
- * `learn analytics` would restore exactly the bypass the gate exists to catch.
- *
- * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
- * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
- * a naive whitespace split disagrees on both. An unterminated quote can't be a
- * skill load (and `execute` would have thrown first), so it returns false.
- */
-function isSkillLoad(rest: string): boolean {
-    let tokens: string[]
-    try {
-        tokens = tokenizeLearnInput(rest)
-    } catch {
-        return false
-    }
-    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
-        return false
-    }
-    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
-}
-
-/**
- * Returns the gate rejection message, or undefined when the call may proceed.
- * A session-store hiccup opens the gate — enforcement must never break tools.
- */
-async function resolveSkillsGate(
-    session: SkillsSessionState | undefined,
-    noSkillsFlag: boolean
-): Promise<string | undefined> {
-    if (!session) {
-        return undefined
-    }
-    try {
-        if (noSkillsFlag) {
-            await session.markAcknowledgedNoSkills()
-            return undefined
-        }
-        if (await session.hasLearned()) {
-            return undefined
-        }
-        if (await session.hasAcknowledgedNoSkills()) {
-            return undefined
-        }
-        return SKILLS_GATE_MESSAGE
-    } catch {
-        return undefined
-    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -377,11 +307,10 @@ function batchedCommandMessage(commands: string[]): string {
     ].join('\n')
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
-    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -395,15 +324,10 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
-        if (parsed.verb === '--no-skills') {
-            noSkills = true
-            rest = parsed.rest
-            continue
-        }
         break
     }
 
-    return { forceJson, confirmed, noSkills, rest }
+    return { forceJson, confirmed, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -595,6 +519,135 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
         'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
 }
 
+/** The form caller keys and field names are matched on, so `date_from` reaches a field
+ *  named `dateFrom`. These schemas mix the two spellings — a query's own fields are
+ *  camelCase while its window's fields are snake_case — and a caller cannot tell which
+ *  one a field uses without reading the schema. */
+function matchableName(name: string): string {
+    return name.replace(/[_-]/g, '').toLowerCase()
+}
+
+/** Where a loose key belongs: the object the wrapper declares that holds a field of that name. */
+interface FieldPlacement {
+    object: string
+    field: string
+}
+
+/**
+ * Indexes values by the name a caller might send for them.
+ *
+ * A name that two values would answer to is dropped: acting on it would guess which one the
+ * caller meant, and a guess here runs a query the caller did not ask for.
+ */
+function byMatchableName<T>(entries: Iterable<readonly [string, T]>): Map<string, T> {
+    const found = new Map<string, T>()
+    const ambiguous = new Set<string>()
+    for (const [field, value] of entries) {
+        const name = matchableName(field)
+        if (found.has(name)) {
+            ambiguous.add(name)
+            continue
+        }
+        found.set(name, value)
+    }
+    for (const name of ambiguous) {
+        found.delete(name)
+    }
+    return found
+}
+
+/** Every name a caller might send for a field of an object the wrapper declares, such as
+ *  `date_from` for `dateRange.date_from`. */
+function subfieldPlacements(
+    schema: ZodObjectAny,
+    key: string,
+    declared: ReadonlySet<string>
+): Map<string, FieldPlacement> {
+    return byMatchableName(
+        [...declared].flatMap((object) =>
+            [...wrapperFieldNames(schema, [key, object])].map(
+                (field) => [field, { object, field }] as readonly [string, FieldPlacement]
+            )
+        )
+    )
+}
+
+/**
+ * Whether a field of the rebuilt call is already filled, counting an object and its own
+ * fields as the same place.
+ *
+ * Two caller keys can name one field: `date_from` and `dateFrom` both answer to
+ * `dateRange.date_from`, and `dateRange` and `date_range` both answer to `dateRange`. The
+ * second one to arrive would overwrite the first, so it is left unplaced and the rebuild
+ * stands down rather than choosing a value for the caller.
+ */
+function isTaken(taken: ReadonlySet<string>, destination: string): boolean {
+    if (taken.has(destination)) {
+        return true
+    }
+    const separator = destination.indexOf('.')
+    if (separator > 0) {
+        return taken.has(destination.slice(0, separator))
+    }
+    return [...taken].some((filled) => filled.startsWith(`${destination}.`))
+}
+
+/**
+ * Sorts a flattened payload into the call the caller meant.
+ *
+ * Keys the outer schema declares beside the wrapper stay at the top level, and keys the
+ * wrapper declares move inside it. A caller that flattens the payload usually flattens its
+ * window one level further, so `date_from` arrives beside `limit` rather than inside
+ * `dateRange`; a key like that goes back into the object that declares it.
+ *
+ * `unplaced` holds every key that belongs nowhere, and a caller that sent an object and one
+ * of its fields loose puts that field there. Nothing is dropped to make a payload fit: a
+ * wrapper that defaults its own fields parses `{"dateRagne": ...}` into a full set of
+ * defaults, so dropping the key would run an unfiltered query and return plausible but wrong
+ * rows instead of reporting the typo.
+ */
+function splitFlattenedPayload(
+    input: Record<string, unknown>,
+    key: string,
+    schema: ZodObjectAny
+): { rebuilt: Record<string, unknown>; nested: Record<string, unknown>; unplaced: string[] } {
+    const siblings = topLevelFieldNames(schema)
+    const declared = wrapperFieldNames(schema, [key])
+    const fields = byMatchableName([...declared].map((field) => [field, field] as const))
+    const placements = subfieldPlacements(schema, key, declared)
+    // A name the wrapper declares itself is that field, never a field of one of its objects.
+    for (const name of fields.keys()) {
+        placements.delete(name)
+    }
+    const rebuilt: Record<string, unknown> = {}
+    const nested: Record<string, unknown> = {}
+    const objects = new Map<string, Record<string, unknown>>()
+    const taken = new Set<string>()
+    const unplaced: string[] = []
+    for (const [name, value] of Object.entries(input)) {
+        const field = fields.get(matchableName(name))
+        const placement = placements.get(matchableName(name))
+        if (name !== key && siblings.has(name)) {
+            rebuilt[name] = value
+        } else if (field !== undefined && !isTaken(taken, field)) {
+            taken.add(field)
+            nested[field] = value
+        } else if (placement !== undefined && !isTaken(taken, `${placement.object}.${placement.field}`)) {
+            taken.add(`${placement.object}.${placement.field}`)
+            const object = objects.get(placement.object) ?? {}
+            object[placement.field] = value
+            objects.set(placement.object, object)
+        } else {
+            unplaced.push(name)
+        }
+    }
+    for (const [name, value] of objects) {
+        nested[name] = value
+    }
+    rebuilt[key] = nested
+    return { rebuilt, nested, unplaced }
+}
+
 /**
  * Detects the caller sending a required object parameter's *contents* in place of
  * the parameter itself — `{dateRange, limit}` where `{query: {dateRange, limit}}`
@@ -603,8 +656,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
  * has no way to tell which mistake it made.
  *
  * Decided by re-parsing rather than by reading the schema, so it holds for any
- * wrapper shape: nest the input under the missing key and see whether the schema
- * accepts it. Confident when the wrapped value either parses to something
+ * wrapper shape: rebuild the call with `splitFlattenedPayload` and see whether the
+ * schema accepts it. Confident when the rebuild either parses to something
  * non-empty, or fails only on paths *inside* the wrapper — both mean the nested
  * schema recognized the content. A payload of undeclared keys parses to `{}` and
  * is correctly rejected, as is a caller that sent nothing at all.
@@ -618,18 +671,22 @@ function looksLikeUnwrappedPayload(
         return false
     }
     const key = String(issuePath[0])
-    if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    if (!isRecord(input)) {
         return false
     }
     const keys = Object.keys(input)
     if (keys.length === 0 || keys.includes(key)) {
         return false
     }
+    const { rebuilt, nested } = splitFlattenedPayload(input, key, schema)
+    // A wrapper that declares no fields of its own, such as a loose or union shape,
+    // places nothing, so read the raw payload under the key instead.
+    const candidate = Object.keys(nested).length > 0 ? rebuilt : { [key]: input }
 
-    const wrapped = schema.safeParse({ [key]: input })
+    const wrapped = schema.safeParse(candidate)
     if (wrapped.success) {
-        const nested = (wrapped.data as Record<string, unknown>)[key]
-        return typeof nested === 'object' && nested !== null && Object.keys(nested).length > 0
+        const parsed = (wrapped.data as Record<string, unknown>)[key]
+        return isRecord(parsed) && Object.keys(parsed).length > 0
     }
     // Every remaining complaint sits under the wrapper: the nested schema read the
     // content and rejected specific fields, so the nesting itself was the mistake.
@@ -694,16 +751,9 @@ function acceptedTopLevelShape(nested: unknown, schema: ZodObjectAny | undefined
  * Naming the mistake in the rejection still costs a round trip, and the flattened shape is the most
  * common rejection on the tools built this way.
  *
- * Keys the outer schema declares beside the wrapper stay at the top level. Folding a sibling such as
- * `baselineDateRange` into `query` would have the nested schema strip it, and the caller would get a
- * different query than it asked for without being told.
- *
- * Every key that moves inside must be one the wrapper declares. A wrapper that defaults its own
- * fields parses `{"dateRagne": ...}` into a full set of defaults, so accepting that rebuild would run
- * an unfiltered query and return plausible but wrong rows instead of reporting the typo.
- *
- * Returns undefined unless the rebuilt payload parses, so a payload malformed for some other reason
- * keeps its own rejection.
+ * `splitFlattenedPayload` decides where each key belongs. Returns undefined when a key belongs
+ * nowhere, or when the rebuilt payload does not parse, so a payload malformed for some other
+ * reason keeps its own rejection instead of being guessed at.
  */
 export function rewrapFlattenedArguments(
     error: z.ZodError,
@@ -721,23 +771,10 @@ export function rewrapFlattenedArguments(
         return undefined
     }
 
-    const key = String(issue.path[0])
-    const siblings = topLevelFieldNames(schema)
-    const rebuilt: Record<string, unknown> = {}
-    const nested: Record<string, unknown> = {}
-    for (const [name, value] of Object.entries(input)) {
-        if (name !== key && siblings.has(name)) {
-            rebuilt[name] = value
-        } else {
-            nested[name] = value
-        }
-    }
-    const declared = wrapperFieldNames(schema, key)
-    const nestedNames = Object.keys(nested)
-    if (nestedNames.length === 0 || !nestedNames.every((name) => declared.has(name))) {
+    const { rebuilt, nested, unplaced } = splitFlattenedPayload(input, String(issue.path[0]), schema)
+    if (Object.keys(nested).length === 0 || unplaced.length > 0) {
         return undefined
     }
-    rebuilt[key] = nested
 
     return schema.safeParse(rebuilt).success ? rebuilt : undefined
 }
@@ -749,21 +786,24 @@ function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
 }
 
 /**
- * The field names a wrapper parameter declares directly, including the fields of
- * each variant when the wrapper is a union (`read-data-schema` keys its shape off
- * a `kind` discriminator). Composition keywords are walked one level; nothing
- * deeper is collected, because only the caller's own top-level keys are matched
- * against this set.
+ * The field names the parameter at `path` declares directly, including the fields of
+ * each variant when it is a union (`read-data-schema` keys its shape off a `kind`
+ * discriminator). Composition keywords are walked one level at each step; nothing
+ * deeper is collected, because only the caller's own keys are matched against this set.
  */
-function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<string> {
+function wrapperFieldNames(schema: ZodObjectAny, path: readonly string[]): ReadonlySet<string> {
     const root = inputJsonSchema(schema)
-    const properties = isRecord(root) ? root['properties'] : undefined
-    const wrapper = isRecord(properties) ? properties[key] : undefined
-    const names = new Set<string>()
-    if (!isRecord(wrapper)) {
-        return names
+    let nodes = isRecord(root) ? [root] : []
+    for (const key of path) {
+        nodes = nodes
+            .flatMap((node) => [node, ...variantsOf(node)])
+            .map((node) =>
+                isRecord(node['properties']) ? (node['properties'] as Record<string, unknown>)[key] : undefined
+            )
+            .filter(isRecord)
     }
-    for (const node of [wrapper, ...variantsOf(wrapper)]) {
+    const names = new Set<string>()
+    for (const node of nodes.flatMap((node) => [node, ...variantsOf(node)])) {
         const fields = node['properties']
         if (isRecord(fields)) {
             for (const name of Object.keys(fields)) {
@@ -777,8 +817,8 @@ function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<strin
 /** An object shape written from field names alone, capped, with every value
  *  elided, so the message carries the tool's vocabulary and no caller input. */
 function renderFieldShape(names: readonly string[]): string {
-    const shown = names.slice(0, MAX_WRAPPER_KEYS_NAMED).map((name) => `"${name}": ...`)
-    if (names.length > MAX_WRAPPER_KEYS_NAMED) {
+    const shown = names.slice(0, MAX_KEYS_NAMED).map((name) => `"${name}": ...`)
+    if (names.length > MAX_KEYS_NAMED) {
         shown.push('...')
     }
     return `{${shown.join(', ')}}`
@@ -803,17 +843,28 @@ function variantsOf(node: Record<string, unknown>): Record<string, unknown>[] {
  * tool's own vocabulary rather than the caller's, and values are always elided.
  * The message is returned to the caller and recorded as the analytics error
  * message, so it must carry no input. Falls back to `{...}` when no key matches.
+ * `unplaced` names the keys that fit nowhere, which the shape cannot show.
  */
-function acceptedWrapperShape(key: string, input: unknown, schema: ZodObjectAny | undefined): string {
+function acceptedWrapperShape(
+    key: string,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): { shape: string; unplaced: string[] } {
     if (!schema || !isRecord(input)) {
-        return `{"${key}": {...}}`
+        return { shape: `{"${key}": {...}}`, unplaced: [] }
     }
-    const declared = wrapperFieldNames(schema, key)
-    const named = Object.keys(input).filter((name) => declared.has(name))
-    if (named.length === 0) {
-        return `{"${key}": {...}}`
-    }
-    return `{"${key}": ${renderFieldShape(named)}}`
+    const { rebuilt, nested, unplaced } = splitFlattenedPayload(input, key, schema)
+    const named = Object.keys(nested)
+    // Siblings ride along: a caller that copies the shape without them loses the `name` or
+    // the baseline window it sent, and its retry asks a different question.
+    const fields = [
+        `"${key}": ${named.length > 0 ? renderFieldShape(named) : '{...}'}`,
+        ...Object.keys(rebuilt)
+            .filter((sibling) => sibling !== key)
+            .slice(0, MAX_KEYS_NAMED)
+            .map((sibling) => `"${sibling}": ...`),
+    ]
+    return { shape: `{${fields.join(', ')}}`, unplaced }
 }
 
 /**
@@ -841,13 +892,19 @@ function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): strin
     return Object.keys(input).filter((key) => !declared.has(key))
 }
 
-/** Bound on how many dropped keys the message names, so a caller sending a large
- *  undeclared payload cannot inflate the analytics error message. */
-const MAX_DROPPED_KEYS_NAMED = 5
+/** Bound on how many keys a message names, so a caller sending a large payload
+ *  cannot inflate the analytics error message. Enough keys to recognize the
+ *  payload, not enough for a large one to bloat what we record. */
+const MAX_KEYS_NAMED = 5
 
-/** Same bound for the rendered wrapper shape: enough keys to recognize the
- *  payload, not enough for a large one to inflate the message. */
-const MAX_WRAPPER_KEYS_NAMED = 5
+/** Key names only, never values: the message is returned to the caller and
+ *  recorded as the analytics error message. */
+function namedKeys(keys: readonly string[]): string {
+    return keys
+        .slice(0, MAX_KEYS_NAMED)
+        .map((key) => `"${key}"`)
+        .join(', ')
+}
 
 /** Bound on the parameter description echoed back with a missing-parameter
  *  rejection, so a tool with a long field description cannot inflate the
@@ -1104,8 +1161,11 @@ export function formatInputValidationError(
             if ('input' in issue && issue.input === undefined) {
                 const hint = missingParameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
-                    const shape = acceptedWrapperShape(path, input, schema)
-                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}`
+                    const { shape, unplaced } = acceptedWrapperShape(path, input, schema)
+                    const rejected = unplaced.length
+                        ? `; these keys are not fields of ${path}, so remove or rename them: ${namedKeys(unplaced)}`
+                        : ''
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}${rejected}`
                 }
                 const overWrapped = overWrappedKey(issue.path)
                 if (overWrapped !== undefined) {
@@ -1114,11 +1174,7 @@ export function formatInputValidationError(
                 }
                 const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
                 if (dropped.length) {
-                    const named = dropped
-                        .slice(0, MAX_DROPPED_KEYS_NAMED)
-                        .map((key) => `"${key}"`)
-                        .join(', ')
-                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${named}`
+                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${namedKeys(dropped)}`
                 }
                 return `missing required parameter: ${path}${hint}`
             }
@@ -1500,11 +1556,6 @@ export function createExecTool(
                     } catch (error) {
                         throw classifyLearnError(error)
                     }
-                    // Only skill loads count as "learned" — a search whose results are
-                    // then ignored is exactly the bypass the gate exists to catch.
-                    if (options.skillsSession && isSkillLoad(rest)) {
-                        await options.skillsSession.markLearned().catch(() => undefined)
-                    }
                     return learnResult
                 }
 
@@ -1718,16 +1769,12 @@ export function createExecTool(
                         // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
-                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
-                    if (gateMessage) {
-                        throw new ExecCommandError(gateMessage, 'skills_gate')
-                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,

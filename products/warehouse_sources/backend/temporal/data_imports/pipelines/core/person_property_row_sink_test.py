@@ -19,13 +19,25 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     ABANDONED_STAGED_PREFIX_TTL,
     PersonPropertyRowSink,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink"
+_STAGING_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store"
+
+
+def _aws_write_error(code: str, detail: str) -> OSError:
+    return OSError(
+        "When initiating multiple part upload for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        f"AWS Error {code} during CreateMultipartUpload operation: {detail}"
+    )
 
 
 def _sink(is_incremental: bool = False, binding: WarehouseBinding | None = None) -> PersonPropertyRowSink:
     logger = MagicMock()
     logger.adebug = AsyncMock()
+    logger.awarning = AsyncMock()
     return PersonPropertyRowSink(
         team_id=1,
         binding=binding or schema_binding("schema-1"),
@@ -204,6 +216,60 @@ async def test_stage_chunk_filenames_are_unique_per_attempt():
     assert len(set(paths)) == 2
 
 
+@parameterized.expand(
+    [
+        (
+            "transient_internal_error",
+            _aws_write_error("INTERNAL_FAILURE", "We encountered an internal error. Please try again."),
+            2,
+            None,
+        ),
+        ("refused_access_denied", _aws_write_error("ACCESS_DENIED", "Access Denied"), 1, ObjectStoreConfigurationError),
+        (
+            "refused_wrong_endpoint",
+            _aws_write_error("UNKNOWN (HTTP status 301)", "Unable to parse ExceptionName: PermanentRedirect"),
+            1,
+            ObjectStoreConfigurationError,
+        ),
+        ("unclassified_failure", RuntimeError("staging blew up"), 1, RuntimeError),
+    ]
+)
+@pytest.mark.asyncio
+async def test_stage_chunk_retries_only_a_transient_object_store_failure(_name, error, expected_attempts, raises):
+    # Creating the multipart upload is a single network call, so a blip on it drops the whole chunk
+    # unless it is retried. A refused write is the deployment's configuration, which no retry
+    # changes, so it fails once as a typed error instead of stalling the sync and paging someone.
+    sink = _sink()
+    to_thread = AsyncMock(side_effect=[error, None])
+
+    with (
+        patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]),
+        patch.object(sink, "_get_fs", return_value=MagicMock()),
+        patch(f"{_MODULE}.asyncio.to_thread", new=to_thread),
+        patch(f"{_STAGING_MODULE}.asyncio.sleep", new=AsyncMock()),
+    ):
+        if raises is not None:
+            with pytest.raises(raises):
+                await sink.stage_chunk(chunk=0, table=_table())
+        else:
+            await sink.stage_chunk(chunk=0, table=_table())
+
+    assert to_thread.await_count == expected_attempts
+
+
+@pytest.mark.asyncio
+async def test_clear_raises_one_configuration_error_when_the_sweep_is_refused():
+    # A refused listing of the binding prefix is the same missing grant the own-prefix delete hits,
+    # so it must surface as the one typed configuration error rather than as a second raw failure.
+    sink = _sink()
+    s3_client = _s3_client()
+    s3_client._find = AsyncMock(side_effect=PermissionError("Access Denied"))
+
+    with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
+        with pytest.raises(ObjectStoreConfigurationError):
+            await sink.clear()
+
+
 @parameterized.expand([("local_setup", True), ("non_local_setup", False)])
 def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
     # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
@@ -241,6 +307,7 @@ async def test_clear_still_sweeps_abandoned_siblings_when_own_prefix_delete_fail
     # A permissions error (or any other non-FileNotFoundError) deleting the own prefix must not
     # skip the sibling-sweep backstop, which is an independent cleanup — otherwise abandoned sibling
     # prefixes from crashed jobs never get swept on every run where the own-prefix delete fails.
+    # The refusal itself is the deployment's configuration, so it is re-raised as the typed error.
     sink = _sink()
     stale_file = f"{sink._get_binding_prefix()}/job-old/chunk_0.parquet"
     s3_client = _s3_client(
@@ -249,7 +316,7 @@ async def test_clear_still_sweeps_abandoned_siblings_when_own_prefix_delete_fail
     s3_client._rm = AsyncMock(side_effect=[PermissionError("Access Denied"), None])
 
     with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
-        with pytest.raises(PermissionError):
+        with pytest.raises(ObjectStoreConfigurationError):
             await sink.clear()
 
     removed = [call.args[0] for call in s3_client._rm.await_args_list]

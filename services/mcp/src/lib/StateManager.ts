@@ -60,6 +60,7 @@ export class StateManager {
                 scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
+                is_impersonated: false,
             }
         }
 
@@ -95,6 +96,7 @@ export class StateManager {
             scopes: scope ? scope.split(' ') : [],
             scoped_teams: scoped_teams ?? [],
             scoped_organizations: scoped_organizations ?? [],
+            is_impersonated: introspectionResult.data.is_impersonated === true,
         }
     }
 

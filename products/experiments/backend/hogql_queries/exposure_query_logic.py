@@ -6,6 +6,7 @@ including multiple variant handling and exposure filtering logic.
 """
 
 import logging
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Optional, Union
 
@@ -76,6 +77,60 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     except Exception:
         return DEFAULT_EXPOSURE_EVENT
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
+
+
+# What a new experiment filters test accounts by when its criteria don't say. It does not follow
+# Team.test_account_filters_default_checked: most projects leave that field null, while nearly
+# every experiment stores filterTestAccounts true.
+DEFAULT_FILTER_TEST_ACCOUNTS = True
+
+
+def apply_exposure_criteria_defaults(exposure_criteria: Union[dict, None]) -> dict:
+    """Fill in what a new experiment gets when its criteria leave a field out.
+
+    Both experiment creation and the reads that estimate a baseline for a not-yet-created
+    experiment go through here, so the two cannot describe different populations.
+    """
+    result = dict(exposure_criteria or {})
+    if result.get("filterTestAccounts") is None:
+        result["filterTestAccounts"] = DEFAULT_FILTER_TEST_ACCOUNTS
+    return result
+
+
+def multivariate_flag_response_expr() -> ast.Expr:
+    """Matches the `$feature_flag_called` rows ingestion copies into `$experiment_exposure`.
+
+    Ingestion has no flag definitions, so it infers multivariate from the response shape: a
+    non-empty string that is neither "true" nor "false" (`isMultivariateFeatureFlagCalledEvent` in
+    `nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts`). A read of
+    `$feature_flag_called` that stands in for `$experiment_exposure` has to apply the same rule, or
+    the two events describe different populations.
+    """
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=["properties", "$feature_flag_response"])]),
+                ast.Constant(value=""),
+            ],
+        ),
+        right=ast.Constant(value=["", "true", "false"]),
+    )
+
+
+def resolve_flag_call_source_event(events_present: Collection[str]) -> str:
+    """Which of the two flag-call events a team-wide read must count, given the events it observed.
+
+    `$experiment_exposure` is an ingestion-side copy of `$feature_flag_called`, so counting both
+    double counts every multivariate call. Ingestion makes the copy only for the teams on its
+    duplication list, which is separate from EXPERIMENT_EXPOSURE_EVENT_FLAG, so what the team's
+    rows carry decides and the flag does not.
+
+    This is not `resolve_default_exposure_event`: that one answers what a new experiment would
+    count, which can differ from what the project's events carry today.
+    """
+    return EXPERIMENT_EXPOSURE_EVENT if EXPERIMENT_EXPOSURE_EVENT in events_present else DEFAULT_EXPOSURE_EVENT
 
 
 def _is_actions_node_dict(config: dict) -> bool:

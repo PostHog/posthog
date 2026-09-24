@@ -32,12 +32,21 @@ secret only with HS256) to close the classic JWT algorithm-confusion attack.
 from datetime import UTC, datetime, timedelta
 
 import jwt
+from prometheus_client import Counter
 
 from posthog.models.team.team import Team
 
 PUSH_IDENTITY_TOKEN_AUDIENCE = "posthog:push_identity"
 _HMAC_ALGORITHM = "HS256"
 _ASYMMETRIC_ALGORITHM = "ES256"
+
+# Counts the registrations that verified only through the HS256 fallback, which is what says whether
+# the scheme can be withdrawn. Channel config cannot answer that on its own, because a channel that
+# registers a public key still reaches the fallback when the customer signs with the shared secret.
+PUSH_IDENTITY_HMAC_FALLBACK_COUNTER = Counter(
+    "push_subscription_identity_hmac_fallback",
+    "Identity tokens accepted only by the deprecated shared-secret scheme.",
+)
 
 # Short TTL: the token only needs to survive the round trip from the customer's backend, through the
 # app, to the registration call. Keeping it small bounds the replay window (a replay can only re-assert
@@ -105,6 +114,7 @@ def verify_push_identity_token(
             return True
     for secret in (team.secret_api_token, team.secret_api_token_backup):
         if secret and _decode_matches(token, secret, _HMAC_ALGORITHM, distinct_id, app_id):
+            PUSH_IDENTITY_HMAC_FALLBACK_COUNTER.inc()
             return True
     return False
 

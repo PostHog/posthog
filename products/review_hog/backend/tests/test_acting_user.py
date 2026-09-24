@@ -5,7 +5,7 @@ from social_django.models import UserSocialAuth
 
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
-from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 
 _SELF = "SELF"
 
@@ -46,6 +46,48 @@ class TestResolveActingUser(BaseTest):
         assert result.review_inbox_prs is False
         assert result.urgency_threshold == "consider"
         assert result.resolve_comments is True
+        assert result.review_authored_prs is False
+        assert result.flash_reasoning_effort == "medium"
+
+    @parameterized.expand(
+        [
+            ("enabled", True, True, True),
+            ("opted_out", False, True, True),
+            ("inactive", True, False, True),
+            ("left_organization", True, True, False),
+        ]
+    )
+    def test_automatic_trigger_rechecks_eligible_author(
+        self, _name: str, opted_in: bool, active: bool, member: bool
+    ) -> None:
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            pr_number=7,
+            pr_url="https://github.com/PostHog/posthog/pull/7",
+            head_branch="feat",
+            base_branch="main",
+        )
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, review_authored_prs=opted_in
+        )
+        self.user.is_active = active
+        self.user.save(update_fields=["is_active"])
+        if not member:
+            self.user.organization_memberships.filter(organization=self.organization).delete()
+        result = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="octocat",
+                override_user_id=self.user.id,
+                trigger_source=TRIGGER_AUTOMATIC,
+                report_id=str(report.id),
+            )
+        )
+        eligible = opted_in and active and member
+        assert result.acting_user_id == (self.user.id if eligible else None)
+        report.refresh_from_db()
+        assert report.status == (ReviewReport.Status.ACTIVE if eligible else ReviewReport.Status.IDLE)
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved settings must reach the workflow — if resolve stops loading any of them,
@@ -59,6 +101,8 @@ class TestResolveActingUser(BaseTest):
             review_inbox_prs=True,
             urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
             resolve_comments=False,
+            review_authored_prs=True,
+            flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort.XHIGH,
         )
         result = _resolve_acting_user(
             ResolveActingUserInput(team_id=self.team.id, author_login="octocat", override_user_id=None)
@@ -69,6 +113,8 @@ class TestResolveActingUser(BaseTest):
         # The opt-out must reach the workflow — hardwiring the snapshot on would strip users of the
         # only lever that stops reviews from writing to their PRs.
         assert result.resolve_comments is False
+        assert result.review_authored_prs is True
+        assert result.flash_reasoning_effort == "xhigh"
 
     def test_label_trigger_falls_back_to_the_run_user(self) -> None:
         # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
@@ -129,7 +175,10 @@ class TestResolveActingUser(BaseTest):
         # must not decide what lands on someone ELSE's PR — a default-resolved run gates at the
         # built-in default. Personal resolutions (author, requester override) keep the saved value.
         ReviewUserSettings.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX
+            team_id=self.team.id,
+            user_id=self.user.id,
+            urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
+            flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort.XHIGH,
         )
         as_author = _resolve_acting_user(
             ResolveActingUserInput(
@@ -137,12 +186,14 @@ class TestResolveActingUser(BaseTest):
             )
         )
         assert (as_author.resolved_from, as_author.urgency_threshold) == ("author", "must_fix")
+        assert as_author.flash_reasoning_effort == "xhigh"
         as_override = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id, author_login="ghost", override_user_id=self.user.id, trigger_source=TRIGGER_LABEL
             )
         )
         assert (as_override.resolved_from, as_override.urgency_threshold) == ("override", "must_fix")
+        assert as_override.flash_reasoning_effort == "xhigh"
         as_default = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
@@ -153,6 +204,7 @@ class TestResolveActingUser(BaseTest):
             )
         )
         assert (as_default.resolved_from, as_default.urgency_threshold) == ("default", "consider")
+        assert as_default.flash_reasoning_effort == "medium"
 
     def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:
         # "Your recent reviews" filters on this stamp — if resolve stops writing it, the list goes empty.

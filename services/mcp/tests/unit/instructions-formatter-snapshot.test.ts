@@ -248,7 +248,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const inputSchemaSize = JSON.stringify(finalEntry.inputSchema).length
 
         expect(properties).toHaveProperty('context')
-        expect(entry.description).toContain('### Business knowledge, then PostHog docs')
+        expect(entry.description).toContain('### PostHog knowledge sources')
         expect(inputSchemaSize).toBeLessThan(16_384)
     })
 

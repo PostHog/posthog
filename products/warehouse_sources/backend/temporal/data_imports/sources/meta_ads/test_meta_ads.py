@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_INVALID_CURSOR_ERROR_MESSAGE,
+    META_RATE_LIMIT_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
+    _is_invalid_cursor_error,
     _is_permanent_auth_error,
     _is_transient_error,
     _iter_simple_pagination,
@@ -1368,6 +1371,10 @@ class TestNonRetryableErrors:
             '{"error":{"message":"Error validating access token: The session has been invalidated because the '
             "user changed their password or Facebook has changed the session for security "
             'reasons.","type":"OAuthException","code":190,"error_subcode":460}})',
+            # code 2642 — a paging cursor was rejected as invalid mid-sync. Retrying this job
+            # would resume with the same saved cursor and fail identically every time.
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"(#2642) Invalid cursors values","type":"OAuthException","code":2642}})',
         ],
     )
     def test_errors_match_pattern(self, error_message: str) -> None:
@@ -1423,6 +1430,27 @@ class TestNonRetryableErrors:
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
 
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ({"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}, True),
+            # A different code must not be swept into the same reclassification.
+            ({"error": {"code": 1, "message": "An unknown error has occurred."}}, False),
+            ({"error": {}}, False),
+            ({}, False),
+        ],
+    )
+    def test_is_invalid_cursor_error(self, body: dict, expected: bool) -> None:
+        assert _is_invalid_cursor_error(_mock_response(400, body)) is expected
+
+    def test_invalid_cursor_error_raises_non_retryable_message(self) -> None:
+        # Confirms `_raise_meta_api_error` itself classifies a live 2642 response into the
+        # message `get_non_retryable_errors` matches on — the parametrized test above only
+        # checks the dict against a hand-written string, not the wiring that produces it.
+        body = {"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}
+        with pytest.raises(Exception, match=META_INVALID_CURSOR_ERROR_MESSAGE):
+            _raise_meta_api_error(_mock_response(400, body))
+
 
 class TestRetryableErrors:
     @pytest.mark.parametrize(
@@ -1471,6 +1499,35 @@ class TestRetryableErrors:
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    @pytest.mark.parametrize(
+        "error_message,expected_fragment",
+        [
+            (
+                'Meta API request failed (retryable): 500 - {"error":{"message":"An unexpected error has '
+                'occurred. Please retry your request later.","type":"OAuthException","is_transient":true,'
+                '"code":2,"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "temporary errors",
+            ),
+            (
+                f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: 400 - "
+                '{"error":{"message":"User request limit reached","type":"OAuthException","code":17,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}})',
+                "rate limiting",
+            ),
+        ],
+    )
+    def test_retry_exhausted_message_replaces_the_raw_meta_response(
+        self, error_message: str, expected_fragment: str
+    ) -> None:
+        # Without this the job stores Meta's raw response body as what the customer reads.
+        messages = [
+            message for key, message in MetaAdsSource().get_retry_exhausted_errors().items() if key in error_message
+        ]
+        assert messages, f"An exhausted Meta Ads retry should store a customer-facing message: {error_message}"
+        assert expected_fragment in messages[0]
+        assert "fbtrace_id" not in messages[0]
+        assert "next sync runs on schedule" in messages[0]
 
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
         # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking

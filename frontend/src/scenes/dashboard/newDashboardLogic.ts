@@ -26,7 +26,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import {
+    legacyEntityToNode,
+    sanitizeRetentionEntity,
+} from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
@@ -42,7 +45,6 @@ import {
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { InsightModel } from '../../types'
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 
 export interface NewDashboardForm {
@@ -242,7 +244,7 @@ export interface newDashboardLogicActions {
         result: DashboardType,
         variables?: DashboardTemplateVariableType[]
     ) => {
-        result: DashboardType<InsightModel>
+        result: DashboardType
         variables: DashboardTemplateVariableType[] | undefined
     }
     touchNewDashboardField: (key: string) => {
@@ -351,7 +353,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 const redirectAfterCreation = values.redirectAfterCreation
                 try {
                     const result: DashboardType = await api.create(
-                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
                         {
                             name: name,
                             description: description,
@@ -420,7 +422,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             try {
                 actions.hideNewDashboardModal()
                 const result: DashboardType = await api.create(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     {
                         template: dashboardJSON,
                         creation_context: creationContext,

@@ -22,9 +22,9 @@ import { urls } from 'scenes/urls'
 
 import type { Breadcrumb } from '~/types'
 
-import { deleteSource, getSource, getSourceText, refreshSource, updateSource } from '../api'
+import { deleteSource, getSource, getSourceDocuments, getSourceText, refreshSource, updateSource } from '../api'
 import type { UpdateSourcePayload } from '../api'
-import type { KnowledgeSourceApi } from '../generated/api.schemas'
+import type { KnowledgeSourceApi, KnowledgeSourceDocumentApi } from '../generated/api.schemas'
 import {
     DEFAULT_URL_SOURCE_FORM,
     type CrawlMode,
@@ -91,6 +91,10 @@ export interface knowledgeSourceLogicValues {
     showEditSourceErrors: boolean
     showEditUrlSourceErrors: boolean
     source: KnowledgeSource | null
+    sourceDocuments: KnowledgeSourceDocumentApi[]
+    sourceDocumentsFailed: boolean
+    sourceDocumentsLoaded: boolean
+    sourceDocumentsLoading: boolean
     sourceLoading: boolean
     sourceNotFound: boolean
     sourceText: {
@@ -110,6 +114,21 @@ export interface knowledgeSourceLogicActions {
         value: true
     }
     loadSource: () => any
+    loadSourceDocuments: (_: void) => void
+    loadSourceDocumentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceDocumentsSuccess: (
+        sourceDocuments: KnowledgeSourceDocumentApi[],
+        payload?: void
+    ) => {
+        sourceDocuments: KnowledgeSourceDocumentApi[]
+        payload?: void
+    }
     loadSourceFailure: (
         error: string,
         errorObject?: any
@@ -290,6 +309,22 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 loadSourceTextFailure: () => true,
             },
         ],
+        sourceDocumentsFailed: [
+            false,
+            {
+                loadSourceDocuments: () => false,
+                loadSourceDocumentsSuccess: () => false,
+                loadSourceDocumentsFailure: () => true,
+            },
+        ],
+        // Stays false until the first successful response, so the table does not
+        // render its empty state in the gap before the loader starts.
+        sourceDocumentsLoaded: [
+            false,
+            {
+                loadSourceDocumentsSuccess: () => true,
+            },
+        ],
     }),
     loaders(({ actions, props }) => ({
         source: [
@@ -314,6 +349,17 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             {
                 loadSourceText: async () => {
                     return await getSourceText(props.id)
+                },
+            },
+        ],
+        sourceDocuments: [
+            [] as KnowledgeSourceDocumentApi[],
+            {
+                loadSourceDocuments: async (_: void, breakpoint) => {
+                    const documents = await getSourceDocuments(props.id)
+                    // A poll can start a second fetch before the first returns.
+                    breakpoint()
+                    return documents
                 },
             },
         ],
@@ -414,6 +460,9 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                     }
                 }
                 cache.formHydrated = true
+            }
+            if (source.source_type === 'url') {
+                actions.loadSourceDocuments()
             }
             const delayMs = sourcePollDelayMs(source)
             if (delayMs === null) {

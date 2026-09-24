@@ -1,4 +1,5 @@
 import math
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -9,7 +10,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, min_points_to_evaluate
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -36,6 +37,19 @@ ANY_ROW_MAX_ROWS = 50
 # for queries that would otherwise return too many rows.
 LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
 _DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
+
+
+def _point_date(label: str | None) -> str | None:
+    if label is None:
+        return None
+    try:
+        if len(label) == 10:
+            return date.fromisoformat(label).isoformat()
+        if len(label) > 10 and label[10] in ("T", " "):
+            return datetime.fromisoformat(label).isoformat()
+    except ValueError:
+        pass
+    return None
 
 
 def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
@@ -246,7 +260,7 @@ def extract_hogql_detector_series(
     # exact cutoff. (Trends adds +1 to compensate for the dropped interval; SQL must not, or a query
     # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
     min_samples = _compute_min_samples_for_detector(detector_config)
-    if len(values) < min_samples:
+    if len(values) < min_points_to_evaluate(detector_config):
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can
@@ -263,7 +277,10 @@ def extract_hogql_detector_series(
     label_cell = _label_cell(anchor_row, label_index)
     series_label = label_cell if label_cell is not None else _value_column_label(column_names, value_index)
 
-    points = [SeriesPoint(date=None, value=v) for v in values]
+    dates = [_point_date(_label_cell(row, label_index)) for row in ordered[-min_samples:]]
+    # Partial dates would shift chart positions when the simulation removes missing labels.
+    has_dates = all(point_date is not None for point_date in dates)
+    points = [SeriesPoint(date=point_date if has_dates else None, value=v) for point_date, v in zip(dates, values)]
     single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
     return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 

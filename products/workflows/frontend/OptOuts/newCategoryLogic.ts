@@ -2,8 +2,11 @@ import { MakeLogicType, actions, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { messagingCategoriesCreate, messagingCategoriesPartialUpdate } from 'products/messaging/frontend/generated/api'
+import type { MessageCategoryTypeEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
@@ -12,7 +15,7 @@ export type CategoryForm = {
     key: string
     description: string
     public_description: string
-    category_type: string
+    category_type: MessageCategoryTypeEnumApi
 }
 
 export type CategoryLogicProps = {
@@ -117,9 +120,9 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                 ? {
                       name: props.category.name,
                       key: props.category.key,
-                      description: props.category.description,
-                      public_description: props.category.public_description,
-                      category_type: props.category.category_type,
+                      description: props.category.description ?? '',
+                      public_description: props.category.public_description ?? '',
+                      category_type: props.category.category_type ?? 'marketing',
                   }
                 : NEW_CATEGORY,
             errors: ({ name, key }: CategoryForm) => {
@@ -134,13 +137,14 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                 }
             },
             submit: async (formValues: CategoryForm) => {
+                const teamId = String(ApiConfig.getCurrentTeamId())
                 if (props.category) {
                     // Update existing category
-                    await api.messaging.updateCategory(props.category.id, formValues)
+                    await messagingCategoriesPartialUpdate(teamId, props.category.id, formValues)
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
-                    await api.messaging.createCategory(formValues)
+                    await messagingCategoriesCreate(teamId, formValues)
                     lemonToast.success('Category created successfully')
                 }
                 // Reload categories in the parent logic

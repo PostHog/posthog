@@ -41,7 +41,7 @@ jest.mock('./runStreamLogic', () => {
             pushConversationCleared: true,
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
-            markTurnComplete: true,
+            markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
             setCurrentMode: (mode: string) => ({ mode }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
@@ -608,6 +608,21 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('first\n\nsecond'))
         expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('keeps a staged follow-up queued when history replays an older turn completion', async () => {
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        logic.actions.submitComposerForm()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
+
+        setThinking(false)
+        await expectLogic(logic, () => {
+            stream.actions.markTurnComplete(true)
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
     it.each(['approval first', 'turn first'])('holds ordinary delivery until both gates clear: %s', async (order) => {
@@ -1183,11 +1198,20 @@ describe('runInteractionLogic', () => {
         }
     )
 
-    it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {
-        attachedContextLogic().actions.registerContext('scene', [
+    it.each(['global', 'runner'])('wraps and deduplicates %s context while echoing raw text', async (scope) => {
+        const contextItems = [
             { type: 'insight', key: 'sig', label: 'Signups' },
             { type: 'text', value: 'always resend me' },
-        ])
+        ]
+        attachedContextLogic().actions.registerContext(
+            'scene',
+            scope === 'global' ? contextItems : [{ type: 'text', value: 'unrelated scene context' }]
+        )
+        if (scope === 'runner') {
+            logic.unmount()
+            logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted, contextItems })
+            logic.mount()
+        }
         setThinking(false)
 
         logic.actions.setComposerFormValues({ draft: 'why the drop?' })
@@ -1201,6 +1225,7 @@ describe('runInteractionLogic', () => {
         // The wire content carries the invisible context block; the echoed human message stays raw.
         expect(firstSend.params.content).toContain('<posthog_untrusted_context>')
         expect(firstSend.params.content).toContain('- insight sig ("Signups")')
+        expect(firstSend.params.content).not.toContain('unrelated scene context')
         expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
         await expectLogic(stream).toDispatchActions([
             (action) =>

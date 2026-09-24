@@ -70,7 +70,7 @@ class TestClerkSource:
     def test_non_retryable_errors_does_not_match_404_on_other_clerk_endpoints(self):
         # A 404 from an endpoint we don't classify may be a genuinely missing record worth
         # investigating — the matches must stay scoped to the paths where a 404 is deterministic.
-        other_endpoint_error = "404 Client Error: Not Found for url: https://api.clerk.com/v1/organizations?limit=100"
+        other_endpoint_error = "404 Client Error: Not Found for url: https://api.clerk.com/v1/api_keys?limit=100"
 
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_endpoint_error for key in non_retryable_errors)

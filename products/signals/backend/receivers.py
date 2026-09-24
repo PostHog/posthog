@@ -29,6 +29,7 @@ from products.signals.backend.report_embeddings import (
     render_report_documents,
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
+from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 if TYPE_CHECKING:
@@ -377,6 +378,50 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
+def arm_pending_checks_when_report_resolved(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Start the soak clock on the report's pending checks the moment it resolves.
+
+    A check written during research predates any fix, so it carries a soak duration rather than a
+    date. The resolve is what it waits for, and hooking the model rather than each caller makes
+    every resolve path the same clock: a merged pull request's webhook, a manual resolve in the
+    inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
+    request to date a window from, which is why the report's own transition is the event.
+    """
+    if instance.status != SignalReport.Status.RESOLVED:
+        return
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id = instance.team_id
+    report_id = str(instance.id)
+    resolved_at = timezone.now()
+    # After commit, so a rolled-back resolve never arms a check, and best-effort: a report that
+    # resolved is the outcome that matters, and a failure here leaves the checks pending rather
+    # than losing them.
+    transaction.on_commit(
+        partial(_arm_pending_checks_safely, team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+    )
+
+
+def _arm_pending_checks_safely(*, team_id: int, report_id: str, resolved_at: datetime) -> None:
+    # Function-local: the authoring module reaches the execution module and from there the alerts
+    # facade, which the startup-import-budget test keeps off django.setup().
+    from products.signals.backend.report_check_authoring import arm_pending_checks  # noqa: PLC0415
+
+    try:
+        arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+    except Exception:
+        logger.exception("signals.report_check.arm_on_resolve_failed", report_id=report_id, team_id=team_id)
+
+
+@receiver(post_save, sender=SignalReport)
 def emit_report_embedding_on_document_change(
     sender: type[SignalReport],
     instance: SignalReport,
@@ -604,6 +649,28 @@ def reconcile_report_embedding_on_verdict_saved(
     _reconcile_report_embedding_with_verdict(instance)
 
 
+def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
+    if instance.type != SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        return
+    SignalReport.refresh_latest_actionability(team_id=instance.team_id, report_id=instance.report_id)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Keep the report's cached actionability equal to its newest judgment.
+
+    On the artefact write path rather than at each producer, because a judgment reaches a report
+    from the research pipeline, a custom agent, a scout edit, the artefact REST API and the MCP
+    tools. Not gated on `created`, because `update_content` edits a judgment row in place.
+    """
+    _sync_report_latest_actionability(instance)
+
+
 def _deleted_directly(origin: Any) -> bool:
     """Whether a delete was issued against artefacts themselves rather than cascading from a report.
 
@@ -636,6 +703,23 @@ def reconcile_report_embedding_on_verdict_deleted(
     if not _deleted_directly(origin):
         return
     _reconcile_report_embedding_with_verdict(instance)
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the newest judgment reverts the report to the one before it.
+
+    Skipped for a cascade, where the report itself is going away, so a team teardown does not pay
+    a read and a write per artefact for a row nobody will read.
+    """
+    if not _deleted_directly(origin):
+        return
+    _sync_report_latest_actionability(instance)
 
 
 @receiver(post_save, sender=SignalReport)
@@ -816,3 +900,37 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
         mark_stale_if_fleet_changed(instance.team_id)
     except Exception:
         logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_suggested_reviewer_index_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Rebuild the report's reviewer index whenever a reviewers row is written.
+
+    Not gated on `created`: `update_content` edits a reviewers row in place, and editing the
+    current row changes the report's reviewer set.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+        return
+    sync_suggested_reviewer_index(team_id=instance.team_id, report_id=str(instance.report_id))
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_suggested_reviewer_index_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the current reviewers row reverts the set to the previous one, or to none.
+
+    Skipped for a cascade: the index rows go down with the report that owns them, so rebuilding
+    per artefact on the way down would only spend queries to reach the same empty state.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS or not _deleted_directly(origin):
+        return
+    sync_suggested_reviewer_index(team_id=instance.team_id, report_id=str(instance.report_id))

@@ -555,6 +555,21 @@ function parseInlineLink(
         return null
     }
 
+    const label = markdown.slice(index + 1, labelEnd)
+
+    // CommonMark's pointy-bracket form, `[label](<href>)`. Slack writes links this way, so it
+    // arrives with every link someone copies out of a Slack message.
+    if (markdown[labelEnd + 2] === '<') {
+        const hrefEnd = markdown.indexOf('>', labelEnd + 3)
+        if (hrefEnd !== -1 && markdown[hrefEnd + 1] === ')') {
+            return {
+                label,
+                href: sanitizeNotebookLinkHref(markdown.slice(labelEnd + 3, hrefEnd)),
+                nextIndex: hrefEnd + 2,
+            }
+        }
+    }
+
     // Hrefs may contain backslash-escaped characters and balanced parentheses (Wikipedia-style URLs)
     let cursor = labelEnd + 2
     let parenDepth = 0
@@ -573,7 +588,7 @@ function parseInlineLink(
         if (character === ')') {
             if (parenDepth === 0) {
                 return {
-                    label: markdown.slice(index + 1, labelEnd),
+                    label,
                     href: sanitizeNotebookLinkHref(rawHref),
                     nextIndex: cursor + 1,
                 }

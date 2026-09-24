@@ -38,6 +38,14 @@ type Story = StoryObj<typeof AccountSettingsView>;
 
 export const WithGravatar: Story = {};
 
+export const TransparentGravatar: Story = {
+  args: {
+    imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 144"><circle cx="72" cy="56" r="28" fill="#fdfdfc"/><path d="M20 144c0-32 24-52 52-52s52 20 52 52z" fill="#fdfdfc"/></svg>',
+    )}`,
+  },
+};
+
 export const NoGravatar: Story = {
   args: { status: "missing", imageUrl: undefined },
 };

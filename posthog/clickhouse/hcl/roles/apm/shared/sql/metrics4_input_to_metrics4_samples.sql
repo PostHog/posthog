@@ -1,0 +1,31 @@
+SELECT
+  team_id,
+  metric_name,
+  toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+  series_fingerprint,
+  toDate32(original_expiry_timestamp) AS original_expiry_date,
+  any(resource_fingerprint) AS resource_fingerprint,
+  any(service_name) AS service_name,
+  any(metric_type) AS metric_type,
+  any(unit) AS unit,
+  any(aggregation_temporality) AS aggregation_temporality,
+  max(toUInt8(is_monotonic)) AS is_monotonic,
+  max(toUInt8(has_labels)) AS has_labels,
+  any(instrumentation_scope) AS instrumentation_scope,
+  anyLast(histogram_bounds) AS histogram_bounds,
+  any(_topic) AS _topic,
+  groupArray(10000)(timestamp) AS timestamp_arr,
+  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
+  groupArray(10000)(value) AS value_arr,
+  groupArray(10000)(count) AS count_arr,
+  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
+  groupArray(10000)(trace_id) AS trace_id_arr,
+  groupArray(10000)(span_id) AS span_id_arr,
+  groupArray(10000)(trace_flags) AS trace_flags_arr
+FROM posthog.metrics4_input
+GROUP BY
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  original_expiry_date

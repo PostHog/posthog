@@ -4,7 +4,10 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import (
+    ENDPOINTS,
+    TIMESERIES_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
     DatahubSourceConfig,
@@ -37,12 +40,18 @@ class TestDatahubSource:
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+    def test_get_schemas_marks_only_timeseries_endpoints_incremental(self) -> None:
+        # Entity endpoints have no server-side updated-since filter, so a cursor offered on one
+        # would silently re-read everything each sync while claiming to be incremental.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert set(schemas) == set(ENDPOINTS)
+        for name, schema in schemas.items():
+            is_timeseries = name in TIMESERIES_ENDPOINTS
+            assert schema.supports_incremental is is_timeseries
+            assert [f["field"] for f in schema.incremental_fields] == (["timestampMillis"] if is_timeseries else [])
+            # Merge only: the startTimeMillis bound is inclusive, so an append would land the
+            # boundary event again on every sync.
+            assert schema.supports_append is False
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["datasets"])
@@ -56,6 +65,11 @@ class TestDatahubSource:
         tables = self.source.get_documented_tables()
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
+
+    def test_every_table_is_documented(self) -> None:
+        # The public docs render this catalog, and a table with no entry falls back to an LLM
+        # guess at its columns.
+        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -104,6 +118,20 @@ class TestDatahubSource:
         assert kwargs["endpoint"] == "datasets"
         assert kwargs["team_id"] == self.team_id
         assert kwargs["resumable_source_manager"] is manager
+
+    @parameterized.expand([(True, 1500), (False, None)])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.datahub_source")
+    def test_source_for_pipeline_only_passes_the_watermark_on_an_incremental_run(
+        self, should_use_incremental_field: bool, expected: int | None, mock_source: mock.MagicMock
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "dataset_profiles"
+        inputs.should_use_incremental_field = should_use_incremental_field
+        inputs.db_incremental_field_last_value = 1500
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == expected
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

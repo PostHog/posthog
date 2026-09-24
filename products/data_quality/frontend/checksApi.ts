@@ -1,187 +1,121 @@
 import { ApiConfig, ApiError } from 'lib/api'
 
 import {
-    dataCatalogMetricsCheckSuiteRunsCheckRunsList,
-    dataCatalogMetricsCheckSuiteRunsList,
-    dataCatalogMetricsCheckSuiteRunsRetrieve,
-    dataCatalogMetricsChecksCheckTypesList,
-    dataCatalogMetricsChecksCreate,
-    dataCatalogMetricsChecksDestroy,
-    dataCatalogMetricsChecksHealthRetrieve,
-    dataCatalogMetricsChecksList,
-    dataCatalogMetricsChecksOutputSchemaRetrieve,
-    dataCatalogMetricsChecksPartialUpdate,
-    dataCatalogMetricsChecksRunAllCreate,
-    dataCatalogMetricsChecksRunCreate,
-    dataCatalogMetricsChecksRunsList,
+    dataQualityChecksCheckTypesList,
+    dataQualityChecksCreate,
+    dataQualityChecksDestroy,
+    dataQualityChecksHealthList,
+    dataQualityChecksList,
     dataQualityChecksMetricSubjectsList,
-    warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
-    warehouseSavedQueriesCheckSuiteRunsList,
-    warehouseSavedQueriesCheckSuiteRunsRetrieve,
-    warehouseSavedQueriesChecksCheckTypesList,
-    warehouseSavedQueriesChecksCreate,
-    warehouseSavedQueriesChecksDestroy,
-    warehouseSavedQueriesChecksHealthRetrieve,
-    warehouseSavedQueriesChecksList,
-    warehouseSavedQueriesChecksPartialUpdate,
-    warehouseSavedQueriesChecksRunAllCreate,
-    warehouseSavedQueriesChecksRunCreate,
-    warehouseSavedQueriesChecksRunsList,
-    warehouseTablesCheckSuiteRunsCheckRunsList,
-    warehouseTablesCheckSuiteRunsList,
-    warehouseTablesCheckSuiteRunsRetrieve,
-    warehouseTablesChecksCheckTypesList,
-    warehouseTablesChecksCreate,
-    warehouseTablesChecksDestroy,
-    warehouseTablesChecksHealthRetrieve,
-    warehouseTablesChecksList,
-    warehouseTablesChecksPartialUpdate,
-    warehouseTablesChecksRunAllCreate,
-    warehouseTablesChecksRunCreate,
-    warehouseTablesChecksRunsList,
+    dataQualityChecksOutputSchemaRetrieve,
+    dataQualityChecksPartialUpdate,
+    dataQualityChecksRunCreate,
+    dataQualityChecksRunsList,
+    dataQualityChecksSchedulePartialUpdate,
+    dataQualityChecksScheduleRetrieve,
+    dataQualityChecksSchedulesList,
+    dataQualityChecksSubjectsList,
+    dataQualityRunsCheckRunsList,
+    dataQualityRunsCreate,
+    dataQualityRunsList,
+    dataQualityRunsRetrieve,
 } from './generated/api'
 import type {
     DataQualityCheckApi,
     DataQualityCheckRunApi,
+    DataQualityCheckScheduleApi,
     DataQualityCheckTypeApi,
     DataQualityMetricSubjectApi,
     DataQualityOutputSchemaApi,
+    DataQualitySubjectApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
-    PaginatedDataQualityCheckListApi,
+    PatchedDataQualityCheckScheduleUpdateApi,
+    PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
+    SubjectTypeEnumApi,
 } from './generated/api.schemas'
 
 export function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
-export type DataQualitySubjectType = 'table' | 'view' | 'metric'
+export type DataQualitySubjectType = SubjectTypeEnumApi
 
 export interface DataQualitySubjectRef {
     subjectType: DataQualitySubjectType
     subjectId: string
 }
 
-type CreateBody = Parameters<typeof warehouseSavedQueriesChecksCreate>[2]
-type PatchBody = Parameters<typeof warehouseSavedQueriesChecksPartialUpdate>[3]
-type PageParams = Parameters<typeof warehouseSavedQueriesChecksList>[2]
-
-interface SubjectRoutes {
-    list: (projectId: string, subjectId: string, params?: PageParams) => Promise<PaginatedDataQualityCheckListApi>
-    create: (projectId: string, subjectId: string, body: CreateBody) => Promise<DataQualityCheckApi>
-    partialUpdate: (projectId: string, subjectId: string, id: string, body?: PatchBody) => Promise<DataQualityCheckApi>
-    destroy: (projectId: string, subjectId: string, id: string) => Promise<void>
-    run: (projectId: string, subjectId: string, id: string) => Promise<DataQualitySuiteRunApi>
-    runAll: (projectId: string, subjectId: string) => Promise<DataQualitySuiteRunApi>
-    runs: (projectId: string, subjectId: string, id: string) => Promise<DataQualityCheckRunApi[]>
-    checkTypes: (projectId: string, subjectId: string) => Promise<DataQualityCheckTypeApi[]>
-    health: (projectId: string, subjectId: string) => Promise<DataQualitySubjectHealthApi>
-    suiteRuns: (
-        projectId: string,
-        subjectId: string,
-        params?: PageParams
-    ) => Promise<PaginatedDataQualitySuiteRunListApi>
-    suiteRunRetrieve: (projectId: string, subjectId: string, id: string) => Promise<DataQualitySuiteRunApi>
-    suiteRunCheckRuns: (projectId: string, subjectId: string, id: string) => Promise<DataQualityCheckRunApi[]>
-}
-
-const ROUTES: Record<DataQualitySubjectType, SubjectRoutes> = {
-    table: {
-        list: warehouseTablesChecksList,
-        create: warehouseTablesChecksCreate,
-        partialUpdate: warehouseTablesChecksPartialUpdate,
-        destroy: warehouseTablesChecksDestroy,
-        run: warehouseTablesChecksRunCreate,
-        runAll: warehouseTablesChecksRunAllCreate,
-        runs: warehouseTablesChecksRunsList,
-        checkTypes: warehouseTablesChecksCheckTypesList,
-        health: warehouseTablesChecksHealthRetrieve,
-        suiteRuns: warehouseTablesCheckSuiteRunsList,
-        suiteRunRetrieve: warehouseTablesCheckSuiteRunsRetrieve,
-        suiteRunCheckRuns: warehouseTablesCheckSuiteRunsCheckRunsList,
-    },
-    view: {
-        list: warehouseSavedQueriesChecksList,
-        create: warehouseSavedQueriesChecksCreate,
-        partialUpdate: warehouseSavedQueriesChecksPartialUpdate,
-        destroy: warehouseSavedQueriesChecksDestroy,
-        run: warehouseSavedQueriesChecksRunCreate,
-        runAll: warehouseSavedQueriesChecksRunAllCreate,
-        runs: warehouseSavedQueriesChecksRunsList,
-        checkTypes: warehouseSavedQueriesChecksCheckTypesList,
-        health: warehouseSavedQueriesChecksHealthRetrieve,
-        suiteRuns: warehouseSavedQueriesCheckSuiteRunsList,
-        suiteRunRetrieve: warehouseSavedQueriesCheckSuiteRunsRetrieve,
-        suiteRunCheckRuns: warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
-    },
-    metric: {
-        list: dataCatalogMetricsChecksList,
-        create: dataCatalogMetricsChecksCreate,
-        partialUpdate: dataCatalogMetricsChecksPartialUpdate,
-        destroy: dataCatalogMetricsChecksDestroy,
-        run: dataCatalogMetricsChecksRunCreate,
-        runAll: dataCatalogMetricsChecksRunAllCreate,
-        runs: dataCatalogMetricsChecksRunsList,
-        checkTypes: dataCatalogMetricsChecksCheckTypesList,
-        health: dataCatalogMetricsChecksHealthRetrieve,
-        suiteRuns: dataCatalogMetricsCheckSuiteRunsList,
-        suiteRunRetrieve: dataCatalogMetricsCheckSuiteRunsRetrieve,
-        suiteRunCheckRuns: dataCatalogMetricsCheckSuiteRunsCheckRunsList,
-    },
-}
+type CreateBody = Omit<Parameters<typeof dataQualityChecksCreate>[1], 'subject_type' | 'subject_uuid'>
+type PatchBody = Parameters<typeof dataQualityChecksPartialUpdate>[2]
 
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
 
-function routesFor({ subjectType }: DataQualitySubjectRef): SubjectRoutes {
-    return ROUTES[subjectType]
+function subjectParams(ref: DataQualitySubjectRef): { subject_type: DataQualitySubjectType; subject_uuid: string } {
+    return { subject_type: ref.subjectType, subject_uuid: ref.subjectId }
+}
+
+function emptyHealth(ref: DataQualitySubjectRef): DataQualitySubjectHealthApi {
+    return { ...subjectParams(ref), health: 'unknown', checks_total: 0, checks_failing: 0 }
 }
 
 export const checksApi = {
     metricSubjects: (): Promise<DataQualityMetricSubjectApi[]> => dataQualityChecksMetricSubjectsList(projectId()),
 
+    subjects: (): Promise<DataQualitySubjectApi[]> => dataQualityChecksSubjectsList(projectId()),
+
     outputSchema: (ref: DataQualitySubjectRef): Promise<DataQualityOutputSchemaApi> => {
         if (ref.subjectType !== 'metric') {
             return Promise.resolve({ columns: [] })
         }
-        return dataCatalogMetricsChecksOutputSchemaRetrieve(projectId(), ref.subjectId)
+        return dataQualityChecksOutputSchemaRetrieve(projectId(), subjectParams(ref))
     },
 
-    list: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualityCheckListApi> =>
-        routesFor(ref).list(projectId(), ref.subjectId, { limit }),
+    list: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualityOverviewCheckListApi> =>
+        dataQualityChecksList(projectId(), { ...subjectParams(ref), limit }),
 
     create: (ref: DataQualitySubjectRef, body: CreateBody): Promise<DataQualityCheckApi> =>
-        routesFor(ref).create(projectId(), ref.subjectId, body),
+        dataQualityChecksCreate(projectId(), { ...body, ...subjectParams(ref) }),
 
-    partialUpdate: (ref: DataQualitySubjectRef, id: string, body: PatchBody): Promise<DataQualityCheckApi> =>
-        routesFor(ref).partialUpdate(projectId(), ref.subjectId, id, body),
+    partialUpdate: (id: string, body: PatchBody): Promise<DataQualityCheckApi> =>
+        dataQualityChecksPartialUpdate(projectId(), id, body),
 
-    destroy: (ref: DataQualitySubjectRef, id: string): Promise<void> =>
-        routesFor(ref).destroy(projectId(), ref.subjectId, id),
+    destroy: (id: string): Promise<void> => dataQualityChecksDestroy(projectId(), id),
 
-    run: (ref: DataQualitySubjectRef, id: string): Promise<DataQualitySuiteRunApi> =>
-        routesFor(ref).run(projectId(), ref.subjectId, id),
+    run: (id: string): Promise<DataQualitySuiteRunApi> => dataQualityChecksRunCreate(projectId(), id),
 
     runAll: (ref: DataQualitySubjectRef): Promise<DataQualitySuiteRunApi> =>
-        routesFor(ref).runAll(projectId(), ref.subjectId),
+        dataQualityRunsCreate(projectId(), subjectParams(ref)),
 
-    runs: (ref: DataQualitySubjectRef, id: string): Promise<DataQualityCheckRunApi[]> =>
-        routesFor(ref).runs(projectId(), ref.subjectId, id),
+    runs: (id: string): Promise<DataQualityCheckRunApi[]> => dataQualityChecksRunsList(projectId(), id),
 
     checkTypes: (ref: DataQualitySubjectRef): Promise<DataQualityCheckTypeApi[]> =>
-        routesFor(ref).checkTypes(projectId(), ref.subjectId),
+        dataQualityChecksCheckTypesList(projectId(), { subject_type: ref.subjectType }),
 
-    health: (ref: DataQualitySubjectRef): Promise<DataQualitySubjectHealthApi> =>
-        routesFor(ref).health(projectId(), ref.subjectId),
+    health: async (ref: DataQualitySubjectRef): Promise<DataQualitySubjectHealthApi> => {
+        const rollups = await dataQualityChecksHealthList(projectId(), subjectParams(ref))
+        return rollups[0] ?? emptyHealth(ref)
+    },
 
     suiteRuns: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualitySuiteRunListApi> =>
-        routesFor(ref).suiteRuns(projectId(), ref.subjectId, { limit }),
+        dataQualityRunsList(projectId(), { ...subjectParams(ref), limit }),
 
-    suiteRunRetrieve: (ref: DataQualitySubjectRef, id: string): Promise<DataQualitySuiteRunApi> =>
-        routesFor(ref).suiteRunRetrieve(projectId(), ref.subjectId, id),
+    suiteRunRetrieve: (id: string): Promise<DataQualitySuiteRunApi> => dataQualityRunsRetrieve(projectId(), id),
 
-    suiteRunCheckRuns: (ref: DataQualitySubjectRef, id: string): Promise<DataQualityCheckRunApi[]> =>
-        routesFor(ref).suiteRunCheckRuns(projectId(), ref.subjectId, id),
+    suiteRunCheckRuns: (id: string): Promise<DataQualityCheckRunApi[]> => dataQualityRunsCheckRunsList(projectId(), id),
+
+    schedule: (ref: DataQualitySubjectRef): Promise<DataQualityCheckScheduleApi> =>
+        dataQualityChecksScheduleRetrieve(projectId(), subjectParams(ref)),
+
+    schedules: (): Promise<DataQualitySubjectScheduleApi[]> => dataQualityChecksSchedulesList(projectId()),
+
+    updateSchedule: (
+        ref: DataQualitySubjectRef,
+        patch: PatchedDataQualityCheckScheduleUpdateApi
+    ): Promise<DataQualityCheckScheduleApi> =>
+        dataQualityChecksSchedulePartialUpdate(projectId(), { ...patch, ...subjectParams(ref) }),
 }

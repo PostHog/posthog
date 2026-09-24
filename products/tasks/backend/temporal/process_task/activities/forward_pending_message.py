@@ -10,6 +10,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
@@ -97,6 +98,8 @@ def forward_pending_user_message(run_id: str) -> None:
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:
             return
+
+        check_organization_execution(task_run.team_id)
 
         if state.get("await_user_message"):
             from products.tasks.backend.exceptions import ComputeBillingLimitError

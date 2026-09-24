@@ -89,7 +89,7 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with "
             "its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards "
-            "counts can exceed it. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; "
+            "counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; "
             "CI counts can lag until late completions settle."
         ),
     )
@@ -193,11 +193,11 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
             400: OpenApiResponse(description="Branch missing/empty, or invalid repo/timestamp/source_id."),
         },
         description=(
-            "Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another "
+            "Resolve a git branch to the pull request(s) it belongs to: the cross-product link seam so another "
             "product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, "
             "open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR "
             "that was active at that moment when a branch name has been reused across PRs. `branch` is required. "
-            "Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain "
+            "Returns a possibly-empty, possibly-multi list: an empty list is a valid 200 (the caller renders a plain "
             "chip)."
         ),
     )
@@ -338,7 +338,7 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. "
-            "Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux "
+            "Billable self-hosted Linux runners only: provider-hosted (free GitHub-hosted) and non-Linux "
             "jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level "
             "source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR "
             "by git branch, or null when no `$ai_generation` event matched."

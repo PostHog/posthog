@@ -826,6 +826,11 @@ export interface LLMSkillSearchResultApi {
     name: string
     /** What this skill does and when to use it. */
     description: string
+    /**
+     * Relevance score used to rank this result. Higher scores are more relevant.
+     * @minimum 1
+     */
+    score: number
     /** Up to two locations that matched the search query, ordered by field relevance. */
     matches: LLMSkillSearchMatchApi[]
 }

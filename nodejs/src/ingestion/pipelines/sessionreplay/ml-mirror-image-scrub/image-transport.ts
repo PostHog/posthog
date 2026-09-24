@@ -8,7 +8,7 @@ export const CAPTURE_TIMESTAMP_HEADER = 'capture-timestamp-ms'
 
 const MAX_CONTENT_ENCODING_LAYERS = 4
 
-export const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
+export const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 
 export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number]
 
@@ -95,23 +95,6 @@ async function decodeWithLimit(bytes: Buffer, encoding: string): Promise<Buffer>
     return Buffer.concat(chunks, outputBytes)
 }
 
-function isAvif(bytes: Buffer): boolean {
-    if (bytes.length < 16 || bytes.toString('ascii', 4, 8) !== 'ftyp') {
-        return false
-    }
-    const boxSize = bytes.readUInt32BE(0)
-    if (boxSize < 16 || boxSize > bytes.length) {
-        return false
-    }
-    for (let offset = 8; offset + 4 <= boxSize; offset += 4) {
-        const brand = bytes.toString('ascii', offset, offset + 4)
-        if (brand === 'avif' || brand === 'avis') {
-            return true
-        }
-    }
-    return false
-}
-
 export function isSupportedImageMediaType(contentType: string): contentType is SupportedImageMediaType {
     return SUPPORTED_IMAGE_MEDIA_TYPES.includes(contentType as SupportedImageMediaType)
 }
@@ -128,8 +111,6 @@ export function imageBytesMatchMediaType(bytes: Buffer, contentType: SupportedIm
         }
         case 'image/webp':
             return bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
-        case 'image/avif':
-            return isAvif(bytes)
     }
 }
 

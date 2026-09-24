@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB5",
+    "cluster": 18,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The connection predicate at /tmp/frozen-75215/products/stamphog/backend/facade/api.py:120-124 lacks a provider filter, but it requires a nonblank installation and connecting user. Supported write paths cannot produce the claimed synced non-GitHub row. /tmp/frozen-75215/products/stamphog/backend/presentation/serializers.py:61-63 makes provider immutable on update, :74-85 excludes connected_by_user_id from writable fields, and :98-103 makes installation_id read-only. The authenticated sync creates only provider='github' rows at /tmp/frozen-75215/products/stamphog/backend/presentation/views.py:307-315 and adopts only GitHub placeholders at :85-99; it stamps connecting users only onto those synced IDs at :461-464. Installation webhook creation likewise hardcodes GitHub at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:666-674. Those rows therefore satisfy the initial task's provider filter at :1143.",
+            "refutation": "I first attempted to reach the claimed state through create, update, verified sync, and webhook installation paths. Creating an unsupported-provider placeholder cannot set its installation or connecting user; changing a synced provider is ignored; sync/adoption and webhook creation are GitHub-only. Existing API tests confirm ignored installation writes and immutable provider identity (test_api.py:35-67). A manually corrupted database or hypothetical future provider could expose the mismatch, but no current caller does. The additional filter would be defensive consistency, not a verified user-visible defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "has_reviewable_repo_config requires nonblank installation_id and nonnull connected_by_user_id (products/stamphog/backend/facade/api.py:120-124). A non-GitHub row cannot obtain these through supported writes: presentation/serializers.py:74-85 omits connected_by_user_id, :98-99 makes installation_id read-only, and :61-63 prevents changing an existing provider. Verified sync creates only provider='github' rows (presentation/views.py:307-315), adopts only existing GitHub rows (:85-99), and stamps connecting users only on those synced IDs (:461-464). The installation webhook also explicitly creates GitHub rows (tasks/tasks.py:665-674).",
+            "refutation": "I attempted to construct the reported state through create, update, sync, adoption, and installation webhook paths. A manually created unsupported-provider row stays unbound and is excluded by the current connection query; a bound GitHub row cannot be changed to another provider. Existing API tests at products/stamphog/backend/tests/test_api.py:35-67 verify ignored client installation IDs and immutable providers, and review_hog/backend/tests/test_settings_api.py:49-75 verifies exclusion of unbound configs. A hand-written database row could produce the false positive, but no shipping flow creates a synced non-GitHub config. The extra filter would be defensive future-proofing, not a demonstrated current defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/review_hog/backend/api/settings.py:78 delegates to the predicate at stamphog/backend/facade/api.py:120-124, which requires nonempty installation_id and non-null connected_by_user_id. The alleged synced non-GitHub row cannot arise through the shipped connection flow: presentation/serializers.py:73-85 excludes connected_by_user_id from writable fields, :98-103 makes installation_id read-only, and :61-63 prevents changing provider on an existing row. Verified sync creates provider='github' rows at presentation/views.py:307-315; its adoption fallback also filters github at :85-99. The connecting user is stamped only on those synced rows at :461-465. The other binding writer, the installation webhook, explicitly creates provider='github' at tasks/tasks.py:665-674.",
+            "refutation": "I first tried the two plausible production routes to the claimed state: creating a non-GitHub config and syncing it, or syncing GitHub and changing the provider afterward. The first leaves a placeholder without connection credentials and cannot be adopted by the GitHub-only sync query; the second is blocked by provider immutability. Tests at stamphog/backend/tests/test_api.py:35-67 verify ignored client installation IDs and ignored provider changes. The missing predicate is optional future-provider hardening, not a demonstrated current mismatch; a manually fabricated database row is not evidence of a production trigger."
+        }
+    ]
+}

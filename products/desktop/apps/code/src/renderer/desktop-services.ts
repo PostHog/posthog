@@ -1,3 +1,4 @@
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 // Desktop host service bindings live here as features move into packages.
 // Importing the renderer container performs today's existing bindings.
@@ -102,7 +103,10 @@ import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import {
   type ISpeechKeyStore,
   SPEECH_KEY_STORE,
@@ -325,6 +329,7 @@ container
         completionVolume: s.completionVolume,
         scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
         customSounds: s.customSounds,
+        notificationsPausedUntil: s.notificationsPausedUntil,
       };
     },
   });
@@ -387,7 +392,9 @@ container
     get: () => {
       const s = useSettingsStore.getState();
       return {
-        enabled: s.spokenNotifications,
+        enabled:
+          s.spokenNotifications &&
+          !notificationsPaused(s.notificationsPausedUntil),
         voiceId: s.elevenLabsVoiceId || undefined,
       };
     },
@@ -462,3 +469,9 @@ container.bind(HOST_CAPABILITIES).toConstantValue({
 } satisfies HostCapabilities);
 
 container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);
+
+container.bind(SETTINGS_BACKUP_FILES).toConstantValue({
+  getAppVersion: () => hostTrpcClient.os.getAppVersion.query(),
+  open: () => hostTrpcClient.settingsBackup.open.mutate(),
+  save: (input) => hostTrpcClient.settingsBackup.save.mutate(input),
+});
