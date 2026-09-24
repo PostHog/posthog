@@ -3,6 +3,7 @@ from typing import Any, Optional
 from django.db.models import QuerySet
 
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.request import Request
 
 # A page above this many rows is never a real product request, and a page this deep is past the
 # end of every list we serve.
@@ -38,7 +39,7 @@ class ClampedLimitOffsetPagination(LimitOffsetPagination):
 
     max_limit = MAX_PAGE_LIMIT
 
-    def get_offset(self, request) -> int:
+    def get_offset(self, request: Request) -> int:
         return min(super().get_offset(request), MAX_PAGE_OFFSET)
 
 
