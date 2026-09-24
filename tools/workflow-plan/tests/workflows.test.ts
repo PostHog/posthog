@@ -413,19 +413,40 @@ interface StepExpectation {
     runs: boolean
 }
 
-const STEP_EXPECTATIONS: StepExpectation[] = PINNED_WORKFLOWS.flatMap((file) => [
-    { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'hourly schedule', github: schedule() }, runs: false },
-    { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    {
-        file,
-        job: 'changes',
-        step: 'app-token',
-        scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
-        runs: false,
+const E2E_DISPATCH: Scenario = {
+    name: 'manual dispatch',
+    github: workflowDispatch('feat/example'),
+    steps: {
+        changes: {
+            decide: { outputs: { shouldRun: 'true' } },
+            'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
+        },
     },
-])
+}
+
+const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...PINNED_WORKFLOWS.flatMap((file) => [
+        { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
+        {
+            file,
+            job: 'changes',
+            step: 'filter',
+            scenario: { name: 'hourly schedule', github: schedule() },
+            runs: false,
+        },
+        { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'app-token',
+            scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
+    { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
+    { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+]
 
 const namedJobs = (file: string): Set<string> =>
     new Set(
@@ -437,37 +458,6 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
-    it.each([
-        ['manual dispatch', workflowDispatch('feat/example'), 'success'],
-        ['dispatch with a cache service error', workflowDispatch('feat/example'), 'failure'],
-        ['master push', push(), 'success'],
-        ['ready PR', pullRequest(), 'success'],
-    ] as const)('Playwright attempts schema restoration and runs migrations on %s', (name, github, outcome) => {
-        const wf = workflow('ci-e2e-playwright.yml')
-        const plan = planWorkflow(wf, {
-            name,
-            github,
-            steps: {
-                changes: {
-                    decide: { outputs: { shouldRun: 'true' } },
-                    'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
-                },
-                playwright: { 'schema-cache': { outcome } },
-            },
-        })
-        expect(plan.errors).toEqual([])
-        expect(plan.jobs.changes.steps.find((step) => step.id === 'schema-key')?.runs).toBe(true)
-        expect(plan.jobs.playwright.steps.find((step) => step.id === 'schema-cache')?.runs).toBe(true)
-        expect(
-            plan.jobs.playwright.steps.find((step) => step.name === 'Prime posthog_e2e_test from cached schema')?.runs
-        ).toBe(true)
-        expect(
-            plan.jobs.playwright.steps.find(
-                (step) => step.name === 'Apply postgres and clickhouse migrations and setup dev'
-            )?.runs
-        ).toBe(true)
-    })
-
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
         const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)

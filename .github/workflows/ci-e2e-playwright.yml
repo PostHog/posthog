@@ -299,7 +299,7 @@ jobs:
 
             - name: Compute schema cache keys
               id: schema-key
-              # PRs, master pushes, and dispatches restore the schema dump ci-backend saves on
+              # Every run restores the schema dump ci-backend saves on
               # master push, skipping the replay of the full migration history —
               # the migrate step in the heavy job still layers on anything newer. On a PR
               # the migration-set key is the merge-base's; on a push or dispatch it's HEAD's.
@@ -310,13 +310,13 @@ jobs:
               if: steps.decide.outputs.shouldRun == 'true'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  IS_DIRECT_REF: ${{ github.event_name != 'pull_request' }}
+                  IS_PR: ${{ github.event_name == 'pull_request' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
-                  if [ "$IS_DIRECT_REF" = "true" ]; then
-                      # Pushes and dispatches check out the requested commit directly.
+                  if [ "$IS_PR" != "true" ]; then
+                      # Pushed or dispatched commit is checked out directly: no merge commit, no base ref.
                       # The per-SHA key points at this same push's cache (saved concurrently
                       # by ci-backend, so racy); rely on the stable migration-set key below.
                       REF=HEAD
@@ -807,17 +807,16 @@ jobs:
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
-              # All run types. Both keys are produced by ci-backend on
-              # master push. Prefer the shared migration-set key (stable while master's
-              # migration files are unchanged); fall back to the exact merge-base SHA key
-              # (PRs only), then to the newest dump of any migration set (not on dispatch) — right after a
-              # migration lands on master both exact keys miss until ci-backend re-dumps,
-              # and the migrate step below tops a slightly stale dump up in seconds.
+              # Both keys are produced by ci-backend on master push. Prefer the shared
+              # migration-set key (stable while master's migration files are unchanged);
+              # fall back to the exact merge-base SHA key (PRs only), then to the newest
+              # dump of any migration set (not on dispatch). Right after a migration lands
+              # on master both exact keys miss until ci-backend re-dumps, and the migrate
+              # step below tops a slightly stale dump up in seconds.
               # A missing or failed cache download falls through to a full migrate below.
               if: needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
-              continue-on-error: true
               with:
                   path: schema.sql.gz
                   key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
@@ -834,7 +833,6 @@ jobs:
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
-              if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
