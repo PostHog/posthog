@@ -1,0 +1,340 @@
+{
+  "description": "Stored feature flag rows for one team, and what the internal flags.json builders must publish for each. Both the Python builders (products/feature_flags/backend/flags_cache.py) and the Rust builder (rust/feature-flags/src/flags/cache_builder.rs) run this file. A `type: flag` property whose `key` names another fixture key references that row; the harness rewrites it to the inserted id before building. `$missing` becomes `missing_dependency_id`. `expect` is `kept` when the row appears in the published payload; otherwise it is `unsupported` (a document the builders reject, logged under unsupported_flag_ids), `dependent` (a row whose dependency conditions reference an unsupported row, transitively, logged under dependent_flag_ids) or `omitted` (left out for another reason); `blanked` marks a kept row whose filters are published as {\"groups\": []}; `missing_dependency` marks a kept row listed in flags_with_missing_deps.",
+  "missing_dependency_id": 2147480000,
+  "flags": [
+    {
+      "key": "v1-boolean-true",
+      "active": true,
+      "filters": { "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "kept"
+    },
+    {
+      "key": "v1-boolean-false",
+      "active": true,
+      "filters": { "groups": [{ "properties": [], "rollout_percentage": 0 }] },
+      "expect": "kept"
+    },
+    {
+      "key": "v1-multivariate-payload",
+      "active": true,
+      "filters": {
+        "groups": [{ "properties": [], "rollout_percentage": 100 }],
+        "multivariate": {
+          "variants": [
+            { "key": "control", "rollout_percentage": 50 },
+            { "key": "test", "rollout_percentage": 50 }
+          ]
+        },
+        "payloads": { "control": "{\"plan\": \"control\"}", "test": "{\"plan\": \"test\"}" }
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "v1-explicit-version-1",
+      "active": true,
+      "filters": { "version": 1, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "kept"
+    },
+    {
+      "key": "v1-explicit-version-1.0",
+      "active": true,
+      "filters": { "version": 1.0, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "kept"
+    },
+    {
+      "key": "v1-empty-document",
+      "active": true,
+      "filters": {},
+      "expect": "kept"
+    },
+    {
+      "key": "v1-inactive-referenced",
+      "active": false,
+      "filters": { "groups": [{ "properties": [], "rollout_percentage": 100 }], "payloads": { "true": "x" } },
+      "expect": "kept",
+      "blanked": true
+    },
+    {
+      "key": "v1-inactive-unreferenced",
+      "active": false,
+      "filters": { "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "omitted",
+      "reason": "established trim of unreferenced inactive rows"
+    },
+    {
+      "key": "v1-inactive-unreadable-referenced",
+      "active": false,
+      "filters": { "groups": "never read" },
+      "expect": "kept",
+      "blanked": true
+    },
+    {
+      "key": "v2-valid-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
+            "rule_type": "targeted_release",
+            "targeting": { "properties": [{ "key": "account_tier", "type": "person", "operator": "exact", "value": "preview" }] },
+            "value": true
+          },
+          {
+            "id": "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+            "rule_type": "percentage_rollout",
+            "targeting": { "properties": [] },
+            "value": true,
+            "rollout_percentage": 33.33,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "release-preview"
+          }
+        ]
+      },
+      "expect": "unsupported"
+    },
+    {
+      "key": "v2-malformed-active",
+      "active": true,
+      "filters": { "version": 2, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "v2-valid-inactive",
+      "active": false,
+      "filters": { "version": 2, "return_type": "boolean", "default_value": false, "rules": [] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "v2-valid-archived",
+      "active": false,
+      "archived": true,
+      "filters": { "version": 2, "return_type": "boolean", "default_value": false, "rules": [] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "unsupported-version-3",
+      "active": true,
+      "filters": { "version": 3, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "unsupported-version-1.5",
+      "active": true,
+      "filters": { "version": 1.5, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "unsupported-version-null",
+      "active": true,
+      "filters": { "version": null, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "unsupported-version-true",
+      "active": true,
+      "filters": { "version": true, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "unsupported-version-string",
+      "active": true,
+      "filters": { "version": "1", "groups": [{ "properties": [], "rollout_percentage": 100 }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-groups-string",
+      "active": true,
+      "filters": { "groups": "not a list" },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-non-object-document",
+      "active": true,
+      "filters": ["not", "an", "object"],
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-non-object-inactive",
+      "active": false,
+      "filters": ["not", "an", "object"],
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-null-document",
+      "active": true,
+      "filters": null,
+      "expect": "unsupported"
+    },
+    {
+      "key": "depends-false-on-non-object-inactive",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "malformed-non-object-inactive", "type": "flag", "value": "false", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "dependent"
+    },
+    {
+      "key": "depends-true-on-v2-valid-active",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "v2-valid-active", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "dependent"
+    },
+    {
+      "key": "depends-false-on-v2-valid-inactive",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "v2-valid-inactive", "type": "flag", "value": "false", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "dependent"
+    },
+    {
+      "key": "depends-false-on-v2-inactive-with-later-condition",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "v2-valid-inactive", "type": "flag", "value": "false", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100,
+            "variant": "blue"
+          },
+          { "properties": [], "rollout_percentage": 100, "variant": "green" }
+        ],
+        "multivariate": {
+          "variants": [
+            { "key": "blue", "rollout_percentage": 50 },
+            { "key": "green", "rollout_percentage": 50 }
+          ]
+        }
+      },
+      "expect": "dependent"
+    },
+    {
+      "key": "depends-on-malformed-v1",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "malformed-v1-groups-string", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "dependent"
+    },
+    {
+      "key": "transitive-dependent",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "depends-true-on-v2-valid-active", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "dependent"
+    },
+    {
+      "key": "depends-false-on-inactive-v1",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "v1-inactive-referenced", "type": "flag", "value": "false", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "depends-false-on-inactive-unreadable-v1",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "v1-inactive-unreadable-referenced", "type": "flag", "value": "false", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "depends-true-on-v1-true",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "v1-boolean-true", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "depends-on-missing-target",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "$missing", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "kept",
+      "missing_dependency": true
+    },
+    {
+      "key": "cycle-a",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "cycle-b", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "kept",
+      "missing_dependency": true
+    },
+    {
+      "key": "cycle-b",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "cycle-a", "type": "flag", "value": "true", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "kept",
+      "missing_dependency": true
+    }
+  ]
+}

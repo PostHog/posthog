@@ -853,9 +853,11 @@ def _get_ai_sub_sdk_event_metric_counts(
             count(1) as count
         FROM {events_read_table(use_new_events_schema)}
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND {lib_expression} IN ({quoted_ai_parent_libs})
             AND startsWith(event, '$ai_')
-        WHERE {ai_lib_expression} IN ({quoted_ai_libs})
+        -- Property expressions stay out of PREWHERE: the native-JSON reader calls an executable UDF,
+        -- which ClickHouse cannot resolve inside PREWHERE (it fails with "Unknown function").
+        WHERE {lib_expression} IN ({quoted_ai_parent_libs})
+            AND {ai_lib_expression} IN ({quoted_ai_libs})
         GROUP BY team_id, sdk_lib, ai_lib
     """
 
@@ -1954,10 +1956,12 @@ def _get_teams_with_ai_credits_for_products(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND {region_expr} = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
+                    -- Property expressions stay out of PREWHERE (see _get_ai_sub_sdk_event_metric_counts).
+                    WHERE
+                        {region_expr} = %(region_url)s
                         AND {ai_product_expr} IN %(ai_products)s
                         -- PostHog-funded task origins (e.g. task_analysis runs) are never billed
                         -- to the customer. Events without the property yield '' and pass.

@@ -16,7 +16,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import TEMPLATE_CALLABLES, TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import (
+    DATA_WAREHOUSE_SOURCES,
+    TEMPLATE_CALLABLES,
+    TEMPLATE_GLOBALS,
+    compile_filters_bytecode,
+    compile_filters_expr,
+)
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -210,6 +216,7 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogSendTicketMessage")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
@@ -952,11 +959,6 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
-# Filter sources whose rows come from the warehouse rather than from events: one invocation per
-# row, with the row under `event.properties` and no person attached.
-DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
-
-
 def _contains_behavioral_property(filters: dict) -> bool:
     """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
@@ -1060,6 +1062,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
 
         if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            # A row filter is compiled against its entry's table name, so without one it matches nothing.
+            # Checked before the placeholder is dropped, or a filter on the placeholder would vanish silently.
+            if any(
+                entry.get("properties") and (not entry.get("table_name") or entry.get("name") == "Select a table")
+                for entry in data["data_warehouse"]
+            ):
+                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
             data["data_warehouse"] = [
                 entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
             ]

@@ -71,12 +71,6 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 fields=["team", "directory", "-created_at", "id"],
                 name="llma_eval_team_dir_created_idx",
             ),
-            # The directory list counts evaluations through a join that carries no team predicate, so the
-            # team-leading index above cannot serve it.
-            models.Index(
-                fields=["directory", "deleted"],
-                name="llma_eval_dir_deleted_idx",
-            ),
         ]
         constraints = [
             models.CheckConstraint(

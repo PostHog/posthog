@@ -735,6 +735,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         stage,
         delivered,
         spent_usd: record.spent_usd,
+        threshold_spent_usd: record.threshold_spent_usd,
+        threshold_at: record.threshold_at,
+        ...(record.delivered_at ? { delivered_at: record.delivered_at } : {}),
         cap_usd: guard.capUsd,
         mode: guard.mode,
       });

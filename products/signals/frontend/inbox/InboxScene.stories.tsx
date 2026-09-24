@@ -41,6 +41,14 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/integrations/github/available_installations/': {
+            discovery_id: '11111111-1111-4111-8111-111111111111',
+            discovered_at: '2026-06-11T00:00:00Z',
+            installations: [],
+            personal_github_connected: false,
+            personal_github_login: null,
+            personal_discovery_status: 'not_connected',
+        },
         '/api/projects/:id/signals/reports': () => [
             200,
             { results: allReports, count: allReports.length, next: null, previous: null },
