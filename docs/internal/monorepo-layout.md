@@ -66,23 +66,6 @@ User-facing features with their own backend (Django app) and frontend (React). E
 
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
-Growth's company enrichment and ICP fit scoring live in `products/growth/backend/enrichment/`.
-The backend loads saved inputs, runs the scoring formula, then saves and publishes the score.
-Inputs use four namespaces: `company`, `signup`, `enrichments`, and `lists`.
-The loader matches enrichment results to the company, archived fetch, active prompt version, and AI consent.
-`enrichments` exposes each configured result by name and preserves its output fields, including false and unknown values.
-The formula selects fields and scoring rules; the evaluator does not interpret label names or provider-specific fields.
-`EnrichmentPromptConfig` holds versioned labeler prompts; `IcpScoringConfig` holds immutable versions of the curated lists and a Hog scoring formula.
-Staff can edit the formula in AI enrichment, compare up to ten archived companies, and save an inactive version before activating it.
-The preview uses the same input loader and evaluator as live scoring, without provider calls or score writes. The formula runs synchronously in the Python Hog VM without network access.
-The `preview_icp_scoring_config` command also compares saved configurations against archived company data.
-The preview does not lock prompt configurations. In `enrichment_label_batch`, `--limit` separately bounds new classifications and repairs of stored scores.
-Scores record the configuration version in `icp_fit_lists_version`, supplied result identifiers in `icp_fit_input_versions`, and an input fingerprint in `icp_fit_input_hash`.
-Activation affects subsequent evaluations, and `backfill_icp_fit_scores` reapplies the rules to archived data.
-Any completed enrichment label can trigger recalculation using all eligible saved inputs.
-The formula returns a status, score, components, an optional disqualification reason, and optional diagnostic flags.
-Failed label-driven score updates retry the stored label without another model request.
-
 One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus mobile and web hosts), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
 
 #### What a product can own
