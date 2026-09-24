@@ -1762,18 +1762,10 @@ class FeatureFlagSerializer(
         return Team.objects.get(pk=self.context["team_id"])
 
     def _unsupported_v2_fields(self, attrs: dict, allowed: frozenset[str]) -> set[str]:
-        """Submitted fields outside ``allowed``. A value equal to the stored one is an echo, not an operation."""
         submitted = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
         names = {"filters" if field == "get_filters" else field for field in attrs} | submitted
         # DRF drops unknown and read-only input fields; original_flag stays an ignored v1 compatibility field.
-        unsupported = names - allowed - {"original_flag"}
-        if self.instance is not None:
-            unsupported -= {
-                field
-                for field in unsupported
-                if field != "filters" and field in attrs and attrs[field] == getattr(self.instance, field, attrs)
-            }
-        return unsupported
+        return names - allowed - {"original_flag"}
 
     def _resolve_v2_document(self, submitted: object, *, stored: Mapping[str, Any], flag_id: int | None) -> dict:
         """Resolve server-owned identity against ``stored`` and validate; the result is the exact document persisted."""
@@ -1819,11 +1811,19 @@ class FeatureFlagSerializer(
         Restoring a deleted row stays closed until a later task owns it.
         """
         admitted = self._v2_limits is not None
-        unsupported = self._unsupported_v2_fields(attrs, V2_UPDATE_FIELDS if admitted else V2_SAFETY_FIELDS)
         assert isinstance(self.instance, FeatureFlag)
-        if attrs.get("deleted") is False and self.instance.deleted:
+        # A submitted value equal to the stored one is an echo, not an operation: neither judged nor
+        # written. A PUT must repeat `key`, and a bulk delete does not bump `version`, so an echoed
+        # `deleted: false` written under the lock would otherwise restore a row deleted in between.
+        echoed = {
+            field for field in attrs if field != "get_filters" and attrs[field] == getattr(self.instance, field, attrs)
+        }
+        for field in echoed:
+            del attrs[field]
+        unsupported = self._unsupported_v2_fields(attrs, V2_UPDATE_FIELDS if admitted else V2_SAFETY_FIELDS) - echoed
+        if attrs.get("deleted") is False:
             unsupported.add("deleted")
-        if attrs.get("active") is True and not admitted and not self.instance.active:
+        if attrs.get("active") is True and not admitted:
             unsupported.add("active")
         if unsupported:
             raise serializers.ValidationError(
@@ -2485,13 +2485,13 @@ class FeatureFlagSerializer(
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         try:
-            self._free_key_held_by_soft_deleted_flags(validated_data["key"])
-
             with ImpersonatedContext(request), transaction.atomic() if self._v2_write else nullcontext():
                 if self._v2_write:
                     # Same lock as update(): a policy enabled after validate() must still deny the write.
                     lock_approval_policies(self._write_team.organization_id, shared=True)
                     self._reject_v2_approval_policy(self._write_team)
+                # After the policy check, so a denied v2 create does not leave a tombstone renamed or removed.
+                self._free_key_held_by_soft_deleted_flags(validated_data["key"])
                 instance: FeatureFlag = super().create(validated_data)
         except IntegrityError as e:
             self._reraise_duplicate_key_violation(e)

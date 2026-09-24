@@ -21,6 +21,7 @@ from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates
     rollout,
     targeted,
 )
+from products.feature_flags.backend.facade import api as flag_facade
 from products.feature_flags.backend.flags_cache import _get_feature_flags_for_service
 from products.feature_flags.backend.local_evaluation import _get_flags_response_for_local_evaluation_batch
 from products.feature_flags.backend.models import FeatureFlag
@@ -39,6 +40,15 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         (entry,) = self.activity(flag)
         assert entry.activity == "updated"
         assert self.changed_fields(entry) == {"active", "version"}
+
+    def test_an_echoed_deleted_false_does_not_undo_a_concurrent_bulk_delete(self) -> None:
+        flag = self.flag(active=True)
+        stale = FeatureFlag.objects.get(pk=flag.pk)
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)  # a bulk delete does not bump version
+        updated = flag_facade.update_flag(
+            stale, {"version": 3, "deleted": False, "active": False}, team=self.team, user=self.user
+        )
+        assert (updated.deleted, updated.active, updated.version) == (True, False, 4)
 
     def test_archiving_disables_an_enabled_row_in_the_same_write(self) -> None:
         flag = self.flag(active=True)
@@ -307,6 +317,5 @@ class TestM1PilotScenario(AdmittedV2TestCase):
         ]
         # A generic reconstruction is acceptable for the pilot; a v2 row must only not break the endpoint.
         history = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/versions/1/")
-        assert history.status_code in (status.HTTP_200_OK, status.HTTP_422_UNPROCESSABLE_ENTITY)
-        if history.status_code == status.HTTP_200_OK:
-            assert (history.json()["filters"]["rules"], history.json()["active"]) == (stored["rules"], False)
+        assert history.status_code == status.HTTP_200_OK, history.json()
+        assert (history.json()["filters"]["rules"], history.json()["active"]) == (stored["rules"], False)
