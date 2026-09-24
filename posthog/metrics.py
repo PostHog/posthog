@@ -1,5 +1,4 @@
 # Shared metrics and labels for prometheus metrics
-import socket
 from contextlib import contextmanager
 from urllib.error import HTTPError, URLError
 
@@ -50,10 +49,6 @@ TOMBSTONE_COUNTER = Counter(
 )
 
 
-class PushgatewayResponseError(OSError):
-    """The pushgateway answered, but refused the push."""
-
-
 def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
     from urllib.request import ProxyHandler, Request, build_opener
 
@@ -63,7 +58,7 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
             request.add_header(k, v)
         resp = build_opener(ProxyHandler({}), base_handler).open(request, timeout=timeout)
         if resp.code >= 400:
-            raise PushgatewayResponseError(f"error talking to pushgateway: {resp.code} {resp.msg}")
+            raise OSError(f"error talking to pushgateway: {resp.code} {resp.msg}")
 
     return handle
 
@@ -72,11 +67,9 @@ _expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
 
 
 def _is_pushgateway_unavailable(err: BaseException) -> bool:
-    """A refused connection, a name that does not resolve or a timeout means the gateway is down, not that the caller has a bug."""
+    """urllib wraps a refused connection, an unresolvable name and a timeout in URLError. Its HTTPError subclass means the gateway did answer, so that is not an outage."""
 
-    if isinstance(err, HTTPError):
-        return False
-    return isinstance(err, URLError | ConnectionError | TimeoutError | socket.gaierror)
+    return isinstance(err, URLError) and not isinstance(err, HTTPError)
 
 
 @contextmanager
@@ -98,8 +91,9 @@ def pushed_metrics_registry(job_name: str):
         if settings.PROM_PUSHGATEWAY_ADDRESS:
             push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
-        if _is_pushgateway_unavailable(err):
-            PUSHGATEWAY_PUSH_FAILURES_COUNTER.labels(job=job_name, reason="unavailable").inc()
+        unavailable = _is_pushgateway_unavailable(err)
+        PUSHGATEWAY_PUSH_FAILURES_COUNTER.labels(job=job_name, reason="unavailable" if unavailable else "error").inc()
+        if unavailable:
             logger.warning(
                 "push_to_gateway_unavailable",
                 job=job_name,
@@ -107,6 +101,5 @@ def pushed_metrics_registry(job_name: str):
                 exception=err,
             )
         else:
-            PUSHGATEWAY_PUSH_FAILURES_COUNTER.labels(job=job_name, reason="error").inc()
             logger.exception("push_to_gateway", job=job_name, target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
             capture_exception(err)

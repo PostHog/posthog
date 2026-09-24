@@ -1,4 +1,3 @@
-import socket
 import threading
 import http.server
 
@@ -98,13 +97,9 @@ class TestPushFailureClassification:
         captured: list = []
         monkeypatch.setattr("posthog.metrics.capture_exception", captured.append)
 
-        closed = socket.socket()
-        closed.bind(("127.0.0.1", 0))
-        port = closed.getsockname()[1]
-        closed.close()
-
         before = self._failure_count("unreachable_job", "unavailable")
-        settings.PROM_PUSHGATEWAY_ADDRESS = f"http://127.0.0.1:{port}"
+        # Binding port 1 needs root, so nothing listens on it and the connection is refused at once.
+        settings.PROM_PUSHGATEWAY_ADDRESS = "http://127.0.0.1:1"
         with pushed_metrics_registry("unreachable_job") as registry:
             Gauge("test_unreachable_metric", "A gauge nobody receives", registry=registry).set(1.0)
 
