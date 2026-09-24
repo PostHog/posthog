@@ -55,8 +55,8 @@
 #   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
 #   is safe only while its status remains optional.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
-#   doubles the matrices on workflow_dispatch and its twice-daily master schedule, but
-#   shadow dispatches stay legacy-only so trial runs match handed-off PR runs
+#   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
+#   trial runs match handed-off PR runs
 # - per-segment split plans (.test_durations.core/.temporal): the restore steps mirror
 #   canonical but miss until the depot timing refresher saves those files to Depot Cache;
 #   shards fall back to the union .test_durations
