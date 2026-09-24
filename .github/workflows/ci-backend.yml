@@ -36,13 +36,13 @@ on:
         # so every unrelated label re-ran these matrices against a commit CI had
         # already covered. A label here takes effect from the next push, or from
         # ready_for_review.
-        # Every run also takes the events_json leg: the paths in
-        # .github/new-events-schema-targets.txt rerun against the native-JSON events
-        # table, all of them on full runs and the ones the selection reaches on narrowed
-        # runs. The `test-new-events-schema` label opts a PR into the doubled matrices
-        # that run the whole suite in both events schemas, in place of that leg. Apply
-        # it before a push or ready_for_review because label events do not start this
-        # workflow. Manual dispatches also run both modes.
+        # The events_json leg runs wherever the legacy tests run, the hourly master run
+        # included: the paths in .github/new-events-schema-targets.txt rerun against the
+        # native-JSON events table, all of them on full runs and the reached ones on
+        # narrowed runs. The `test-new-events-schema` label opts a PR into the doubled
+        # matrices that run the whole suite in both events schemas, in place of that leg.
+        # Apply it before a push or ready_for_review because label events do not start
+        # this workflow. Manual dispatches also run both modes.
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -1277,6 +1277,9 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
+                  # A native-JSON leg uploads under its own variant, so a failure in that mode
+                  # does not read as a flake of the legacy test with the same id.
+                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -3542,8 +3545,9 @@ jobs:
                   COVERAGE_CORE: sysmon
                   # backend-coverage-report skips narrowed runs (patch coverage would read
                   # as false gaps), so instrumenting one just costs time and uploads an
-                  # artifact nothing reads.
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
+                  # artifact nothing reads. The events_json rows rerun tests the legacy
+                  # rows already measure, so they skip it as well.
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && !matrix.json-targets && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -3592,19 +3596,23 @@ jobs:
                       fi
                   fi
                   if [[ "$JSON_TARGETS" == "true" ]]; then
-                      # The events_json leg. A narrowed run hands over its paths, and every
-                      # other run takes the whole list.
-                      json_candidates=()
+                      # The events_json leg. The job checks out the PR head, and a head without
+                      # the list also predates the JSON-mode test fixes that came before it, so
+                      # its listed tests would fail on code the PR did not touch. The merge
+                      # queue's trunk-merge/** head always has the list, so the gate still runs.
+                      if [[ ! -f .github/new-events-schema-targets.txt ]]; then
+                          echo "::notice::The checked-out revision predates .github/new-events-schema-targets.txt, so the events_json leg runs nothing until this branch rebases onto master"
+                          exit 0
+                      fi
+                      # A narrowed run hands over its paths, and every other run takes the
+                      # whole list. Parse it the way turbo-discover.js does.
                       if [[ -n "$JSON_TARGETS_FILES" ]]; then
                           read -r -a json_candidates <<< "$JSON_TARGETS_FILES"
-                      elif [[ -f .github/new-events-schema-targets.txt ]]; then
-                          mapfile -t json_candidates < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' .github/new-events-schema-targets.txt)
                       else
-                          echo "::notice::The checked-out revision predates .github/new-events-schema-targets.txt, so the events_json leg has nothing to run until this branch rebases onto master"
+                          mapfile -t json_candidates < <(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's:/*$::' -e '/^$/d' .github/new-events-schema-targets.txt)
                       fi
-                      # The job checks out the PR head, which can lack a path that the
-                      # merged list names. pytest stops with a usage error on a missing
-                      # path, so skip that path and say so.
+                      # The PR head can lack a path that the merged list names. pytest stops
+                      # with a usage error on a missing path, so skip that path and say so.
                       json_targets=()
                       for target in "${json_candidates[@]}"; do
                           if [[ -e "$target" ]]; then
@@ -3695,7 +3703,7 @@ jobs:
 
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' }}
+              if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
                   path: .coverage
@@ -3953,6 +3961,9 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
+                  # A native-JSON row uploads under its own variant, so a failure in that mode
+                  # does not read as a flake of the legacy test with the same id.
+                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
@@ -3965,6 +3976,9 @@ jobs:
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
+                  # A native-JSON row uploads under its own variant, so a failure in that mode
+                  # does not read as a flake of the legacy test with the same id.
+                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}

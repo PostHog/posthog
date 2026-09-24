@@ -185,6 +185,10 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
         [{ mode: 'full' }, null],
         [{ mode: 'skip' }, []],
         [
+            { mode: '', skippedProducts: ['batch-exports'] },
+            ['posthog/hogql', 'posthog/tasks/test/test_usage_report.py', 'products/web_analytics/backend/hogql_queries'],
+        ],
+        [
             {
                 selectedTests: [
                     'posthog/hogql/test/test_query.py',
@@ -195,6 +199,10 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
                 products: ['batch-exports'],
             },
             ['posthog/hogql/test/test_query.py', 'products/batch_exports/backend/tests/test_hogql_source.py'],
+        ],
+        [
+            { selectedTests: ['posthog/hogql/test/test_query.py'], products: ['batch-exports'], draft: true },
+            ['posthog/hogql/test/test_query.py'],
         ],
         [{ selectedTests: ['posthog/api/test/test_team.py'], products: ['logs'] }, []],
         [{ mode: '', runLegacy: false, products: ['surveys', 'web-analytics'] }, ['products/web_analytics/backend/hogql_queries']],

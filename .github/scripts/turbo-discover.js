@@ -1272,32 +1272,47 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
     }
 }
 
-// Which events_json paths this run executes. Null means the whole list at the full-run
-// shard count. An array is a narrowed list, and an empty one means the leg does not run.
-//   mode           the Django selection mode: 'selected', 'full', 'skip', or '' when this
-//                  run does not select
-//   runLegacy      whether the Django suite runs. When it does not, the leg still runs the
-//                  paths of the products in the product matrix, because their own jobs
-//                  read the legacy table only.
-//   selectedTests  every test file the selector picked, product tests included
-//   products       the product matrix after narrowing
-function decideJsonTargets({ targets, mode, runLegacy, selectedTests, products }) {
+function isUnderProduct(target, products) {
+    return products.some((product) => target.startsWith(productPrefix(product)))
+}
+
+// The events_json paths a full run takes: the whole list, less the paths of products that
+// SKIP_PRODUCT_TESTS or the quarantine file dropped from the product matrix.
+function fullRunJsonTargets(targets, skippedProducts) {
+    return targets.filter((target) => !isUnderProduct(target, skippedProducts))
+}
+
+// Which events_json paths this run executes. The leg follows the legacy tests. Null means
+// the whole list at the full-run shard count. An array is the list to run, and an empty
+// one means the leg does not run.
+//   mode             the Django selection mode: 'selected', 'full', 'skip', or '' when this
+//                    run does not select
+//   runLegacy        whether the Django suite runs. When it does not, the leg still runs the
+//                    paths of the products in the product matrix, because their own jobs
+//                    read the legacy table only.
+//   selectedTests    every test file the selector picked, product tests included
+//   products         the product matrix after narrowing
+//   skippedProducts  products that SKIP_PRODUCT_TESTS or the quarantine file dropped
+//   draft            the PR is a draft. Only read in selected mode, the one mode that the
+//                    merge queue's draft trunk-merge/** PR never reaches.
+function decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts = [], draft = false }) {
     if (mode === 'skip') {
         return []
     }
-    const productPaths = targets.filter((target) => products.some((product) => target.startsWith(productPrefix(product))))
+    const productPaths = targets.filter((target) => isUnderProduct(target, products))
     if (!runLegacy) {
         return productPaths
     }
     if (mode !== 'selected') {
-        return null
+        const kept = fullRunJsonTargets(targets, skippedProducts)
+        return kept.length === targets.length ? null : kept
     }
     // Product test files come in through productPaths instead, so that the leg tests the
-    // same products as the product matrix.
+    // same products as the product matrix. A draft runs no product tests, so it takes none.
     const legacyPaths = selectedTests.filter(
         (file) => !file.startsWith(PRODUCTS_DIR) && targets.some((target) => isUnderPath(file, target))
     )
-    return [...new Set([...legacyPaths, ...productPaths])].sort()
+    return [...new Set([...legacyPaths, ...(draft ? [] : productPaths)])].sort()
 }
 
 // Shards for a narrowed events_json leg: the full-run budget over the chosen paths' recorded
@@ -1722,18 +1737,21 @@ const durations = pruneDeadDurations(rawDurations)
 const ranNodeIds = loadRanNodeIds()
 
 const jsonTargets = loadJsonTargets()
+const skippedProducts = [...new Set([...skipProducts, ...quarantinedProducts])]
 const jsonTargetFiles = decideJsonTargets({
     targets: jsonTargets,
     mode: selectionDecision.mode,
     runLegacy,
     selectedTests: selection?.combined?.tests ?? [],
     products,
+    skippedProducts,
+    draft: process.env.PR_DRAFT === 'true',
 })
 
 console.error('\nDjango shard calculation:')
-const djangoShards = buildDjangoShards(durations, ranNodeIds, jsonTargets)
+const djangoShards = buildDjangoShards(durations, ranNodeIds, fullRunJsonTargets(jsonTargets, skippedProducts))
 if (jsonTargetFiles !== null) {
-    console.error(`events_json leg narrowed to ${jsonTargetFiles.length} of ${jsonTargets.length} paths: ${JSON.stringify(jsonTargetFiles)}`)
+    console.error(`events_json leg runs ${jsonTargetFiles.length} of ${jsonTargets.length} paths: ${JSON.stringify(jsonTargetFiles)}`)
 }
 
 const { mode, core_files, poe_files, temporal_files, compat_files, run_poe, run_temporal, segment_shards, ...metrics } =
@@ -1754,7 +1772,8 @@ const result = {
         run_poe,
         run_temporal,
         segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
-        // Empty on a run that takes the whole list, whose shard count is django_shards.JsonTargets.
+        // Empty on a run that takes the whole list. A full run sizes from django_shards.JsonTargets
+        // even when a skipped product shortens its list here.
         json_targets_files: jsonTargetFiles === null ? '' : jsonTargetFiles.join(' '),
         json_targets_shards: jsonTargetFiles === null ? '' : narrowedJsonTargetsShards(jsonTargetFiles, durations),
     },
