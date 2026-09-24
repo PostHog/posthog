@@ -135,6 +135,7 @@ class PlatformAlertUpsert:
     cooldown_minutes: int
     schedule_restriction: dict[str, Any] | None
     next_check_at: datetime | None
+    snooze_until: datetime | None
 
 
 class CheckOutcomeReason(StrEnum):

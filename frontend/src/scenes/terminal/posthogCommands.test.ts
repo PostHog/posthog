@@ -2,6 +2,7 @@ import { waitFor } from '@testing-library/react'
 
 import { fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
+import { performQuery } from '~/queries/query'
 
 import {
     mcpServerInstallationsAvailableToolsRetrieve,
@@ -19,6 +20,9 @@ import { insightsRetrieve } from 'products/product_analytics/frontend/generated/
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
 import { MAX_TERMINAL_FILE_BYTES } from './terminalFilesystem'
+
+jest.mock('scenes/teamLogic', () => ({ teamLogic: { values: { currentTeamId: 42 } } }))
+jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 
 jest.mock('~/generated/core/api', () => ({ fileSystemList: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
@@ -50,8 +54,71 @@ describe('PostHog terminal commands', () => {
     }
 
     it.each([
+        ['--markdown', '| answer |\n| --- |\n| 42 |'],
+        ['--csv', 'answer\n42'],
+        ['--tsv', 'answer\n42'],
+        ['--json', { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: true }],
+    ])('runs local SQL with %s output', async (format, expected) => {
+        jest.mocked(performQuery).mockResolvedValue({
+            columns: ['answer'],
+            results: [[42]],
+            types: ['Int64'],
+            hasMore: true,
+        })
+        expect(await commands.execute(['run', '/tmp/report.sql', 'select 42 as answer', format], cwd)).toEqual(expected)
+        expect(performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: 'HogQLQuery', query: 'select 42 as answer' }),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            'force_blocking'
+        )
+    })
+
+    it.each(['--csv', '--tsv'])(
+        'escapes spreadsheet formulas in %s exports while preserving numbers',
+        async (format) => {
+            jest.mocked(performQuery).mockResolvedValue({
+                columns: ['=header'],
+                results: [['=1+1'], ['+1+1'], ['-1+1'], ['@SUM(1)'], ['\t=1+1'], ['\r=1+1'], [-42], [null], ['a"b']],
+            })
+            expect(await commands.execute(['run', '/tmp/report.sql', 'select value', format], cwd)).toBe(
+                [
+                    '"\'=header"',
+                    '"\'=1+1"',
+                    '"\'+1+1"',
+                    '"\'-1+1"',
+                    '"\'@SUM(1)"',
+                    '"\'\t=1+1"',
+                    '"\'\r=1+1"',
+                    '-42',
+                    '',
+                    '"a""b"',
+                ].join('\n')
+            )
+        }
+    )
+
+    it('completes aliases and JSON arguments without invoking commands', async () => {
+        expect(await commands.execute(['_complete', '1', 'op', 'ph', ''], cwd)).toBe('open')
+        expect(await commands.execute(['_complete', '1', 'notebook-g', 'ph', ''], cwd)).toBe('notebook-get')
+        expect(await commands.execute(['_complete', '2', '--ti', 'notebook-create', 'notebook-create'], cwd)).toBe(
+            '--title'
+        )
+        expect(await commands.execute(['_complete', '2', '--j', 'notebook-create', 'notebook-create'], cwd)).toBe(
+            '--json'
+        )
+        expect(await commands.execute(['_complete', '3', '', '--json', 'notebook-create'], cwd)).toBe('')
+        for (const command of ['help', 'tools', 'refresh', 'open']) {
+            expect(await commands.execute(['_complete', '2', '--', command, command], cwd)).toBe('')
+        }
+        expect(notebooksCreate).not.toHaveBeenCalled()
+        expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
+    })
+
+    it.each([
         ['notebook-delete', 'shortnote'],
         ['notebook-update', 'shortnote', '--deleted'],
+        ['notebook-update', 'shortnote', '--title', 'Updated'],
+        ['notebook-create', '--title', 'New notebook'],
         ['example/echo', '--text', 'hello'],
     ])('blocks %s until the user approves its exact arguments', async (...argv) => {
         let answer!: (approved: boolean) => void
@@ -65,10 +132,12 @@ describe('PostHog terminal commands', () => {
         const outcome = operation.catch((error: Error) => error)
         await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
         answer(false)
         await expect(outcome).resolves.toEqual(expect.objectContaining({ message: 'Canceled. No changes made.' }))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
     })
 
@@ -84,6 +153,7 @@ describe('PostHog terminal commands', () => {
                     ref: 'shortnote',
                     type: 'notebook',
                     path: 'Research/Notes',
+                    meta: { content_type: 'text/markdown' },
                     user_access_level: 'editor',
                 } as FileSystemApi,
             ],
@@ -149,7 +219,7 @@ describe('PostHog terminal commands', () => {
             structured_content: { echoed: true },
         })
         const signal = new AbortController().signal
-        filesystem = new PosthogFilesystem('42', signal, confirm)
+        filesystem = new PosthogFilesystem('42', signal, confirm, true)
         await filesystem.load()
         commands = new PosthogCommands('42', signal, filesystem, navigate)
     })

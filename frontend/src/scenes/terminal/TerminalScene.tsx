@@ -11,6 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { TerminalConfirmationModal } from './TerminalConfirmationModal'
 import { terminalDockLogic } from './terminalDockLogic'
+import { TerminalFramebufferWindow } from './TerminalFramebufferWindow'
 import { terminalLogic } from './terminalLogic'
 import { TerminalView } from './TerminalView'
 
@@ -25,7 +26,12 @@ export function TerminalScene(): JSX.Element {
         <SceneContent className="h-full min-h-0 flex-1 pb-1">
             {!hasOpened && <TerminalConfirmationModal />}
             <SceneTitleSection name="Terminal" resourceType={{ type: 'terminal', forceIcon: <IconTerminal /> }} />
-            {terminalEnabled && <TerminalView />}
+            {terminalEnabled && (
+                <>
+                    <TerminalView />
+                    <TerminalFramebufferWindow />
+                </>
+            )}
         </SceneContent>
     )
 }

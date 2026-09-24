@@ -3939,7 +3939,7 @@ export interface FileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3982,7 +3982,7 @@ export interface PatchedFileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -4605,6 +4605,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4716,6 +4721,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -4845,6 +4855,61 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     /** @nullable */
     previous?: string | null
     results: UserGitHubIntegrationListResponseApi[]
+}
+
+/**
+ * * `connected` - Connected
+ * * `reauth_required` - Reauth Required
+ * * `not_connected` - Not Connected
+ */
+export type CodexIntegrationStatusEnumApi =
+    (typeof CodexIntegrationStatusEnumApi)[keyof typeof CodexIntegrationStatusEnumApi]
+
+export const CodexIntegrationStatusEnumApi = {
+    Connected: 'connected',
+    ReauthRequired: 'reauth_required',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserCodexIntegrationApi {
+    /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+     *
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected */
+    status: CodexIntegrationStatusEnumApi
+    /**
+     * The ChatGPT plan type OpenAI reports for the account.
+     * @nullable
+     */
+    plan_type?: string | null
+    /**
+     * The email of the connected ChatGPT account.
+     * @nullable
+     */
+    email?: string | null
+    /**
+     * When the account was connected.
+     * @nullable
+     */
+    connected_at?: string | null
+}
+
+export interface UserCodexAuthTokensApi {
+    /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+    access_token: string
+    /** The single-use ChatGPT refresh token from the same `tokens` object. */
+    refresh_token: string
+    /**
+     * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+     * @nullable
+     */
+    id_token?: string | null
+}
+
+export interface UserCodexConnectRequestApi {
+    /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+    tokens: UserCodexAuthTokensApi
 }
 
 export interface GitHubBranchesResponseApi {
@@ -5353,6 +5418,10 @@ export type ExportsListParams = {
 }
 
 export type FileSystemListParams = {
+    /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean
     /**
      * Number of results to return per page.
      */

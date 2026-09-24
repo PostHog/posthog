@@ -106,8 +106,16 @@ const meta: Meta<typeof TerminalScene> = {
                 { id: item.ref, name: item.name, description: 'Terminal demo', user_access_level: 'editor' },
             ])
         )
+        objectData.set('demoinsight', {
+            ...objectData.get('demoinsight'),
+            query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 42 as answer' } },
+        })
         useStorybookMocks({
             get: {
+                '/api/projects/:projectId/insights/': [
+                    200,
+                    { count: 1, results: [{ short_id: 'demoinsight' }], next: null },
+                ],
                 ...Object.fromEntries(
                     objects.map((item) => [
                         `/api/projects/:projectId/${item.route}/${item.ref}/`,
@@ -126,6 +134,7 @@ const meta: Meta<typeof TerminalScene> = {
                                 type: 'notebook',
                                 ref: item.short_id,
                                 user_access_level: 'editor',
+                                meta: { content_type: 'text/markdown' },
                             }))
                             .concat(
                                 [...folders].map(([id, path]) => ({
@@ -134,6 +143,7 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: 'folder',
                                     ref: '',
                                     user_access_level: 'editor',
+                                    meta: { content_type: 'inode/directory' },
                                 }))
                             )
                             .concat(
@@ -143,6 +153,9 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: item.type,
                                     ref: item.ref,
                                     user_access_level: 'editor',
+                                    meta: {
+                                        content_type: item.type === 'insight' ? 'application/sql' : 'application/json',
+                                    },
                                 }))
                             ),
                     },
@@ -190,6 +203,10 @@ const meta: Meta<typeof TerminalScene> = {
                 ],
             },
             post: {
+                '/api/projects/:projectId/query/:queryKind/': [
+                    200,
+                    { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: false },
+                ],
                 '/api/projects/:projectId/file_system/': async ({ request }) => {
                     const { path } = (await request.json()) as { path: string }
                     const id = crypto.randomUUID()
@@ -353,5 +370,31 @@ export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
         await userEvent.keyboard('{Enter} {Escape}{Tab}')
         approve.click()
         expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull()
+    },
+}
+
+export const Framebuffer: StoryObj<typeof TerminalScene> = {
+    parameters: { testOptions: { snapshotTargetSelector: 'body' } },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        terminalLogic.actions.setDisplayOpen(true)
+    },
+}
+
+export const LiveDoom: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('doom\n')
+    },
+}
+
+export const LiveClassics: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('figlet PostHog\n')
     },
 }

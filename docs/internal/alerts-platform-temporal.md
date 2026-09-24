@@ -334,6 +334,7 @@ python manage.py backfill_platform_alert_configurations
 Pass `--team-id` to copy one team's configurations only.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
+Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.
 
 ## Postgres connectivity probe
 

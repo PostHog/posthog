@@ -53,7 +53,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     payload_budget_bytes,
     should_skip_for_payload,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
@@ -88,6 +88,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -108,18 +109,31 @@ MAX_TRACE_EVAL_EVENTS = 500
 # much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
 JUDGE_TRACE_MAX_CHARS = 150_000
 
-# Written against ai_events; query_ai_events rewrites it for the events table when ai_events
-# returns nothing. HAVING makes a zero count return no rows, which both triggers the events-table
-# fallback and keeps "no events" distinguishable without a second query.
-_TRACE_EVENT_COUNT_SQL = """
+_TRACE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
+
+# The runner drops the `$ai_trace` root row from `LLMTrace.events`, so it can never contribute a
+# line to the judge transcript.
+_RENDERABLE_TRACE_EVENT_NAMES = tuple(name for name in _TRACE_EVENT_NAMES if name != "$ai_trace")
+
+
+def _event_names_clause(event_names: tuple[str, ...]) -> str:
+    return ", ".join(f"'{name}'" for name in event_names)
+
+
+def _trace_event_count_sql(event_names: tuple[str, ...]) -> str:
+    """Count query written against ai_events; query_ai_events rewrites it for the events table when
+    ai_events returns nothing. HAVING makes a zero count return no rows, which both triggers the
+    events-table fallback and keeps "no events" distinguishable without a second query."""
+    return f"""
 SELECT count() AS event_count
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-  AND trace_id = {trace_id}
-  AND timestamp >= {date_from}
-  AND timestamp <= {date_to}
+WHERE event IN ({_event_names_clause(event_names)})
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
 HAVING event_count > 0
 """
+
 
 _SKIP_REASONING = {
     "property_access_restricted": (
@@ -183,10 +197,16 @@ class TraceFetchOutcome:
 
 
 def _count_trace_events(
-    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, user: "User | None" = None
+    team: Team,
+    trace_id: str,
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    event_names: tuple[str, ...] = _TRACE_EVENT_NAMES,
+    user: "User | None" = None,
 ) -> int:
     result = query_ai_events(
-        query=parse_select(_TRACE_EVENT_COUNT_SQL),
+        query=parse_select(_trace_event_count_sql(event_names)),
         placeholders={
             "trace_id": ast.Constant(value=trace_id),
             "date_from": ast.Constant(value=date_from),
@@ -205,7 +225,7 @@ def _count_trace_events(
 _TRACE_PAYLOAD_BYTES_SQL = f"""
 SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+WHERE event IN ({_event_names_clause(_TRACE_EVENT_NAMES)})
   AND trace_id = {{trace_id}}
   AND timestamp >= {{date_from}}
   AND timestamp <= {{date_to}}
@@ -230,6 +250,21 @@ def _sum_trace_payload_bytes(
     if not result.results:
         return 0
     return int(result.results[0][0] or 0)
+
+
+def _read_missed_events(
+    team: Team, trace: LLMTrace, date_from: datetime, date_to: datetime, *, user: "User | None" = None
+) -> bool:
+    """Decide whether a trace that came back with no events was read in full.
+
+    A renderable event the fetch did not return means `ai_events` served a partial trace. This count
+    falls back to the shared events table when `ai_events` holds no renderable row, so it finds the
+    events the fetch did not see. Every evaluation would grade the wrong unit without them.
+    """
+    return (
+        _count_trace_events(team, trace.id, date_from, date_to, event_names=_RENDERABLE_TRACE_EVENT_NAMES, user=user)
+        > 0
+    )
 
 
 def _fetch_trace(
@@ -280,10 +315,9 @@ def _fetch_trace(
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    if bound_to_date_to and not trace.events:
-        # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
-        # non-zero count does not promise a transcript. Once the bound applies, an empty one must
-        # skip rather than let the judge grade nothing. A live run keeps its own handling of this.
+    # The count preflight above includes the `$ai_trace` root row, which the runner drops from
+    # `events`, so a non-zero count does not promise that the fetch saw the whole trace.
+    if not trace.events and _read_missed_events(team, trace, date_from, date_to, user=user):
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
@@ -303,7 +337,7 @@ def fetch_trace_for_evaluation(
     return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
 
 
-@dataclass
+@frozen
 class TraceHogTestResult:
     """One trace's outcome from `run_hog_eval_over_recent_traces`, shaped for the editor test
     endpoint and Max's authoring tool rather than for online emission."""
@@ -314,6 +348,8 @@ class TraceHogTestResult:
     error: str | None
     input_preview: str
     output_preview: str
+    score: float | None = None
+    applicable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -421,6 +457,8 @@ def run_hog_eval_over_recent_traces(
     allows_na: bool,
     window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    output_type: str = "boolean",
+    output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
 ) -> list[TraceHogTestResult]:
     """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
@@ -462,12 +500,16 @@ def run_hog_eval_over_recent_traces(
             continue
 
         globals_dict = build_trace_hog_globals(outcome.trace, sample.trace_id, bytecode=bytecode)
-        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        result = execute_hog_eval_bytecode(
+            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+        )
         input_preview, output_preview = _trace_io_preview(outcome.trace)
         results.append(
             TraceHogTestResult(
                 trace_id=sample.trace_id,
-                verdict=result["verdict"],
+                verdict=result.get("verdict"),
+                score=result.get("score"),
+                applicable=result.get("applicable"),
                 reasoning=result["reasoning"],
                 error=result["error"],
                 input_preview=input_preview,
@@ -477,26 +519,25 @@ def run_hog_eval_over_recent_traces(
     return results
 
 
-def _build_trace_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
+def _build_trace_skip_result(
+    allows_na: bool, skip_reason: str, *, output_type: str = "boolean"
+) -> EvaluationActivityResult:
     """Mirror of `_build_errored_trace_result` for trace-level skips — no LLM call is made,
     so model/provider are omitted and downstream cost attribution stays clean."""
-    result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": _SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": skip_reason,
-    }
-    if allows_na:
-        result["applicable"] = False
-    return result
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
+        skip_reason=skip_reason,
+    )
 
 
-def build_trace_system_prompt(prompt: str, allows_na: bool) -> str:
+def build_trace_system_prompt(
+    prompt: str, allows_na: bool, *, output_type: str = "boolean", output_config: dict[str, Any] | None = None
+) -> str:
     """Trace-level variant of `build_system_prompt` — frames the unit under evaluation as the
     whole trace rather than a single generation."""
-    config = get_output_type_config(allows_na)
+    config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     return f"""You are an evaluator. Evaluate the following AI trace — the full sequence of LLM calls and operations from one execution — according to this criteria:
 
 {prompt}
@@ -533,6 +574,29 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     options["max_length"] = JUDGE_TRACE_MAX_CHARS
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return text
+
+
+def _has_state_content(state: object, *, is_output: bool = False) -> bool:
+    # Message headers and whitespace can render without any content for the judge to grade.
+    if isinstance(state, list) and state and isinstance(state[0], dict):
+        if "role" in state[0] or "content" in state[0]:
+            return has_message_content(state, is_output=is_output)
+    return bool(state.strip()) if isinstance(state, str) else bool(state)
+
+
+def _has_judge_transcript(trace: LLMTrace) -> bool:
+    """Whether the trace formats into something the LLM judge can read.
+
+    `format_trace_text_repr` renders the trace-level input and output only when the event hierarchy
+    is empty, so a trace with neither formats down to its name alone and the judge grades nothing.
+    A Hog eval has no such requirement: it reads trace-level cost and latency straight off the root
+    event, so this gate belongs to the judge rather than to the fetch.
+    """
+    return (
+        bool(trace.events)
+        or _has_state_content(trace.inputState)
+        or _has_state_content(trace.outputState, is_output=True)
+    )
 
 
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
@@ -608,23 +672,29 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     if not prompt:
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
-    if evaluation["output_type"] != "boolean":
+    if evaluation["output_type"] not in ("boolean", "numeric"):
         raise ApplicationError(
-            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean'.",
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric'.",
             non_retryable=True,
         )
 
-    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+    output_type = evaluation.get("output_type", "boolean")
+    output_config = evaluation.get("output_config") or {}
+    allows_na = output_config.get("allows_na", False)
 
     outcome = fetch_trace_for_evaluation(
         inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
     )
     if outcome.skip_reason or outcome.trace is None:
-        return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
+        return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type)
+    if not _has_judge_transcript(outcome.trace):
+        return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
     return call_llm_judge(
         evaluation=evaluation,
-        system_prompt=build_trace_system_prompt(prompt, allows_na),
+        system_prompt=build_trace_system_prompt(
+            prompt, allows_na, output_type=output_type, output_config=output_config
+        ),
         user_prompt=format_trace_for_judge(outcome.trace),
         allows_na=allows_na,
     )
@@ -645,7 +715,9 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if not bytecode:
         raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
 
-    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+    output_type = evaluation.get("output_type", "boolean")
+    output_config = evaluation.get("output_config") or {}
+    allows_na = output_config.get("allows_na", False)
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
         outcome = fetch_trace_for_evaluation(
@@ -654,12 +726,14 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
         globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
-        return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
+        return execute_hog_eval_bytecode(
+            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+        ), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
 
     if skip_reason or result is None:
-        return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
+        return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found", output_type=output_type)
 
     return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
@@ -792,12 +866,13 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
             disabled_result: WorkflowResult = {
-                "verdict": None,
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
+            if evaluation.get("output_type") != "numeric":
+                disabled_result["verdict"] = None
             return disabled_result
 
         execute_inputs = ExecuteTraceEvaluationInputs(
@@ -869,13 +944,16 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
             )
 
         workflow_result: WorkflowResult = {
-            "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "verdict" in result:
+            workflow_result["verdict"] = result["verdict"]
+        if "score" in result:
+            workflow_result["score"] = result["score"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:
