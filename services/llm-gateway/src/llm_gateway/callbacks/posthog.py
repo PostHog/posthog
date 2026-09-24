@@ -284,7 +284,25 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
                 if current_size <= _MAX_CAPTURE_SIZE:
                     return result
 
-    # Phase 2: prune non-gateway-owned fields by descending size — O(N log N) overall.
+    # Phase 2: Truncate $ai_error before pruning custom fields so giant provider errors
+    # (e.g. 1 MiB dumps) do not force premature removal of custom metadata (service, environment, etc.).
+    # Preserve the beginning of the error message for debugging while appending the truncation marker.
+    if current_size > _MAX_CAPTURE_SIZE and "$ai_error" in result and result["$ai_error"] != _TRUNCATION_MARKER:
+        err_val = result["$ai_error"]
+        err_str = err_val if isinstance(err_val, str) else json.dumps(err_val, default=str)
+        head_limit = 2048
+        if len(err_str) > head_limit:
+            truncated_err = err_str[:head_limit] + " " + _TRUNCATION_MARKER
+        else:
+            truncated_err = _TRUNCATION_MARKER
+        old_len = len(json.dumps(err_val, default=str))
+        new_len = len(json.dumps(truncated_err))
+        current_size -= max(0, old_len - new_len)
+        result["$ai_error"] = truncated_err
+        if current_size <= _MAX_CAPTURE_SIZE:
+            return result
+
+    # Phase 3: prune non-gateway-owned fields by descending size — O(N log N) overall.
     # Gateway-owned keys ($ai_*, $group_*, $feature/*) are excluded; custom $group_/$feature/
     # keys should never reach here because _sanitize_custom_metadata_value rejects them.
     if current_size > _MAX_CAPTURE_SIZE:
@@ -312,21 +330,6 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
                 current_size -= (key_len + marker_size + 3)
                 if current_size <= _MAX_CAPTURE_SIZE:
                     return result
-
-    # Phase 3: If still oversized before returning, truncate $ai_error so provider error events are not dropped.
-    # Preserve the beginning of the error message for debugging while appending the truncation marker.
-    if current_size > _MAX_CAPTURE_SIZE and "$ai_error" in result and result["$ai_error"] != _TRUNCATION_MARKER:
-        err_val = result["$ai_error"]
-        err_str = err_val if isinstance(err_val, str) else json.dumps(err_val, default=str)
-        head_limit = 2048
-        if len(err_str) > head_limit:
-            truncated_err = err_str[:head_limit] + " " + _TRUNCATION_MARKER
-        else:
-            truncated_err = _TRUNCATION_MARKER
-        old_len = len(json.dumps(err_val, default=str))
-        new_len = len(json.dumps(truncated_err))
-        current_size -= max(0, old_len - new_len)
-        result["$ai_error"] = truncated_err
 
     # Final safety check: if still oversized, remove any remaining non-gateway-owned properties
     if len(json.dumps(result, default=str)) > _MAX_CAPTURE_SIZE:

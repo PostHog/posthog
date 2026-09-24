@@ -126,11 +126,13 @@ class TestCallerMetadataInstrumentation:
             "messages": [{"role": "user", "content": "hello"}],
         }
 
-        captured_call_args: dict[str, Any] = {}
+        captured_kwargs: dict[str, Any] = {}
+        captured_context_metadata: dict[str, Any] | None = None
 
         async def mock_llm_call(**kwargs: Any) -> dict[str, Any]:
-            captured_call_args["forwarded_request_data"] = kwargs.get("request_data")
-            captured_call_args["context_caller_metadata"] = get_caller_metadata()
+            captured_kwargs.update(kwargs)
+            nonlocal captured_context_metadata
+            captured_context_metadata = get_caller_metadata()
             return {"ok": True}
 
         await handle_llm_request(
@@ -143,19 +145,18 @@ class TestCallerMetadataInstrumentation:
         )
 
         # 1. Verify context snapshot preserves valid analytics keys despite forbidden params
-        context_metadata = captured_call_args["context_caller_metadata"]
-        assert context_metadata is not None
-        assert context_metadata["organization"] == "my_org"
-        assert context_metadata["api_version"] == "2024-01-01"
-        assert context_metadata["base_url"] == "https://api.example.com"
-        assert context_metadata["custom_experiment"] == "exp_42"
+        assert captured_context_metadata is not None
+        assert captured_context_metadata["organization"] == "my_org"
+        assert captured_context_metadata["api_version"] == "2024-01-01"
+        assert captured_context_metadata["base_url"] == "https://api.example.com"
+        assert captured_context_metadata["custom_experiment"] == "exp_42"
 
         # 2. Verify provider-forwarded request data had forbidden routing params stripped
-        forwarded = captured_call_args["forwarded_request_data"]
-        assert "organization" not in forwarded
-        assert "api_version" not in forwarded.get("metadata", {})
-        assert "base_url" not in forwarded.get("metadata", {})
+        assert "organization" not in captured_kwargs
+        assert "api_version" not in captured_kwargs.get("metadata", {})
+        assert "base_url" not in captured_kwargs.get("metadata", {})
 
         # 3. Verify callback extracts the snapshot containing preserved analytics properties
         callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
-        assert extracted == context_metadata
+        extracted = callback._extract_metadata({})
+        assert extracted == captured_context_metadata
