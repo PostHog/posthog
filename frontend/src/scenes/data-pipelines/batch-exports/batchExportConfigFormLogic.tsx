@@ -44,9 +44,12 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'start_at',
     'end_at',
     'model',
+    'hogql_query',
     'filters',
     'integration_id',
 ])
+
+export const HOGQL_MODEL = 'hogql'
 
 const ALLOWED_BASE_CONFIG_KEYS = new Set(['exclude_events', 'include_events'])
 
@@ -108,6 +111,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         offset_day: (batchExportConfig as any).offset_day ?? null,
         offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
+        hogql_query: batchExportConfig.hogql_query ?? null,
         filters: batchExportConfig.filters,
         ...flatConfig,
     }
@@ -854,6 +858,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         offset_day: interval === 'week' ? formValues.offset_day : null,
                         offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
                         model: formValues.model,
+                        ...(formValues.model === HOGQL_MODEL ? { hogql_query: formValues.hogql_query } : {}),
                         filters: formValues.filters,
                         destination: buildDestinationPayload(formValues),
                     } as any
@@ -1021,6 +1026,9 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 selectedIntegration: IntegrationType | null
             ): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
+                if (config.model === HOGQL_MODEL) {
+                    generalRequiredFields.push('hogql_query')
+                }
                 if (!service) {
                     return generalRequiredFields
                 }
@@ -1036,6 +1044,12 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         ],
     })),
     listeners(({ props, values, actions }) => ({
+        setSelectedModel: ({ model }) => {
+            // The backend rejects filters on a HogQL export, because the query itself selects the rows.
+            if (model === HOGQL_MODEL && values.configuration.filters?.length) {
+                actions.setConfigurationValue('filters', [])
+            }
+        },
         updateBatchExportConfig: async ({ formdata }) => {
             const interval = formdata.interval
             const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
@@ -1046,6 +1060,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 offset_day: interval === 'week' ? formdata.offset_day : null,
                 offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
                 model: formdata.model,
+                ...(formdata.model === HOGQL_MODEL ? { hogql_query: formdata.hogql_query } : {}),
                 filters: formdata.filters,
                 destination: buildDestinationPayload(formdata) as any,
             } as any

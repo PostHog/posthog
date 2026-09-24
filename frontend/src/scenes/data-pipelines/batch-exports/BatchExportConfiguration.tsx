@@ -16,6 +16,7 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -29,7 +30,7 @@ import {
     IntegrationType,
 } from '~/types'
 
-import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
+import { HOGQL_MODEL, batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
@@ -58,6 +59,15 @@ export function BatchExportConfiguration(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
+    const hogqlBatchExports = featureFlags[FEATURE_FLAGS.HOGQL_BATCH_EXPORTS]
+    const isHogqlModel = selectedModel === HOGQL_MODEL
+    // The backend refuses to move an export to or from the HogQL model, so only a new export can pick it.
+    const modelOptions = [
+        ...tables.map((table) => ({ value: table.name, label: table.id })),
+        ...(isHogqlModel || (hogqlBatchExports && isNew && service !== 'HTTP')
+            ? [{ value: HOGQL_MODEL, label: 'HogQL query' }]
+            : []),
+    ]
 
     const showTimezoneAndOffsetSelector = configuration.interval === 'day' || configuration.interval === 'week'
     const timezoneOptions =
@@ -231,52 +241,80 @@ export function BatchExportConfiguration(): JSX.Element {
                                 className="flex flex-1"
                             >
                                 <LemonSelect
-                                    options={tables.map((table) => ({
-                                        value: table.name,
-                                        label: table.id,
-                                    }))}
+                                    options={modelOptions}
                                     value={selectedModel}
                                     onSelect={(newValue) => {
                                         setSelectedModel(newValue)
                                     }}
+                                    disabledReason={
+                                        isHogqlModel && !isNew
+                                            ? 'A HogQL export cannot change its model. Create a new export instead.'
+                                            : undefined
+                                    }
                                     fullWidth={true}
                                 />
                             </LemonField>
                         </div>
 
-                        <div className="flex gap-2">
-                            <LemonCollapse
-                                className="flex flex-1"
-                                panels={[
-                                    {
-                                        key: 'schema',
-                                        header: 'View model schema',
-                                        content: (
-                                            <div className="flex-1">
-                                                {/* TODO: display the data types that will be used in the destination */}
-                                                {isDatabaseDestination && (
-                                                    <LemonBanner type="info" className="mb-4">
-                                                        This schema is just for reference and does not reflect the
-                                                        actual data types that will be used in {service}.
-                                                        <br />
-                                                        <br />
-                                                        <b>
-                                                            It is recommended to allow the batch export to create the
-                                                            destination table automatically.
-                                                        </b>
-                                                    </LemonBanner>
-                                                )}
-                                                <DatabaseTable
-                                                    table={selectedModel ? selectedModel : 'events'}
-                                                    tables={tables}
-                                                    inEditSchemaMode={false}
-                                                />
-                                            </div>
-                                        ),
-                                    },
-                                ]}
-                            />
-                        </div>
+                        {isHogqlModel ? (
+                            <>
+                                <LemonField
+                                    name="hogql_query"
+                                    label="Query"
+                                    info="Each run exports the rows this query returns. Any table you can query in PostHog works, including posthog.ai_events, which holds the LLM prompts and outputs that the events table does not."
+                                    className="flex flex-col flex-1"
+                                >
+                                    {({ value, onChange }) => (
+                                        <CodeEditorResizeable
+                                            language="hogQL"
+                                            value={value ?? ''}
+                                            onChange={(newValue) => onChange(newValue ?? '')}
+                                            minHeight="8rem"
+                                            maxHeight="40vh"
+                                        />
+                                    )}
+                                </LemonField>
+                                <p className="mb-0 text-xs text-secondary">
+                                    Use the <code>{'{data_interval_start}'}</code> and{' '}
+                                    <code>{'{data_interval_end}'}</code> placeholders to limit each run to its own
+                                    interval. Without them, every run exports the full result of the query.
+                                </p>
+                            </>
+                        ) : (
+                            <div className="flex gap-2">
+                                <LemonCollapse
+                                    className="flex flex-1"
+                                    panels={[
+                                        {
+                                            key: 'schema',
+                                            header: 'View model schema',
+                                            content: (
+                                                <div className="flex-1">
+                                                    {/* TODO: display the data types that will be used in the destination */}
+                                                    {isDatabaseDestination && (
+                                                        <LemonBanner type="info" className="mb-4">
+                                                            This schema is just for reference and does not reflect the
+                                                            actual data types that will be used in {service}.
+                                                            <br />
+                                                            <br />
+                                                            <b>
+                                                                It is recommended to allow the batch export to create
+                                                                the destination table automatically.
+                                                            </b>
+                                                        </LemonBanner>
+                                                    )}
+                                                    <DatabaseTable
+                                                        table={selectedModel ? selectedModel : 'events'}
+                                                        tables={tables}
+                                                        inEditSchemaMode={false}
+                                                    />
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        )}
                         {selectedModel === 'events' ? (
                             <>
                                 <div className="flex flex-col gap-2 min-h-16">

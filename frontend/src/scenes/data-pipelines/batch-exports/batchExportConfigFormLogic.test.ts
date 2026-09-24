@@ -1298,6 +1298,79 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    describe('HogQL model', () => {
+        const HOGQL_QUERY = 'SELECT uuid AS uuid FROM posthog.ai_events'
+
+        it('sends hogql_query at the top level, not inside destination.config', async () => {
+            await initLogic({ service: 'AwsS3', id: null })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                interval: 'hour',
+                name: 'AI events export',
+                model: 'hogql',
+                hogql_query: HOGQL_QUERY,
+                integration_id: 21,
+                bucket_name: 'my-bucket',
+                region: 'us-east-1',
+                prefix: 'test/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            expect(lastPostBody).not.toBeNull()
+            expect(lastPostBody!.model).toEqual('hogql')
+            expect(lastPostBody!.hogql_query).toEqual(HOGQL_QUERY)
+            expect(lastPostBody!.destination.config).not.toHaveProperty('hogql_query')
+        })
+
+        it('omits hogql_query for the events model', async () => {
+            await initLogic({ service: 'AwsS3', id: null })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                interval: 'hour',
+                name: 'Events export',
+                model: 'events',
+                hogql_query: HOGQL_QUERY,
+                integration_id: 21,
+                bucket_name: 'my-bucket',
+                region: 'us-east-1',
+                prefix: 'test/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            expect(lastPostBody).not.toBeNull()
+            expect(lastPostBody).not.toHaveProperty('hogql_query')
+            expect(lastPostBody!.destination.config).not.toHaveProperty('hogql_query')
+        })
+
+        it('requires a query, and clears filters the backend rejects', async () => {
+            await initLogic({ service: 'AwsS3', id: null })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                filters: [{ key: '$browser', type: 'event' }],
+            })
+            logic.actions.setSelectedModel('hogql')
+            logic.actions.setConfigurationValue('model', 'hogql')
+
+            await expectLogic(logic).toMatchValues({
+                requiredFields: expect.arrayContaining(['hogql_query']),
+                configuration: partial({ filters: [] }),
+            })
+        })
+    })
+
     describe('round-trip: load and save preserves destination config', () => {
         it.each([
             { name: 'AwsS3', fixture: AWS_S3_BATCH_EXPORT },
