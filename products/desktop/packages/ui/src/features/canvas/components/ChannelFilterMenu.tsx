@@ -6,6 +6,7 @@ import {
   type ChannelItemGrouping,
   type ChannelItemSort,
   type CreatedByFilter,
+  DESKTOP_SOURCE,
   type EnvironmentFilter,
   type KindFilter,
   type PinnedFilter,
@@ -86,6 +87,23 @@ const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
   { value: "created", label: "Date created" },
   { value: "alpha", label: "Name" },
 ];
+
+const SOURCE_LABELS: Record<string, string> = {
+  [DESKTOP_SOURCE]: "Desktop",
+  hogdesk: "HogDesk",
+  mcp_analytics: "MCP analytics",
+  posthog_ai: "PostHog AI",
+  posthog_code: "PostHog Desktop",
+  review_hog: "ReviewHog",
+};
+
+function sourceLabel(source: string): string {
+  const known = getOriginProductMeta(source)?.label ?? SOURCE_LABELS[source];
+  if (known) return known;
+
+  const words = source.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 function labelOf<T extends string>(
   options: readonly Option<T>[],
@@ -219,11 +237,9 @@ export function ChannelFilterMenu({
 
   const sourceOptions: Option<string>[] = [
     { value: ANY_SOURCE, label: "Any source" },
-    ...sources.map((source) => ({
+    ...Array.from(new Set([DESKTOP_SOURCE, ...sources])).map((source) => ({
       value: source,
-      // A source we have no name for still filters — the raw key is a worse
-      // label than "Slack", but a missing option would be a worse answer.
-      label: getOriginProductMeta(source)?.label ?? source,
+      label: sourceLabel(source),
     })),
   ];
 
