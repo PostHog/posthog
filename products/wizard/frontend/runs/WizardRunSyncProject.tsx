@@ -18,14 +18,11 @@ import { WizardRunSyncRunPicker } from './WizardRunSyncRunPicker'
 export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.Element {
     const logic = wizardRunSyncLogic({ projectId })
     useMountedLogic(logic)
-    const { activeCount, activeRuns, closedRunIds, dismissedRunIds, run, tasks } = useValues(logic)
+    const { activeCount, visibleRuns, closedRunIds, dismissedRunIds, run, tasks } = useValues(logic)
     const { closeRun, dismissRun, selectRun: selectSyncRun } = useActions(logic)
     const { sceneKey } = useValues(sceneLogic)
     const [dialogRun, setDialogRun] = useState<WizardRunApi | null>(null)
     const [now, setNow] = useState(Date.now)
-    const visibleRuns = activeRuns.filter(
-        (activeRun) => !closedRunIds.includes(activeRun.id) && !dismissedRunIds.includes(activeRun.id)
-    )
     const runHidden = run && (closedRunIds.includes(run.id) || dismissedRunIds.includes(run.id))
     useInterval(() => setNow(Date.now()), run && !runHidden && wizardRunIsActive(run) ? 1000 : null)
 
@@ -52,8 +49,7 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
                         tasks={tasks}
                         elapsedSeconds={elapsedSeconds}
                         runPicker={
-                            activeCount > 1 &&
-                            visibleRuns.length > 0 && (
+                            (activeCount > 1 || visibleRuns.length > 1) && (
                                 <WizardRunSyncRunPicker
                                     runs={visibleRuns}
                                     activeCount={activeCount}

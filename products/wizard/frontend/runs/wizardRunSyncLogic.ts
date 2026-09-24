@@ -1,12 +1,12 @@
-import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { getWizardRunsStreamRetrieveUrl, wizardRunsList } from '../generated/api'
 import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../generated/api.schemas'
 import { wizardRunIsActive } from '../wizardRunDisplay'
 
-const ACTIVE_RUN_POLL_MS = 30_000
-// ponytail: keep the FAB to five recent runs; the Wizard page lists the rest.
-const ACTIVE_RUN_LIST_LIMIT = 5
+const RUN_POLL_MS = 30_000
+// ponytail: show five active and five completed runs; the Wizard page lists the rest.
+const RUN_LIST_LIMIT = 5
 
 type RunStreamState = Pick<
     WizardRunApi,
@@ -20,7 +20,8 @@ export interface wizardRunSyncLogicProps {
 
 export interface wizardRunSyncLogicValues {
     activeCount: number
-    activeRuns: WizardRunApi[]
+    runs: WizardRunApi[]
+    visibleRuns: WizardRunApi[]
     closedRunIds: string[]
     dismissedRunIds: string[]
     run: WizardRunApi | null
@@ -29,8 +30,8 @@ export interface wizardRunSyncLogicValues {
 }
 
 export interface wizardRunSyncLogicActions {
-    checkActiveRuns: () => { value: true }
-    activeRunsLoaded: (count: number, runs: WizardRunApi[]) => { count: number; runs: WizardRunApi[] }
+    checkRuns: () => { value: true }
+    runsLoaded: (count: number, runs: WizardRunApi[]) => { count: number; runs: WizardRunApi[] }
     clearTasks: () => { value: true }
     runUpdated: (state: RunStreamState) => { state: RunStreamState }
     showRun: (run: WizardRunApi | null) => { run: WizardRunApi | null }
@@ -51,8 +52,8 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
     props({} as wizardRunSyncLogicProps),
     key((logicProps) => logicProps.projectId),
     actions({
-        checkActiveRuns: true,
-        activeRunsLoaded: (count: number, runs: WizardRunApi[]) => ({ count, runs }),
+        checkRuns: true,
+        runsLoaded: (count: number, runs: WizardRunApi[]) => ({ count, runs }),
         clearTasks: true,
         runUpdated: (state: RunStreamState) => ({ state }),
         showRun: (run: WizardRunApi | null) => ({ run }),
@@ -62,8 +63,8 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         dismissRun: (runId: string) => ({ runId }),
     }),
     reducers({
-        activeCount: [0, { activeRunsLoaded: (_, { count }) => count }],
-        activeRuns: [[] as WizardRunApi[], { activeRunsLoaded: (_, { runs }) => runs }],
+        activeCount: [0, { runsLoaded: (_, { count }) => count }],
+        runs: [[] as WizardRunApi[], { runsLoaded: (_, { runs }) => runs }],
         closedRunIds: [[] as string[], { closeRun: (current, { runId }) => [...current, runId] }],
         dismissedRunIds: [
             [] as string[],
@@ -73,8 +74,7 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         selectedRunId: [
             null as string | null,
             {
-                activeRunsLoaded: (current, { runs }) =>
-                    current && runs.some((run) => run.id === current) ? current : null,
+                runsLoaded: (current, { runs }) => (current && runs.some((run) => run.id === current) ? current : null),
                 selectRun: (_, { run }) => run.id,
                 closeRun: (current, { runId }) => (current === runId ? null : current),
                 dismissRun: (current, { runId }) => (current === runId ? null : current),
@@ -83,6 +83,8 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         run: [
             null as WizardRunApi | null,
             {
+                runsLoaded: (current, { runs }) =>
+                    current ? (runs.find((run) => run.id === current.id) ?? current) : null,
                 showRun: (_, { run }) => run,
                 selectRun: (_, { run }) => run,
                 runUpdated: (current, { state }) => (current ? { ...current, ...state } : null),
@@ -102,31 +104,44 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             },
         ],
     }),
+    selectors({
+        visibleRuns: [
+            (s) => [s.runs, s.closedRunIds, s.dismissedRunIds],
+            (runs: WizardRunApi[], closedRunIds: string[], dismissedRunIds: string[]): WizardRunApi[] =>
+                runs.filter((run) => !closedRunIds.includes(run.id) && !dismissedRunIds.includes(run.id)),
+        ],
+    }),
     listeners(({ actions, cache, props: logicProps, values }) => ({
-        checkActiveRuns: async () => {
+        checkRuns: async () => {
             if (cache.checking) {
                 return
             }
             cache.checking = true
             try {
-                const page = await wizardRunsList(logicProps.projectId, {
-                    status: ['created', 'running'],
-                    limit: ACTIVE_RUN_LIST_LIMIT,
-                })
-                actions.activeRunsLoaded(page.count, page.results)
+                const [activePage, completedPage] = await Promise.all([
+                    wizardRunsList(logicProps.projectId, {
+                        status: ['created', 'running'],
+                        limit: RUN_LIST_LIMIT,
+                    }),
+                    wizardRunsList(logicProps.projectId, { status: ['completed'], limit: RUN_LIST_LIMIT }),
+                ])
+                const activeRuns = activePage.results.filter(
+                    (run) => !completedPage.results.some((completedRun) => completedRun.id === run.id)
+                )
+                actions.runsLoaded(activePage.count - (activePage.results.length - activeRuns.length), [
+                    ...activeRuns,
+                    ...completedPage.results,
+                ])
             } catch {
                 return
             } finally {
                 cache.checking = false
             }
         },
-        activeRunsLoaded: () => {
-            const visibleRuns = values.activeRuns.filter(
-                (run) => !values.closedRunIds.includes(run.id) && !values.dismissedRunIds.includes(run.id)
-            )
+        runsLoaded: () => {
             const nextRun =
-                visibleRuns.find((run) => run.id === values.selectedRunId) ??
-                visibleRuns[0] ??
+                values.visibleRuns.find((run) => run.id === values.selectedRunId) ??
+                values.visibleRuns[0] ??
                 (values.run && !wizardRunIsActive(values.run) ? values.run : null)
             if (nextRun?.id !== values.run?.id) {
                 actions.showRun(nextRun)
@@ -163,10 +178,10 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
                         const state = JSON.parse(event.data) as RunStreamState
                         actions.runUpdated(state)
                         if (!wizardRunIsActive({ ...run, ...state })) {
-                            actions.checkActiveRuns()
+                            actions.checkRuns()
                         }
                     } catch {
-                        actions.checkActiveRuns()
+                        actions.checkRuns()
                     }
                 }
                 return () => stream.close()
@@ -175,19 +190,19 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         closeRun: () => {
             cache.disposables.dispose('run-stream')
             cache.connectedRunId = undefined
-            actions.activeRunsLoaded(values.activeCount, values.activeRuns)
+            actions.runsLoaded(values.activeCount, values.runs)
         },
         dismissRun: () => {
             cache.disposables.dispose('run-stream')
             cache.connectedRunId = undefined
-            actions.activeRunsLoaded(values.activeCount, values.activeRuns)
+            actions.runsLoaded(values.activeCount, values.runs)
         },
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
-            actions.checkActiveRuns()
+            actions.checkRuns()
             cache.disposables.add(() => {
-                const timer = window.setInterval(() => actions.checkActiveRuns(), ACTIVE_RUN_POLL_MS)
+                const timer = window.setInterval(() => actions.checkRuns(), RUN_POLL_MS)
                 return () => window.clearInterval(timer)
             }, 'active-run-poll')
         },

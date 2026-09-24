@@ -43,20 +43,23 @@ describe('WizardRunSyncCard', () => {
         const otherRun = {
             ...currentRun,
             id: 'other',
+            status: 'completed' as const,
             workspace: { type: 'local_folder' as const, project_name: 'other-project' },
         }
         const onSelect = jest.fn()
         render(
             <WizardRunSyncRunPicker
                 runs={[currentRun, otherRun]}
-                activeCount={2}
+                activeCount={1}
                 currentRunId={currentRun.id}
                 onSelect={onSelect}
             />
         )
 
-        const trigger = screen.getByRole('button', { name: 'Switch Wizard run, 2 active runs' })
+        const trigger = screen.getByRole('button', { name: 'Switch Wizard run, 2 recent runs, 1 active runs' })
         fireEvent.click(trigger)
+        expect(screen.getByText('Completed')).toBeTruthy()
+        expect(screen.getByText('In progress')).toBeTruthy()
         fireEvent.click(screen.getByText('example-project'))
         expect(onSelect).not.toHaveBeenCalled()
 

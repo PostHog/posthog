@@ -87,6 +87,9 @@ export const MultipleRuns: Story = {
             {
                 ...run,
                 id: '00000000-0000-4000-8000-000000000003',
+                status: 'completed' as const,
+                stage: null,
+                finished_at: '2026-09-23T09:05:00Z',
                 workspace: { type: 'git_repository' as const, repository: 'example/other-project' },
                 created_at: '2026-09-23T09:00:00Z',
             },
@@ -101,7 +104,7 @@ export const MultipleRuns: Story = {
                 runPicker={
                     <WizardRunSyncRunPicker
                         runs={runs}
-                        activeCount={3}
+                        activeCount={2}
                         currentRunId={selectedRun.id}
                         onSelect={setSelectedRun}
                     />
