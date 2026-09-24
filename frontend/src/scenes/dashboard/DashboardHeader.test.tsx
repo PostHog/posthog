@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -142,6 +142,7 @@ describe('DashboardHeader', () => {
                 tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
             })
             const { logic } = renderHeader({ dashboard, dashboardEditing })
+            act(() => logic.actions.updateContainerWidth(1200, 12))
 
             fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE' })
 
@@ -153,6 +154,33 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
+
+    it.each([600, 768])('shows customization without layout editing at %ipx', async (width) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+        window.dispatchEvent(new Event('resize'))
+
+        try {
+            const dashboard = makeDashboard({
+                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard })
+
+            expect(document.querySelector('[data-attr="dashboard-edit-mode-button"]')).not.toBeInTheDocument()
+            expect(document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]')).toBeInTheDocument()
+            fireEvent.click(
+                document.querySelector('[data-attr="dashboard-edit-layout-customize-dropdown"]') as HTMLElement
+            )
+            expect(await screen.findByText('Tile density')).toBeInTheDocument()
+            expect(screen.queryByText('When you move a tile')).not.toBeInTheDocument()
+            expect(logic.values.layoutEditMode).toBe(false)
+
+            logic.unmount()
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+            window.dispatchEvent(new Event('resize'))
+        }
+    })
 
     it('recognizes sandbox insight calls that add to the open dashboard', () => {
         expect(insightIsAddedToDashboard({ dashboards: ['5', 8] }, 5)).toBe(true)
