@@ -324,11 +324,6 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
-        if (parsed.verb === '--no-skills') {
-            // Ignore for backward compatibility with clients that still send this flag.
-            rest = parsed.rest
-            continue
-        }
         break
     }
 
