@@ -1109,3 +1109,31 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
 
         form = DataDeletionRequestForm(instance=DataDeletionRequest(team_id=1, request_type=request_type))
         self.assertIn(request_type, self._type_values(form))
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminStatusMeaning(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _request_with_status(self, status: str) -> DataDeletionRequest:
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=status,
+        )
+
+    @parameterized.expand([(status.value,) for status in RequestStatus])
+    def test_every_status_explains_what_happened_to_the_data(self, status: str):
+        meaning = self.admin.status_meaning(self._request_with_status(status))
+        self.assertNotEqual(meaning, "—")
+
+    def test_queued_does_not_read_as_deleted(self):
+        queued = self.admin.status_meaning(self._request_with_status(RequestStatus.QUEUED))
+        completed = self.admin.status_meaning(self._request_with_status(RequestStatus.COMPLETED))
+        self.assertIn("not deleted", queued)
+        self.assertNotEqual(queued, completed)

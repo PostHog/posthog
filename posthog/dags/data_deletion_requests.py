@@ -24,6 +24,7 @@ from posthog.schema import HogQLVariable
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -529,15 +530,25 @@ class HogQLEventDeletionExecutor:
         except pydantic.ValidationError as error:
             raise dagster.Failure("The request contains invalid HogQL variables.") from error
 
+        access_control = UserAccessControl(user=user, team=team)
         compiler = HogQLQueryExecutor(
             query=request.query,
             team=team,
             user=user,
-            user_access_control=UserAccessControl(user=user, team=team),
+            user_access_control=access_control,
             variables=variables,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.DELETION_EXECUTOR,
             pretty=False,
+            # A deletion request must reach every matching event, whatever its age. With the floor on, the
+            # compiled select skips events older than the team's retention window, so they never enter the
+            # deletion queue and stay on disk. compile_hogql_predicate opts out for the same reason.
+            context=HogQLContext(
+                team_id=team.pk,
+                user=user,
+                user_access_control=access_control,
+                apply_events_retention_floor=False,
+            ),
         )
         selected = compiler.generate_clickhouse_subquery_sql()
         prepared_ast = compiler.clickhouse_prepared_ast
