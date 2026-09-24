@@ -253,7 +253,7 @@ jobs:
                       # runs every non-PR event itself.
                       echo "::notice::$EVENT events never run on Depot CI."
                   else
-                      url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID"
+                      url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID&filter=all&per_page=100"
                       for attempt in $(seq 1 "$attempts"); do
                           # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
                           code=$(curl -s -o /tmp/handoff-body -w '%{http_code}' --max-time 15 --etag-compare /tmp/handoff-etag --etag-save /tmp/handoff-etag.new \
