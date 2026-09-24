@@ -91,13 +91,9 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 
 MLHog's `models/kev/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records.
 
-## Date facts
-
-Kev cannot subtract dates, so its author ships an opt-in preprocessor that appends the day count between any two absolute dates in the state ("July 4, 2026 is 8 days after June 26, 2026."). `kev_compat.with_date_facts` is that function, made idempotent so a client that already applied it is not doubled up, and the IO processor applies it to every request when the server runs with `KEV_DATE_FACTS=1`. It is off by default so the served numbers match Kev's published ones.
-
 ## Evals
 
-The eval runner that scores a served model on Kev's labelled suites, with and without date facts, lives in the MLHog repository under `models/kev/`, next to the other model work. Measured there on 2026-09-22 against this server on an H100: date facts move the deadline questions of Kev's transfer-v4 development split from 0.60 to 0.85 and change nothing else by more than half a point.
+The eval runner that scores a served model on labelled suites lives in the MLHog repository under `models/kev/`, next to the other model work.
 
 ## Tests
 
