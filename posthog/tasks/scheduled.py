@@ -82,7 +82,7 @@ from products.approvals.backend.tasks import (
     sync_experiment_approval_policies,
     validate_pending_change_requests,
 )
-from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events

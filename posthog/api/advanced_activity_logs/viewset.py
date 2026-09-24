@@ -107,7 +107,7 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
     Restrict `Canvas`-scoped rows to canvases this user may access through `CanvasViewSet`.
     Lazy import keeps the canvas product off this module's path.
     """
-    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+    from products.canvas.backend.facade import api as canvas_activity  # noqa: PLC0415
 
     visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
     return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
@@ -118,7 +118,7 @@ def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organizati
     `team_id`, so deny canvases hidden by channel visibility or source policy across the
     org. Canvases are soft-deleted, so their visibility stays computable without a snapshot.
     """
-    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+    from products.canvas.backend.facade import api as canvas_activity  # noqa: PLC0415
 
     hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
     if not hidden_ids:

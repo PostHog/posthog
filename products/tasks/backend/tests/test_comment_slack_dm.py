@@ -10,7 +10,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.models import Channel, ChannelMembership, TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
@@ -216,20 +216,20 @@ class TestCommentSlackDm(CommentActivityTestCase):
             created_by=self.peer,
         )
         ChannelMembership.objects.create(team=self.team, channel=canvas_channel, user=self.author)
-        canvas = Canvas.objects.create(
-            team=self.team,
-            channel=canvas_channel,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=canvas_channel.id,
             name="Launch canvas",
-            created_by=self.peer,
+            created_by_id=self.peer.id,
             generation_task_id=self.task.id,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas_id))
 
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
         heading = self._dm_heading()
-        assert f"<{settings.SITE_URL}/code/canvas/{canvas_channel.id}/{canvas.id}|Launch canvas>" in heading
+        assert f"<{settings.SITE_URL}/code/canvas/{canvas_channel.id}/{canvas_id}|Launch canvas>" in heading
         assert self.task.title not in heading
         assert str(self.task.id) not in heading
 
@@ -247,14 +247,14 @@ class TestCommentSlackDm(CommentActivityTestCase):
             channel_type=Channel.ChannelType.PERSONAL,
             created_by=self.peer,
         )
-        canvas = Canvas.objects.create(
-            team=self.team,
-            channel=personal_channel,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=personal_channel.id,
             name="Launch canvas",
-            created_by=self.peer,
+            created_by_id=self.peer.id,
             generation_task_id=self.task.id,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas_id))
 
         self._record_activity(comment, [self.author.id])
 
