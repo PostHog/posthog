@@ -210,6 +210,8 @@ describe('PostHog terminal commands', () => {
             '--json'
         )
         expect(await commands.execute(['_complete', '3', '', '--json', 'notebook-create'], cwd)).toBe('')
+        expect(await commands.execute(['_complete', '2', 'hog', 'help', 'help'], cwd)).toBe('hogql')
+        expect(await commands.execute(['_complete', '2', '--con', 'hogql', 'hogql'], cwd)).toBe('--connection-id')
         for (const command of ['help', 'tools', 'refresh', 'open']) {
             expect(await commands.execute(['_complete', '2', '--', command, command], cwd)).toBe('')
         }

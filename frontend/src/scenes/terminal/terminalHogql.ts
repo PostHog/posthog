@@ -43,7 +43,7 @@ Examples:
   hogql --connection-id CONNECTION_ID --raw
 `
 
-const HOGQL_FLAGS = [
+export const HOGQL_FLAGS = [
     '--markdown',
     '--json',
     '--csv',

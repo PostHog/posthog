@@ -21,7 +21,7 @@ import { insightsList, insightsRetrieve } from 'products/product_analytics/front
 
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 import { RUN_HELP, TerminalCommands } from './terminalCommands'
-import { HOGQL_HELP, terminalHogqlQuery } from './terminalHogql'
+import { HOGQL_FLAGS, HOGQL_HELP, terminalHogqlQuery } from './terminalHogql'
 import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
 import { terminalQueryTable } from './terminalSql'
 
@@ -414,6 +414,7 @@ export class PosthogCommands {
                         'tools',
                         'refresh',
                         'run',
+                        'hogql',
                         'open',
                         ...Object.keys(aliases),
                         ...this.commands.keys(),
@@ -428,13 +429,15 @@ export class PosthogCommands {
                     ? []
                     : commandName === 'run'
                       ? ['--help', '--markdown', '--json', '--csv', '--tsv']
-                      : [
-                            '--help',
-                            '--json',
-                            ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
-                                (key) => `--${key}`
-                            ),
-                        ]
+                      : commandName === 'hogql'
+                        ? HOGQL_FLAGS
+                        : [
+                              '--help',
+                              '--json',
+                              ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
+                                  (key) => `--${key}`
+                              ),
+                          ]
                 return flags
                     .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
                     .sort()
