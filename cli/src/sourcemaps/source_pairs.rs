@@ -2,7 +2,7 @@ use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::{
         args::ReleaseMode,
-        content::{get_injected_release_id, MinifiedSourceFile, SourceMapFile},
+        content::{get_injected_release_id, MinifiedSourceFile, SourceMapContent, SourceMapFile},
     },
     utils::files::content_hash,
 };
@@ -165,6 +165,10 @@ impl SourcePair {
     /// hashes would make the server keep the first map and resolve later frames to the wrong
     /// source positions.
     ///
+    /// Per-build map fields are left out of the hash as well. `file` names the chunk's output
+    /// file, and a content-hashed filename moves whenever a dependency changes, so hashing it
+    /// re-uploads a map whose symbolication payload is identical.
+    ///
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
     pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
@@ -187,7 +191,7 @@ impl SourcePair {
                     b"chunk-id-only"
                 };
                 self.remove_chunk_id(chunk_id.clone())?;
-                let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
+                let pristine_map = hashable_map(&self.sourcemap.inner.content)?;
                 // JSON serialization never contains a raw NUL, so it unambiguously separates
                 // the parts (same framing as `stable_chunk_id`).
                 Some(content_hash([
@@ -215,4 +219,13 @@ impl SourcePair {
             content_hash,
         })
     }
+}
+
+/// Serialize a sourcemap for hashing, without the fields that move from build to build.
+fn hashable_map(content: &SourceMapContent) -> Result<String> {
+    let mut value = serde_json::to_value(content)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("file");
+    }
+    Ok(serde_json::to_string(&value)?)
 }

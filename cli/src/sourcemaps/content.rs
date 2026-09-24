@@ -38,15 +38,41 @@ fn substitute_chunk_id(template: &str, chunk_id: &str) -> Result<String> {
     ))
 }
 
-struct ReleaseSnippetSpan {
-    start: usize,
-    end: usize,
-    release_id_start: usize,
-    release_id_end: usize,
+/// The injected IIFE found in a chunk, and the release id it carries.
+struct InjectedSnippet {
+    span: std::ops::Range<usize>,
+    release_id: Option<String>,
 }
 
-/// Locate the release-variant snippet for `chunk_id` in `source`, if present.
-fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSpan> {
+/// Property names the snippet sets on the global. A minifier renames the snippet's variables
+/// and requotes its strings, but it cannot rename a property read back by the SDK, so these
+/// are the only anchors that survive a post-injection minify pass.
+const CHUNK_IDS_PROPERTY: &str = "_posthogChunkIds";
+const RELEASE_ID_PROPERTY: &str = "_posthogReleaseId";
+
+/// Longest statement accepted as a rewritten snippet. The snippet is a few hundred bytes, so a
+/// much longer statement means the minifier merged it with user code, and removing the whole
+/// statement would delete that code.
+const MAX_REWRITTEN_SNIPPET_LEN: usize = 4096;
+
+/// Locate the snippet injected for `chunk_id` in `source`, if present.
+///
+/// Byte-exact template matching comes first, because it cannot pick the wrong bytes. It fails
+/// whenever a minifier runs after injection — Vite 8 minifies with Oxc after the bundler plugin
+/// injects in `renderChunk` — so the fallback finds the snippet structurally instead.
+fn find_injected_snippet(source: &str, chunk_id: &str) -> Option<InjectedSnippet> {
+    find_template_snippet(source, chunk_id).or_else(|| find_rewritten_snippet(source, chunk_id))
+}
+
+fn find_template_snippet(source: &str, chunk_id: &str) -> Option<InjectedSnippet> {
+    let plain = substitute_chunk_id(CODE_SNIPPET_TEMPLATE, chunk_id).ok()?;
+    if let Some(start) = source.find(&plain) {
+        return Some(InjectedSnippet {
+            span: start..start + plain.len(),
+            release_id: None,
+        });
+    }
+
     let (prefix, suffix) = CODE_SNIPPET_WITH_RELEASE_TEMPLATE
         .split_once(RELEASE_ID_PLACEHOLDER)
         .expect("release template has a release id placeholder");
@@ -62,18 +88,187 @@ fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSp
     }
     let release_id_end = release_id_start + release_id_len;
 
-    Some(ReleaseSnippetSpan {
-        start,
-        end: release_id_end + suffix.len(),
-        release_id_start,
-        release_id_end,
+    Some(InjectedSnippet {
+        span: start..release_id_end + suffix.len(),
+        release_id: serde_json::from_str(&source[release_id_start..release_id_end]).ok()?,
     })
 }
 
-/// Read the release id embedded in the source's release-variant snippet, if any.
+/// Find a snippet a minifier rewrote after injection. The snippet is prepended to the chunk, so
+/// it is the program's first statement; the statement is accepted only when it carries both the
+/// chunk-id map property and the chunk id itself, which no rename can touch.
+fn find_rewritten_snippet(source: &str, chunk_id: &str) -> Option<InjectedSnippet> {
+    let start = first_statement_start(source)?;
+    let end = statement_end(source, start)?;
+    if end - start > MAX_REWRITTEN_SNIPPET_LEN {
+        return None;
+    }
+
+    let statement = &source[start..end];
+    if !statement.contains(CHUNK_IDS_PROPERTY) {
+        return None;
+    }
+    let literals = string_literals(statement);
+    if !literals.iter().any(|(_, value)| value == chunk_id) {
+        return None;
+    }
+
+    let release_id = statement.rfind(RELEASE_ID_PROPERTY).and_then(|anchor| {
+        literals
+            .iter()
+            .find(|(offset, _)| *offset > anchor)
+            .map(|(_, value)| value.clone())
+            .filter(|value| value != chunk_id)
+    });
+
+    Some(InjectedSnippet {
+        span: start..end,
+        release_id,
+    })
+}
+
+/// Byte offset of the program's first statement, past any hashbang, comments, and directives.
+fn first_statement_start(source: &str) -> Option<usize> {
+    let mut index = if source.starts_with("#!") {
+        source.find('\n').map_or(source.len(), |end| end + 1)
+    } else {
+        0
+    };
+
+    loop {
+        index = skip_trivia(source, index);
+        match source.as_bytes().get(index) {
+            None => return None,
+            Some(&quote) if quote == b'"' || quote == b'\'' => {
+                let after = string_literal_end(source, index)?;
+                let terminator = skip_trivia(source, after);
+                if source.as_bytes().get(terminator) != Some(&b';') {
+                    return Some(index);
+                }
+                index = terminator + 1;
+            }
+            Some(_) => return Some(index),
+        }
+    }
+}
+
+/// Byte offset just past the statement starting at `start`.
+fn statement_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = start;
+    let mut depth = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' | b'\'' | b'`' => index = string_literal_end(source, index)?,
+            b'/' if matches!(bytes.get(index + 1), Some(b'/') | Some(b'*')) => {
+                index = skip_trivia(source, index)
+            }
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                depth = depth.checked_sub(1)?;
+                index += 1;
+                if depth > 0 {
+                    continue;
+                }
+                let next = skip_trivia(source, index);
+                match bytes.get(next) {
+                    // The function body and the call that runs it both close at depth zero,
+                    // so a following call, index, member access or block continues the
+                    // statement rather than ending it.
+                    Some(b'(') | Some(b'[') | Some(b'{') | Some(b'.') | Some(b'?') => continue,
+                    Some(b';') | Some(b',') => return Some(next + 1),
+                    _ => return Some(index),
+                }
+            }
+            b';' if depth == 0 => return Some(index + 1),
+            _ => index += 1,
+        }
+    }
+
+    None
+}
+
+fn skip_trivia(source: &str, mut index: usize) -> usize {
+    let bytes = source.as_bytes();
+    loop {
+        match bytes.get(index) {
+            Some(byte) if byte.is_ascii_whitespace() => index += 1,
+            Some(b'/') if bytes.get(index + 1) == Some(&b'/') => {
+                index = source[index..]
+                    .find('\n')
+                    .map_or(bytes.len(), |end| index + end + 1)
+            }
+            Some(b'/') if bytes.get(index + 1) == Some(&b'*') => {
+                index = source[index + 2..]
+                    .find("*/")
+                    .map_or(bytes.len(), |end| index + end + 4)
+            }
+            _ => return index,
+        }
+    }
+}
+
+/// Byte offset just past the string or template literal opening at `start`.
+fn string_literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let quote = *bytes.get(start)?;
+    let mut index = start + 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 2,
+            byte if byte == quote => return Some(index + 1),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// The string literal values in `code`, each with the offset of its opening quote. Escapes are
+/// resolved by dropping the backslash, which is exact for the JSON-encoded ids the snippet
+/// carries and for anything a minifier re-encodes them as.
+fn string_literals(code: &str) -> Vec<(usize, String)> {
+    let bytes = code.as_bytes();
+    let mut literals = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' | b'\'' => {
+                let Some(end) = string_literal_end(code, index) else {
+                    break;
+                };
+                let mut value = String::new();
+                let mut chars = code[index + 1..end - 1].chars();
+                while let Some(character) = chars.next() {
+                    if character == '\\' {
+                        match chars.next() {
+                            Some(escaped) => value.push(escaped),
+                            None => break,
+                        }
+                    } else {
+                        value.push(character);
+                    }
+                }
+                literals.push((index, value));
+                index = end;
+            }
+            b'/' if matches!(bytes.get(index + 1), Some(b'/') | Some(b'*')) => {
+                index = skip_trivia(code, index)
+            }
+            _ => index += 1,
+        }
+    }
+
+    literals
+}
+
+/// Read the release id embedded in the source's injected snippet, if any.
 pub fn get_injected_release_id(source: &str, chunk_id: &str) -> Option<String> {
-    let span = find_release_snippet(source, chunk_id)?;
-    serde_json::from_str(&source[span.release_id_start..span.release_id_end]).ok()
+    find_injected_snippet(source, chunk_id)?.release_id
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -401,7 +596,8 @@ impl MinifiedSourceFile {
     /// The two snippet variants have different lengths, so the choice shifts every generated
     /// column the sourcemap records for the injected chunk.
     pub fn has_release_snippet(&self, chunk_id: &str) -> bool {
-        find_release_snippet(&self.inner.content, chunk_id).is_some()
+        find_injected_snippet(&self.inner.content, chunk_id)
+            .is_some_and(|snippet| snippet.release_id.is_some())
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
@@ -418,15 +614,9 @@ impl MinifiedSourceFile {
                     .map_err(|err| anyhow!("Failed to remove chunk comment: {err}"))?;
             }
 
-            let code_snippet = substitute_chunk_id(CODE_SNIPPET_TEMPLATE, &chunk_id)?;
-            if let Some(code_snippet_start) = source_content.find(&code_snippet) {
-                let code_snippet_end = code_snippet_start as i64 + code_snippet.len() as i64;
+            if let Some(snippet) = find_injected_snippet(source_content, &chunk_id) {
                 magic_source
-                    .remove(code_snippet_start as i64, code_snippet_end)
-                    .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
-            } else if let Some(span) = find_release_snippet(source_content, &chunk_id) {
-                magic_source
-                    .remove(span.start as i64, span.end as i64)
+                    .remove(snippet.span.start as i64, snippet.span.end as i64)
                     .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
             }
 
@@ -635,6 +825,55 @@ mod tests {
             get_injected_release_id(&format!("{snippet}code();"), chunk_id).as_deref(),
             Some(release_id)
         );
+    }
+
+    /// A release snippet as a post-injection minifier rewrites it. Variables are renamed, the
+    /// `typeof` comparisons are rewritten and the catch binding is dropped, so nothing of the
+    /// template survives except the property names and the ids.
+    fn minified_release_snippet(chunk_id: &str, release_id: &str) -> String {
+        format!(
+            r#"!function(){{try{{var t=typeof window<"u"?window:typeof globalThis<"u"?globalThis:{{}};t._posthogReleaseId=t._posthogReleaseId||"{release_id}";var o=new t.Error().stack;o&&(t._posthogChunkIds=t._posthogChunkIds||{{}},t._posthogChunkIds[o]="{chunk_id}")}}catch{{}}}}();"#
+        )
+    }
+
+    #[test]
+    fn minified_release_snippet_is_detected_and_removed() {
+        let source = format!(
+            "\"use strict\";{}console.log(1);\n//# chunkId=chunk-1\n",
+            minified_release_snippet("chunk-1", "release-1")
+        );
+        let mut minified = minified_source(&source);
+
+        assert_eq!(
+            get_injected_release_id(&source, "chunk-1").as_deref(),
+            Some("release-1")
+        );
+        assert!(minified.has_release_snippet("chunk-1"));
+
+        minified
+            .remove_chunk_id("chunk-1".to_string())
+            .expect("Failed to remove chunk id");
+
+        assert_eq!(minified.inner.content, "\"use strict\";console.log(1);\n");
+    }
+
+    #[test]
+    fn a_snippet_for_another_chunk_is_left_alone() {
+        // Sibling chunks carry the same rewritten shape, so the chunk id in the statement is
+        // what proves the snippet is the one being removed.
+        let source = format!(
+            "{}console.log(1);\n",
+            minified_release_snippet("chunk-1", "release-1")
+        );
+        let mut minified = minified_source(&source);
+
+        assert_eq!(get_injected_release_id(&source, "chunk-2"), None);
+
+        minified
+            .remove_chunk_id("chunk-2".to_string())
+            .expect("Failed to remove chunk id");
+
+        assert_eq!(minified.inner.content, source);
     }
 
     #[test]

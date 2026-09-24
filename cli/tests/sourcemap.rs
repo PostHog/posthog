@@ -661,6 +661,75 @@ fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
     assert_eq!(fresh.content_hash, transitioned.content_hash);
 }
 
+/// A release snippet as a post-injection minifier rewrites it: variables renamed, `typeof`
+/// comparisons rewritten, the catch binding dropped. Only the property names and the ids
+/// survive unchanged.
+fn minified_release_snippet(chunk_id: &str, release_id: &str) -> String {
+    format!(
+        r#"!function(){{try{{var t=typeof window<"u"?window:typeof globalThis<"u"?globalThis:{{}};t._posthogReleaseId=t._posthogReleaseId||"{release_id}";var o=new t.Error().stack;o&&(t._posthogChunkIds=t._posthogChunkIds||{{}},t._posthogChunkIds[o]="{chunk_id}")}}catch{{}}}}();"#
+    )
+}
+
+fn pair_with_minified_snippet(release_id: &str, file: &str) -> SourcePair {
+    let source = format!(
+        "{}console.log(1);\n//# chunkId={BUNDLER_DEBUG_ID}\n//# sourceMappingURL=chunk.js.map\n",
+        minified_release_snippet(BUNDLER_DEBUG_ID, release_id)
+    );
+    let mut map = map_with_debug_id(Some(BUNDLER_DEBUG_ID));
+    map["file"] = json!(file);
+    map["chunk_id"] = json!(BUNDLER_DEBUG_ID);
+    make_pair(&source, map)
+}
+
+#[test]
+fn test_event_mode_content_hash_ignores_a_minified_release_snippet() {
+    // Vite 8 minifies with Oxc after the bundler plugin injects, so the snippet in the chunk no
+    // longer matches the template byte for byte. Detection must still find it, or the embedded
+    // release id reaches the hash and every unchanged chunk re-uploads on every release.
+    let hash_of = |pair: SourcePair| {
+        pair.into_upload(ReleaseMode::Event)
+            .expect("Failed to convert to SymbolSetUpload")
+            .content_hash
+            .expect("event mode always sets a content hash")
+    };
+
+    assert_eq!(
+        hash_of(pair_with_minified_snippet("release-a", "chunk.js")),
+        hash_of(pair_with_minified_snippet("release-b", "chunk.js"))
+    );
+}
+
+#[test]
+fn test_event_mode_content_hash_ignores_the_map_file_name() {
+    // A content-hashed output name moves whenever a dependency changes, while the chunk and its
+    // mappings stay identical. Hashing `file` would re-upload a map that symbolicates the same.
+    let hash_of = |pair: SourcePair| {
+        pair.into_upload(ReleaseMode::Event)
+            .expect("Failed to convert to SymbolSetUpload")
+            .content_hash
+            .expect("event mode always sets a content hash")
+    };
+
+    assert_eq!(
+        hash_of(pair_with_minified_snippet("release-a", "chunk-abc123.js")),
+        hash_of(pair_with_minified_snippet("release-a", "chunk-def456.js"))
+    );
+}
+
+#[test]
+fn test_reinject_replaces_a_minified_release_snippet() {
+    // Re-running inject over a dist the plugin already stamped must refresh the embedded release
+    // id in place. Failing to find the rewritten snippet would leave the stale one behind and
+    // prepend a second copy, so the chunk would report whichever release ran first.
+    let pair = pair_with_minified_snippet("release-a", "chunk.js");
+
+    let injected = inject_pairs(vec![pair], Some("release-b")).expect("Failed to inject pairs");
+    let source = &injected.first().unwrap().source.inner.content;
+
+    assert!(!source.contains("release-a"), "{source}");
+    assert_eq!(source.matches("_posthogReleaseId||").count(), 1, "{source}");
+}
+
 #[test]
 fn test_file_selection() {
     // This does not work with glob patterns
