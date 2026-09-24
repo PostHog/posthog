@@ -15,12 +15,16 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
+import { sandboxIpLabel } from './sandboxIpLabel'
+
 export interface AuditLogTableProps {
     logItems: HumanizedActivityLogItem[]
     pagination?: PaginationManual
     /** When provided, renders a Project column resolving each row's team_id via this map. */
     teamsById?: Record<number, string>
 }
+
+const SANDBOX_IP_TOOLTIP = 'An agent made this change in a PostHog sandbox, so there is no IP address to show'
 
 const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
@@ -83,12 +87,19 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
         title: 'IP address',
         key: 'ip_address',
-        render: (_, logItem) =>
-            logItem.unprocessed?.ip_address ? (
-                <span className="font-mono text-xs">{logItem.unprocessed.ip_address}</span>
+        render: (_, logItem) => {
+            if (logItem.unprocessed?.ip_address) {
+                return <span className="font-mono text-xs">{logItem.unprocessed.ip_address}</span>
+            }
+            const label = sandboxIpLabel(logItem)
+            return label ? (
+                <Tooltip title={SANDBOX_IP_TOOLTIP}>
+                    <span className="block truncate text-xs text-muted">{label}</span>
+                </Tooltip>
             ) : (
                 <span className="text-muted">—</span>
-            ),
+            )
+        },
         width: '10%',
     },
 ]
