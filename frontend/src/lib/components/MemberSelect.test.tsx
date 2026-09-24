@@ -118,14 +118,25 @@ describe('MemberSelect', () => {
         renderSelect({
             defaultLabel: 'Entire project',
             extraOptions: [{ label: 'For you', onClick: onForYou }],
-            options: [{ uuid: 'reviewer-1', name: 'Alex', email: 'alex@example.com' }],
+            options: [
+                { uuid: 'reviewer-1', name: 'Alex', email: 'alex@example.com' },
+                {
+                    uuid: MOCK_DEFAULT_BASIC_USER.uuid,
+                    name: MOCK_DEFAULT_BASIC_USER.first_name,
+                    email: MOCK_DEFAULT_BASIC_USER.email,
+                },
+            ],
             onSearch,
             onSelectOption,
         })
 
         await userEvent.click(screen.getByText('Entire project'))
         expect(screen.getByPlaceholderText('Search')).toHaveFocus()
-        expect(screen.queryByText(MOCK_DEFAULT_BASIC_USER.first_name)).not.toBeInTheDocument()
+        expect(
+            screen.getByText(MOCK_DEFAULT_BASIC_USER.first_name).compareDocumentPosition(screen.getByText('Alex')) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(screen.queryByText(MOCK_SECOND_BASIC_USER.first_name)).not.toBeInTheDocument()
         await userEvent.type(screen.getByPlaceholderText('Search'), 'Alex')
         expect(onSearch).toHaveBeenLastCalledWith('Alex')
         await userEvent.click(screen.getByText('Alex'))

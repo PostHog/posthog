@@ -80,6 +80,12 @@ export function MemberSelect({
     }
 
     const members = showPopover && !options ? selectableMembers(excludedMembers, propToCompare) : []
+    const displayedOptions =
+        options && !optionSearch && me
+            ? [...options].sort(
+                  (first, second) => Number(second.uuid === me.user.uuid) - Number(first.uuid === me.user.uuid)
+              )
+            : options
 
     return (
         <LemonDropdown
@@ -133,7 +139,7 @@ export function MemberSelect({
                                 />
                             ))}
 
-                            {options?.map((option) => (
+                            {displayedOptions?.map((option) => (
                                 <li key={option.uuid}>
                                     <LemonButton
                                         fullWidth
