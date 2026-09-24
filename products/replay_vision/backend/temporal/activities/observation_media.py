@@ -1,4 +1,3 @@
-import math
 from datetime import timedelta
 from typing import Any
 from uuid import uuid4
@@ -60,7 +59,7 @@ def _pick_video_time_s(
     if inputs.thumbnail_video_s is not None:
         # The pick comes from the model, so bound it before the conversion: `float()` of an
         # arbitrary-precision int over about 1.8e308 raises OverflowError.
-        picked = float(min(inputs.thumbnail_video_s, math.ceil(duration_s)))
+        picked = float(min(inputs.thumbnail_video_s, duration_s))
     if picked is None:
         picked = _first_citation_video_s(model_output, clock)
     if picked is None and inputs.signal_video_times:
