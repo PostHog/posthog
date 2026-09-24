@@ -520,7 +520,7 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersCancelEmailChangeRequestPartialUpdate() from '~/generated/core/api' instead.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersCancelEmailChangeRequestPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.update<UserType>('api/users/cancel_email_change_request/', {})
                         lemonToast.success('The email change request was cancelled successfully.')
                         return response
@@ -533,7 +533,7 @@ export const userLogic = kea<userLogicType>([
                     }
                 },
                 deleteUser: async () => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersDestroy() from '~/generated/core/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.delete('api/users/@me/').then(() => {
                         return null
                     })
@@ -543,7 +543,7 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersScenePersonalisationCreate() from '~/generated/core/api' instead.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersScenePersonalisationCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         return await api.create<UserType>('api/users/@me/scene_personalisation', {
                             scene,
                             dashboard,

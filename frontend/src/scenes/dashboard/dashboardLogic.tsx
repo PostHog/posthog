@@ -1790,7 +1790,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (fromDashboard !== props.id) {
                         return values.dashboard
                     }
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsMoveTilePartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsMoveTilePartialUpdate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const dashboard: DashboardType = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
@@ -1832,7 +1832,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCopyTileCreate() from 'products/dashboards/frontend/generated/api' instead.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsCopyTileCreate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.create(
                             `api/projects/${teamLogic.values.currentTeamId}/dashboards/${toDashboard}/copy_tile`,
                             { fromDashboardId: fromDashboard, tileId: tile.id }
@@ -4595,7 +4595,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insightIds = insights.map((insight: InsightModel) => insight?.id).filter((id): id is number => !!id)
 
             if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 void api.create(`api/projects/${values.currentTeamId}/insights/viewed`, {
                     insight_ids: insightIds,
                 })

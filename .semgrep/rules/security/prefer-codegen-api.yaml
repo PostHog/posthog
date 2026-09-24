@@ -70,7 +70,7 @@ rules:
       languages: [typescript, javascript]
       # Semgrep matches a nosemgrep id exactly, so the bare marker that silences
       # prefer-codegen-api on this line does not silence this rule.
-      pattern-regex: '//\s*nosemgrep:[^\n]*prefer-codegen-api(?![\w-])(?![^\n]*\s--\s*\S)'
+      pattern-regex: '(?://|/\*)\s*nosemgrep:[^\n]*?prefer-codegen-api(?![\w-])(?![^\n]*?\s--\s*[^\s*])'
       # Same scope as prefer-codegen-api.
       paths:
           include:

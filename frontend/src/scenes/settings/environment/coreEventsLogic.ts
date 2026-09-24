@@ -155,7 +155,7 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use coreEventsDestroy() from 'products/core_events/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. coreEventsDestroy() from 'products/core_events/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/projects/${values.currentTeamId}/core_events/${eventId}/`)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event removed')

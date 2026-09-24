@@ -481,7 +481,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsProviderKeysDependentConfigsRetrieve() from 'products/ai_observability/frontend/generated/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeysDependentConfigsRetrieve() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.get(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
                     )
@@ -624,7 +624,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsProviderKeysValidateCreate() from 'products/ai_observability/frontend/generated/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeysValidateCreate() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
                         {}

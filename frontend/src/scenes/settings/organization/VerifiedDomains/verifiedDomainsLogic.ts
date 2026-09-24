@@ -905,7 +905,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     return false
                 },
                 verifyDomain: async () => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use domainsVerifyCreate() from '~/generated/core/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. domainsVerifyCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganizationId}/domains/${values.verifyModal}/verify`
                     )

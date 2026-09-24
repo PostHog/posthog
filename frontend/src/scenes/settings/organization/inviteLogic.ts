@@ -224,7 +224,7 @@ export const inviteLogic = kea<inviteLogicType>([
                     // Inviting members is a sensitive action; if re-authentication is required,
                     // await its completion so the invite resumes once the user re-authenticates.
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use invitesBulkCreate() from '~/generated/core/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. invitesBulkCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.create<OrganizationInviteType[]>(
                         `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
                         payload
@@ -271,7 +271,7 @@ export const inviteLogic = kea<inviteLogicType>([
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use invitesDestroy() from '~/generated/core/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. invitesDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     await api.delete(
                         `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
                     )

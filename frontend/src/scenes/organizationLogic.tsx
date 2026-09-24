@@ -408,7 +408,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use destroy() from 'products/platform_features/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. destroy() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
             } catch (e) {

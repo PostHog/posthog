@@ -299,7 +299,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use liveDebuggerBreakpointsDestroy() from 'products/live_debugger/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. liveDebuggerBreakpointsDestroy() from 'products/live_debugger/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(
                     `api/projects/${values.currentProjectId}/live_debugger_breakpoints/${existingBreakpoint.id}/`
                 )
@@ -324,7 +324,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use liveDebuggerBreakpointsDestroy() from 'products/live_debugger/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. liveDebuggerBreakpointsDestroy() from 'products/live_debugger/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(
                     `api/projects/${values.currentProjectId}/live_debugger_breakpoints/${existingBreakpoint.id}/`
                 )
@@ -345,7 +345,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             if (Array.isArray(values.breakpoints)) {
                 await Promise.all(
                     values.breakpoints.map((bp) =>
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use liveDebuggerBreakpointsDestroy() from 'products/live_debugger/frontend/generated/api' instead.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. liveDebuggerBreakpointsDestroy() from 'products/live_debugger/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         api.delete(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/${bp.id}/`)
                     )
                 )

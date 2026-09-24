@@ -2391,7 +2391,7 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: async () => {
             actions.setLaunchExperimentLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsLaunchCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsLaunchCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const experiment: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
                 )
@@ -2428,7 +2428,7 @@ export const experimentLogic = kea<experimentLogicType>([
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
             actions.setEndExperimentLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsEndCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsEndCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
                     {
@@ -2461,7 +2461,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         pauseExperiment: async () => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPauseCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsPauseCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/pause`
                 )
@@ -2473,7 +2473,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         resumeExperiment: async () => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsResumeCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsResumeCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/resume`
                 )
@@ -2489,7 +2489,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.setFreezeExposureLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsFreezeExposureCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsFreezeExposureCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
                 )
@@ -2508,7 +2508,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.setUnfreezeExposureLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsUnfreezeExposureCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsUnfreezeExposureCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unfreeze_exposure`
                 )
@@ -2523,7 +2523,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsArchiveCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsArchiveCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
                     { disable_feature_flag: disableFeatureFlag }
@@ -2537,7 +2537,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         unarchiveExperiment: async () => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsUnarchiveCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsUnarchiveCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
                 )
@@ -2788,7 +2788,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         resetRunningExperiment: async () => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsResetCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsResetCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/reset`
                 )
@@ -2839,7 +2839,7 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => {
             actions.setEndExperimentLoading(true)
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsShipVariantCreate() from 'products/experiments/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsShipVariantCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
                     {

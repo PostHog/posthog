@@ -219,7 +219,7 @@ export const projectLogic = kea<projectLogicType>([
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsRetrieve() from '~/generated/core/api' instead.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet, so add its OpenAPI schema first.
                         return await api.get('api/projects/@current')
                     } catch {
                         return values.currentProject
@@ -282,7 +282,7 @@ export const projectLogic = kea<projectLogicType>([
             null as ProjectType | null,
             {
                 moveProject: async ({ project, organizationId }) => {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsChangeOrganizationCreate() from '~/generated/core/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsChangeOrganizationCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const res = await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
                         organization_id: organizationId,
                     })
@@ -331,7 +331,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         deleteProject: async ({ project }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsDestroy() from '~/generated/core/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/projects/${project.id}`)
                 actions.deleteProjectSuccess()
             } catch (e) {

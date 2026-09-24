@@ -1019,7 +1019,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             refreshInAppUnreadCount: async () => {
                 try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const countResp = await api.get<{ count: number }>(
                         `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
@@ -1330,7 +1330,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     // Swallow
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' instead.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const countResp = await api.get<{ count: number }>(
                         `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )

@@ -66,3 +66,7 @@ const m = await api.get(`api/foo`)
 // ruleid: prefer-codegen-api-reason
 // nosemgrep: prefer-codegen-api
 const n = await api.get(`api/foo`)
+
+// ruleid: prefer-codegen-api-reason
+/* nosemgrep: prefer-codegen-api */
+const o = await api.get(`api/foo`)

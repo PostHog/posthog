@@ -167,7 +167,7 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
         },
         deleteJob: async ({ jobId }) => {
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringJobsDestroy() from 'products/ai_observability/frontend/generated/api' instead.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsClusteringJobsDestroy() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${jobId}/`)
                 lemonToast.success('Clustering job deleted')
                 posthog.capture('llma clustering job deleted', { job_id: jobId })
