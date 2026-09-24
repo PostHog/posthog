@@ -1054,6 +1054,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 return
             }
+            // A bare list URL (the nav item, a bookmark, a reload) asks for no filters in
+            // particular, so the open view survives it like the rest of the persisted
+            // selection. The view goes back in the URL so that a shared link still names it.
+            if (values.activeView && !hasFilterParams(searchParams)) {
+                actions.setActiveView(values.activeView)
+                return
+            }
             const leavingSavedView = !!values.activeView || !!cache.latestViewShortId
             if (
                 leavingSavedView ||
