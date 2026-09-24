@@ -11,6 +11,7 @@ import {
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/replay'
+import getSessionRecording from '@/tools/replay/getSessionRecording'
 import type { Context } from '@/tools/types'
 
 describe('Session Replays', { concurrent: false }, () => {
@@ -25,7 +26,7 @@ describe('Session Replays', { concurrent: false }, () => {
 
     describe('Session Recordings', () => {
         const queryListTool = GENERATED_TOOLS['query-session-recordings-list']!()
-        const getTool = GENERATED_TOOLS['session-recording-get']!()
+        const getTool = getSessionRecording()
 
         describe('query-session-recordings-list tool', () => {
             it('should return results with pagination info', async () => {
@@ -95,8 +96,12 @@ describe('Session Replays', { concurrent: false }, () => {
         })
 
         describe('session-recording-get tool', () => {
-            it('should throw for a non-existent ID', async () => {
-                await expect(getTool.handler(context, { id: 'nonexistent-session-id' })).rejects.toThrow()
+            it('returns an ordinary missing result for a non-existent ID', async () => {
+                await expect(getTool.handler(context, { id: 'nonexistent-session-id' })).resolves.toMatchObject({
+                    found: false,
+                    id: 'nonexistent-session-id',
+                    reason: 'recording_not_found',
+                })
             })
         })
     })

@@ -5,6 +5,7 @@ import { Badge, Card, CardContent } from '@posthog/quill'
 
 export interface SessionRecordingData {
     id: string
+    found?: false
     distinct_id?: string | null
     viewed?: boolean
     recording_duration?: number
@@ -81,6 +82,21 @@ function formatDuration(seconds?: number | null): string {
 }
 
 export function SessionRecordingView({ recording }: { recording: SessionRecordingData }): ReactElement {
+    if (recording.found === false) {
+        return (
+            <div className="p-4">
+                <Card>
+                    <CardContent>
+                        <p className="text-sm font-semibold">No session recording found</p>
+                        <p className="text-sm text-muted-foreground">
+                            No recording is available for session {recording.id} in this project.
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
+
     const errors = recording.console_error_count ?? 0
     const warns = recording.console_warn_count ?? 0
     const logs = recording.console_log_count ?? 0
