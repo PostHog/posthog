@@ -30,7 +30,10 @@ export interface ticketSpikeBannerLogicActions {
     dismissSpike: (key: string) => {
         key: string
     }
-    loadSpikes: () => any
+    dismissSpikeFailure: (key: string) => {
+        key: string
+    }
+    loadSpikes: (_: void) => void
     loadSpikesFailure: (
         error: string,
         errorObject?: any
@@ -40,10 +43,10 @@ export interface ticketSpikeBannerLogicActions {
     }
     loadSpikesSuccess: (
         spikes: TicketPatternApi[],
-        payload?: any
+        payload?: void
     ) => {
         spikes: TicketPatternApi[]
-        payload?: any
+        payload?: void
     }
     setExpanded: (expanded: boolean) => {
         expanded: boolean
@@ -73,17 +76,23 @@ export const ticketSpikeBannerLogic = kea<ticketSpikeBannerLogicType>([
     })),
     actions({
         dismissSpike: (key: string) => ({ key }),
+        dismissSpikeFailure: (key: string) => ({ key }),
         setExpanded: (expanded: boolean) => ({ expanded }),
     }),
     loaders(({ values }) => ({
         spikes: [
             [] as TicketPatternApi[],
             {
-                loadSpikes: async () => {
+                loadSpikes: async (_: void, breakpoint) => {
                     if (!values.bannerEnabled || !values.currentTeamId) {
                         return []
                     }
-                    return await conversationsTicketPatternsList(String(values.currentTeamId))
+                    const spikes = await conversationsTicketPatternsList(String(values.currentTeamId))
+                    // Every dismissal starts a reload, so two quick dismissals can resolve out of order.
+                    // Only the newest reload may write the list, because an older one can still show a
+                    // spike that was dismissed since.
+                    breakpoint()
+                    return spikes
                 },
             },
         ],
@@ -91,12 +100,15 @@ export const ticketSpikeBannerLogic = kea<ticketSpikeBannerLogicType>([
     reducers({
         expanded: [false, { setExpanded: (_, { expanded }) => expanded }],
         // Hide the banner the moment it is clicked, rather than waiting for the reload to confirm.
-        // The reload is what makes it stay hidden for everyone.
+        // The reload is what makes it stay hidden for everyone. A reload can land before a later
+        // dismissal is saved, so a key stays pending until a reload shows that spike dismissed or gone.
         pendingDismissals: [
             [] as string[],
             {
                 dismissSpike: (state, { key }) => [...state, key],
-                loadSpikesSuccess: () => [],
+                dismissSpikeFailure: (state, { key }) => state.filter((pending) => pending !== key),
+                loadSpikesSuccess: (state, { spikes }) =>
+                    state.filter((key) => spikes.some((spike) => spike.key === key && !spike.dismissed_by)),
             },
         ],
     }),
@@ -130,6 +142,7 @@ export const ticketSpikeBannerLogic = kea<ticketSpikeBannerLogicType>([
             try {
                 await conversationsTicketPatternsDismissCreate(String(values.currentTeamId), { key })
             } catch {
+                actions.dismissSpikeFailure(key)
                 lemonToast.error('Could not dismiss the spike. Refresh and try again.')
             }
             actions.loadSpikes()
