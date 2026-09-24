@@ -920,10 +920,14 @@ def _record_agent_attribution(request: Union[HttpRequest, Request], access_token
     Only the token binding can supply a verified task id, so a token without one records the
     intent alone. Attribution is extra detail on an audit row, so an error here must not fail
     the request.
+
+    A bound token also clears the row's IP. The address belongs to the sandbox or to the MCP
+    server it calls through, not to a person, so a reader would take it for the actor's location.
     """
     try:
         if access_token.sandbox_task_id is not None:
             activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+            activity_storage.set_ip_address(None)
     except Exception as e:
         capture_exception(e)
     record_agent_intent(request)

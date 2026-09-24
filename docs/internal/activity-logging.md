@@ -166,6 +166,22 @@ A task link appears only when the token has a server-set task binding, so intent
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
+### Client IP
+
+`ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
+Only the activity log uses the rules below. Throttles, IP allowlists, and request logs read the IP from the request as before.
+
+- **Browser and API requests.** The IP comes from `get_ip_address`: the leftmost `X-Forwarded-For` entry, or `REMOTE_ADDR`.
+- **MCP requests.** The MCP server calls the API from inside the cluster, so `REMOTE_ADDR` is the MCP pod.
+  The MCP server signs the end user's IP and sends it in `X-PostHog-MCP-Client-IP`, `X-PostHog-MCP-Client-IP-Timestamp`, and `X-PostHog-MCP-Client-IP-Signature`.
+  The middleware removes these headers from every request.
+  When the signature verifies against `MCP_CLIENT_IP_SIGNING_KEYS`, the row records the signed IP.
+  Any other result keeps the `get_ip_address` value.
+  The signature format is the managed proxy format, `hex(HMAC-SHA256(key, f"{ip}:{unix_seconds}"))`, valid from 5 seconds ahead to 60 seconds old.
+  The `posthog_mcp_client_ip_verifications` counter records each outcome.
+- **Sandbox agents.** An OAuth token bound to a sandbox task clears the IP, so the row records none.
+  The address belongs to the sandbox, not to a person.
+
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.

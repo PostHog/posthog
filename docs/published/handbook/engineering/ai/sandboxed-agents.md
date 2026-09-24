@@ -222,6 +222,9 @@ The tag is derived from the task binding on the run's own token, not from the `x
 The `scout:` prefix is reserved for that path, and a header value claiming it is dropped, so an agent cannot claim to be a scout it is not.
 Every other client keeps the self-reported header value.
 
+A row written with a token bound to a sandbox task records no IP address.
+The sandbox's network address does not locate the person who owns the run.
+
 ## PostHog MCP server
 
 The sandbox comes with access to the PostHog MCP server,
