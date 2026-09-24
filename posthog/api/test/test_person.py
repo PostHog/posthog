@@ -613,32 +613,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("publish_failed", PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1, 1, status.HTTP_202_ACCEPTED),
-            ("tombstone_call_failed", PersonDeletionStep.TOMBSTONE_POSTGRES, 0, 1, status.HTTP_202_ACCEPTED),
-            ("legacy_clickhouse_failed", PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1, 0, status.HTTP_202_ACCEPTED),
-            ("published", None, 1, 0, status.HTTP_202_ACCEPTED),
+            ("publish_failed", PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1, status.HTTP_202_ACCEPTED),
+            ("tombstone_call_failed", PersonDeletionStep.TOMBSTONE_POSTGRES, 0, 503),
         ]
     )
-    def test_delete_person_hands_unpublished_tombstones_to_celery(
-        self, _name, failed_step, deleted, delay_calls, expected_status
-    ):
+    def test_delete_person_fails_only_when_the_tombstone_did_not_land(self, _name, failed_step, deleted, expected):
         person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
-        failures = (
-            [PersonDeletionFailure(step=failed_step, person_uuid=person.uuid, error="down")] if failed_step else []
-        )
-        with (
-            mock.patch(
-                "posthog.api.person.delete_persons_profile",
-                return_value=PersonProfileDeletionResult(deleted_count=deleted, failures=failures),
-            ),
-            mock.patch("posthog.api.person.republish_person_tombstones") as task,
+        failures = [PersonDeletionFailure(step=failed_step, person_uuid=person.uuid, error="down")]
+        with mock.patch(
+            "posthog.api.person.delete_persons_profile",
+            return_value=PersonProfileDeletionResult(deleted_count=deleted, failures=failures),
         ):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 
-        self.assertEqual(response.status_code, expected_status)
-        self.assertEqual(task.delay.call_count, delay_calls)
-        if delay_calls:
-            task.delay.assert_called_once_with(team_id=self.team.pk, person_uuids=[str(person.uuid)])
+        self.assertEqual(response.status_code, expected)
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_delete_person_and_events(self):

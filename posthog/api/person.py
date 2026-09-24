@@ -54,12 +54,10 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
-    REPUBLISHED_STEPS,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
-    unpublished_tombstone_uuids,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
@@ -76,7 +74,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
-from posthog.tasks.delete_persons import queue_person_deletion, republish_person_tombstones
+from posthog.tasks.delete_persons import queue_person_deletion
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -303,11 +301,9 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
         "and 'step', the deletion step that failed for that person. Failures are reported here rather than as an "
         "error status, so a 202 with entries means those persons were not deleted and the request should be "
-        "retried for them. Three steps are exceptions. For 'log_activity', the person was deleted, but the "
-        "activity log entry was not written. For 'tombstone_postgres' and 'publish_clickhouse_tombstone', "
-        "don't retry the request, because it can no longer find these persons. PostHog retries the deletion "
-        "in the background for up to two hours. If it still fails, the PostHog team is alerted and completes "
-        "it. Until then, the person can still show in analytics. "
+        "retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', "
+        "the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', "
+        "the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. "
         "Always empty when the deletion was queued (see persons_queued_for_deletion). "
         "Contact support if this persists.",
     )
@@ -323,11 +319,9 @@ def _no_person_deleted(summary: dict[str, Any]) -> bool:
     """True when persons matched, a delete was attempted, and none of them left the database.
 
     A ``log_activity`` failure never triggers this: the person is gone by then, and a retry would
-    only find nothing to delete. A failure in ``REPUBLISHED_STEPS`` does not trigger it either: a
-    Celery task completes that delete, and a retry would 404.
+    only find nothing to delete.
     """
-    retryable = [error for error in summary["deletion_errors"] if error["step"] not in REPUBLISHED_STEPS]
-    return summary["persons_found"] > 0 and summary["persons_deleted"] == 0 and bool(retryable)
+    return summary["persons_found"] > 0 and summary["persons_deleted"] == 0 and bool(summary["deletion_errors"])
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
@@ -984,11 +978,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for failure in result.failures
                 if failure.person_uuid is not None
             ]
-            # A tombstoned person no longer resolves, so a repeat request cannot reach it.
-            # This includes a failed tombstone call, because the call can commit before it fails.
-            unpublished = unpublished_tombstone_uuids(result.failures)
-            if unpublished:
-                republish_person_tombstones.delay(team_id=self.team_id, person_uuids=[str(u) for u in unpublished])
 
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))

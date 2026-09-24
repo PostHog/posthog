@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import datetime
 import contextvars
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -17,7 +18,8 @@ from dateutil.parser import isoparse
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
-from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person
 from posthog.models.person.sql import (
@@ -31,6 +33,8 @@ from posthog.personhog_client.client import personhog_call, require_personhog_cl
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
+    AckedPersonTombstone,
+    AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
@@ -40,6 +44,8 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    GetPersonTombstonesRequest,
+    ListPersonTombstoneQueueRequest,
     ReadOptions,
 )
 from posthog.settings import TEST
@@ -279,6 +285,33 @@ def create_person(
     created_at: Optional[datetime.datetime] = None,
     last_seen_at: Optional[datetime.datetime] = None,
 ) -> str:
+    data = _person_row(
+        team_id=team_id,
+        version=version,
+        uuid=uuid,
+        properties=properties,
+        is_identified=is_identified,
+        is_deleted=is_deleted,
+        timestamp=timestamp,
+        created_at=created_at,
+        last_seen_at=last_seen_at,
+    )
+    ClickhouseProducer().produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data)
+    return data["id"]
+
+
+def _person_row(
+    *,
+    team_id: int,
+    version: int,
+    uuid: Optional[str] = None,
+    properties: Optional[dict] = None,
+    is_identified: bool = False,
+    is_deleted: bool = False,
+    timestamp: Optional[Union[datetime.datetime, str]] = None,
+    created_at: Optional[datetime.datetime] = None,
+    last_seen_at: Optional[datetime.datetime] = None,
+) -> dict[str, Any]:
     if properties is None:
         properties = {}
     if uuid:
@@ -317,9 +350,7 @@ def create_person(
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "last_seen_at": last_seen_at_formatted,
     }
-    p = ClickhouseProducer()
-    p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data)
-    return uuid
+    return data
 
 
 def create_person_distinct_id(
@@ -328,9 +359,8 @@ def create_person_distinct_id(
     person_id: str,
     version=0,
     is_deleted: bool = False,
-) -> None:
-    p = ClickhouseProducer()
-    p.produce(
+) -> ProduceResult:
+    return ClickhouseProducer().produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
         sql=INSERT_PERSON_DISTINCT_ID2,
         data={
@@ -744,29 +774,141 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> Per
     return personhog_call("tombstone_persons", personhog_fn)
 
 
+@frozen
+class QueuedPersonTombstone:
+    team_id: int
+    person_uuid: UUID
+    person_version: int
+    tombstoned_at_ms: int
+
+
+def _to_tombstone(t) -> PersonTombstone:
+    return PersonTombstone(
+        uuid=UUID(t.person_uuid),
+        version=int(t.version),
+        distinct_ids=[DistinctIdForPerson(id=d.distinct_id, version=int(d.version)) for d in t.distinct_ids],
+    )
+
+
+def get_person_tombstones(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
+    def personhog_fn() -> list[PersonTombstone]:
+        tombstones: list[PersonTombstone] = []
+        uuids = [str(u) for u in person_uuids]
+        for i in range(0, len(uuids), 1000):
+            response = _get_client().get_person_tombstones(
+                GetPersonTombstonesRequest(team_id=team_id, person_uuids=uuids[i : i + 1000])
+            )
+            tombstones.extend(_to_tombstone(t) for t in response.tombstones)
+        return tombstones
+
+    return personhog_call("get_person_tombstones", personhog_fn)
+
+
+def list_person_tombstone_queue(
+    after: tuple[int, UUID] | None, limit: int, team_id: int | None = None
+) -> list[QueuedPersonTombstone]:
+    def personhog_fn() -> list[QueuedPersonTombstone]:
+        request = ListPersonTombstoneQueueRequest(
+            after_team_id=after[0] if after else 0,
+            after_person_uuid=str(after[1]) if after else "",
+            limit=limit,
+        )
+        if team_id is not None:
+            request.team_id = team_id
+        response = _get_client().list_person_tombstone_queue(request)
+        return [
+            QueuedPersonTombstone(
+                team_id=int(e.team_id),
+                person_uuid=UUID(e.person_uuid),
+                person_version=int(e.person_version),
+                tombstoned_at_ms=int(e.tombstoned_at),
+            )
+            for e in response.entries
+        ]
+
+    return personhog_call("list_person_tombstone_queue", personhog_fn)
+
+
+def ack_person_tombstones(team_id: int, acked: list[tuple[UUID, int]]) -> int:
+    def personhog_fn() -> int:
+        cleared = 0
+        for i in range(0, len(acked), 1000):
+            response = _get_client().ack_person_tombstones(
+                AckPersonTombstonesRequest(
+                    team_id=team_id,
+                    tombstones=[
+                        AckedPersonTombstone(person_uuid=str(uuid), version=version)
+                        for uuid, version in acked[i : i + 1000]
+                    ],
+                )
+            )
+            cleared += int(response.cleared_count)
+        return cleared
+
+    return personhog_call("ack_person_tombstones", personhog_fn)
+
+
 def publish_person_tombstone(
     team_id: int, tombstone: PersonTombstone, created_at: Optional[datetime.datetime] = None
-) -> None:
+) -> list[ProduceResult]:
     """Produce ClickHouse deletion rows at exactly the versions the Postgres tombstone holds.
 
     The rows outrank every earlier update of the person, and a revival at the next version
     outranks them in turn, which is what makes the version + 100 offset unnecessary.
     """
-    create_person(
-        uuid=str(tombstone.uuid),
-        team_id=team_id,
-        version=tombstone.version,
-        created_at=created_at,
-        is_deleted=True,
+    person_row = _person_row(
+        team_id=team_id, version=tombstone.version, uuid=str(tombstone.uuid), created_at=created_at, is_deleted=True
     )
+    results = [ClickhouseProducer().produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=person_row)]
     for distinct_id in tombstone.distinct_ids:
-        create_person_distinct_id(
-            team_id=team_id,
-            distinct_id=distinct_id.id,
-            person_id=str(tombstone.uuid),
-            version=distinct_id.version,
-            is_deleted=True,
+        results.append(
+            create_person_distinct_id(
+                team_id=team_id,
+                distinct_id=distinct_id.id,
+                person_id=str(tombstone.uuid),
+                version=distinct_id.version,
+                is_deleted=True,
+            )
         )
+    return results
+
+
+TOMBSTONE_DELIVERY_TIMEOUT_SECONDS = 10
+
+
+def publish_and_ack_person_tombstones(
+    team_id: int,
+    tombstones: Sequence[tuple[PersonTombstone, Optional[datetime.datetime]]],
+    on_failure: Callable[[UUID, Exception], None],
+) -> None:
+    published: list[tuple[PersonTombstone, list[ProduceResult]]] = []
+    for tombstone, created_at in tombstones:
+        try:
+            published.append((tombstone, publish_person_tombstone(team_id, tombstone, created_at=created_at)))
+        except Exception as exc:
+            on_failure(tombstone.uuid, exc)
+    if not published:
+        return
+
+    if not all(result.done() for _, results in published for result in results):
+        for topic in (KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID):
+            get_producer(topic=topic).flush(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+
+    delivered: list[tuple[UUID, int]] = []
+    for tombstone, results in published:
+        try:
+            for result in results:
+                result.get(timeout=0)
+        except Exception as exc:
+            on_failure(tombstone.uuid, exc)
+            continue
+        delivered.append((tombstone.uuid, tombstone.version))
+    if not delivered:
+        return
+    try:
+        ack_person_tombstones(team_id, delivered)
+    except Exception:
+        logger.warning("person_tombstones.ack_failed", team_id=team_id, person_count=len(delivered), exc_info=True)
 
 
 def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:

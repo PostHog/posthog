@@ -5,9 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+from confluent_kafka import KafkaError
 from parameterized import parameterized
-from prometheus_client import REGISTRY
 
+from posthog.kafka_client.client import ProduceResult
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
@@ -18,10 +19,9 @@ from posthog.models.person.bulk_delete import (
     process_queued_person_deletion,
     queue_person_event_deletion,
     queue_person_recording_deletion,
-    republish_tombstones,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.util import DistinctIdForPerson, PersonTombstone, PersonTombstones
+from posthog.models.person.util import PersonTombstones, tombstone_persons_in_postgres
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import DeletePersonsMode
 from posthog.test.persons import create_person
@@ -181,13 +181,12 @@ class DeletePersonsProfileTests(BaseTest):
 
 @override_settings(PERSON_DELETE_TOMBSTONE=True)
 class TombstoneDeletePersonsProfileTests(BaseTest):
-    def test_tombstones_postgres_first_then_publishes_clickhouse_at_the_returned_versions(self):
+    def test_tombstones_postgres_first_then_publishes_clickhouse_at_the_returned_versions_and_acks(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         fake = get_active_fake()
-        assert fake is not None
         with (
             patch("posthog.models.person.bulk_delete.delete_person") as legacy_ch_delete,
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone") as publish,
+            patch("posthog.models.person.util.publish_person_tombstone", return_value=[]) as publish,
         ):
             result = delete_persons_profile(self.team.pk, [p], actor=self.user)
 
@@ -202,12 +201,19 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         assert (tombstone.uuid, tombstone.version) == (p.uuid, 1)
         assert [(d.id, d.version) for d in tombstone.distinct_ids] == [("a", 1)]
         assert publish.call_args.kwargs["created_at"] == p.created_at
+        assert fake.tombstone_queue == {}
 
-    def test_counts_and_logs_a_person_whose_clickhouse_publish_failed(self):
+    @parameterized.expand([("produce_raises",), ("delivery_fails",)])
+    def test_counts_and_logs_a_person_whose_clickhouse_publish_failed_and_keeps_it_queued(self, case):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with patch(
-            "posthog.models.person.bulk_delete.publish_person_tombstone", side_effect=RuntimeError("kafka down")
-        ):
+        undelivered = ProduceResult(topic="clickhouse_person")
+        undelivered.set_result(KafkaError(-192, "Local: Message timed out"), None)
+        publish = (
+            patch("posthog.models.person.util.publish_person_tombstone", side_effect=RuntimeError("kafka down"))
+            if case == "produce_raises"
+            else patch("posthog.models.person.util.publish_person_tombstone", return_value=[undelivered])
+        )
+        with publish:
             result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
 
         # The Postgres tombstone is the deletion; the failed publish is reported on its own step.
@@ -216,21 +222,33 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
             (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, p.uuid)
         ]
         assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
+        assert list(get_active_fake().tombstone_queue) == [(self.team.pk, str(p.uuid))]
 
-    def test_reports_a_failed_tombstone_rpc_against_the_postgres_step(self):
+    @parameterized.expand([("not_committed", False), ("committed_before_failing", True)])
+    def test_a_failed_tombstone_rpc_counts_only_the_persons_it_did_not_commit(self, _name, committed):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
+
+        def tombstone_then_fail(team_id, uuids):
+            if committed:
+                tombstone_persons_in_postgres(team_id, uuids)
+            raise RuntimeError("personhog down")
+
         with (
-            patch(
-                "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
-                side_effect=RuntimeError("personhog down"),
-            ),
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone") as publish,
+            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", side_effect=tombstone_then_fail),
+            patch("posthog.models.person.util.publish_person_tombstone", return_value=[]) as publish,
         ):
             result = delete_persons_profile(self.team.pk, [p], actor=self.user)
 
-        assert result.deleted_count == 0
-        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)]
-        publish.assert_not_called()
+        if committed:
+            assert result.deleted_count == 1
+            assert result.failures == []
+            assert publish.call_args.args[1].uuid == p.uuid
+        else:
+            assert result.deleted_count == 0
+            assert [(f.step, f.person_uuid) for f in result.failures] == [
+                (PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)
+            ]
+            publish.assert_not_called()
 
     def test_splits_the_rpc_by_distinct_id_budget(self):
         persons = [create_person(team=self.team, distinct_ids=[f"d{i}a", f"d{i}b"], properties={}) for i in range(3)]
@@ -245,7 +263,6 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
                 "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
                 return_value=PersonTombstones(tombstones=[], newly_tombstoned=0),
             ) as rpc,
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone"),
         ):
             delete_persons_profile(self.team.pk, persons, actor=self.user)
 
@@ -590,109 +607,6 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert started == [["a", "b", "c"]]
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
-
-
-@override_settings(PERSON_DELETE_TOMBSTONE=True)
-class RepublishUnresolvedTombstonesTests(BaseTest):
-    def _run(self, person_uuid):
-        return process_queued_person_deletion(
-            self.team.pk,
-            [str(person_uuid)],
-            delete_profile=True,
-            delete_recordings=False,
-            actor=None,
-            was_impersonated=False,
-            organization_id=None,
-        )
-
-    def test_republishes_tombstones_for_a_person_that_no_longer_resolves(self):
-        gone = uuid4()
-        tombstone = PersonTombstone(uuid=gone, version=7, distinct_ids=[DistinctIdForPerson(id="x", version=3)])
-        with (
-            patch(
-                "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
-                return_value=PersonTombstones(tombstones=[tombstone], newly_tombstoned=0),
-            ) as rpc,
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone") as publish,
-        ):
-            result = self._run(gone)
-
-        assert result.errors == []
-        assert result.deleted_count == 0
-        rpc.assert_called_once_with(self.team.pk, [gone])
-        publish.assert_called_once_with(self.team.pk, tombstone)
-
-    def test_counts_a_live_person_that_the_republish_tombstoned(self):
-        p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        before = REGISTRY.get_sample_value("posthog_person_deletion_republish_tombstoned_live_total") or 0.0
-        with (
-            # A lagging read that misses a live person.
-            patch("posthog.models.person.bulk_delete._fetch_persons_by_uuids_via_personhog", return_value=[]),
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone") as publish,
-        ):
-            self._run(p.uuid)
-
-        after = REGISTRY.get_sample_value("posthog_person_deletion_republish_tombstoned_live_total") or 0.0
-        assert after - before == 1
-        assert publish.call_args.args[1].uuid == p.uuid
-
-    def test_republish_calls_the_rpc_per_chunk_and_isolates_a_failed_chunk(self):
-        uuids = [uuid4() for _ in range(3)]
-
-        def rpc(_team_id, chunk):
-            if chunk == uuids[2:]:
-                raise RuntimeError("deadline exceeded")
-            return PersonTombstones(
-                tombstones=[PersonTombstone(uuid=u, version=1, distinct_ids=[]) for u in chunk], newly_tombstoned=0
-            )
-
-        with (
-            patch("posthog.models.person.bulk_delete.REPUBLISH_UUIDS_PER_CALL", 2),
-            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", side_effect=rpc) as call,
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone"),
-        ):
-            assert republish_tombstones(self.team.pk, uuids) == [uuids[2]]
-        assert [c.args[1] for c in call.call_args_list] == [uuids[:2], uuids[2:]]
-
-    def test_does_not_republish_after_a_failed_resolve(self):
-        p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with (
-            patch(
-                "posthog.models.person.bulk_delete._fetch_persons_by_uuids_via_personhog",
-                side_effect=RuntimeError("personhog down"),
-            ),
-            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres") as rpc,
-        ):
-            result = self._run(p.uuid)
-
-        # A live person that merely failed to resolve must not be tombstoned behind its other steps.
-        assert [f.step for f in result.failures] == [PersonDeletionStep.RESOLVE_PERSONS]
-        rpc.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("tombstone_call_fails", True, None, [0, 1]),
-            ("one_publish_fails", False, 0, [0]),
-            ("all_published", False, None, []),
-        ]
-    )
-    def test_republish_returns_the_uuids_still_unpublished(self, _name, rpc_fails, failing_publish, expected):
-        uuids = [uuid4(), uuid4()]
-        tombstones = [PersonTombstone(uuid=u, version=7, distinct_ids=[]) for u in uuids]
-
-        def publish(_team_id, tombstone):
-            if failing_publish is not None and tombstone.uuid == uuids[failing_publish]:
-                raise RuntimeError("kafka down")
-
-        with (
-            patch(
-                "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
-                side_effect=RuntimeError("deadline exceeded") if rpc_fails else None,
-                return_value=PersonTombstones(tombstones=tombstones, newly_tombstoned=0),
-            ),
-            patch("posthog.models.person.bulk_delete.publish_person_tombstone", side_effect=publish),
-        ):
-            assert republish_tombstones(self.team.pk, uuids) == [uuids[i] for i in expected]
 
 
 class QueueRecordingDeletionTests(BaseTest):

@@ -95,6 +95,9 @@ class ProduceResult:
         self._message = message
         self._event.set()
 
+    def done(self) -> bool:
+        return self._event.is_set()
+
     def get(self, timeout: Optional[float] = None) -> Optional[Message]:
         """
         Wait for the produce to complete and return the result.
@@ -476,11 +479,13 @@ class ClickhouseProducer:
     can target the cluster mapped in TOPIC_ROUTING.
     """
 
-    def produce(self, sql: str, topic: str, data: dict[str, Any]):
+    def produce(self, sql: str, topic: str, data: dict[str, Any]) -> ProduceResult:
         if settings.TEST:
             sync_execute(sql, data)
-            return
+            result = ProduceResult(topic=topic)
+            result.set_result(None, None)
+            return result
         # Lazy import: routing imports from this module.
         from posthog.kafka_client.routing import get_producer
 
-        get_producer(topic=topic).produce(topic=topic, data=data)
+        return get_producer(topic=topic).produce(topic=topic, data=data)

@@ -9,7 +9,6 @@ from django.conf import settings as django_settings
 import dagster
 import pydantic
 from clickhouse_driver import Client
-from prometheus_client import Gauge
 
 from posthog.schema import HogQLVariable
 
@@ -35,7 +34,6 @@ from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
-from posthog.metrics import pushed_metrics_registry
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
@@ -72,10 +70,7 @@ from posthog.models.person.bulk_delete import (
     PersonDeletionStep,
     delete_persons_profile,
     queue_person_recording_deletion,
-    report_unpublished_tombstones,
-    republish_tombstones,
     resolve_persons_for_deletion,
-    unpublished_tombstone_uuids,
 )
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -1534,10 +1529,6 @@ def delete_person_recordings_op(
     return person_removal
 
 
-TOMBSTONE_REPUBLISH_BACKOFF_SECONDS = (2, 4, 8, 16, 32)
-UNPUBLISHED_TOMBSTONES_METRICS_JOB = "person_deletion_unpublished_tombstones"
-
-
 @dagster.op(tags=OWNER_TAG)
 def delete_person_profiles_op(
     context: dagster.OpExecutionContext,
@@ -1551,11 +1542,10 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    A failed batch Postgres delete raises so the request finalizes as FAILED. With
-    PERSON_DELETE_TOMBSTONE on, a failed Postgres tombstone call can still have committed, and a
-    tombstoned person no longer resolves, so a follow-up request cannot reach it. Those persons
-    and any failed ClickHouse publish go through the republish backoff instead, and the op
-    raises only for the persons that still fail after it.
+    The one exception is the batch Postgres delete or tombstone: when it fails, those persons are
+    still live in Postgres, so the op raises and the request finalizes as FAILED for a retry. A
+    failed ClickHouse publish after a Postgres tombstone does not raise, because the person is
+    deleted and the weekly deletion sweep republishes it.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1578,41 +1568,16 @@ def delete_person_profiles_op(
     if result.errors:
         context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
+    postgres_failures = [
+        f
+        for f in result.failures
+        if f.step in (PersonDeletionStep.DELETE_POSTGRES, PersonDeletionStep.TOMBSTONE_POSTGRES)
+    ]
     if postgres_failures:
         raise dagster.Failure(
             description=(
                 f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
                 f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
-            ),
-            metadata=metadata,
-        )
-
-    unpublished = unpublished_tombstone_uuids(result.failures)
-    for delay in TOMBSTONE_REPUBLISH_BACKOFF_SECONDS:
-        if not unpublished:
-            break
-        time.sleep(delay)
-        unpublished = republish_tombstones(person_removal.team_id, unpublished)
-    if unpublished:
-        uuids = ", ".join(str(u) for u in unpublished)
-        context.log.error(
-            f"{len(unpublished)} persons can be tombstoned in Postgres but their ClickHouse tombstones could not "
-            f"be published; they stay visible in analytics until republished: {uuids}"
-        )
-        metadata["unpublished_clickhouse_uuids"] = dagster.MetadataValue.text(uuids)
-        report_unpublished_tombstones(person_removal.team_id, unpublished, path="dagster")
-        # Dagster runs are not scraped, so the counter above never reaches Prometheus from here.
-        with pushed_metrics_registry(UNPUBLISHED_TOMBSTONES_METRICS_JOB) as registry:
-            Gauge(
-                "posthog_person_deletion_unpublished_tombstones_last_seen_timestamp_seconds",
-                "Unix time when the data deletion job last gave up on publishing ClickHouse person tombstones",
-                registry=registry,
-            ).set(time.time())
-        raise dagster.Failure(
-            description=(
-                f"Deletion request {person_removal.request_id}: ClickHouse tombstones for "
-                f"{len(unpublished)} persons could not be published ({uuids})"
             ),
             metadata=metadata,
         )

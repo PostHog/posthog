@@ -9,10 +9,11 @@ from rest_framework.exceptions import NotFound
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
 from posthog.models.person.util import (
+    PersonTombstone,
     create_person,
     create_person_distinct_id,
     get_persons_by_uuids,
-    publish_person_tombstone,
+    publish_and_ack_person_tombstones,
     tombstone_persons_in_postgres,
 )
 
@@ -320,12 +321,12 @@ def tombstone_orphaned_ch_persons(
         )
     stored_by_uuid = {str(t.uuid): t for t in stored.tombstones}
     republished: set[str] = set()
+    to_republish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
     for orphan in orphans:
         tombstone = stored_by_uuid.get(orphan.uuid)
         if tombstone is not None:
-            publish_person_tombstone(team_id, tombstone, created_at=orphan.created_at)
+            to_republish.append((tombstone, orphan.created_at))
             republished.add(orphan.uuid)
-            result.republished_persons += 1
             continue
         # No persons-DB row exists, so derive the tombstone from ClickHouse. Version
         # + 100 makes the delete win over normal updates; stays below split's + 101.
@@ -338,9 +339,12 @@ def tombstone_orphaned_ch_persons(
         )
         result.tombstoned_persons += 1
 
+    publish_and_ack_person_tombstones(team_id, to_republish, on_failure=_raise_publish_failure)
+    result.republished_persons = len(to_republish)
+
     for mapping in to_tombstone:
         if mapping.winner_person_id in republished:
-            # publish_person_tombstone already wrote this distinct ID at the stored version.
+            # publish_and_ack_person_tombstones already wrote this distinct ID at the stored version.
             continue
         create_person_distinct_id(
             team_id=team_id,
@@ -352,6 +356,10 @@ def tombstone_orphaned_ch_persons(
         result.tombstoned_mappings += 1
 
     return result
+
+
+def _raise_publish_failure(person_uuid: UUID, exc: Exception) -> None:
+    raise exc
 
 
 _LIVE_PERSONS_BASE = """

@@ -13,9 +13,6 @@ from posthog.models.person.bulk_delete import (
     PERSON_DELETION_PERSONS_COUNTER,
     PersonDeletionStep,
     process_queued_person_deletion,
-    report_unpublished_tombstones,
-    republish_tombstones,
-    unpublished_tombstone_uuids,
 )
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
@@ -42,16 +39,6 @@ RETRY_BACKOFF_MAX_SECONDS = 600
 
 def _retry_countdown(retries: int) -> int:
     return min(RETRY_BACKOFF_SECONDS * 2**retries, RETRY_BACKOFF_MAX_SECONDS)
-
-
-# The republish is idempotent and cheap, so it waits out a Kafka or personhog outage for about
-# two hours (60 s doubling to a 30 minute cap, 8 retries) before the persons reach the alert.
-REPUBLISH_MAX_RETRIES = 8
-REPUBLISH_BACKOFF_MAX_SECONDS = 30 * 60
-
-
-def _republish_countdown(retries: int) -> int:
-    return min(RETRY_BACKOFF_SECONDS * 2**retries, REPUBLISH_BACKOFF_MAX_SECONDS)
 
 
 def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
@@ -172,8 +159,6 @@ def delete_persons_async(
         failures_by_step=dict(failures_by_step),
         failed_person_uuids=failed_uuids[:20],
     )
-    if retries >= MAX_DELETION_RETRIES:
-        report_unpublished_tombstones(team_id, unpublished_tombstone_uuids(result.failures), path="queued")
     # Past max_retries this raises the exception given here instead of scheduling another run.
     raise self.retry(
         kwargs={
@@ -191,25 +176,3 @@ def delete_persons_async(
             f"team {team_id}: {len(failed_uuids)} persons failed after {retries + 1} attempts ({summary})"
         ),
     )
-
-
-@shared_task(
-    bind=True,
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    acks_late=True,
-    reject_on_worker_lost=True,
-    max_retries=REPUBLISH_MAX_RETRIES,
-)
-@skip_team_scope_audit
-def republish_person_tombstones(self: Task, team_id: int, person_uuids: list[str]) -> None:
-    """Republish the ClickHouse tombstones a synchronous delete left unpublished."""
-    unpublished = republish_tombstones(team_id, [uuid_lib.UUID(u) for u in person_uuids])
-    if not unpublished:
-        return
-    retries = self.request.retries
-    remaining = [str(u) for u in unpublished]
-    if retries >= REPUBLISH_MAX_RETRIES:
-        report_unpublished_tombstones(team_id, remaining, path="sync")
-        return
-    raise self.retry(kwargs={"team_id": team_id, "person_uuids": remaining}, countdown=_republish_countdown(retries))

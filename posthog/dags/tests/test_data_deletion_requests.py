@@ -1,6 +1,6 @@
 import json
 from concurrent.futures import Future
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -15,7 +15,6 @@ from django.utils import timezone
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
-from prometheus_client import CollectorRegistry
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -2793,25 +2792,15 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     assert "events" not in params
 
 
-def _profile_result_with_unpublished_tombstone(
-    person_uuid: UUID, step: PersonDeletionStep = PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE
-) -> PersonProfileDeletionResult:
-    return PersonProfileDeletionResult(
-        deleted_count=1,
-        failures=[PersonDeletionFailure(step=step, person_uuid=person_uuid, error="kafka")],
-    )
-
-
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "failed_step,republish_calls",
+    "failed_step,raises",
     [
-        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1),
-        (PersonDeletionStep.TOMBSTONE_POSTGRES, 1),
-        (PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 0),
+        (PersonDeletionStep.TOMBSTONE_POSTGRES, True),
+        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, False),
     ],
 )
-def test_delete_person_profiles_op_republishes_unpublished_tombstones(failed_step, republish_calls):
+def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(failed_step, raises):
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
@@ -2823,55 +2812,16 @@ def test_delete_person_profiles_op_republishes_unpublished_tombstones(failed_ste
         drop_events=False,
         drop_recordings=False,
     )
-    with (
-        patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
-        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
-        patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[]) as republish,
-    ):
-        deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid), failed_step)
-        result = delete_person_profiles_op(build_op_context(), ctx)
-
-    assert result is ctx
-    assert republish.call_count == republish_calls
-    if republish_calls:
-        republish.assert_called_once_with(TEAM_ID, [UUID(p_uuid)])
-
-
-@pytest.mark.django_db
-def test_delete_person_profiles_op_fails_when_tombstones_stay_unpublished():
-    p_uuid = str(uuid4())
-    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
-    ctx = PersonRemovalContext(
-        request_id=str(uuid4()),
-        team_id=TEAM_ID,
-        person_uuids=[p_uuid],
-        person_distinct_ids=[],
-        drop_profiles=True,
-        drop_events=False,
-        drop_recordings=False,
-    )
-    op_context = build_op_context()
-    pushed = CollectorRegistry()
-
-    @contextmanager
-    def push_registry(_job_name):
-        yield pushed
-
-    with (
-        patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
-        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
-        patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[UUID(p_uuid)]) as republish,
-        patch("posthog.dags.data_deletion_requests.pushed_metrics_registry", push_registry),
-        patch.object(op_context.log, "error") as log_error,
-    ):
-        deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid))
-        with pytest.raises(dagster.Failure, match=p_uuid):
-            delete_person_profiles_op(op_context, ctx)
-
-    assert republish.call_count == 2
-    assert p_uuid in log_error.call_args.args[0]
-    # Dagster runs are not scraped, so the pushed gauge is the only signal the alert can see.
-    assert pushed.get_sample_value("posthog_person_deletion_unpublished_tombstones_last_seen_timestamp_seconds")
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0 if raises else 1,
+            failures=[PersonDeletionFailure(step=failed_step, person_uuid=UUID(p_uuid), error="down")],
+        )
+        if raises:
+            with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons"):
+                delete_person_profiles_op(build_op_context(), ctx)
+        else:
+            assert delete_person_profiles_op(build_op_context(), ctx) is ctx
 
 
 @pytest.mark.parametrize(

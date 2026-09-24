@@ -20,13 +20,15 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
     DistinctIdForPerson,
+    PersonTombstone,
     _batched_get_distinct_ids_for_persons,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _paginated_get_distinct_ids_for_person,
     delete_person,
     delete_persons_from_postgres,
-    publish_person_tombstone,
+    get_person_tombstones,
+    publish_and_ack_person_tombstones,
     tombstone_persons_in_postgres,
 )
 from posthog.models.user import User
@@ -57,11 +59,6 @@ class PersonDeletionStep(StrEnum):
     LOG_ACTIVITY = "log_activity"
 
 
-# Failures that leave a person to be republished in the background rather than retried by the
-# caller, because a tombstoned person no longer resolves.
-REPUBLISHED_STEPS = frozenset({PersonDeletionStep.TOMBSTONE_POSTGRES, PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE})
-
-
 PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
     "posthog_person_deletion_step_failures_total",
     "Person deletion steps that raised, labelled by the step so a failing dependency is visible on its own.",
@@ -74,29 +71,6 @@ PERSON_DELETION_PERSONS_COUNTER = Counter(
     "posthog_person_deletion_persons_total",
     "Persons handled by a deletion, by path and per-attempt outcome.",
     labelnames=["path", "outcome"],
-)
-
-# path: "sync" for the republish task behind the request-time delete, "queued" for the Celery
-# task, "dagster" for the data deletion job. Dagster runs are not scraped, so that path also
-# pushes a last-seen gauge; see data_deletion_requests.py.
-PERSON_DELETION_UNPUBLISHED_TOMBSTONES_COUNTER = Counter(
-    "posthog_person_deletion_unpublished_tombstones_total",
-    "Persons that every automatic retry left tombstoned in Postgres with no ClickHouse tombstone. "
-    "Each one needs a manual republish.",
-    labelnames=["path"],
-)
-
-# UUIDs per log line, so a large give-up is split across lines instead of truncated.
-UNPUBLISHED_TOMBSTONES_LOG_CHUNK = 500
-
-# Persons per republish call. Their width is unknown, because they no longer resolve, so the
-# person count is the only bound. A call runs in one transaction under the router's deadline.
-REPUBLISH_UUIDS_PER_CALL = 100
-
-PERSON_DELETION_REPUBLISH_TOMBSTONED_LIVE_COUNTER = Counter(
-    "posthog_person_deletion_republish_tombstoned_live_total",
-    "Persons that a republish found live and tombstoned. A republish expects persons tombstoned by an "
-    "earlier attempt, so each one is a person that a lagging read missed or that ingestion revived.",
 )
 
 PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
@@ -279,10 +253,6 @@ def process_queued_person_deletion(
     Every failure is recorded against the step it happened in. The profile delete only runs
     when the steps before it succeeded, because it removes the distinct IDs a retry of those
     steps would need.
-
-    Under the tombstone setting, a requested person that does not resolve is republished. An
-    earlier attempt, or a delivery that a lost worker left unfinished, can have tombstoned it
-    in Postgres without publishing to ClickHouse, and it no longer resolves.
     """
     from posthog.personhog_client.client import personhog_call
 
@@ -343,13 +313,6 @@ def process_queued_person_deletion(
             batch, batch_distinct_ids, batch_distinct_id_count = [], {}, 0
     if batch:
         deleted_count += _run_batch_and_release(team_id, batch, batch_distinct_ids, failures, options)
-
-    resolve_failed = any(f.step is PersonDeletionStep.RESOLVE_PERSONS for f in failures)
-    if options.delete_profile and settings.PERSON_DELETE_TOMBSTONE and not resolve_failed:
-        # After a failed resolve every uuid looks unresolved, and republishing would tombstone
-        # live persons without their recording and training steps.
-        resolved = {person.uuid for person in persons}
-        _republish_tombstones(team_id, [u for u in requested if u not in resolved], failures)
 
     if unmatched_distinct_ids:
         try:
@@ -600,38 +563,53 @@ def _tombstone_persons_at_exact_versions(
 
     Postgres goes first because only the replica knows the versions. A person whose Postgres
     tombstone landed is deleted, so it is counted and logged even when the ClickHouse publish
-    fails; that failure gets its own step and is republished later.
+    fails; that failure gets its own step and the weekly deletion sweep republishes it.
     """
     deleted: builtins.list[Person] = []
     person_by_uuid = {person.uuid: person for person in persons}
+
+    def publish_failed(person_uuid: uuid_lib.UUID, exc: Exception) -> None:
+        _record_step_failure(
+            failures,
+            step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
+            team_id=team_id,
+            exc=exc,
+            person_uuids=[person_uuid],
+        )
+
     for batch in _batches_by_distinct_id_count(persons):
+        uuids = [person.uuid for person in batch]
         try:
-            tombstones = tombstone_persons_in_postgres(team_id, [person.uuid for person in batch]).tombstones
+            tombstones = tombstone_persons_in_postgres(team_id, uuids).tombstones
         except Exception as exc:
-            _record_step_failure(
-                failures,
-                step=PersonDeletionStep.TOMBSTONE_POSTGRES,
-                team_id=team_id,
-                exc=exc,
-                person_uuids=[person.uuid for person in batch],
-            )
-            continue
-        for tombstone in tombstones:
-            person = person_by_uuid.get(tombstone.uuid)
-            if person is None:
-                continue
-            deleted.append(person)
-            try:
-                publish_person_tombstone(team_id, tombstone, created_at=person.created_at)
-            except Exception as exc:
-                _record_step_failure(
-                    failures,
-                    step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
-                    team_id=team_id,
-                    exc=exc,
-                    person_uuids=[person.uuid],
-                )
+            tombstones = _committed_tombstones(team_id, uuids, exc, failures)
+        published = [
+            (tombstone, person_by_uuid[tombstone.uuid].created_at)
+            for tombstone in tombstones
+            if tombstone.uuid in person_by_uuid
+        ]
+        deleted.extend(person_by_uuid[tombstone.uuid] for tombstone, _ in published)
+        publish_and_ack_person_tombstones(team_id, published, on_failure=publish_failed)
     return deleted
+
+
+def _committed_tombstones(
+    team_id: int,
+    person_uuids: builtins.list[uuid_lib.UUID],
+    exc: Exception,
+    failures: builtins.list[PersonDeletionFailure],
+) -> builtins.list[PersonTombstone]:
+    try:
+        stored = get_person_tombstones(team_id, person_uuids)
+    except Exception:
+        stored = []
+    committed = {tombstone.uuid for tombstone in stored}
+    uncommitted = [u for u in person_uuids if u not in committed]
+    if uncommitted:
+        _record_step_failure(
+            failures, step=PersonDeletionStep.TOMBSTONE_POSTGRES, team_id=team_id, exc=exc, person_uuids=uncommitted
+        )
+    return stored
 
 
 def _batches_by_distinct_id_count(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
@@ -652,99 +630,6 @@ def _batches_by_distinct_id_count(persons: builtins.list[Person]) -> Iterator[bu
         count += width
     if batch:
         yield batch
-
-
-def _republish_tombstones(
-    team_id: int,
-    person_uuids: builtins.list[uuid_lib.UUID],
-    failures: builtins.list[PersonDeletionFailure],
-) -> None:
-    """Publish ClickHouse tombstones again for persons a previous attempt tombstoned in Postgres.
-
-    The replica reports the versions an already tombstoned person holds and skips a uuid it
-    does not know. Publishing the same versions twice is harmless, and the previous attempt
-    already counted and logged these persons. The call also tombstones a person that is
-    live, which the counter and log below make visible.
-    """
-    for start in range(0, len(person_uuids), REPUBLISH_UUIDS_PER_CALL):
-        _republish_tombstone_chunk(team_id, person_uuids[start : start + REPUBLISH_UUIDS_PER_CALL], failures)
-
-
-def _republish_tombstone_chunk(
-    team_id: int,
-    person_uuids: builtins.list[uuid_lib.UUID],
-    failures: builtins.list[PersonDeletionFailure],
-) -> None:
-    try:
-        result = tombstone_persons_in_postgres(team_id, person_uuids)
-    except Exception as exc:
-        _record_step_failure(
-            failures, step=PersonDeletionStep.TOMBSTONE_POSTGRES, team_id=team_id, exc=exc, person_uuids=person_uuids
-        )
-        return
-    if result.newly_tombstoned:
-        PERSON_DELETION_REPUBLISH_TOMBSTONED_LIVE_COUNTER.inc(result.newly_tombstoned)
-        # The response does not say which persons were live, so every uuid of the call is logged.
-        logger.warning(
-            "person_deletion.republish_tombstoned_live_persons",
-            team_id=team_id,
-            newly_tombstoned=result.newly_tombstoned,
-            person_uuids=[str(u) for u in person_uuids],
-        )
-    for tombstone in result.tombstones:
-        try:
-            publish_person_tombstone(team_id, tombstone)
-        except Exception as exc:
-            _record_step_failure(
-                failures,
-                step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE,
-                team_id=team_id,
-                exc=exc,
-                person_uuids=[tombstone.uuid],
-            )
-
-
-def unpublished_tombstone_uuids(failures: builtins.list[PersonDeletionFailure]) -> builtins.list[uuid_lib.UUID]:
-    """Persons that can be tombstoned in Postgres with no ClickHouse tombstone.
-
-    A failed tombstone call can still commit, for example when the response is lost after the
-    replica wrote the rows. A tombstoned person no longer resolves, so a repeat request cannot
-    reach it. Republishing is safe for each of these persons: the tombstone call returns the
-    stored versions for a person it already tombstoned, and otherwise it completes the delete
-    that the caller asked for.
-    """
-    return [
-        failure.person_uuid
-        for failure in failures
-        if failure.step in REPUBLISHED_STEPS and failure.person_uuid is not None
-    ]
-
-
-def republish_tombstones(team_id: int, person_uuids: builtins.list[uuid_lib.UUID]) -> builtins.list[uuid_lib.UUID]:
-    """Publish ClickHouse tombstones again; returns the uuids still unpublished afterwards."""
-    failures: builtins.list[PersonDeletionFailure] = []
-    _republish_tombstones(team_id, person_uuids, failures)
-    return unpublished_tombstone_uuids(failures)
-
-
-def report_unpublished_tombstones(team_id: int, person_uuids: Iterable[uuid_lib.UUID | str], *, path: str) -> None:
-    """Record persons that the automatic retries gave up on, so that an operator can repair them.
-
-    Each person can be tombstoned in Postgres while ClickHouse still shows it as live. The counter
-    drives the alert, and the log lines carry every UUID that needs a manual republish.
-    """
-    uuids = [str(u) for u in person_uuids]
-    if not uuids:
-        return
-    PERSON_DELETION_UNPUBLISHED_TOMBSTONES_COUNTER.labels(path=path).inc(len(uuids))
-    for start in range(0, len(uuids), UNPUBLISHED_TOMBSTONES_LOG_CHUNK):
-        logger.error(
-            "person_deletion.tombstones_unpublished",
-            team_id=team_id,
-            path=path,
-            person_count=len(uuids),
-            person_uuids=uuids[start : start + UNPUBLISHED_TOMBSTONES_LOG_CHUNK],
-        )
 
 
 def queue_person_event_deletion(
