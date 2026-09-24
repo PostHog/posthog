@@ -1,6 +1,6 @@
 import traceback
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -34,6 +34,39 @@ SCOUT_CLIENT_PREFIX = "scout:"
 # them comes from the authenticated request rather than from the client, so the two kinds of tag
 # must not share a name.
 SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX,)
+
+
+CredentialType = Literal[
+    "session",
+    "personal_api_key",
+    "oauth",
+    "project_secret_key",
+    "team_secret_token",
+    "id_jag",
+    "internal_jwt",
+    "service_jwt",
+    "internal_api_secret",
+    "scim",
+]
+# Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
+# ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
+ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256
+
+
+@frozen
+class ActivityCredential:
+    """The credential that authenticated a request, recorded on every activity row it writes.
+
+    Only `ActivityLoggingMiddleware` and the authentication classes set it, from the objects
+    they authenticated, so no request header can change it.
+    """
+
+    type: CredentialType
+    # The personal or project secret key id, the OAuth application UUID, the ID-JAG client id, the
+    # SCIM identity provider config id, the service JWT audience, or `session_public_id` for a
+    # session. None when the credential has no id of its own.
+    id: str | None = None
+    impersonated_by_id: int | None = None
 
 
 def client_from_header(value: str) -> Optional[str]:
@@ -178,6 +211,33 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "ip_address"):
             delattr(self._local, "ip_address")
 
+    def set_credential(self, credential: ActivityCredential) -> None:
+        self.set_credential_resolver(lambda: credential)
+
+    def set_credential_resolver(self, resolver: Callable[[], Optional[ActivityCredential]]) -> None:
+        """Hand over a credential to resolve again for each row. The last one set wins.
+
+        `ActivityLoggingMiddleware` sets a resolver for the session because it runs before the view,
+        so it cannot know yet whether the session authenticates the request, or whether the view
+        rotates the session key. An authentication class that succeeds later replaces it.
+        """
+        self._local.credential_resolver = resolver
+
+    def get_credential(self) -> Optional[ActivityCredential]:
+        resolver = getattr(self._local, "credential_resolver", None)
+        if resolver is None:
+            return None
+        try:
+            return resolver()
+        except Exception:
+            # Attribution is not worth failing a write for.
+            logger.warning("activity_log.credential_resolver_failed", exc_info=True)
+            return None
+
+    def clear_credential(self) -> None:
+        if hasattr(self._local, "credential_resolver"):
+            delattr(self._local, "credential_resolver")
+
     def set_trigger(self, trigger: Optional["Trigger"]) -> None:
         self._local.trigger = trigger
 
@@ -196,6 +256,7 @@ class ActivityLoggingStorage:
         self.clear_agent_intent()
         self.clear_agent_task_id()
         self.clear_ip_address()
+        self.clear_credential()
         self.clear_trigger()
 
 

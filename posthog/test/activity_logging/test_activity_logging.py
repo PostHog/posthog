@@ -13,10 +13,18 @@ from parameterized import parameterized
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    Detail,
+    Trigger,
+    bulk_log_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    ActivityCredential,
     activity_storage,
     activity_visibility_manager,
 )
@@ -58,6 +66,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.activity, "updated")
         assert log.detail is not None
         self.assertEqual(log.detail["changes"], [change.__dict__])
+        self.assertEqual((log.credential_type, log.credential_id, log.impersonated_by_id), (None, None, None))
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:
         log_activity(
@@ -293,6 +302,32 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertIsNone(log.ip_address)
+
+    def test_bulk_log_activity_records_the_request_credential(self) -> None:
+        activity_storage.set_credential(ActivityCredential(type="personal_api_key", id="key-id", impersonated_by_id=7))
+        try:
+            bulk_log_activity(
+                [
+                    {
+                        "organization_id": self.organization.id,
+                        "team_id": self.team.id,
+                        "user": self.user,
+                        "was_impersonated": False,
+                        "item_id": item_id,
+                        "scope": "FeatureFlag",
+                        "activity": "created",
+                        "detail": Detail(),
+                    }
+                    for item_id in (11, 12)
+                ]
+            )
+        finally:
+            activity_storage.clear_credential()
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id__in=["11", "12"]))
+        assert [(row.credential_type, row.credential_id, row.impersonated_by_id) for row in rows] == [
+            ("personal_api_key", "key-id", 7)
+        ] * 2
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(

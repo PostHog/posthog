@@ -46,7 +46,23 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        exclude = ["team_id"]
+        # An explicit list, so that a new internal column such as `credential_id` stays out of the
+        # teammate feed.
+        fields = [
+            "id",
+            "user",
+            "unread",
+            "organization_id",
+            "was_impersonated",
+            "is_system",
+            "client",
+            "ip_address",
+            "activity",
+            "item_id",
+            "scope",
+            "detail",
+            "created_at",
+        ]
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""

@@ -19,7 +19,11 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    activity_storage,
+)
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -249,6 +253,15 @@ class ActivityLog(UUIDTModel):
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    # The credential that authenticated the request, from `ActivityCredential`. Unlike `client`,
+    # the caller cannot set these, so they answer which key, OAuth application or session made a
+    # change. Null outside a request. A project secret key row has no user but keeps its credential.
+    credential_type = models.CharField(max_length=32, null=True, blank=True)
+    credential_id = models.CharField(max_length=ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH, null=True, blank=True)
+    # The staff user behind an impersonated change. A plain integer rather than a foreign key:
+    # `SET_NULL` would make every user deletion update this table through a full scan, because
+    # nothing indexes the column.
+    impersonated_by_id = models.BigIntegerField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -1265,6 +1278,7 @@ def log_activity(
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    credential = activity_storage.get_credential()
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
         detail = _with_agent_trigger(detail)
@@ -1289,39 +1303,28 @@ def log_activity(
             )
             return None
 
-        def _create_activity_log_instance():
-            return ActivityLog(
-                organization_id=organization_id,
-                team_id=team_id,
-                user=user,
-                was_impersonated=was_impersonated,
-                is_system=user is None,
-                item_id=str(item_id),
-                scope=scope,
-                activity=activity,
-                detail=detail,
-                client=client,
-                ip_address=ip_address,
-            )
+        fields: dict[str, Any] = {
+            "organization_id": organization_id,
+            "team_id": team_id,
+            "user": user,
+            "was_impersonated": was_impersonated,
+            "is_system": user is None,
+            "item_id": str(item_id),
+            "scope": scope,
+            "activity": activity,
+            "detail": detail,
+            "client": client,
+            "ip_address": ip_address,
+            "credential_type": credential.type if credential else None,
+            "credential_id": credential.id if credential else None,
+            "impersonated_by_id": credential.impersonated_by_id if credential else None,
+        }
 
         def _do_log_activity():
-            log = _create_activity_log_instance()
-            return ActivityLog.objects.create(
-                organization_id=log.organization_id,
-                team_id=log.team_id,
-                user=log.user,
-                was_impersonated=log.was_impersonated,
-                is_system=log.is_system,
-                item_id=log.item_id,
-                scope=log.scope,
-                activity=log.activity,
-                detail=log.detail,
-                client=log.client,
-                ip_address=log.ip_address,
-            )
+            return ActivityLog.objects.create(**fields)
 
         if instance_only:
-            return _create_activity_log_instance()
+            return ActivityLog(**fields)
 
         return _handle_activity_log_transaction(
             _do_log_activity,

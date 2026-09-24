@@ -6,11 +6,14 @@ import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.advanced_activity_logs import ActivityLogSerializer
+from posthog.api.my_notifications import MyNotificationsSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
@@ -510,3 +513,19 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
         assert exported_asset.source_credential_id == str(token.id)
+
+
+class TestActivityLogSerializerFields(SimpleTestCase):
+    @parameterized.expand([("advanced", ActivityLogSerializer), ("my_notifications", MyNotificationsSerializer)])
+    def test_credential_fields_are_not_serialized(self, _name: str, serializer_class: type) -> None:
+        log = ActivityLog(
+            scope="Experiment",
+            activity="created",
+            credential_type="personal_api_key",
+            credential_id="key-id",
+            impersonated_by_id=1,
+        )
+
+        data = serializer_class(log).data
+
+        assert {"credential_type", "credential_id", "impersonated_by_id"}.isdisjoint(data)
