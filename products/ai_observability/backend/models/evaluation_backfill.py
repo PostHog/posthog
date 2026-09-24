@@ -54,10 +54,10 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
         blank=True,
         default=None,
         help_text=(
-            "Units in the window still holding no result when the run finished, counted then "
-            "rather than inferred. Null means nothing counted it, so coverage is unknown: a run "
-            "from before this was recorded, or one that ended without the count. Children this "
-            "run started may not have landed when it runs."
+            "Units the run finished without a result for, counted when it ended rather than "
+            "inferred, and discounting the evaluations it had just started. A run leaves one "
+            "behind when its evaluation could not start or came back unusable, and running the "
+            "backfill again picks it up. Null means nothing counted the window."
         ),
     )
 

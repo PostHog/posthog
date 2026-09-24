@@ -51,16 +51,13 @@ const BACKFILL_STATUS_TAG: Record<EvaluationBackfillStatusEnumApi, { label: stri
 
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
-function backfillRemainderLabel(backfill: EvaluationBackfillApi): string | null {
-    // Null means nothing counted the window, so the row says nothing about coverage rather than
-    // claiming it. Runs from before this was recorded read that way.
-    if (backfill.remaining_count === null) {
+function backfillLeftBehindLabel(backfill: EvaluationBackfillApi): string | null {
+    // Null coverage means nothing counted the window, and a covered run is already told by the
+    // full bar, so only a run that left work behind has something to say.
+    if (!backfill.remaining_count) {
         return null
     }
-    if (backfill.remaining_count === 0) {
-        return `every ${backfill.target} in this range has a result`
-    }
-    return `${pluralize(backfill.remaining_count, backfill.target)} still without a result`
+    return `${pluralize(backfill.remaining_count, backfill.target)} weren't evaluated. Start another backfill over this range to retry them.`
 }
 
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
@@ -446,7 +443,7 @@ export function EvaluationBackfillsTab({
                     onRowExpand: (backfill) => expandBackfill(backfill.id),
                     onRowCollapse: (backfill) => collapseBackfill(backfill.id),
                     expandedRowRender: (backfill) => {
-                        const remainderLabel = backfillRemainderLabel(backfill)
+                        const leftBehind = backfillLeftBehindLabel(backfill)
                         return (
                             <div className="flex items-center justify-between gap-4 px-2 py-3">
                                 <div className="flex flex-col gap-2 min-w-0">
@@ -482,13 +479,8 @@ export function EvaluationBackfillsTab({
                                             {pluralize(backfill.total_count, backfill.target)}
                                             {backfill.rerun_existing ? ' in range' : ' that had no result'}
                                         </span>
-                                        {remainderLabel && (
-                                            <>
-                                                <span>·</span>
-                                                <span>{remainderLabel}</span>
-                                            </>
-                                        )}
                                     </div>
+                                    {leftBehind && <div className="text-warning">{leftBehind}</div>}
                                 </div>
                                 <LemonButton
                                     size="xsmall"

@@ -90,8 +90,9 @@ function backfillErrorMessage(error: unknown, fallback: string): string {
     return evaluationErrorMessage(error, fallback)
 }
 
-// How long a finished run keeps refreshing while its coverage count is still on its way.
-const COVERAGE_GRACE_SECONDS = 120
+// How long a finished run keeps refreshing while its coverage count is still on its way. It
+// matches the counting activity's own schedule-to-close, so a retried count is not missed.
+const COVERAGE_GRACE_SECONDS = 600
 
 /** Each consecutive list failure doubles the wait, so an API that is already struggling is not
  * polled at full rate. The wait returns to the base interval as soon as one load succeeds. */

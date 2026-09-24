@@ -155,6 +155,13 @@ class AdvanceCursorInputs:
 
 
 @frozen
+class MeasureRemainderInputs:
+    backfill_id: str
+    team_id: int
+    in_flight: int
+
+
+@frozen
 class AdvanceCursorOutput:
     finished: bool
 
@@ -350,13 +357,17 @@ async def advance_evaluation_backfill_cursor_activity(inputs: AdvanceCursorInput
     return await database_sync_to_async(_advance_backfill_cursor, thread_sensitive=False)(inputs)
 
 
-def _measure_backfill_remainder(inputs: EvaluationBackfillInputs) -> int:
+def _measure_backfill_remainder(inputs: MeasureRemainderInputs) -> None:
     """Count what the window still owes, once, when the walk ends.
 
     The walk cannot see a unit the live path judged while it worked: the unit simply stops being a
     candidate, so a run can finish below its total with nothing to show for the difference.
     Counting the remainder here says whether anything was left behind, and the one query it costs
     runs per backfill rather than per tick.
+
+    `start_child_workflow` returns once a child has started, so the last page's verdicts are still
+    travelling through the judge and ingestion while this counts. Discounting them is what keeps a
+    backfill small enough to finish in one tick from reporting every unit it evaluated as owed.
     """
     row = EvaluationBackfill.objects.for_team(inputs.team_id).select_related("evaluation").get(pk=inputs.backfill_id)
     team = Team.objects.get(pk=inputs.team_id)
@@ -372,21 +383,21 @@ def _measure_backfill_remainder(inputs: EvaluationBackfillInputs) -> int:
         # question is what holds no result at all.
         rerun_existing=False,
     )
-    EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id).update(
-        remaining_count=scope.to_evaluate
-    )
+    remaining = max(0, scope.to_evaluate - inputs.in_flight)
+    EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id).update(remaining_count=remaining)
     logger.info(
         "llma.evaluation_backfill_remainder",
         backfill_id=inputs.backfill_id,
         team_id=inputs.team_id,
-        remaining=scope.to_evaluate,
+        remaining=remaining,
+        counted=scope.to_evaluate,
+        in_flight=inputs.in_flight,
     )
-    return scope.to_evaluate
 
 
 @temporalio.activity.defn
-async def measure_evaluation_backfill_remainder_activity(inputs: EvaluationBackfillInputs) -> int:
-    return await database_sync_to_async(_measure_backfill_remainder, thread_sensitive=False)(inputs)
+async def measure_evaluation_backfill_remainder_activity(inputs: MeasureRemainderInputs) -> None:
+    await database_sync_to_async(_measure_backfill_remainder, thread_sensitive=False)(inputs)
 
 
 @temporalio.workflow.defn(name=BACKFILL_WORKFLOW_NAME)
@@ -466,13 +477,24 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             # After the advance, never before it: inserting an activity ahead of one an in-flight
             # history already recorded breaks replay. The row therefore completes with no count
             # for a moment, and a null count states that rather than claiming full coverage.
-            await temporalio.workflow.execute_activity(
-                measure_evaluation_backfill_remainder_activity,
-                inputs,
-                start_to_close_timeout=timedelta(seconds=120),
-                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
+            try:
+                await temporalio.workflow.execute_activity(
+                    measure_evaluation_backfill_remainder_activity,
+                    MeasureRemainderInputs(
+                        backfill_id=inputs.backfill_id, team_id=inputs.team_id, in_flight=dispatched
+                    ),
+                    start_to_close_timeout=timedelta(seconds=120),
+                    schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+            except Exception as error:
+                # The walk is done either way, so failing the tick here would spend a consecutive
+                # failure and log at exception level over a number the row can live without.
+                if is_cancelled_exception(error):
+                    raise
+                temporalio.workflow.logger.warning(
+                    "llma.evaluation_backfill_remainder_failed", extra={"backfill_id": inputs.backfill_id}
+                )
         return advance.finished
 
     async def _handle_failed_tick(self, inputs: EvaluationBackfillInputs) -> None:

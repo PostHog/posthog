@@ -216,7 +216,6 @@ class TestEvaluationBackfillWorkflow:
                 prepare_evaluation_backfill_tick_activity: _tick(),
                 find_evaluation_backfill_candidates_activity: _found([_candidate("u1")], exhausted=True),
                 advance_evaluation_backfill_cursor_activity: AdvanceCursorOutput(finished=True),
-                measure_evaluation_backfill_remainder_activity: 4,
             }
         )
 
@@ -227,6 +226,11 @@ class TestEvaluationBackfillWorkflow:
         assert called.index(measure_evaluation_backfill_remainder_activity) > called.index(
             advance_evaluation_backfill_cursor_activity
         )
+        measure = next(
+            call for fn, call in mocks.activity_calls if fn is measure_evaluation_backfill_remainder_activity
+        )
+        # The children this tick started have not produced verdicts yet, so the count discounts them.
+        assert measure.in_flight == 1
         continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
