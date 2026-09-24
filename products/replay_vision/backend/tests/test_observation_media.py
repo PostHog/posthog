@@ -293,6 +293,8 @@ class TestObservationMediaSerialization(BaseTest):
         (500, None, 100.0, 97.0),
         (None, {"summary_segments": [{"kind": "chip", "timestamp_ms": 0}]}, 100.0, 3.0),
         (1, None, 4.0, 2.0),
+        # A pick `float()` cannot represent used to crash the activity, leaving the observation with no poster.
+        (10**400, None, 100.0, 97.0),
     ],
 )
 def test_the_thumbnail_moment_stays_off_the_unstyled_edges_of_the_video(

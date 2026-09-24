@@ -178,6 +178,9 @@ def notability_reason_field() -> Any:
     return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
 
 
+# A day of video is longer than any session we render, so only an absurd pick trips this. The bound keeps an
+# arbitrary-precision integer out of the readers downstream, which convert the pick to a float.
+_MAX_THUMBNAIL_T_S = 24 * 60 * 60
 _THUMBNAIL_DESCRIPTION = (
     "The moment to cut the thumbnail from, in whole seconds of video time counted from the start of the video "
     "file, the same scale you cite moments in, not the footer's `REC_T`."
@@ -190,7 +193,7 @@ def thumbnail_field() -> Any:
     Optional for the same reason as `notability`: a skipped pick must not fail a paid-for scan. Readers fall back
     to a cited or signal moment when absent.
     """
-    return Field(default=None, ge=0, description=_THUMBNAIL_DESCRIPTION)
+    return Field(default=None, ge=0, le=_MAX_THUMBNAIL_T_S, description=_THUMBNAIL_DESCRIPTION)
 
 
 def notability_field() -> Any:

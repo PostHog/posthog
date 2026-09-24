@@ -1,3 +1,4 @@
+import math
 from datetime import timedelta
 from typing import Any
 from uuid import uuid4
@@ -55,7 +56,11 @@ def _first_citation_video_s(model_output: dict[str, Any] | None, clock: VideoClo
 def _pick_video_time_s(
     inputs: ObservationMediaInputs, model_output: dict[str, Any] | None, clock: VideoClock | None, duration_s: float
 ) -> float:
-    picked = float(inputs.thumbnail_video_s) if inputs.thumbnail_video_s is not None else None
+    picked: float | None = None
+    if inputs.thumbnail_video_s is not None:
+        # The pick comes from the model, so bound it before the conversion: `float()` of an
+        # arbitrary-precision int over about 1.8e308 raises OverflowError.
+        picked = float(min(inputs.thumbnail_video_s, math.ceil(duration_s)))
     if picked is None:
         picked = _first_citation_video_s(model_output, clock)
     if picked is None and inputs.signal_video_times:
