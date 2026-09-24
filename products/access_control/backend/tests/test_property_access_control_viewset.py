@@ -69,9 +69,17 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         # PrimaryKeyRelatedField serializes the FK as the PK value
         assert str(response.json()["organization_member"]) == str(self.organization_membership.id)
 
+    def _grant_role_based_access(self) -> None:
+        self.organization.available_product_features = [
+            *self.organization.available_product_features,
+            {"name": AvailableFeature.ROLE_BASED_ACCESS, "key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
     def test_create_role_override(self):
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         role = Role.objects.create(name="Analyst", organization=self.organization)
         response = self._post(
             {
@@ -160,6 +168,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
     def test_list_with_multiple_rules(self):
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         role = Role.objects.create(name="Analyst", organization=self.organization)
 
         # default rule
@@ -187,6 +196,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
 
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         other_org = Organization.objects.create(name="Other org")
         other_role = Role.objects.create(name="Other org role", organization=other_org)
 
@@ -222,6 +232,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
 
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         other_org = Organization.objects.create(name="Other org")
         other_role = Role.objects.create(name="Other org role", organization=other_org)
 
@@ -272,6 +283,14 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         self.organization.save()
 
         response = self._post({"access_level": PropertyAccessLevel.NONE.value})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
+
+    def test_role_rule_forbidden_without_role_based_access_feature(self):
+        from products.access_control.backend.models.role import Role
+
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        response = self._post({"access_level": PropertyAccessLevel.READ.value, "role": str(role.id)})
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
 
