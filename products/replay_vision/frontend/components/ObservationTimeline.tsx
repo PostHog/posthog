@@ -31,7 +31,7 @@ export function ObservationTimeline({
     useEffect(() => () => setHoveredMark(null), [setHoveredMark])
 
     return (
-        <div className="flex flex-col py-1" data-attr="vision-observation-timeline">
+        <div className="flex flex-col py-0.5" data-attr="vision-observation-timeline">
             {marks.map((mark, index) => {
                 const passed = mark.timestampMs <= currentPlayerTime
                 const isCurrent = index === currentIndex
@@ -54,7 +54,7 @@ export function ObservationTimeline({
                             data-current-moment={isCurrent ? true : undefined}
                             className={cn(
                                 ROW_GRID,
-                                'px-2 py-1 transition-colors',
+                                'px-2 py-0.5 transition-colors',
                                 isCurrent && 'bg-fill-highlight-50',
                                 hoveredMarkMs === mark.timestampMs && 'bg-surface-secondary'
                             )}
@@ -69,7 +69,7 @@ export function ObservationTimeline({
                             >
                                 {colonDelimitedDuration(Math.floor(mark.timestampMs / 1000), null)}
                             </span>
-                            <div className="flex flex-col items-center -my-1">
+                            <div className="flex flex-col items-center -my-0.5">
                                 <span className={cn('w-0.5 flex-1', railColor)} />
                                 <span
                                     className={cn(
@@ -87,7 +87,7 @@ export function ObservationTimeline({
                             </div>
                             <Tooltip title={<ObservationMarkTooltip mark={mark} />} placement="left">
                                 <LemonButton
-                                    size="small"
+                                    size="xsmall"
                                     fullWidth
                                     onClick={() => onSeek(mark.timestampMs)}
                                     data-attr="vision-timeline-moment"
