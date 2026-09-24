@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
@@ -34,7 +35,7 @@ ALLOWED_REDIRECT_DOMAINS = {
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 CONNECT_SALT = "vercel_connect"
-CONNECT_NONCE_COOKIE = "ph_vercel_connect_nonce"
+CONNECT_NONCE_COOKIE_PREFIX = "ph_vercel_connect_"
 CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
 SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
 _BROWSER_NONCE_KEY = "browser_nonce"
@@ -51,9 +52,14 @@ def _load_connect_session(token: str) -> dict:
         raise signing.BadSignature("Invalid or expired token")
 
 
+def _browser_nonce_cookie_name(browser_nonce: str) -> str:
+    # One cookie per link flow, so a second flow in the same browser does not replace the first flow's cookie.
+    return CONNECT_NONCE_COOKIE_PREFIX + hashlib.sha256(browser_nonce.encode()).hexdigest()[:16]
+
+
 def _set_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
     response.set_cookie(
-        CONNECT_NONCE_COOKIE,
+        _browser_nonce_cookie_name(browser_nonce),
         browser_nonce,
         max_age=CONNECT_SESSION_TIMEOUT,
         path=CONNECT_NONCE_COOKIE_PATH,
@@ -65,9 +71,9 @@ def _set_browser_nonce_cookie(request: Request, response: HttpResponse, browser_
     )
 
 
-def _clear_browser_nonce_cookie(request: Request, response: HttpResponse) -> None:
+def _clear_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
     response.delete_cookie(
-        CONNECT_NONCE_COOKIE,
+        _browser_nonce_cookie_name(browser_nonce),
         path=CONNECT_NONCE_COOKIE_PATH,
         domain=shared_cookie_domain(request),
         samesite="Lax",
@@ -80,16 +86,17 @@ def _load_browser_bound_session(request: Request, token: str) -> dict:
     except signing.BadSignature:
         raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
 
-    cookie_nonce = request.COOKIES.get(CONNECT_NONCE_COOKIE, "")
     session_nonce = session.get(_BROWSER_NONCE_KEY)
     if not isinstance(session_nonce, str):
         reason = "token_without_nonce"
-    elif not cookie_nonce:
-        reason = "missing_cookie"
-    elif secrets.compare_digest(cookie_nonce.encode(), session_nonce.encode()):
-        return session
     else:
-        reason = "nonce_mismatch"
+        cookie_nonce = request.COOKIES.get(_browser_nonce_cookie_name(session_nonce), "")
+        if not cookie_nonce:
+            reason = "missing_cookie"
+        elif secrets.compare_digest(cookie_nonce.encode(), session_nonce.encode()):
+            return session
+        else:
+            reason = "nonce_mismatch"
 
     capture_exception(
         Exception("Vercel connect: session used by a browser that did not start it"),
@@ -432,7 +439,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
-        _clear_browser_nonce_cookie(request, response)
+        _clear_browser_nonce_cookie(request, response, cached_data[_BROWSER_NONCE_KEY])
         return response
 
     @staticmethod

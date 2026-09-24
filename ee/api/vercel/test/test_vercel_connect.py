@@ -1,8 +1,10 @@
+from http.cookies import Morsel
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.http import HttpResponse
 from django.test import Client, TestCase, override_settings
 
 from parameterized import parameterized
@@ -15,8 +17,9 @@ from posthog.models.team import Team
 
 from ee.api.vercel.crypto import encrypt_payload
 from ee.api.vercel.vercel_connect import (
-    CONNECT_NONCE_COOKIE,
+    CONNECT_NONCE_COOKIE_PREFIX,
     CONNECT_SALT,
+    _browser_nonce_cookie_name,
     _delete_orphaned_integration,
     _load_connect_session,
     _sign_connect_session,
@@ -41,9 +44,10 @@ BROWSER_NONCE = "nonce-set-in-this-browser"
 OTHER_BROWSER_NONCE = "nonce-from-another-linking-flow"
 REJECTED_BROWSER_COOKIES = [("missing_cookie", None), ("cookie_from_another_flow", OTHER_BROWSER_NONCE)]
 REJECTED_SESSIONS = [
-    ("missing_cookie", BROWSER_NONCE, None, "missing_cookie"),
-    ("cookie_from_another_flow", BROWSER_NONCE, OTHER_BROWSER_NONCE, "nonce_mismatch"),
-    ("token_without_nonce", None, BROWSER_NONCE, "token_without_nonce"),
+    ("missing_cookie", BROWSER_NONCE, None, None, "missing_cookie"),
+    ("cookie_from_another_flow", BROWSER_NONCE, OTHER_BROWSER_NONCE, OTHER_BROWSER_NONCE, "missing_cookie"),
+    ("tampered_cookie", BROWSER_NONCE, BROWSER_NONCE, OTHER_BROWSER_NONCE, "nonce_mismatch"),
+    ("token_without_nonce", None, BROWSER_NONCE, BROWSER_NONCE, "token_without_nonce"),
 ]
 
 
@@ -67,6 +71,11 @@ def _mock_vercel_client(mock_client_class: MagicMock) -> MagicMock:
     return mock_client
 
 
+def _flow_cookie(response: HttpResponse) -> Morsel:
+    [cookie] = [cookie for name, cookie in response.cookies.items() if name.startswith(CONNECT_NONCE_COOKIE_PREFIX)]
+    return cookie
+
+
 class VercelConnectTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -74,14 +83,14 @@ class VercelConnectTestBase(APIBaseTest):
         self.organization_membership.save()
 
     def _seed_session(self) -> str:
-        self.client.cookies[CONNECT_NONCE_COOKIE] = BROWSER_NONCE
+        self._set_nonce_cookie(BROWSER_NONCE)
         return _sign_connect_session(CACHED_SESSION_DATA, browser_nonce=BROWSER_NONCE)
 
-    def _set_nonce_cookie(self, browser_nonce: str | None) -> None:
-        if browser_nonce is None:
-            self.client.cookies.pop(CONNECT_NONCE_COOKIE, None)
-        else:
-            self.client.cookies[CONNECT_NONCE_COOKIE] = browser_nonce
+    def _set_nonce_cookie(self, flow_nonce: str | None, value: str | None = None) -> None:
+        for name in [name for name in self.client.cookies if name.startswith(CONNECT_NONCE_COOKIE_PREFIX)]:
+            del self.client.cookies[name]
+        if flow_nonce is not None:
+            self.client.cookies[_browser_nonce_cookie_name(flow_nonce)] = value or flow_nonce
 
 
 class TestVercelConnectCallback(VercelConnectTestBase):
@@ -211,7 +220,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
 
         response = self.client.get(self.url, {"code": "good_code"}, HTTP_HOST=host)
 
-        cookie = response.cookies[CONNECT_NONCE_COOKIE]
+        cookie = _flow_cookie(response)
         assert cookie["domain"] == expected_domain
         assert cookie["path"] == "/api/vercel/connect"
         assert cookie["max-age"] == 600
@@ -295,7 +304,8 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         self,
         _name: str,
         token_nonce: str | None,
-        cookie_nonce: str | None,
+        cookie_flow_nonce: str | None,
+        cookie_value: str | None,
         expected_reason: str,
         _mock_orphaned: MagicMock,
         mock_capture_exception: MagicMock,
@@ -312,7 +322,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             if token_nonce
             else encrypt_payload(CACHED_SESSION_DATA, salt=CONNECT_SALT, jti=True)
         )
-        self._set_nonce_cookie(cookie_nonce)
+        self._set_nonce_cookie(cookie_flow_nonce, cookie_value)
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -825,7 +835,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         assert session_response.status_code == status.HTTP_200_OK
         assert complete_response.status_code == status.HTTP_201_CREATED
         assert complete_response.json()["status"] == "linked"
-        cleared_cookie = complete_response.cookies[CONNECT_NONCE_COOKIE]
+        cleared_cookie = _flow_cookie(complete_response)
         assert cleared_cookie["max-age"] == 0
         assert cleared_cookie["domain"] == expected_cookie_domain
         assert cleared_cookie["path"] == "/api/vercel/connect"
@@ -855,6 +865,18 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         assert [session_response.status_code, complete_response.status_code] == [400, 400]
         assert not OrganizationIntegration.objects.filter(organization=self.organization).exists()
         mock_client.import_resource.assert_not_called()
+
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_two_link_flows_in_one_browser_both_stay_usable(self, mock_client_class: MagicMock) -> None:
+        _mock_vercel_client(mock_client_class)
+        session_tokens = [
+            _session_token_from_redirect(self.client.get(self.callback_url, {"code": code})["Location"])
+            for code in ("first_code", "second_code")
+        ]
+
+        responses = [self.client.get("/api/vercel/connect/session", {"session": token}) for token in session_tokens]
+
+        assert [response.status_code for response in responses] == [status.HTTP_200_OK, status.HTTP_200_OK]
 
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
