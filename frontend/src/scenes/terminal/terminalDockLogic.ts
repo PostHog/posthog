@@ -72,13 +72,17 @@ export const terminalDockLogic = kea<terminalDockLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        openInTerminal: ({ folder }) => {
+        openInTerminal: async ({ folder }, breakpoint) => {
             if (!values.terminalEnabled) {
                 return
             }
             actions.setRequestedFolder(folder)
             actions.setDockOpen(true)
-            actions.focusTerminal()
+            // Menus restore focus to their trigger when they close.
+            await breakpoint(100)
+            if (values.terminalEnabled && values.dockOpen) {
+                actions.focusTerminal()
+            }
         },
         toggleTerminal: () => {
             if (!values.terminalEnabled) {
