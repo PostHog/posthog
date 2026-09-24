@@ -1,7 +1,9 @@
 import json
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,6 +11,7 @@ from rest_framework import status
 from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.insight_result import InsightResult
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -75,7 +78,7 @@ class TestDashboardRunInsights(APIBaseTest):
             insight = tile["insight"]
             self.assertEqual(
                 set(insight.keys()),
-                {"id", "short_id", "name", "derived_name", "result"},
+                {"id", "short_id", "name", "derived_name", "result", "warnings"},
             )
 
     def test_json_format_returns_raw_query_results(self) -> None:
@@ -103,6 +106,33 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertTrue(isinstance(result, str) or isinstance(result, list))
         if isinstance(result, str):
             self.assertIn("|", result)
+
+    @parameterized.expand([("json",), ("optimized",)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_a_tile_carries_its_warehouse_sync_warnings(self, output_format: str, mock_calculate: MagicMock) -> None:
+        warning = {
+            "type": "warehouse_sync",
+            "message": "Last sync of `costs` (from DoIt) failed.",
+            "schema_name": "costs",
+            "source_id": "source-1",
+            "source_type": "DoIt",
+            "status": "Failed",
+            "table_name": "doit_costs",
+        }
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+            warnings=[warning],
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        body = self._run(dashboard_id, output_format=output_format)
+
+        self.assertEqual(body["results"][0]["insight"]["warnings"], [warning])
 
     def test_tile_ids_runs_only_the_selected_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

@@ -24599,7 +24599,7 @@ export namespace Schemas {
     }
 
     /**
-     * InsightSerializer restricted to identifiers + result only.
+     * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
      */
     export interface InsightResult {
       readonly id: number;
@@ -24609,6 +24609,8 @@ export namespace Schemas {
       /** @nullable */
       readonly derived_name: string | null;
       readonly result: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
     }
 
     /**
