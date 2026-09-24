@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Callable
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError
@@ -128,6 +129,90 @@ def _fingerprint_hash_expr() -> ast.Call:
                 args=[ast.Field(chain=["e", "properties"]), ast.Constant(value="$exception_fingerprint")],
             )
         ],
+    )
+
+
+# Issue filter keys, as sent by the frontend, mapped to the denormalized issue
+# field the legacy shape reads.
+_ISSUE_FILTER_FIELDS: dict[str, str] = {
+    "name": "issue_name",
+    "description": "issue_description",
+    "status": "issue_status",
+    "severity": "issue_severity",
+    "first_seen": "first_seen",
+}
+
+# Operators that compare against a set of values: the single-value comparison
+# and the membership comparison used when the filter carries several values.
+_MEMBERSHIP_OPERATORS: dict[PropertyOperator, tuple[ast.CompareOperationOp, ast.CompareOperationOp]] = {
+    PropertyOperator.EXACT: (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In),
+    PropertyOperator.IS_NOT: (ast.CompareOperationOp.NotEq, ast.CompareOperationOp.NotIn),
+}
+
+# Operators that match a pattern: the pattern template and whether it negates.
+_PATTERN_OPERATORS: dict[PropertyOperator, tuple[str, bool]] = {
+    PropertyOperator.ICONTAINS: ("%{}%", False),
+    PropertyOperator.NOT_ICONTAINS: ("%{}%", True),
+    PropertyOperator.STARTS_WITH: ("{}%", False),
+    PropertyOperator.NOT_STARTS_WITH: ("{}%", True),
+    PropertyOperator.ENDS_WITH: ("%{}", False),
+    PropertyOperator.NOT_ENDS_WITH: ("%{}", True),
+}
+
+_RANGE_OPERATORS: dict[PropertyOperator, ast.CompareOperationOp] = {
+    PropertyOperator.GT: ast.CompareOperationOp.Gt,
+    PropertyOperator.IS_DATE_AFTER: ast.CompareOperationOp.Gt,
+    PropertyOperator.GTE: ast.CompareOperationOp.GtEq,
+    PropertyOperator.LT: ast.CompareOperationOp.Lt,
+    PropertyOperator.IS_DATE_BEFORE: ast.CompareOperationOp.Lt,
+    PropertyOperator.LTE: ast.CompareOperationOp.LtEq,
+}
+
+_NULLABILITY_OPERATORS: dict[PropertyOperator, ast.CompareOperationOp] = {
+    PropertyOperator.IS_SET: ast.CompareOperationOp.NotEq,
+    PropertyOperator.IS_NOT_SET: ast.CompareOperationOp.Eq,
+}
+
+
+def _constant_value(value: Any) -> ast.Expr:
+    return ast.Constant(value=value)
+
+
+def _date_time_value(value: Any) -> ast.Expr:
+    return ast.Call(name="toDateTime", args=[ast.Constant(value=str(value))])
+
+
+def _comparable_values(raw_value: Any) -> list[str | float | bool]:
+    """Keep only the values ClickHouse can compare against an issue field."""
+    candidates = raw_value if isinstance(raw_value, list) else [raw_value]
+    return [candidate for candidate in candidates if isinstance(candidate, (str, float, bool))]
+
+
+def _membership_comparison(
+    field: ast.Expr,
+    operators: tuple[ast.CompareOperationOp, ast.CompareOperationOp],
+    raw_value: Any,
+    make_value: Callable[[Any], ast.Expr],
+) -> ast.Expr | None:
+    single_operator, many_operator = operators
+    values = _comparable_values(raw_value)
+    if not values:
+        return None
+    if len(values) == 1:
+        return ast.CompareOperation(op=single_operator, left=field, right=make_value(values[0]))
+    return ast.CompareOperation(
+        op=many_operator,
+        left=field,
+        right=ast.Tuple(exprs=[make_value(value) for value in values]),
+    )
+
+
+def _pattern_comparison(field: ast.Expr, pattern: tuple[str, bool], raw_value: Any) -> ast.Expr:
+    template, negated = pattern
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotILike if negated else ast.CompareOperationOp.ILike,
+        left=field,
+        right=ast.Constant(value=template.format(raw_value)),
     )
 
 
@@ -942,98 +1027,21 @@ class ErrorTrackingQueryBuilder:
 
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         key = "description" if prop.key == "issue_description" else prop.key
-
-        field_name_map: dict[str, str] = {
-            "name": "issue_name",
-            "description": "issue_description",
-            "status": "issue_status",
-            "severity": "issue_severity",
-            "first_seen": "first_seen",
-        }
-
-        field_name = field_name_map.get(key)
+        field_name = _ISSUE_FILTER_FIELDS.get(key)
         if field_name is None:
             return None
 
         field = self._legacy_issue_state_expr(field_name)
-        value = prop.value
+        # `first_seen` holds a date, so its values need an explicit cast.
+        make_value = _date_time_value if key == "first_seen" else _constant_value
         operator = prop.operator
 
-        def make_value(v) -> ast.Expr:
-            if key == "first_seen":
-                return ast.Call(name="toDateTime", args=[ast.Constant(value=str(v))])
-            return ast.Constant(value=v)
-
-        def normalize_values(raw_value: object | list[object]) -> list[str | float | bool]:
-            candidates = raw_value if isinstance(raw_value, list) else [raw_value]
-            return [candidate for candidate in candidates if isinstance(candidate, (str, float, bool))]
-
-        if operator == PropertyOperator.EXACT:
-            values = normalize_values(value)
-            if not values:
-                return None
-            if len(values) == 1:
-                return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=make_value(values[0]))
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=field,
-                right=ast.Tuple(exprs=[make_value(v) for v in values]),
-            )
-
-        if operator == PropertyOperator.IS_NOT:
-            not_values = normalize_values(value)
-            if not not_values:
-                return None
-            if len(not_values) == 1:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq, left=field, right=make_value(not_values[0])
-                )
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotIn,
-                left=field,
-                right=ast.Tuple(exprs=[make_value(v) for v in not_values]),
-            )
-
-        if operator == PropertyOperator.ICONTAINS:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.ILike, left=field, right=ast.Constant(value=f"%{value}%")
-            )
-
-        if operator == PropertyOperator.NOT_ICONTAINS:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotILike, left=field, right=ast.Constant(value=f"%{value}%")
-            )
-
-        if operator in (
-            PropertyOperator.STARTS_WITH,
-            PropertyOperator.NOT_STARTS_WITH,
-            PropertyOperator.ENDS_WITH,
-            PropertyOperator.NOT_ENDS_WITH,
-        ):
-            prefix_match = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
-            negated = operator in (PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH)
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotILike if negated else ast.CompareOperationOp.ILike,
-                left=field,
-                right=ast.Constant(value=f"{value}%" if prefix_match else f"%{value}"),
-            )
-
-        if operator in (PropertyOperator.GT, PropertyOperator.IS_DATE_AFTER):
-            return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=make_value(value))
-
-        if operator == PropertyOperator.GTE:
-            return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=field, right=make_value(value))
-
-        if operator in (PropertyOperator.LT, PropertyOperator.IS_DATE_BEFORE):
-            return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=field, right=make_value(value))
-
-        if operator == PropertyOperator.LTE:
-            return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=field, right=make_value(value))
-
-        if operator == PropertyOperator.IS_SET:
-            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
-
-        if operator == PropertyOperator.IS_NOT_SET:
-            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
-
+        if operator in _MEMBERSHIP_OPERATORS:
+            return _membership_comparison(field, _MEMBERSHIP_OPERATORS[operator], prop.value, make_value)
+        if operator in _PATTERN_OPERATORS:
+            return _pattern_comparison(field, _PATTERN_OPERATORS[operator], prop.value)
+        if operator in _RANGE_OPERATORS:
+            return ast.CompareOperation(op=_RANGE_OPERATORS[operator], left=field, right=make_value(prop.value))
+        if operator in _NULLABILITY_OPERATORS:
+            return ast.CompareOperation(op=_NULLABILITY_OPERATORS[operator], left=field, right=ast.Constant(value=None))
         return None
