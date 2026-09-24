@@ -311,6 +311,7 @@ async def run_investigation(
             elif tool_calls_used >= MAX_TOOL_CALLS:
                 content = "[skipped — tool call budget exhausted]"
             else:
+                report_args_history.clear()
                 tool_calls_used += 1
                 handler = handlers.get(name)
                 if handler is None:
