@@ -34,10 +34,11 @@ MAX_RETRY_ATTEMPTS = 6
 
 # The Cost Explorer API is a POST-only JSON RPC, and the tracked session's default policy only
 # retries idempotent verbs — so opt POST in explicitly for the transport-level statuses.
+TRANSPORT_RETRY_STATUSES = (429, 500, 502, 503, 504)
 TRANSPORT_RETRY = Retry(
     total=3,
     backoff_factor=1,
-    status_forcelist=(429, 500, 502, 503, 504),
+    status_forcelist=TRANSPORT_RETRY_STATUSES,
     allowed_methods=frozenset(["POST"]),
     raise_on_status=False,
 )
@@ -277,9 +278,11 @@ def error_for_response(response: requests.Response) -> AwsCostExplorerError:
     text = f"AWS Cost Explorer request failed: {code}"
     if detail:
         text = f"{text} - {detail}"
-    # 429/5xx are already retried by the tracked transport; the app-level throttling and
-    # server-fault codes arrive as HTTP 400, so they need a second, bounded retry here.
-    if code in RETRYABLE_ERROR_CODES:
+    # The transport has already spent its own budget on the statuses it covers, so retrying
+    # those again here would multiply the billed request count. AWS sends the throttling and
+    # server-fault codes as HTTP 400, which the transport cannot see, and those need this
+    # second, bounded retry.
+    if code in RETRYABLE_ERROR_CODES and response.status_code not in TRANSPORT_RETRY_STATUSES:
         return AwsCostExplorerRetryableError(text, code)
     return AwsCostExplorerError(text, code)
 

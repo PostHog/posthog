@@ -343,8 +343,15 @@ class TestErrorClassification:
             "AWS Cost Explorer request failed: AccessDeniedException - nope"
         )
 
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_a_code_the_transport_already_retried_is_not_retried_again(self, status: int) -> None:
+        # Stacking both loops would bill one operation for up to 24 requests.
+        response = make_response(status, {"__type": "InternalFailure", "message": "server error"})
+
+        assert not isinstance(error_for_response(response), AwsCostExplorerRetryableError)
+
     def test_a_body_without_a_message_does_not_end_the_error_in_a_bare_dash(self) -> None:
-        response = make_response(500, {"__type": "InternalFailure"})
+        response = make_response(400, {"__type": "InternalFailure"})
 
         assert str(error_for_response(response)) == "AWS Cost Explorer request failed: InternalFailure"
 
