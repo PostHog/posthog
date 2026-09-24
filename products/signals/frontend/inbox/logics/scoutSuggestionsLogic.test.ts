@@ -238,6 +238,31 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.stripVisible).toBe(false)
     })
 
+    // A refused read returns no batch, which the scan-settled check would otherwise read as a scan
+    // that found nothing (baseline set) or as a scan still running (no baseline).
+    it.each([
+        ['after an earlier scan', '2026-09-01T00:00:00Z'],
+        ['before any scan', null],
+    ])('stops waiting on a scan when a read during it is refused: %s', async (_name, generatedAt) => {
+        const info = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-1')
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+        await mountWithBatch(suggestionSet({ generated_at: generatedAt }))
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isRefreshing).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(false)
+        expect(logic.values.refreshScan).toBeNull()
+        expect(info).not.toHaveBeenCalled()
+        expect(error).not.toHaveBeenCalled()
+        info.mockRestore()
+        error.mockRestore()
+    })
+
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
     it.each([
         ['never scanned', 'empty', null],

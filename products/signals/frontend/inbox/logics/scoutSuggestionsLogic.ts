@@ -319,7 +319,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         reportSuggestionsShown: (surface: ScoutSuggestionSurface) => ({ surface }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         suggestionSet: [
             null as ScoutSuggestionSetApi | null,
             {
@@ -343,6 +343,12 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                             // The strip can unmount before the refusal lands, and a loader that
                             // resolves into a dead store is what reports next.
                             breakpoint()
+                            // Without access the scan's batch can never be read. End the wait here,
+                            // because the success listener would read the empty batch as the scan's
+                            // result and show a false toast, or poll until the timeout.
+                            if (values.isRefreshing) {
+                                actions.refreshFinished()
+                            }
                             return null
                         }
                         throw error
