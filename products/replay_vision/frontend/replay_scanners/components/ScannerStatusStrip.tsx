@@ -31,7 +31,8 @@ const TONE_DOT: Record<StatusTone, string> = {
 }
 
 function formatInterval(minutes: number): string {
-    if (minutes < 60) {
+    // The throttle factor is any integer, so only whole hours read better in hours.
+    if (minutes < 60 || minutes % 60 !== 0) {
         return pluralize(minutes, 'minute')
     }
     return minutes === 60 ? 'hour' : pluralize(minutes / 60, 'hour')
