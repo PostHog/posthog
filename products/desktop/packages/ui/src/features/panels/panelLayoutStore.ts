@@ -217,7 +217,6 @@ const panelLayoutStorage: StateStorage = createDebouncedStorage(
   PANEL_PERSIST_DEBOUNCE_MS,
 );
 
-// Returns whether the layout changed, so analytics skip actions that did nothing.
 function updateLayoutIfChanged(
   set: (
     updater: (state: PanelLayoutStore) => Partial<PanelLayoutStore>,

@@ -64,15 +64,12 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
     ? node.content.activeTabId
     : (tabs[0]?.id ?? node.content.activeTabId);
-  // Keyboard actions read the stored active tab, so point it at the rendered
-  // one when the stored tab is a hidden terminal.
+  // Keyboard actions read the stored active tab, so keep it on the rendered one.
   useEffect(() => {
     if (activeTabId && activeTabId !== node.content.activeTabId) {
       onActiveTabChange(node.id, activeTabId);
     }
   }, [activeTabId, node.content.activeTabId, node.id, onActiveTabChange]);
-  // A pane whose only tabs are hidden shows nothing; the close button lets
-  // the user collapse it.
   const hasOnlyHiddenTabs = tabs.length === 0 && node.content.tabs.length > 0;
 
   const cloudEmptyState = useMemo(

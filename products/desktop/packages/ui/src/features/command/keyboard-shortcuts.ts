@@ -29,8 +29,7 @@ export const SHORTCUTS = {
   ARCHIVE_TASK: "mod+shift+a",
   CLOSE_TAB: "mod+w",
   SPLIT_PANEL: "mod+\\",
-  // VS Code closes an editor group with the chord "mod+k w". react-hotkeys-hook
-  // v4 has no key sequences, so the closest single combination is used.
+  // VS Code uses the chord "mod+k w", but react-hotkeys-hook v4 has no key sequences.
   CLOSE_PANEL: "mod+shift+w",
   SWITCH_TAB: panelTabShortcut(isMac),
   SWITCH_TASK: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",

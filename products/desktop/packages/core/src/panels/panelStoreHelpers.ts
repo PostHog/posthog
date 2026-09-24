@@ -92,9 +92,7 @@ export function activeArtifactId(layout: TaskLayout): string | null {
 
 let nextPanelId = 1;
 
-// The counter restarts at 1 on every app launch while layouts persist across
-// launches, so a restored tree can already hold "panel-1". Skip ids the tree
-// uses, because updateTreeNode stops at the first node with a matching id.
+// The counter restarts on each launch but layouts persist, so skip ids the tree uses.
 export function generatePanelId(tree: PanelNode): string {
   let id = `panel-${nextPanelId++}`;
   while (findPanelById(tree, id)) {

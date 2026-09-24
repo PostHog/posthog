@@ -16,8 +16,7 @@ function press(init: KeyboardEventInit) {
 
 describe("usePanelKeyboardShortcuts", () => {
   beforeEach(() => {
-    // The app runs these scoped hotkeys without a HotkeysProvider, which
-    // react-hotkeys-hook accepts with a warning on every registration.
+    // Without a HotkeysProvider, react-hotkeys-hook warns on each registration.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     usePanelLayoutStore.getState().clearAllLayouts();
     usePanelLayoutStore.getState().initializeTask("task-1");

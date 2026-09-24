@@ -25,11 +25,7 @@ const findParentGroup = (
   return null;
 };
 
-/**
- * The leaf that takes over when a pane goes away: the first leaf of the
- * previous sibling, else of the next one, else any other leaf in the tree.
- * Null when the pane is the only leaf.
- */
+/** The first leaf of the previous sibling, else the next sibling, else any other leaf. */
 export const findNeighborLeaf = (
   root: PanelNode,
   panelId: string,

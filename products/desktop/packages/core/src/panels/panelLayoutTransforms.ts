@@ -439,8 +439,7 @@ export function closeTab(
   };
 }
 
-// A copied file tab has its own id, so the open-files list follows the tabs
-// that survive rather than the id of the tab that closed.
+// Copied file tabs have their own ids, so match open files by path.
 function pruneOpenFiles(openFiles: string[], tree: PanelNode): string[] {
   const openPaths = new Set(
     collectLeafPanels(tree).flatMap((leaf) =>
@@ -614,10 +613,8 @@ export function splitPanelTree(
 
 const COPY_TAB_ID_PATTERN = /^copy-\d+:(.*)$/;
 
-// Tab ids key React lists, drag sources and findTabInTree, so a second tab
-// with the source id would collide across panes. The copy gets its own id;
-// the "copy-" prefix keeps it out of the file-tab id parsing in
-// updateMetadataForTab, which tracks open files by the source tab only.
+// Tab ids key React lists and tab lookups, so a copy needs its own id. The
+// "copy-" prefix keeps it out of the file-tab id parsing.
 function createCopyTabId(tree: PanelNode, sourceTabId: string): string {
   const baseId = sourceTabId.match(COPY_TAB_ID_PATTERN)?.[1] ?? sourceTabId;
   let copyNumber = 2;
@@ -628,9 +625,7 @@ function createCopyTabId(tree: PanelNode, sourceTabId: string): string {
 }
 
 function copyTab(tree: PanelNode, tab: Tab): Tab {
-  // A terminal tab owns one pty, and two views of the same pty would fight
-  // over its input. Open a fresh shell in the same directory instead, as
-  // VS Code does when it splits a terminal.
+  // Two views of one pty would fight over its input, so open a fresh shell.
   if (tab.data.type === "terminal") {
     return createTerminalTab(tab.data.cwd);
   }
@@ -643,11 +638,7 @@ function copyTab(tree: PanelNode, tab: Tab): Tab {
   };
 }
 
-/**
- * The VS Code "Split editor" behavior: a new pane beside the source pane that
- * shows a copy of the source pane's active tab, while the source pane keeps
- * its tab. Focus moves to the new pane.
- */
+/** VS Code "Split editor": the new pane shows a copy of the active tab. */
 export function splitPanelWithCopy(
   layout: TaskLayout,
   panelId: string,
@@ -671,11 +662,6 @@ export function splitPanelWithCopy(
   return { panelTree, focusedPanelId: newPanelId };
 }
 
-/**
- * Closes every closeable tab in the pane and collapses its split. Tabs that
- * cannot close (Chat) move to the neighbor pane. The last pane stays, as the
- * last editor group does in VS Code, and only loses its closeable tabs.
- */
 export function closePanel(
   layout: TaskLayout,
   panelId: string,
