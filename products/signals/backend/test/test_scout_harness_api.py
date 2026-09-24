@@ -3930,6 +3930,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already has 1 enabled scouts" in response.json()["detail"]
 
+    def test_cap_rejection_above_a_lowered_cap_names_the_count_and_the_scouts_to_disable(self) -> None:
+        # A lowered cap leaves every running scout enabled, so the count can sit above the cap.
+        # Reporting the cap as the count, or asking for one disable, leaves the next enable refused.
+        for name in ("signals-scout-first", "signals-scout-second", "signals-scout-third"):
+            self._make_skill(name)
+            SignalScoutConfig.objects.create(team=self.team, skill_name=name, enabled=True)
+        self._make_skill("signals-scout-fourth")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fourth", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "This project already has 3 enabled scouts, and its limit is 1. Disable 3 scouts before you enable another."
+        )
+
     def test_disabling_and_editing_stay_allowed_below_a_lowered_cap(self) -> None:
         # Lowering the cap must leave a project able to dig itself out: disabling frees a slot,
         # and tuning an enabled scout is not a net-new enable.

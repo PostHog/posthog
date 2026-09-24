@@ -2390,15 +2390,19 @@ def _reject_if_enabled_cap_reached(team_id: int, skill_name: str, *, cap: int) -
     `enabled=True` on an already-enabled scout is always allowed. `cap` is the project's
     effective ceiling, so the number in the error is the number enforcement uses; the
     caller resolves it before opening its transaction, since resolving it reads the flag
-    and every write path here holds a row lock. Best-effort (count + write, no lock): a
-    concurrent enable can overshoot by one, which the coordinator's per-tick caps still
-    bound.
+    and every write path here holds a row lock. The error names the count apart from the
+    cap, because a lowered cap pauses nothing and can leave the count above it.
+    Best-effort (count + write, no lock): a concurrent enable can overshoot by one, which
+    the coordinator's per-tick caps still bound.
     """
-    if enabled_scout_count(team_id, exclude_skill=skill_name) >= cap:
+    enabled = enabled_scout_count(team_id, exclude_skill=skill_name)
+    if enabled >= cap:
+        to_disable = enabled - cap + 1
         raise exceptions.ValidationError(
             {
                 "enabled": (
-                    f"This project already has {cap} enabled scouts (the maximum). Disable one before enabling another."
+                    f"This project already has {enabled} enabled scouts, and its limit is {cap}. "
+                    f"Disable {to_disable} {'scout' if to_disable == 1 else 'scouts'} before you enable another."
                 )
             }
         )
