@@ -54,6 +54,24 @@ describe('terminal hogql wrapper', () => {
         expect(result.stderr).toContain(message)
     })
 
+    it('keeps the interactive prompt open after a failed query until exit', () => {
+        writeFileSync(join(directory, 'hogql'), HOGQL_SCRIPT)
+        writeFileSync(
+            join(directory, 'ph'),
+            '#!/bin/sh\nrequest=$(cat)\ncase "$request" in *missing*) echo "Query failed" >&2; exit 1 ;; esac\nprintf "%s\\n" "$request"\n'
+        )
+        // util-linux script runs the wrapper on a pseudo-terminal, which the interactive branch requires.
+        const result = spawnSync('script', ['-qec', `bash ${join(directory, 'hogql')} --csv`, '/dev/null'], {
+            env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
+            input: 'select missing\nselect 1\nexit\n',
+            encoding: 'utf8',
+            timeout: 10000,
+        })
+        expect(result.status).toBe(0)
+        expect(result.stdout).toContain('Query failed')
+        expect(result.stdout).toContain(JSON.stringify({ query: 'select 1', argv: ['--csv'] }))
+    })
+
     it('returns query failures on stderr with a nonzero exit status', () => {
         writeFileSync(join(directory, 'ph'), '#!/bin/sh\ncat >/dev/null\necho "Query failed" >&2\nexit 1\n')
         const result = run(['select missing'])
