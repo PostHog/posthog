@@ -1312,11 +1312,13 @@ function buildMatrix(products, durations, productsScaled = false) {
             // optimally. The greedy rule in duration_based_chunks lets every shard
             // overrun the per-shard average, which on skewed suites starves trailing
             // shards down to zero tests (pytest exit 5, "no tests collected").
+            // File granularity keeps that balance but skips the other shards' test files
+            // before pytest imports them, so a shard collects only its own share.
             const shardCost = work / shards + maxTest
             for (let i = 1; i <= shards; i++) {
                 const leg = {
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks --split-granularity file`,
                 }
                 // work/shards + maxTest bounds every shard, whichever one
                 // optimal_chunks leaves lightest, so one shard can be offered to the

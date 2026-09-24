@@ -6127,7 +6127,7 @@ dev = [
     { name = "pytest-icdiff", specifier = "~=0.9" },
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
-    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.6" },
+    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.7" },
     { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
@@ -6946,7 +6946,7 @@ wheels = [
 [[package]]
 name = "pytest-split"
 version = "0.11.0"
-source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.6#8fc59b2e1ca13b9421f6e7828105d8635437c912" }
+source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.7#17ee53be4aaa2f27012da31b69656b4b45881cd5" }
 dependencies = [
     { name = "pytest" },
 ]
