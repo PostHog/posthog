@@ -66,14 +66,15 @@ class TestStubTraining(TeamScopedTestMixin, BaseTest):
         new_champion = AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
         assert new_champion.pk != old_champion.pk
 
-    def test_a_stronger_trained_champion_survives_a_stub_run(self):
+    @parameterized.expand([("stronger", 0.9), ("weaker_than_the_placeholder", 0.6)])
+    def test_a_trained_champion_survives_a_stub_run(self, _name, trained_score):
         pipeline = self._make_pipeline()
         trained = AutoresearchModel.objects.create(
             pipeline=pipeline,
             role=AutoresearchModel.Role.CHAMPION,
             recipe_hash="trained",
             model_recipe={},
-            holdout_score=0.9,
+            holdout_score=trained_score,
         )
 
         training_run = run_stub_training(pipeline=pipeline, iteration_budget=10)

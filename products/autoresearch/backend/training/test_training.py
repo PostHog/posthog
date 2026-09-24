@@ -198,20 +198,30 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
             AutoresearchTrainingRun.objects.get(pipeline=self.pipeline).status == AutoresearchTrainingRun.Status.FAILED
         )
 
-    def test_a_run_the_completion_handler_already_finalized_keeps_its_outcome(self, facade: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("completed", AutoresearchTrainingRun.Status.COMPLETED, False),
+            ("failed", AutoresearchTrainingRun.Status.FAILED, True),
+        ]
+    )
+    def test_a_run_the_completion_handler_already_finalized_keeps_its_outcome(
+        self, facade: MagicMock, _name: str, final_status: str, raises: bool
+    ) -> None:
         self._dispatched(facade)
 
         def finalized_by_handler(*_args: object) -> bool:
-            AutoresearchTrainingRun.objects.filter(pipeline=self.pipeline).update(
-                status=AutoresearchTrainingRun.Status.COMPLETED
-            )
+            AutoresearchTrainingRun.objects.filter(pipeline=self.pipeline).update(status=final_status)
             return True
 
         facade.task_run_is_terminal.side_effect = finalized_by_handler
 
-        training_run = run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
+        if raises:
+            with self.assertRaises(RuntimeError):
+                run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
+        else:
+            run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
 
-        assert training_run.status == AutoresearchTrainingRun.Status.COMPLETED
+        assert AutoresearchTrainingRun.objects.get(pipeline=self.pipeline).status == final_status
 
     @parameterized.expand([("creator_without_team_access",), ("action_target_with_no_steps",)])
     def test_an_unrunnable_pipeline_is_refused_before_anything_is_written(self, facade: MagicMock, case: str) -> None:

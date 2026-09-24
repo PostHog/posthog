@@ -23,7 +23,6 @@ from products.autoresearch.backend.models import (
     AutoresearchPipeline,
     AutoresearchTrainingRun,
 )
-from products.autoresearch.backend.training.promotion import CHAMPION_PROMOTION_MARGIN
 
 logger = structlog.get_logger(__name__)
 
@@ -111,19 +110,14 @@ def _record_stub_result(
         agent_confidence=0.5,
     )
 
-    # A stub replaces an earlier stub freely, so local runs can repeat. A trained champion
-    # is replaced only on the margin promotion applies, so the stub cannot demote it.
+    # A stub replaces an earlier stub freely, so local runs can repeat. Its score is a
+    # placeholder, not a measurement, so it never replaces a trained champion.
     incumbent = (
         AutoresearchModel.objects.select_for_update()
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
         .first()
     )
-    promote = (
-        incumbent is None
-        or bool((incumbent.metrics or {}).get("stub"))
-        or incumbent.holdout_score is None
-        or holdout_score >= incumbent.holdout_score + CHAMPION_PROMOTION_MARGIN
-    )
+    promote = incumbent is None or bool((incumbent.metrics or {}).get("stub"))
     if promote and incumbent is not None:
         incumbent.role = AutoresearchModel.Role.ARCHIVED
         incumbent.archived_at = now
@@ -179,7 +173,7 @@ def run_stub_training(
     1. Create a TrainingRun record.
     2. Generate the hand-authored recipe.
     3. Create one Iteration (kept) and one AutoresearchModel.
-    4. Make it champion unless a trained champion beats it by the promotion margin.
+    4. Make it champion unless the pipeline already has a trained champion.
     5. Mark a Draft or Bootstrapping pipeline as Running.
     """
     training_run = AutoresearchTrainingRun.objects.create(

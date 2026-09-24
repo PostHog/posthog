@@ -557,11 +557,15 @@ def build_agent_description(
 
 def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: int) -> None:
     try:
-        tasks_cancellation.cancel_task_run(
+        outcome, _ = tasks_cancellation.cancel_task_run(
             task_run_id, task_id, team_id, reason="Autoresearch training launch failed", source="autoresearch"
         )
     except Exception:
         logger.exception("autoresearch_training_cancel_failed", task_run_id=str(task_run_id))
+        return
+    # "unavailable" returns without raising, and the sandbox then runs on to the task timeout.
+    if outcome not in ("accepted", "already_terminal"):
+        logger.error("autoresearch_training_cancel_not_accepted", task_run_id=str(task_run_id), outcome=outcome)
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -669,9 +673,9 @@ def run_training(
         # above, so the completion handler refused it and nothing else will end this run.
         if tasks_facade.task_run_is_terminal(task_run.id, task.task_id, pipeline.team_id):
             # Once the binding is saved the completion handler can finalize the run itself, so
-            # only a run it left RUNNING is a dispatch failure.
+            # only a run it completed launched. A run it failed or left RUNNING did not.
             training_run.refresh_from_db(fields=["status", "completed_at", "error"])
-            if training_run.status == AutoresearchTrainingRun.Status.RUNNING:
+            if training_run.status != AutoresearchTrainingRun.Status.COMPLETED:
                 raise RuntimeError(f"Training task run {task_run.id} ended at dispatch")
 
         logger.info(
