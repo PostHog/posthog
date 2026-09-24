@@ -40,6 +40,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonDeletionRepublisher } from '~/ingestion/common/persons/person-deletion-republisher'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
@@ -137,6 +138,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personsStore: PersonsStore
+    private deletionRepublisher?: PersonDeletionRepublisher
     public groupStore: BatchWritingGroupStore
     private eventFilterManagerComponent: EventFilterManagerComponent
     private eventFilterManager!: EventFilterManager
@@ -247,6 +249,14 @@ export class IngestionConsumer {
             mergeNoopMappingEmissionTtlMs: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS,
         })
 
+        if (this.config.PERSON_DELETION_PUBLISH_QUEUE_ENABLED) {
+            this.deletionRepublisher = new PersonDeletionRepublisher(this.deps.personRepository, this.deps.outputs, {
+                intervalMs: this.config.PERSON_DELETION_REPUBLISH_INTERVAL_MS,
+                graceSeconds: this.config.PERSON_DELETION_REPUBLISH_GRACE_SECONDS,
+                batchSize: this.config.PERSON_DELETION_REPUBLISH_BATCH_SIZE,
+            })
+        }
+
         this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
             useBatchCreates: this.config.GROUP_BATCH_WRITING_USE_BATCH_CREATES,
@@ -285,6 +295,7 @@ export class IngestionConsumer {
         await this.hogTransformer.start()
 
         this.topHog.start()
+        this.deletionRepublisher?.start()
 
         const outputs = this.deps.outputs
 
@@ -366,6 +377,7 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping tophog`)
+        this.deletionRepublisher?.stop()
         await this.topHog.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()

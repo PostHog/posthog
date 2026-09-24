@@ -1,5 +1,7 @@
 import { buildIntegerMatcher } from '~/common/config/config'
-import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
+import { DateTime } from 'luxon'
+
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
@@ -258,6 +260,60 @@ describe('PostgresPersonMerge merge events', () => {
 
         expect(store.fetchPersonDistinctIdMappings).toHaveBeenCalledTimes(1)
         expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    })
+
+    // The deletion's publish record only exists to outlive a crash in this window. A merge
+    // that produced its death document but kept the record would have the republisher
+    // produce it a second time, for every merge on the pipeline.
+    it('clears the deletion publish record once the merge produce is acked', async () => {
+        const order: string[] = []
+        mockOutputs = {
+            produce: jest.fn().mockImplementation(() => {
+                order.push('produce')
+                return Promise.resolve()
+            }),
+        }
+        const source = {
+            id: 'p1',
+            uuid: sourcePerson.uuid,
+            team_id: 2,
+            version: 1,
+            properties: {},
+            created_at: DateTime.fromMillis(0, { zone: 'utc' }),
+            is_identified: false,
+        } as unknown as InternalPerson
+        const target = { ...source, id: 'p2', uuid: targetPerson.uuid, is_identified: true } as InternalPerson
+        const deletionMessage = { output: PERSONS_OUTPUT, value: Buffer.from('{"is_deleted":1}') }
+        const tx = {
+            updatePersonForMerge: jest.fn().mockResolvedValue([target, []]),
+            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: ['anon'] }),
+            countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map([['p1', 1]])),
+            updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+            deletePerson: jest.fn().mockResolvedValue([deletionMessage]),
+        }
+        const clearPersonDeletionPublishes = jest.fn().mockImplementation(() => {
+            order.push('clear')
+            return Promise.resolve()
+        })
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? target : source)
+                ),
+            removeDistinctIdFromCache: jest.fn(),
+            clearPersonDeletionPublishes,
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+        }
+
+        const result = await buildSingleSourceMerge(store, new UUIDT().toString()).execute()
+        await result.kafkaAck
+
+        expect(result.results[0].outcome).toBe('merged')
+        expect(order).toEqual(['produce', 'clear'])
+        expect(clearPersonDeletionPublishes).toHaveBeenCalledWith(2, [source.uuid])
     })
 
     function buildSingleSourceMerge(

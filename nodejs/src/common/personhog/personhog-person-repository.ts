@@ -5,6 +5,7 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
+    PersonDeletionPublish,
     PersonDistinctIdMapping,
     PersonRepository,
 } from '~/common/persons/repositories/person-repository'
@@ -165,6 +166,14 @@ export class PersonHogPersonRepository implements PersonRepository {
                 this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
             )
         }
+    }
+
+    clearPersonDeletionPublishes(teamId: TeamId, personUuids: string[]): Promise<void> {
+        return this.postgres.clearPersonDeletionPublishes(teamId, personUuids)
+    }
+
+    claimPersonDeletionPublishes(graceSeconds: number, limit: number): Promise<PersonDeletionPublish[]> {
+        return this.postgres.claimPersonDeletionPublishes(graceSeconds, limit)
     }
 
     fetchPersonDistinctIdMappings(_teamId: TeamId, _distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
