@@ -298,7 +298,11 @@ def _build_posthog_code_task_description(
         if is_initiator_slot and mentioner_entry is None:
             mentioner_entry = {"author": author, "ts": msg.ts}
 
-        if is_initiator_slot:
+        # The placeholder stands in for the initiator's message only because the prompt
+        # below the divider repeats it. With no initiator text the prompt is the fallback
+        # string, so the placeholder would replace the one record of what arrived, and a
+        # single-message thread then reaches the agent as the fallback and nothing else.
+        if is_initiator_slot and initiator_text.strip():
             body = _INITIATOR_PLACEHOLDER
         else:
             body = _body_with_attachment_note(_strip_context_tag(msg.text), attachment_names)
@@ -617,11 +621,15 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
+        extract_message_text,
         labeled_mentions_to_display_names,
     )
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
 
-    user_text = decode_slack_event_text(slack, integration, event.get("text", ""))
+    # `text` alone loses a mention whose words live in `blocks` or `attachments`, which is
+    # how a request arrives from a Slack workflow or a client that posts rich text. The
+    # thread and fork paths already read every source through this extractor.
+    user_text = decode_slack_event_text(slack, integration, extract_message_text(event))
     # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
