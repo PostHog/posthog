@@ -51,22 +51,28 @@ const counterLiquidUndecodedEntity = new Counter({
     help: 'A liquid tag held an HTML entity the decoder does not know, so the tag renders as an empty string',
 })
 
-const KNOWN_ENTITIES_REGEX = /&(?:lt|gt|quot|#34|#x22|#x27|#39|amp);/g
-const ANY_ENTITY_REGEX = /&#?[0-9a-z]+;/i
+// One pass over the tag, so `&amp;lt;` decodes to `&lt;` rather than to `<`.
+const LIQUID_ENTITIES: Record<string, string> = {
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#34;': '"',
+    '&#x22;': '"',
+    '&#x27;': "'",
+    '&#39;': "'",
+    '&amp;': '&',
+}
+const ENTITY_REGEX = /&#?[0-9a-z]+;/gi
 
 const decodeEntities = (tag: string): string => {
-    if (ANY_ENTITY_REGEX.test(tag.replace(KNOWN_ENTITIES_REGEX, ''))) {
-        counterLiquidUndecodedEntity.inc()
-    }
-    return tag
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#34;/g, '"')
-        .replace(/&#x22;/g, '"')
-        .replace(/&#x27;/g, "'")
-        .replace(/&#39;/g, "'")
-        .replace(/&amp;/g, '&') // NOTE: This should always be last
+    return tag.replace(ENTITY_REGEX, (entity) => {
+        const decoded = LIQUID_ENTITIES[entity]
+        if (decoded === undefined) {
+            counterLiquidUndecodedEntity.inc()
+            return entity
+        }
+        return decoded
+    })
 }
 
 // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
