@@ -5,17 +5,20 @@ import threading
 from datetime import timedelta
 
 import pytest
+from unittest.mock import patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from pytest_mock import MockerFixture
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade.billing import get_task_run_spend
 from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.models import SandboxSession
+from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import (
     CleanupSandboxInput,
     cleanup_sandbox,
@@ -139,6 +142,21 @@ def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
 
 
 @pytest.mark.django_db
+def test_cleanup_sandbox_retries_accounting_lookup_before_destroying(
+    mocker: MockerFixture, test_task_run: TaskRun, accounting_session: SandboxSession
+) -> None:
+    sandbox = mocker.Mock(id="sandbox-123")
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    with patch.object(TaskRun.objects, "filter", side_effect=OperationalError("unavailable")):
+        with pytest.raises(OperationalError, match="unavailable"):
+            cleanup_sandbox_now(CleanupSandboxInput(sandbox_id="sandbox-123", run_id=str(test_task_run.id)))
+
+    sandbox.destroy.assert_not_called()
+    accounting_session.refresh_from_db()
+    assert accounting_session.ended_at is None
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("complete_stream", [False, True])
 def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
     mocker, test_task_run, accounting_session, complete_stream
@@ -151,7 +169,7 @@ def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
     sandbox.read_cpu_usage_usec.return_value = None
     sandbox.read_billed_cpu_usage_usec.return_value = None
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
-    gateway_lookup = mocker.patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    gateway_lookup = mocker.patch("aiohttp.ClientSession._request")
 
     def publish_complete(*_args, **_kwargs):
         test_task_run.refresh_from_db()

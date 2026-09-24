@@ -120,8 +120,11 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
-        if gateway_usage_enabled(task_run):
-            refresh_task_run_spend(run_id=task_run.id, team_id=task_run.team_id)
+        try:
+            if gateway_usage_enabled(task_run):
+                refresh_task_run_spend(run_id=task_run.id, team_id=task_run.team_id)
+        except Exception:
+            activity.logger.warning(f"Failed to refresh spend for run {task_run.id}", exc_info=True)
         resume_workflow_step_for_run(task_run)
 
     task_run.publish_stream_state_event()

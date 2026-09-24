@@ -2,11 +2,12 @@ from datetime import timedelta
 from decimal import Decimal
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from products.tasks.backend.facade.billing import TaskRunSpend, get_task_run_spend, get_task_spend
@@ -31,10 +32,12 @@ class TestGatewayUsage(BaseTest):
     def _report(self, run: TaskRun, ids: list[str]) -> None:
         TaskRun.update_state_atomic(run.id, updates={"unprocessed_request_ids": ids})
 
-    def _response(self, request_id: str, spend: str, *, model: str = "model-a", provider: str = "provider-a") -> Mock:
-        return Mock(
-            status_code=200,
-            json=Mock(
+    def _response(
+        self, request_id: str, spend: object, *, model: str = "model-a", provider: str = "provider-a", status: int = 200
+    ) -> MagicMock:
+        response = MagicMock(
+            status=status,
+            json=AsyncMock(
                 return_value={
                     "request_id": request_id,
                     "cost_usd": spend,
@@ -43,11 +46,13 @@ class TestGatewayUsage(BaseTest):
                 }
             ),
         )
+        response.__aenter__.return_value = response
+        return response
 
     def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunSpend:
         return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_records_spend_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
         run = self._run()
         self._report(run, ["parent", "subagent", "other-model", "second-turn", "parent"])
@@ -59,6 +64,7 @@ class TestGatewayUsage(BaseTest):
         ]
         assert self._process(run).token_spend == 2
         assert get.call_count == 4
+        assert get.call_args.kwargs["timeout"].total == 15
         run.refresh_from_db()
         assert run.state == {
             "unprocessed_request_ids": [],
@@ -75,17 +81,17 @@ class TestGatewayUsage(BaseTest):
         assert self._process(run).token_spend == 2
         get.assert_not_called()
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_overlapping_worker_pass_preserves_new_ids_and_adds_spend_once(self, get: Mock) -> None:
         run = self._run()
         self._report(run, ["request-1"])
         response = self._response("request-1", "0.015")
 
-        def other_worker(*_args, **_kwargs):
+        async def other_worker(*_args: object, **_kwargs: object) -> MagicMock:
             get.side_effect = None
             get.return_value = response
-            self._process(run)
-            self._report(run, ["request-2"])
+            await sync_to_async(self._process)(run)
+            await sync_to_async(self._report)(run, ["request-2"])
             return response
 
         get.side_effect = other_worker
@@ -97,36 +103,43 @@ class TestGatewayUsage(BaseTest):
             "request_ids": ["request-1"],
         }
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
-    def test_unavailable_spend_stays_queued_until_a_later_pass(self, get: Mock) -> None:
+    @parameterized.expand([("unsettled",), ("connection_timeout",), ("body_timeout",)])
+    @patch("aiohttp.ClientSession._request")
+    def test_unavailable_spend_stays_queued_until_a_later_pass(self, failure: str, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.CANCELLED)
         self._report(run, ["request-1"])
-        get.return_value = Mock(status_code=404)
+        get.return_value = self._response("request-1", "0", status=404)
+        if failure == "connection_timeout":
+            get.side_effect = TimeoutError
+        elif failure == "body_timeout":
+            get.return_value.status = 200
+            get.return_value.json.side_effect = TimeoutError
         assert self._process(run).token_spend == 0
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-1"]
         assert run.state["token_spend"] == {}
+        get.side_effect = None
         get.return_value = self._response("request-1", "0.015")
         assert self._process(run).token_spend == 2
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == []
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_missing_responses_rotate_behind_other_pending_ids(self, get: Mock) -> None:
         run = self._run()
         self._report(run, ["missing", "priced"])
-        get.return_value = Mock(status_code=404)
+        get.return_value = self._response("missing", "0", status=404)
         self._process(run, limit=1)
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["priced", "missing"]
         get.return_value = self._response("priced", "0.10")
         assert self._process(run, limit=1).token_spend == 10
-        assert get.call_args.args[0].endswith("/v1/usage/priced")
+        assert get.call_args.args[1].endswith("/v1/usage/priced")
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["missing"]
 
     @parameterized.expand([("0",), ("0.000001",)])
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_subcent_spend_is_processed_without_losing_precision(self, spend: str, get: Mock) -> None:
         run = self._run()
         self._report(run, ["request-1"])
@@ -137,17 +150,17 @@ class TestGatewayUsage(BaseTest):
         assert run.state["token_spend"]["model-a"]["provider-a"]["spend_microusd"] == int(Decimal(spend) * 1_000_000)
 
     @parameterized.expand([("negative", "-1"), ("nan", "NaN"), ("float", 0.5), ("exponent", "1e999999")])
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_invalid_gateway_spend_stays_queued(self, _name: str, spend: object, get: Mock) -> None:
         run = self._run()
         self._report(run, ["request-1"])
-        get.return_value = Mock(status_code=200, json=Mock(return_value={"request_id": "request-1", "cost_usd": spend}))
+        get.return_value = self._response("request-1", spend)
         assert self._process(run).token_spend == 0
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["request-1"]
         assert run.state["token_spend"] == {}
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_resume_preserves_pending_ids_and_processed_spend(self, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.COMPLETED)
         self._report(run, ["old-request", "pending"])
@@ -165,7 +178,7 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["token_spend"]["model-a"]["provider-a"]["request_ids"] == ["old-request", "pending"]
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_getters_use_recorded_spend_and_round_across_runs(self, get: Mock) -> None:
         first = self._run(status=TaskRun.Status.FAILED)
         second = self._run(task=first.task, status=TaskRun.Status.CANCELLED)
@@ -217,7 +230,7 @@ class TestGatewayUsage(BaseTest):
         assert run.state["compute_spend"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_spend", "compute_spend"}
 
-    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    @patch("aiohttp.ClientSession._request")
     def test_accounting_after_completion_does_not_reemit_structured_results(self, get: Mock) -> None:
         run = self._run(status=TaskRun.Status.COMPLETED)
         Task.objects.filter(id=run.task_id).update(json_schema={"type": "object"})

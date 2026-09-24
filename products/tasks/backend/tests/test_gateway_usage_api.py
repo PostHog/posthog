@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import OperationalError
 from django.http import HttpResponse
@@ -24,7 +24,13 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         super().setUp()
         self.schedule_usage = self.enterContext(patch("products.tasks.backend.facade.gateway.schedule_gateway_usage"))
 
-    def _run(self, *, team: Team | None = None, status_value: str = TaskRun.Status.IN_PROGRESS) -> TaskRun:
+    def _run(
+        self,
+        *,
+        team: Team | None = None,
+        status_value: str = TaskRun.Status.IN_PROGRESS,
+        environment: str = TaskRun.Environment.CLOUD,
+    ) -> TaskRun:
         team = team or self.team
         task = Task.objects.create(
             team=team,
@@ -33,7 +39,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             description="Synthetic task",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        return TaskRun.objects.create(task=task, team=team, status=status_value)
+        return TaskRun.objects.create(task=task, team=team, status=status_value, environment=environment)
 
     def _url(self, run: TaskRun, request_id: str = "request_1", *, team_id: int | None = None) -> str:
         return f"/internal/teams/{team_id or run.team_id}/task_runs/{run.id}/generation_requests/{request_id}/"
@@ -60,14 +66,22 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             team=team, label=f"mint-{uuid.uuid4().hex}", secure_value=hash_key_value(token)
         )
 
-    def test_callback_authenticates_and_records_a_request_before_initialization(self) -> None:
-        run = self._run()
+    @parameterized.expand([(TaskRun.Environment.CLOUD,), (TaskRun.Environment.LOCAL,)])
+    def test_callback_accounts_only_cloud_runs_before_initialization(self, environment: str) -> None:
+        run = self._run(environment=environment)
+        updated_at = run.updated_at
 
         response = self._post(run)
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         run.refresh_from_db()
-        assert run.state == {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
+        if environment == TaskRun.Environment.CLOUD:
+            assert run.state == {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
+            self.schedule_usage.assert_called_once()
+        else:
+            assert run.state == {}
+            assert run.updated_at == updated_at
+            self.schedule_usage.assert_not_called()
 
     def test_callback_rejects_missing_or_invalid_service_credential(self) -> None:
         run = self._run()
@@ -219,12 +233,17 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             "compute_spend": 2,
         }
 
+    @parameterized.expand([(False,), (True,)])
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     @patch("products.tasks.backend.logic.services.gateway_usage._compute_spend_source", return_value=Decimal("0.12"))
-    def test_terminal_patch_returns_the_refreshed_spend(self, _compute_spend, _signal) -> None:
+    def test_terminal_patch_returns_spend_without_blocking_completion(
+        self, refresh_fails: bool, compute_spend: Mock, signal: Mock
+    ) -> None:
         run = self._run()
-        run.state = {"unprocessed_request_ids": [], "token_spend": {}}
+        run.state = {"unprocessed_request_ids": [], "token_spend": {}, "compute_spend": 7}
         run.save(update_fields=["state"])
+        if refresh_fails:
+            compute_spend.side_effect = OperationalError("unavailable")
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/tasks/{run.task_id}/runs/{run.id}/",
@@ -234,5 +253,6 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert response.json()["state"]["compute_spend"] == run.state["compute_spend"] == 12
+        assert response.json()["state"]["compute_spend"] == run.state["compute_spend"] == (7 if refresh_fails else 12)
         assert response.json()["updated_at"] == run.updated_at.isoformat().replace("+00:00", "Z")
+        signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)

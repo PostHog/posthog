@@ -10,7 +10,6 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-import requests
 import structlog
 from asgiref.sync import async_to_sync
 
@@ -100,9 +99,11 @@ def _processed_gateway_request_ids(state: dict[str, Any]) -> set[str]:
     }
 
 
-def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) -> None:
+def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) -> bool:
     with transaction.atomic():
         run = _locked_run(run_id, team_id)
+        if run.environment != TaskRun.Environment.CLOUD:
+            return False
         state = dict(run.state or {})
         pending = state.get("unprocessed_request_ids")
         if not isinstance(pending, list):
@@ -112,9 +113,10 @@ def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) ->
         state["unprocessed_request_ids"] = pending
         state.setdefault("token_spend", {})
         if state == run.state:
-            return
+            return True
         run.state = state
         _save_accounting_state(run)
+        return True
 
 
 def _pending_ids(state: dict[str, Any]) -> list[str]:
@@ -138,7 +140,7 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
     for request_id in pending:
         if time.monotonic() >= deadline:
             break
-        request_spend = _fetch_gateway_spend(request_id)
+        request_spend = async_to_sync(_fetch_gateway_spend)(request_id)
         with transaction.atomic():
             run = _locked_run(run_id, team_id)
             state = dict(run.state or {})
@@ -192,22 +194,27 @@ def get_task_spend(*, team_id: int, task_id: UUID) -> TaskRunSpend:
     ).as_contract()
 
 
-def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
+async def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
+    import aiohttp  # noqa: PLC0415 - keeps aiohttp off Django's startup path
+
     base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         return None
     try:
-        response = requests.get(
-            f"{base_url}/v1/usage/{request_id}",
-            headers={"Authorization": f"Bearer {mint_key}"},
-            timeout=(2, 3),
-            allow_redirects=False,
-        )
-        if response.status_code != 200:
-            logger.warning("task_gateway_usage.spend_pending", status_code=response.status_code)
-            return None
-        body = response.json()
+        async with (
+            aiohttp.ClientSession(trust_env=True) as session,
+            session.get(
+                f"{base_url}/v1/usage/{request_id}",
+                headers={"Authorization": f"Bearer {mint_key}"},
+                timeout=aiohttp.ClientTimeout(total=15, connect=2, sock_read=3),
+                allow_redirects=False,
+            ) as response,
+        ):
+            if response.status != 200:
+                logger.warning("task_gateway_usage.spend_pending", status_code=response.status)
+                return None
+            body = await response.json()
         if not isinstance(body, dict) or body.get("request_id") != request_id:
             return None
         amount = body.get("cost_usd")
@@ -222,7 +229,7 @@ def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
         ):
             return None
         return GatewayRequestSpend(model=model, provider=provider, spend_microusd=int(Decimal(amount) * 1_000_000))
-    except (requests.RequestException, ValueError, TypeError):
+    except (aiohttp.ClientError, TimeoutError, ValueError, TypeError):
         logger.warning("task_gateway_usage.lookup_failed")
         return None
 

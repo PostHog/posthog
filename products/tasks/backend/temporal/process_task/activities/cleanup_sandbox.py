@@ -53,13 +53,14 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     if input.run_id:
         try:
             run_id = UUID(input.run_id)
-            run = TaskRun.objects.filter(id=run_id).only("id", "team_id", "environment", "state").first()
-            if run is not None and gateway_usage_enabled(run):
-                accounting_run = run
-        except Exception:
+        except ValueError:
             logger.warning(
                 "cleanup_sandbox_gateway_accounting_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
             )
+        else:
+            run = TaskRun.objects.filter(id=run_id).only("id", "team_id", "environment", "state").first()
+            if run is not None and gateway_usage_enabled(run):
+                accounting_run = run
     try:
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
