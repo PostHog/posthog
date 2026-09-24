@@ -35,7 +35,7 @@ export const AgenticAuthorize = (): JSX.Element => {
         return <OAuthAuthorizeError title="Invalid request" description="Missing required state parameter." />
     }
 
-    // The projects load no longer gates the page: the picker shows its own spinner, so switching
+    // The projects load stays out of this gate: the picker shows its own spinner, so switching
     // organization refreshes one field instead of blanking the whole screen.
     if (pendingAuthLoading) {
         return (

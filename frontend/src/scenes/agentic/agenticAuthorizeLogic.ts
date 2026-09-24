@@ -348,8 +348,8 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         cancel: () => {
             window.location.href = '/'
         },
-        // The list was read once at mount, so an organization or a project created in another
-        // tab stayed invisible. Read it again whenever the person picks an organization.
+        // Read the list again on every organization pick, so a project created in another tab
+        // reaches the picker.
         setAgenticAuthorizationValue: ({ name }) => {
             const field = Array.isArray(name) ? name[0] : name
             if (field === 'scoped_organizations') {
