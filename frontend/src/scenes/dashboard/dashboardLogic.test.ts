@@ -4141,6 +4141,8 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
+            logic.actions.updateDashboardLastRefresh(dayjs())
+            expect(logic.values.blockRefresh).toBe(true)
             fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
 
             await expectLogic(logic, () => {
@@ -4149,6 +4151,7 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
+            expect(logic.values.blockRefresh).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets returns per-tile error', async () => {

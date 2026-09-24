@@ -3148,7 +3148,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     nextAllowedDashboardRefresh?.isAfter(now()) &&
                     !(
                         dashboardWidgetsEnabled &&
-                        widgetTiles.some((tile) => isWidgetStale(widgetRefreshStatus[tile.id]))
+                        widgetTiles.some((tile) => {
+                            const status = widgetRefreshStatus[tile.id]
+                            return !status?.error && isWidgetStale(status)
+                        })
                     )
                 )
             },
