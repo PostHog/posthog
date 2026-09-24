@@ -2524,7 +2524,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     connector.name as (typeof VALID_NON_NATIVE_MARKETING_SOURCES)[number]
                 )
 
-            if (isNativeMarketingSource || isExternalMarketingSource) {
+            if (connector?.category === 'Advertising' || isNativeMarketingSource || isExternalMarketingSource) {
                 actions.addProductIntent({
                     product_type: ProductKey.MARKETING_ANALYTICS,
                     intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
