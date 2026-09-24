@@ -135,6 +135,9 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
                 )
             }
         )
+    # The PostHog API serves the ChatGPT token, so any caller can resume a Codex plan run.
+    if attrs.get("codex_model_access") == "own-subscription" and is_sandbox_oauth_request(request):
+        raise serializers.ValidationError({"codex_model_access": "Only a user can select a ChatGPT plan."})
 
 
 def request_distinct_id(context: dict[str, Any]) -> str | None:
@@ -1261,6 +1264,28 @@ class TaskSessionResponseSerializer(serializers.Serializer):
 class TaskSessionSyncResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Task session identifier")
     content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
+
+
+class TaskRunSubscriptionTokenRequestSerializer(serializers.Serializer):
+    rejected_access_token_sha256 = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this "
+        "names its current token; otherwise it returns the newer token it already holds.",
+    )
+
+
+class TaskRunSubscriptionTokenResponseSerializer(serializers.Serializer):
+    access_token = serializers.CharField(
+        help_text="ChatGPT access token for the Codex app-server. It can stay valid for several days."
+    )
+    account_id = serializers.CharField(help_text="ChatGPT account the access token belongs to")
+    plan_type = serializers.CharField(allow_null=True, help_text="ChatGPT plan of the account, when known")
+    expires_at = serializers.DateTimeField(
+        help_text="When the access token expires. Request a new one before this time."
+    )
 
 
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
@@ -3399,6 +3424,18 @@ class TaskRunPreferencesFieldMixin(serializers.Serializer):
             "their billing choice and new runs use the PostHog gateway."
         ),
     )
+    codex_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a "
+            "ChatGPT access token from the PostHog API, refreshed from the ChatGPT account "
+            "the run owner connected in Desktop settings. If omitted or null, resumed runs keep their "
+            "billing choice and new runs use the PostHog gateway."
+        ),
+    )
 
 
 class TaskRunCreateRequestSerializer(
@@ -3569,6 +3606,8 @@ class TaskRunCreateRequestSerializer(
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
         if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
             errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+        if attrs.get("codex_model_access") == "own-subscription" and is_pi_task:
+            errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -3741,6 +3780,8 @@ class TaskRunBootstrapCreateRequestSerializer(
         if is_pi_task:
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+            if attrs.get("codex_model_access") == "own-subscription":
+                errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
             pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:

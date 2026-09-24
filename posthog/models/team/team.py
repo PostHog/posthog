@@ -42,8 +42,6 @@ from posthog.settings.utils import get_list
 # without booting Django; re-exported here for existing callers.
 from posthog.week_start_day import WeekStartDay  # noqa: F401
 
-from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
@@ -744,9 +742,7 @@ class Team(UUIDTClassicModel):
     def customer_analytics_config(self):
         from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
-        return get_or_create_team_extension(
-            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-        )
+        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
 
     @cached_property
     def workflows_config(self):

@@ -74,6 +74,7 @@ async def ateam(aorganization):
 
 async def _set_config_created_at(team_id: int, created_at: datetime) -> None:
     # created_at is auto_now_add, so it can't be set on create — update it directly.
+    await SignalTeamConfig.objects.aget_or_create(team_id=team_id)
     await SignalTeamConfig.objects.filter(team_id=team_id).aupdate(created_at=created_at)
 
 
@@ -91,7 +92,6 @@ async def _set_config_created_at(team_id: int, created_at: datetime) -> None:
     ],
 )
 async def test_implementation_buffer_carve_out(ateam, name, configured_seconds, config_age, expected):
-    # SignalTeamConfig is auto-created with the team (post_save signal); age it to exercise the carve-out.
     await _set_config_created_at(ateam.id, timezone.now() - config_age)
 
     with patch(f"{SUMMARY_MODULE_PATH}.IMPLEMENTATION_DEBOUNCE_SECONDS", configured_seconds):

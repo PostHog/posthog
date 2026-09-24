@@ -8,6 +8,7 @@ import {
     PostHogApiError,
     PostHogPermissionError,
     PostHogRateLimitError,
+    PostHogTransportError,
     PostHogValidationError,
 } from '@/lib/errors'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
@@ -37,6 +38,26 @@ import type { Schemas } from './generated.js'
 const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
+
+// Transport retry policy. A connection that fails or drops before a response
+// arrives is transient, and a safe method applied nothing upstream, so the
+// client repeats it instead of handing the agent a failure it can only fix by
+// sending the same call again. The budget stays small: a tool call holds the
+// MCP client's request open while it waits, and a host that is truly down
+// must surface fast.
+const TRANSPORT_MAX_RETRIES = 2
+const TRANSPORT_BASE_BACKOFF_MS = 250
+
+/** Methods that carry no upstream effect, so a repeat after a failed
+ *  connection cannot apply the same work twice. */
+const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
+
+/** An aborted request is the caller's own timeout or cancellation, so a retry
+ *  would only wait for a deadline that has already passed. Everything else
+ *  thrown out of `fetch` or a body read is a transport fault. */
+function isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'AbortError'
+}
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -566,77 +587,101 @@ export class ApiClient {
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
+        let rateLimitRetries = 0
+        let transportRetries = 0
 
-        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+        for (;;) {
+            let response: Response
+            let bodyText: string
             try {
-                const response = await this.fetch(url, options)
-
-                if (response.status === 429) {
-                    const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
-                    const rateLimitFailure = async (): Promise<Result<T>> => ({
+                response = await this.fetch(url, options)
+                // Read the body inside the same guard as the connection: a stream cut
+                // short throws here, and that failure is transport, not a bad response.
+                bodyText = await response.text()
+            } catch (error) {
+                const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
+                const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
+                if (!canRetry) {
+                    console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
+                    return {
                         success: false,
-                        error: new PostHogRateLimitError({
-                            body: await response.text(),
+                        error: new PostHogTransportError({
                             url,
                             method,
-                            retryAfterSeconds,
+                            attempts: transportRetries + 1,
+                            retryable: isSafeMethod,
+                            cause: error,
                         }),
-                    })
-
-                    if (attempt === RATE_LIMIT_MAX_RETRIES) {
-                        console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
-                        return rateLimitFailure()
                     }
+                }
+                // Equal jitter so concurrent failures do not retry in lockstep.
+                const backoffMs = TRANSPORT_BASE_BACKOFF_MS * 2 ** transportRetries
+                const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
+                transportRetries++
+                console.warn(
+                    `[API] Transport failure on ${method} ${url}: ${String(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            }
 
-                    // DRF rejects throttled requests before the view executes,
-                    // so retrying is safe for mutations too.
-                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
-                    const delayMs =
-                        retryAfterSeconds !== null
-                            ? retryAfterSeconds * 1000
-                            : // Equal jitter so concurrent 429s don't retry in lockstep.
-                              backoffMs / 2 + Math.random() * (backoffMs / 2)
+            if (response.status === 429) {
+                const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                const rateLimitFailure = (): Result<T> => ({
+                    success: false,
+                    error: new PostHogRateLimitError({
+                        body: bodyText,
+                        url,
+                        method,
+                        retryAfterSeconds,
+                    }),
+                })
 
-                    if (delayMs > waitBudgetMs) {
-                        console.warn(
-                            `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
-                        )
-                        return rateLimitFailure()
-                    }
+                if (rateLimitRetries === RATE_LIMIT_MAX_RETRIES) {
+                    console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
+                    return rateLimitFailure()
+                }
 
-                    waitBudgetMs -= delayMs
+                // DRF rejects throttled requests before the view executes,
+                // so retrying is safe for mutations too.
+                const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** rateLimitRetries
+                const delayMs =
+                    retryAfterSeconds !== null
+                        ? retryAfterSeconds * 1000
+                        : // Equal jitter so concurrent 429s don't retry in lockstep.
+                          backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                if (delayMs > waitBudgetMs) {
                     console.warn(
-                        `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                        `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
                     )
-                    await new Promise((resolve) => setTimeout(resolve, delayMs))
-                    continue
+                    return rateLimitFailure()
                 }
 
-                if (!response.ok) {
-                    const errorText = await response.text()
+                waitBudgetMs -= delayMs
+                rateLimitRetries++
+                console.warn(
+                    `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            }
 
-                    throw this.buildApiError(response, errorText, url, method)
-                }
+            if (!response.ok) {
+                return { success: false, error: this.buildApiError(response, bodyText, url, method) }
+            }
 
-                const rawText = await response.text()
-                if (!rawText) {
-                    return { success: true, data: {} as T }
-                }
+            if (!bodyText) {
+                return { success: true, data: {} as T }
+            }
 
-                try {
-                    const rawData = JSON.parse(rawText)
-                    return { success: true, data: rawData as T }
-                } catch {
-                    return { success: true, data: rawText as T }
-                }
-            } catch (error) {
-                return { success: false, error: error as Error }
+            try {
+                const rawData = JSON.parse(bodyText)
+                return { success: true, data: rawData as T }
+            } catch {
+                return { success: true, data: bodyText as T }
             }
         }
-
-        // Unreachable: the final attempt always returns above, but TypeScript
-        // can't prove the loop is exhaustive.
-        return { success: false, error: new Error('Unexpected rate limit retry state') }
     }
 
     organizations(): Endpoint {
