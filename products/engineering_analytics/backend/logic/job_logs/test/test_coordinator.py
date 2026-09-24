@@ -11,6 +11,9 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.job_logs.activity import FetchDepotJobLogInputs
 from products.engineering_analytics.backend.logic.job_logs.coordinator import (
+    DepotAttemptCursor,
+    DepotDiscovery,
+    DepotDiscoveryInputs,
     _discover_failed_depot_attempts,
     _discover_jobs_with_diagnostics,
     _github_source_params,
@@ -57,7 +60,9 @@ class TestDiscoverJobsWithDiagnostics:
         # deployed: discovery returns [] (without querying the warehouse) so no child workflows fan
         # out. Drops the guard and this fails by hitting the DB and returning rows.
         assert _discover_jobs_with_diagnostics("2026-06-29T00:00:00+00:00") == []
-        assert _discover_failed_depot_attempts("2026-06-29T00:00:00+00:00") == []
+        assert _discover_failed_depot_attempts(
+            DepotDiscoveryInputs(cutoff_iso="2026-06-29T00:00:00+00:00", cursors={})
+        ) == DepotDiscovery(attempts=[], cursors={})
 
 
 class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
@@ -115,32 +120,37 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
             table=DataWarehouseTable.objects.get(team=self.team, name=table_name),
         )
 
-        assert _discover_failed_depot_attempts("2026-09-24T00:00:00+00:00") == [
-            FetchDepotJobLogInputs(
+        def fetch_inputs(attempt_id: str, run_id: int, job_id: int) -> FetchDepotJobLogInputs:
+            return FetchDepotJobLogInputs(
                 team_id=self.team.pk,
                 source_id=str(source.id),
-                attempt_id="zf6sbbn2wh",
-                run_id=80213453736890,
-                job_id=579485267642625,
+                attempt_id=attempt_id,
+                run_id=run_id,
+                job_id=job_id,
                 repo="PostHog/posthog",
                 workflow_name="Backend CI on Depot",
                 job_name="ci-backend.yml:turbo-tests:matrix-38",
                 run_attempt=1,
                 head_sha="abc1234",
-            ),
-            FetchDepotJobLogInputs(
-                team_id=self.team.pk,
-                source_id=str(source.id),
-                attempt_id="h8qn5x801q",
-                run_id=223978965517241,
-                job_id=300989664396052,
-                repo="PostHog/posthog",
-                workflow_name="Backend CI on Depot",
-                job_name="ci-backend.yml:turbo-tests:matrix-38",
-                run_attempt=1,
-                head_sha="abc1234",
-            ),
-        ]
+            )
+
+        two_workflow_run = fetch_inputs("h8qn5x801q", run_id=223978965517241, job_id=300989664396052)
+        one_workflow_run = fetch_inputs("zf6sbbn2wh", run_id=80213453736890, job_id=579485267642625)
+        window_start = DepotDiscoveryInputs(cutoff_iso="2026-09-24T00:00:00+00:00", cursors={})
+        assert _discover_failed_depot_attempts(window_start) == DepotDiscovery(
+            attempts=[two_workflow_run, one_workflow_run], cursors={}
+        )
+
+        # A backlog over the cap pages forward across ticks. Without the cursor every tick reads the
+        # same first page, and the attempts after it leave the lookback window without a fetch.
+        with patch("products.engineering_analytics.backend.logic.job_logs.coordinator.MAX_DISCOVERED_JOBS", 2):
+            first_tick = _discover_failed_depot_attempts(window_start)
+            second_tick = _discover_failed_depot_attempts(
+                DepotDiscoveryInputs(cutoff_iso=window_start.cutoff_iso, cursors=first_tick.cursors)
+            )
+        cursor = DepotAttemptCursor(finished_at="2026-09-24T14:54:00.000Z", attempt_id="h8qn5x801q")
+        assert first_tick == DepotDiscovery(attempts=[two_workflow_run], cursors={str(source.id): cursor})
+        assert second_tick == DepotDiscovery(attempts=[one_workflow_run], cursors={})
 
 
 class TestQueryJobsWithDiagnostics:

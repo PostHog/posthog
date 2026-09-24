@@ -6,6 +6,7 @@ following the redirect is fine (no SSRF surface). Rate limits surface as ``GitHu
 the Temporal retry honors the reset.
 """
 
+import json
 import datetime as dt
 import contextlib
 from typing import Any
@@ -102,6 +103,16 @@ def _retry_after(response: requests.Response) -> dt.timedelta | None:
     return dt.timedelta(seconds=int(value)) if value.isdigit() else None
 
 
+def _read_body(response: requests.Response, limit: int) -> bytes | None:
+    """The streamed response body, or None as soon as it passes ``limit`` bytes."""
+    body = bytearray()
+    for chunk in response.iter_content(chunk_size=65536):
+        body.extend(chunk)
+        if len(body) > limit:
+            return None
+    return bytes(body)
+
+
 def fetch_depot_job_log(
     attempt_id: str,
     api_token: str,
@@ -117,6 +128,8 @@ def fetch_depot_job_log(
 
     The pages stop after ``max_read_bytes`` of responses, so a job that prints an unbounded log
     cannot hold a worker in the download. The log then keeps its head and the tail read so far.
+    Each page is read as a stream and dropped undecoded once it passes ``_MAX_LOG_BYTES`` or the
+    remaining budget, because decoding a page holds all of its JSON in memory at once.
     """
     log = _HeadAndTail(max_bytes)
     read_budget = max_read_bytes
@@ -124,24 +137,27 @@ def fetch_depot_job_log(
     with requests.Session() as session:
         session.headers["Authorization"] = f"Bearer {api_token}"
         while True:
-            response = session.post(_DEPOT_JOB_ATTEMPT_LOGS, json=request, timeout=timeout)
-            if response.status_code == 404:
-                return None
-            if response.status_code == 429:
-                raise ApplicationError(
-                    "Depot rate limited the job log fetch",
-                    type="DepotRateLimited",
-                    next_retry_delay=_retry_after(response),
-                )
-            response.raise_for_status()
-            read_budget -= len(response.content)
-            page = response.json()
+            with contextlib.closing(
+                session.post(_DEPOT_JOB_ATTEMPT_LOGS, json=request, timeout=timeout, stream=True)
+            ) as response:
+                if response.status_code == 404:
+                    return None
+                if response.status_code == 429:
+                    raise ApplicationError(
+                        "Depot rate limited the job log fetch",
+                        type="DepotRateLimited",
+                        next_retry_delay=_retry_after(response),
+                    )
+                response.raise_for_status()
+                body = _read_body(response, min(_MAX_LOG_BYTES, read_budget))
+            if body is None:
+                log.extend(b"\n... [log download stopped at the read budget] ...\n")
+                return log.text()
+            read_budget -= len(body)
+            page = json.loads(body)
             for line in page.get("lines", []):
                 log.extend(f"{_depot_line_text(line)}\n".encode())
             page_token = page.get("nextPageToken")
             if not page_token:
-                return log.text()
-            if read_budget <= 0:
-                log.extend(b"\n... [log download stopped at the read budget] ...\n")
                 return log.text()
             request = {"attemptId": attempt_id, "pageToken": page_token}

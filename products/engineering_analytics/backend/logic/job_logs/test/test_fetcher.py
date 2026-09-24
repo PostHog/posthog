@@ -113,19 +113,30 @@ def test_depot_caps_log_but_keeps_failure_tail(requests_mock):
     assert len(result.encode()) < 1000
 
 
-def test_depot_stops_paging_at_the_read_budget(requests_mock):
-    # A job that prints an endless log must not hold the worker in the download.
-    requests_mock.post(
-        _DEPOT_URL,
-        [
-            {"json": _depot_page(*["noise line"] * 100, next_page_token="page-2")},
-            {"json": _depot_page("##[error]never read")},
-        ],
-    )
-    result = fetch_depot_job_log("zf6sbbn2wh", "depot-tok", max_read_bytes=100)
+@pytest.mark.parametrize(
+    "pages, kept, calls",
+    [
+        # A page over the remaining budget is dropped before it is decoded into memory.
+        ([_depot_page(*["noise line"] * 100, next_page_token="page-2")], [], 1),
+        # A job that prints an endless log must not hold the worker in the download.
+        (
+            [
+                _depot_page("##[error]first page", next_page_token="page-2"),
+                _depot_page(*["noise line"] * 100, next_page_token="page-3"),
+            ],
+            ["##[error]first page"],
+            2,
+        ),
+    ],
+)
+def test_depot_stops_paging_at_the_read_budget(requests_mock, pages, kept, calls):
+    requests_mock.post(_DEPOT_URL, [{"json": page} for page in pages])
+    result = fetch_depot_job_log("zf6sbbn2wh", "depot-tok", max_read_bytes=1000)
     assert result is not None
-    assert "stopped at the read budget" in result
-    assert requests_mock.call_count == 1
+    assert result.endswith("[log download stopped at the read budget] ...\n")
+    assert "noise line" not in result
+    assert all(line in result for line in kept)
+    assert requests_mock.call_count == calls
 
 
 @pytest.mark.parametrize(
