@@ -36,6 +36,13 @@
             {# to a single copy. crossorigin matches the loader's fetch mode so one response is reused. #}
             <link rel="preload" href="{{ js_url }}/{{ preload_css_url }}" as="style" crossorigin="anonymous">
         {% endif %}
+        {# Stable chunk names (opt-in, see posthog/stable_chunks.py): the import map must come before #}
+        {# the modulepreload hints below, because browsers ignore an import map added after module #}
+        {# loading has started. #}
+        {% if stable_chunks_importmap %}
+            {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe, generic.html-templates.security.var-in-script-tag.var-in-script-tag (import_map_json escapes every "<" to \u003c, so the JSON cannot end the script element) #}
+            <script type="importmap" nonce="{{ request.csp_nonce }}">{{ stable_chunks_importmap|safe }}</script>
+        {% endif %}
         {% for url in preload_js_urls %}
             <link rel="modulepreload" href="{{ js_url }}/{{ url }}">
         {% endfor %}
