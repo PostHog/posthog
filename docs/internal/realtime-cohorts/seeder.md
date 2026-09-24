@@ -58,10 +58,22 @@ A longer window is truncated, and the run records a warning.
 
 Each day becomes one or more chunks, `(run, day, band)`.
 With more than one band per day, a chunk takes only the persons whose hashed id falls in its band, so one chunk's in-memory aggregate stays bounded.
-The insert is `ON CONFLICT DO NOTHING`, so replanning on every tick is safe, and raising the bands or the lookback cap mid-run adds chunks.
+The band count a scan divides by is the number of chunk rows its day has when the chunk is claimed.
+The insert is `ON CONFLICT DO NOTHING`, so replanning on every tick is safe while the band setting stays the same.
+Raising the lookback cap mid-run is safe too, because it only adds chunks for older days.
+
+Raising the band count while a run is seeding is not safe.
+Replanning adds the new bands to days that already have chunks, and it does not re-scan the bands already confirmed.
+Take a day planned with two bands, where band 0 is confirmed: it covered every person whose hash is even.
+The setting goes to three, so the day's remaining scans take hash `% 3 = 1` and hash `% 3 = 2`.
+A person whose hash is 9 is odd, so band 0 skipped them, and `9 % 3 = 0`, so neither new scan takes them either.
+Every chunk still confirms, and the run completes with those persons never seeded.
+Lowering the setting changes nothing for days already planned, because their chunk rows stay.
+Change the band count only while no behavioral run is seeding.
 
 Once every active participation has at least one surviving condition, the seeder stamps `chunks_planned_at`.
 That stamp is the **planning proof**: completion refuses to move a run to `reconciling` without it, so a run can never be certified over days that were never planned.
+The proof covers days, not persons, so it does not catch the band change above.
 
 If an active participation has no surviving condition, for example because all its behavioral leaves are keyed on actions, or the catalog refused one of them, the proof is withheld.
 Nothing fails the run.
@@ -227,11 +239,12 @@ When every chunk of a run is confirmed and the planning proof is stamped, the se
 3. produces one reconcile request per participating cohort to each of the 64 seed partitions,
 4. records the high-water mark of those requests per partition.
 
-If chunks reappear after the move, for example because the bands were raised, it reverts the run to `seeding`.
+If unconfirmed chunks show up after the move anyway, it reverts the run to `seeding`.
 
 A watcher then tails the marker topic and records, per participation, which partitions have reported.
-A cohort with all 64 markers is complete at once.
+When every cohort of the run has all 64 markers, the seeder marks them all complete at once, with no further check.
 To call a cohort short, the seeder first needs proof that no more markers are coming: the processor's seed consumer must have committed past every reconcile request, and the watcher must have read the marker topic to the end captured after that.
+Until that proof arrives, the run's complete cohorts wait with the short ones.
 Then each participation is marked complete, retryable, or superseded, and the run is marked observed.
 [Completion and readiness](completion-and-readiness.md) covers this protocol and what Django does next.
 
@@ -244,7 +257,7 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   Without projection, most of the seeder's CPU goes to parsing JSON and assembling globals.
   In local measurements, a chunk ran about 3 times faster with keys rebuilt and about 60 times faster when no blob was needed.
   Rebuilding keys costs ClickHouse more, so the gain is on the seeder's side.
-  On real data, projection raises client throughput per core by more than an order of magnitude.
+  On real data, projection raised client throughput per core by more than an order of magnitude.
   One side effect: a row whose skipped blob is malformed, which the live path would drop, is still evaluated here on its other fields.
 - **Shadow compare.**
   A mode that re-scans each projected chunk at full width and diffs the tiles, to prove projection changes nothing.
@@ -257,7 +270,8 @@ Then each participation is marked complete, retryable, or superseded, and the ru
   One rate limiter per kind per process, shared by all chunks, protects the seed topic and the processor's apply rate.
 - **Backoff and attribution.**
   Failed chunks back off with jitter instead of being retried every tick.
-  Every query carries a structured log comment with the run, chunk, day and band, so ClickHouse cost can be attributed.
+  Every query carries a structured log comment with the team, the run and the scan phase, so ClickHouse cost can be attributed.
+  A chunk scan also names the chunk and its band, and a behavioral chunk scan names its day.
 - **Person-run pruning.**
   In a synthetic test where few persons carried the relevant key, the key-presence filter cut rows returned 200 times and bytes sent about 156 times.
   In a micro-benchmark where every condition was answered from the cached value, the vacuous-key shortcut cut VM time per row about 17 times.

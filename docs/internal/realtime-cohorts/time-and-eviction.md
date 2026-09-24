@@ -30,7 +30,8 @@ For `performed_event` this matches the batch cohort query, which also starts the
 For `performed_event_multiple`, the batch query uses a rolling `now - N days` instead, so the realtime window can hold up to one extra partial day.
 
 Months count as 30 days and years as 365 days.
-The batch query uses calendar months and years, so month and year windows can differ from it by a day or two at the edges.
+The batch query uses calendar months and years, so month and year windows differ from it at the edges.
+The gap grows with the window: one month can be a day or two off, and 12 months are 360 days here against 365 or 366 in the batch query.
 
 Hour and minute windows are durations, not calendar days.
 Only `performed_event` supports them.
@@ -51,7 +52,7 @@ Instead, every time it folds an event into a behavioral row, it computes the row
 | `performed_event` with a window in hours or minutes | `newest match + window`                                                                                              |
 | `performed_event` with absolute dates               | None                                                                                                                 |
 | Daily buckets or compressed history                 | Local midnight at the start of day `oldest counted day + N + 1`, the moment the oldest counted day leaves the window |
-| Person-property leaves                              | None. They change only with person properties                                                                        |
+| Person-property leaves                              | None. The sweep never touches them                                                                                   |
 
 A `performed_event` leaf with a 7-day window, matched at 11:00 on day D, stays true through the end of day D + 7 and expires at midnight starting day D + 8.
 It does not expire at "match time + 7 × 24 hours".
@@ -168,5 +169,8 @@ At the sweep on 2026-09-22 the total drops from 4 to 1, A still flips to false, 
 - With cascades on, a sweep expiry of a single-leaf cohort sends no cascade message.
   A cohort that only references it keeps the person and never emits the missed `left`.
   Its answer is right again only if the person re-enters, or after a reconcile.
-- Person-property leaves never expire.
-  "Email is set" stays true until an event carries properties without an email.
+- Person-property leaves have no window, so the sweep never expires them.
+  With the default settings, "email is set" stays true until an event carries properties without an email.
+  The exception is the optional person record time-to-live, off by default, which deletes a dormant person's whole record.
+  After that, a recomposition or a reconcile reads the person's conditions as not matching, with no `left` emitted at the moment of deletion.
+  [State store and durability](state-store-and-durability.md#keeping-the-store-bounded) describes it.

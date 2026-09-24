@@ -68,11 +68,16 @@ A crash can never leave half of one: a merged-away person deleted without its to
 Flushes are atomic across column families too.
 
 Composed Stage 2 rows are always their own, later batch.
-A crash between a Stage 1 batch and its Stage 2 batch drops that composed flip until the person's leaves flip again, or until reconcile.
+A crash between a Stage 1 batch and its Stage 2 batch drops that composed flip until the person's leaves flip again.
+Reconcile also repairs it if the person already had a Stage 2 row for the cohort.
+If the lost write would have been the person's first row, reconcile never sees the person, and only a seed or a later flip that touches them repairs it.
 
 While a partition's worker runs, it is the only writer of its key range.
 Merges, cascades, sweeps, garbage collection, backfill and reconcile all run on that worker, so reads always see the worker's own previous writes.
-Partition wipes and the boot redrive of the transfer outbox run from outside the worker, before it spawns or after it exits.
+Partition wipes and the boot redrive of the transfer outbox run from outside the worker.
+A revoke wipes a slice after its worker exits, and a partition that moves in after boot is wiped just before its worker spawns.
+The boot redrive is meant to run before workers exist, but nothing enforces that, so a worker can already be running while it clears outbox rows.
+[Processor runtime](processor-runtime.md#startup) describes the gap.
 The processor needs no locks and no RocksDB snapshots.
 
 ## The durability invariant
@@ -88,9 +93,13 @@ Durability comes from the offset commit instead:
 So **a committed offset never runs ahead of state on disk**.
 After a crash, Kafka redelivers everything after the last commit, and each path's idempotence absorbs the replay: replay marks for events, markers for merges, max-merge for backfill tiles.
 The invariant holds for every input topic, whether or not durable restore is enabled.
+It protects state, not output.
+Output is acknowledged before the flush, so a host crash that loses unflushed writes can make the replay emit changes a second time.
 
 It covers writes that succeeded.
-A failed Stage 1 read or write on the live path skips the event without holding its offset, so that event's effect is lost until reconcile repairs the cohort.
+A failed Stage 1 read or write on the live path skips the event without holding its offset, so that event's effect is lost from the leaf state.
+Reconcile recomputes from that same state, so it cannot bring the event back.
+Only a later backfill whose seeds cover the event restores it.
 
 ## Schema version
 
@@ -127,6 +136,12 @@ With durable restore on, the processor also:
 - wipes the old slice of a partition that moves in after boot, before its worker spawns.
 
 After a checkpoint restore it also rewinds the consumers to the offsets recorded in the checkpoint.
+The events consumer retries its seek until it succeeds.
+It seeks only once its assignment settles, so a poll that arrives earlier is still dispatched, the same startup gap as the boot redrive.
+The merge, transfer, cascade and seed followers get one attempt each.
+A failed attempt only logs a warning, and a checkpoint with no offsets for the topic skips the rewind silently.
+Either way the follower resumes at its broker-stored offsets.
+Those can be ahead of the restored state, and the inputs in between are never applied.
 
 When a partition is revoked, its worker drains and exits, and its slice is deleted.
 State never moves between pods, which is why the processor runs as a single pod.
@@ -141,6 +156,8 @@ State never moves between pods, which is why the processor runs as a single pod.
   On the person's next event, current matches re-emit `entered` for single-leaf cohorts, and a condition that stopped matching while the person was dormant cannot emit `left`.
   Keep the time-to-live well beyond topic retention.
 - **Stage 2 rows** of cohorts that left the catalog are removed by the hourly Stage 2 garbage collection.
+  The exception is a row received through a merge while register transfer is enabled, which the collection keeps until its protection ends.
+  [Merges and cascades](merges-and-cascades.md#stage-2-garbage-collection) explains when that happens.
   Rows of live cohorts are never deleted, because a person who leaves keeps an explicit `false` row.
   So `cf_stage2` grows with every person who was ever registered in a live cohort.
 - **Merge markers and tombstones** are removed after their retention period.

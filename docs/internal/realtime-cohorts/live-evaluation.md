@@ -214,7 +214,8 @@ Each change is a small JSON message on the membership output topic, keyed by `pe
 - `last_updated` is the processing time.
   Each step of a partition worker gets a stamp strictly newer than the previous one, and all changes caused by one input message share it.
   The downstream consumer uses it as the row version, so the newest change for each cohort and person wins.
-  The order is guaranteed only within one partition worker.
+  The order is guaranteed only within one worker's tenure on a partition.
+  A new worker keeps no floor from the old one, so its stamps follow the wall clock.
 - Backfill paths add `origin` and `run_id`.
   Live changes carry neither.
 
@@ -315,7 +316,7 @@ Nothing in Stage 1 runs until the sweep reaches A's deadline.
 - **One Stage 1 read and one Stage 1 write per event.**
   A person's Stage 1 state is clustered under one key prefix, so the snapshot is one batched read of a few adjacent blocks, after one tombstone lookup.
   A flip that recomposes a cohort adds a few reads and a second write batch per cohort.
-  Clustering the keys this way, and folding all person-property state into one record with fingerprints, cut reads and CPU per event by more than an order of magnitude.
+  In a same-load comparison, clustering the keys this way and folding all person-property state into one record with fingerprints cut reads and CPU per event by more than an order of magnitude.
 - **The event-name gate.**
   Conditions are bucketed by the event their leaf names.
   An event only runs the conditions in its bucket, and an event with an empty bucket parses nothing for the behavioral side.
@@ -324,7 +325,8 @@ Nothing in Stage 1 runs until the sweep reaches A's deadline.
 - **Programs decoded once per catalog.**
   Swapping programs between conditions costs two reference-count bumps instead of a decode.
 - **Globals built by move.**
-  Parsed payloads move into the globals map without a second copy, which roughly halves the cost of building globals for large events.
+  Parsed payloads move into the globals map without a second copy.
+  In a benchmark on a large event, that roughly halved the cost of building globals.
 - **Globals built by plan.**
   Static analysis of the team's conditions decides which globals to build and which payloads to parse.
   An event whose candidate conditions read only `properties.$current_url` never materializes the person object.
@@ -346,5 +348,6 @@ Nothing in Stage 1 runs until the sweep reaches A's deadline.
   This applies to both `performed_event` and count leaves.
 - Excluded cohorts still cost Stage 1 work, because their valid leaves are indexed and maintained.
 - One event can cause two write batches, one for Stage 1 and one for Stage 2.
-  A crash between them, or a store error in Stage 2, loses the composed flip, which only a later flip or reconcile repairs.
-  A store error in Stage 1 drops the event entirely.
+  A crash between them, or a store error in Stage 2, loses the composed flip.
+  A later flip repairs it, and so does reconcile if the person already had a Stage 2 row for the cohort.
+  A store error in Stage 1 drops the event entirely, and reconcile cannot bring it back.

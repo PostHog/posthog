@@ -84,6 +84,7 @@ When all partitions have reported, Django stamps the cohort ready, and feature f
 - **Live output is at most once, and reconcile repairs it.**
   The live paths commit state before they produce a membership change, so a failed produce loses the change for good on that path.
   Every backfill ends with a reconcile that re-emits the cohort's full membership, and the downstream sweep deletes rows the reconcile did not re-assert.
+  Reconcile re-emits from the state the processor holds, so it repairs lost output, not lost state.
   [Processor runtime](processor-runtime.md#delivery-semantics) lists each path's guarantee.
 - **The processor runs as a single pod.**
   Its state lives in a local RocksDB store that never moves between pods, so a second replica would corrupt state without any error.

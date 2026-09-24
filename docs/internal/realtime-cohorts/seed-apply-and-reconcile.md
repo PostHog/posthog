@@ -60,8 +60,9 @@ Admitted seeds go onto the worker's **seed lane**.
 ## The worker's seed lane
 
 Each worker takes seeds in **quanta** of up to a few hundred, and only when the live lane is empty, no sweep work is pending, and the previous quantum has fully applied.
-It splits a quantum into **runs**: groups of seeds of one kind that fit a row budget.
-The budget weighs each seed by the leaves and Stage 2 rows it can touch, so one wide seed cannot make a run unbounded.
+It splits a quantum into **runs**: groups of seeds of one kind, sized by a row budget.
+The budget weighs each seed by the leaves and Stage 2 rows it can touch, and a run closes before a seed that would push it over.
+A seed heavier than the whole budget still applies, in a run of its own, so the budget sizes runs but does not cap the work of one run.
 A reconcile request always forms a group of its own.
 
 The worker applies one run per turn, checking the live lane first on every turn, so live events wait behind at most one run.
@@ -103,6 +104,7 @@ A person seed says which pinned person conditions were evaluated for the person 
 3. Each person record is read and compared with the seed.
    The seed applies if the person has no readable record, or if the scan instant minus a margin is later than the record's **stamp**.
    The stamp is the event time of the record's newest evaluation, or the floor an earlier seed left.
+   Only a seed that changed the record leaves a floor.
    It also applies if the record was evaluated live against a different set of person conditions and the scan is not older than the stamp.
    Otherwise the stored answer stands.
 4. An applied seed sets the matched set to: the seed's matches, plus any stored match the seed did not evaluate.
@@ -110,6 +112,13 @@ A person seed says which pinned person conditions were evaluated for the person 
 
 A person with no record who matches nothing costs one read and no write.
 A skipped seed still re-checks what downstream was told, in the next section.
+
+Because a seed that changes nothing writes nothing, it leaves no stamp behind.
+So seeds from two runs that share a person condition are not ordered by scan time.
+Suppose the newer scan says "no match", reaches a person with no record first, and writes nothing.
+The older scan says "match" and arrives later.
+It still finds no record, so it applies, and the older answer wins.
+Each seed on its own is safe to apply twice.
 
 ## After the fold: the shared pipeline
 
@@ -153,6 +162,8 @@ A timer sends a drain message down every worker's live lane every couple of seco
 1. **Guard**, checked on every drain.
    The job is discarded without a marker if the team or cohort left the catalog, if the cohort no longer emits membership, or if its current shape hash for the run's kind is missing or differs from the pinned one.
    Before the first catalog load, the job waits.
+   The guard checks only that one hash.
+   The walk composes the cohort's tree from the processor's current catalog, so an edit that changes only the composition, or only the other kind's leaves, does not stop it.
 2. **Scanning.**
    Read the next page of the cohort's Stage 2 rows on this partition.
    Recompute each row from stored leaf state and emit it, `entered` or `left`, tagged `origin: reconcile` with the run id, whether or not it changed.
@@ -173,6 +184,12 @@ Persons that downstream still holds but this store has no row for are not re-tol
 Examples are a merged-away person, whose rows the merge drain deleted, and a member from before a store loss.
 The downstream sweep removes their rows, because this run's snapshot did not re-assert them.
 
+Reconcile re-tells what the store holds, and it cannot bring back what the store lost.
+An event that Stage 1 skipped on a store error is missing from the leaf state, so the walk recomputes the same wrong answer.
+A person whose first Stage 2 row for the cohort was never written, for example after a crash between a Stage 1 batch and its Stage 2 batch, is not in the walk at all.
+Seeds from a later run that cover the missed event repair the first case.
+A seed or a leaf flip that touches the person repairs the second.
+
 ### Why every row is emitted
 
 Live and merge output are at most once, so a lost `entered` or `left` leaves state and downstream disagreeing with no trace in the state itself.
@@ -187,20 +204,20 @@ The committable offset is the lowest of the processed offset, any held offset, a
 
 ## Failure behavior
 
-| Failure                                                                                                        | Result                                                                                                                                                                                          |
-| -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A store read or write fails during a run                                                                       | The run's first offset is held for the rest of the partition's tenure. Later runs still apply, but the commit stays at the hold until a restart or rebalance replays from it                    |
-| A run fails before its Stage 1 commit, and a reconcile request for the same cohort follows it on the partition | The reconcile still completes and produces its marker, so the partition is certified without that tile. The tile applies, and emits its change, only when the next tenure replays from the hold |
-| A membership produce fails                                                                                     | Hold. At the next rebalance or restart the redelivered seed emits the change again, through the pre-written row for single-leaf cohorts and the unwritten Stage 2 bit for composed ones         |
-| The processor crashes mid-run                                                                                  | Nothing was committed past the run, so it replays. Every step is idempotent                                                                                                                     |
-| A tile is redelivered                                                                                          | `max` of the same count changes nothing                                                                                                                                                         |
-| The cohort is edited mid-run                                                                                   | Old tiles whose hash still maps to a leaf are max-merged into the current leaves, harmlessly. Old reconcile requests are discarded if the edit changed the shape hash for their kind            |
-| A restart interrupts a reconcile                                                                               | The job's cursor lives in memory, so the replayed request walks the cohort again from the start                                                                                                 |
-| A reconcile page's produce or commit fails                                                                     | The same page retries on the next drain, and its rows are emitted again                                                                                                                         |
-| A marker produce fails                                                                                         | The worker retries on the next drain                                                                                                                                                            |
-| A restart after the marker is acknowledged but before the commit                                               | The request replays and produces a second marker for the same run and partition, which the seeder counts once                                                                                   |
-| The reconcile gate is off on the processor                                                                     | Requests are skipped and committed, so the run never completes until reconcile is dispatched again                                                                                              |
-| The person apply gate is off on the processor                                                                  | Person seeds are skipped and committed, so the run has to be produced again                                                                                                                     |
+| Failure                                                                                                        | Result                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A store read or write fails during a run                                                                       | The run's first offset is held for the rest of the partition's tenure. Later runs still apply, but the commit stays at the hold until a restart or rebalance replays from it                                                     |
+| A run fails before its Stage 1 commit, and a reconcile request for the same cohort follows it on the partition | The reconcile still completes and produces its marker, so the partition is certified without that tile. The tile applies, and emits its change, only when the next tenure replays from the hold                                  |
+| A membership produce fails                                                                                     | Hold. At the next rebalance or restart the redelivered seed emits the change again, through the pre-written row for single-leaf cohorts and the unwritten Stage 2 bit for composed ones                                          |
+| The processor crashes mid-run                                                                                  | Nothing was committed past the run, so it replays. Every step is idempotent                                                                                                                                                      |
+| A tile is redelivered                                                                                          | `max` of the same count changes nothing                                                                                                                                                                                          |
+| The cohort is edited mid-run                                                                                   | Old tiles whose hash still maps to a leaf are max-merged into the current leaves, harmlessly. Old reconcile requests are discarded if the edit changed the shape hash for their kind. Otherwise they walk the current definition |
+| A restart interrupts a reconcile                                                                               | The job's cursor lives in memory, so the replayed request walks the cohort again from the start                                                                                                                                  |
+| A reconcile page's produce or commit fails                                                                     | The same page retries on the next drain, and its rows are emitted again                                                                                                                                                          |
+| A marker produce fails                                                                                         | The worker retries on the next drain                                                                                                                                                                                             |
+| A restart after the marker is acknowledged but before the commit                                               | The request replays and produces a second marker for the same run and partition, which the seeder counts once                                                                                                                    |
+| The reconcile gate is off on the processor                                                                     | Requests are skipped and committed, so the run never completes until reconcile is dispatched again                                                                                                                               |
+| The person apply gate is off on the processor                                                                  | Person seeds are skipped and committed, so the run has to be produced again                                                                                                                                                      |
 
 ## Optimizations
 

@@ -128,7 +128,8 @@ Backfill runs pin a copy of the kind hashes when they are created.
 
 When a kind hash moves, the same `UPDATE` that stores the new definition also clears that kind's readiness stamp.
 A composition-only edit, which moves no kind hash, clears the stamp of each kind Django decides to re-run.
-While the cohort stays realtime, a stamp therefore never outlives the definition it was earned for.
+While the cohort stays realtime and the maintenance succeeds, a stamp therefore never outlives the definition it was earned for.
+The maintenance is best effort: if hashing raises an error, Django logs it, saves the new definition anyway, and leaves the old stamps in place.
 An edit that takes the cohort out of realtime, a soft delete, a switch to static, or the size-cap clear skips this maintenance and leaves the stamps in place.
 [Completion and readiness](completion-and-readiness.md) covers the stamps.
 
@@ -185,8 +186,9 @@ The shared `cohort-core` crate owns the parsing, classification and indexing, so
   It refreshes every few minutes with jitter.
   A failed refresh keeps the previous catalog, so a database outage freezes definitions instead of emptying them.
 - The **seeder** never loads the live definitions.
-  It builds a catalog from the filters Django pinned into each backfill run, so a run replays exactly the definition it was created for.
+  It builds a catalog from the filters Django pinned into each backfill run, so a run's seeds replay exactly the definition it was created for.
   That catalog holds only the run's cohorts, and it always has cascades off.
+  A run's reconcile is different, because it runs on the processor against the processor's live catalog.
   See [the seeder](seeder.md).
 - The **shuffler** only needs to know which teams have realtime cohorts.
   It keeps a team index from the same predicate.
@@ -206,19 +208,20 @@ When a leaf is dropped, its group stays in place, possibly empty.
 Each leaf is kept, dropped with a reason, or recorded as a cohort reference.
 A kept behavioral leaf also gets a **state variant**, which decides how its state is stored and counted.
 
-| Leaf                       | Window                                                           | State variant                                                              |
-| -------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `performed_event`          | Any window that resolves, including sub-day ones                 | `BehavioralSingle`: remembers whether it matched and the most recent match |
-| `performed_event`          | No window at all                                                 | Dropped                                                                    |
-| `performed_event_multiple` | A sliding window of 1 to 180 whole days                          | `BehavioralDailyBuckets`: one counter per team-timezone day                |
-| `performed_event_multiple` | A sliding window of more than 180 days                           | `BehavioralCompressedHistory`: a compact per-day history                   |
-| `performed_event_multiple` | Anything else: under a day, no window, or an absolute date range | Dropped                                                                    |
-| `person`                   | None                                                             | `PersonProperty`: a bit in the person's record                             |
+| Leaf                       | Window                                                                                      | State variant                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `performed_event`          | Any window that resolves, including sub-day ones                                            | `BehavioralSingle`: remembers whether it matched and the most recent match |
+| `performed_event`          | No window at all                                                                            | Dropped                                                                    |
+| `performed_event_multiple` | A sliding window of 1 to 180 whole days                                                     | `BehavioralDailyBuckets`: one counter per team-timezone day                |
+| `performed_event_multiple` | A sliding window of more than 180 days                                                      | `BehavioralCompressedHistory`: a compact per-day history                   |
+| `performed_event_multiple` | Anything else: no window, an absolute date range, or an hour or minute window of any length | Dropped                                                                    |
+| `person`                   | None                                                                                        | `PersonProperty`: a bit in the person's record                             |
 
 A few window rules are worth knowing.
 
 - A month is 30 days and a year is 365 days.
-  The batch ClickHouse query uses calendar months and years instead, so month and year windows can differ from it by a day or two at the edges.
+  The batch ClickHouse query uses calendar months and years instead, so month and year windows differ from it at the edges.
+  The gap grows with the window: one month can be a day or two off, and 12 months are 360 days here against 365 or 366 in the batch query.
 - `explicit_datetime` and `explicit_datetime_to` take precedence over `time_value` and `time_interval`.
   Absolute dates are calendar days in the team's timezone, not instants.
   A `performed_event` leaf with absolute dates has a fixed window, so its membership never expires.
@@ -455,6 +458,6 @@ They are parsed and `H_p` runs when the person has no record yet or the properti
 - The LSK derivation is frozen, and Django's behavioral shape hash moves whenever the LSK fields of the cohort's leaves change.
 - The processor and the seeder classify and compose through the same `cohort-core` code.
 - A cohort with any leaf the pipeline cannot represent emits nothing, rather than emitting a wrong answer.
-- While a cohort stays realtime, a readiness stamp is cleared in the same write that changes the definition it vouches for.
+- While a cohort stays realtime and its hash maintenance succeeds, a readiness stamp is cleared in the same write that changes the definition it vouches for.
 
 [Invariants](invariants.md) collects these with the rest of the system's invariants.

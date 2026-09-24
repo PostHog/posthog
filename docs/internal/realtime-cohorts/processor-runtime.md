@@ -37,7 +37,9 @@ flowchart TB
 Timers feed the same workers.
 The eviction sweep, the pending-transfer redrive, merge garbage collection and the reconcile drain all send messages through the router instead of touching the store themselves.
 So while a worker runs, it is the only writer of its partition, and nothing needs a lock.
-Boot recovery and revoke cleanup are the only code that touches a slice from outside its worker, and they do so when no worker is writing it.
+Boot recovery and revoke cleanup are the only code that touches a slice from outside its worker.
+Revoke cleanup waits for the worker to exit.
+Boot recovery is meant to finish before any worker starts, but nothing enforces that, as [startup](#startup) explains.
 
 ## Consumers and ownership
 
@@ -140,23 +142,30 @@ Hot-path writes do not wait for the disk, so this one flush per commit is what m
 Different paths make different promises.
 This table is worth knowing before you debug a missing or duplicated membership change.
 
-| Path                                  | Guarantee                                                                                                                                                                                      | Why                                                                                                                                                       |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Events into Stage 1 state             | At least once across restarts, applied once. Within a tenure, an event whose fold fails on a store error, or whose re-key to a survivor's partition fails, is skipped and later committed past | Offsets commit after the work. A redelivered event is recognized by its replay marks. Only the merge, cascade and seed paths hold a failed offset         |
-| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. If the produce fails, the next clean sub-batch marks past it, and a replay finds no transition to emit |
-| First-hop cascade messages            | At most once                                                                                                                                                                                   | Produced after the flip is committed, on every path that produces them                                                                                    |
-| Sweep expiry of a single-leaf cohort  | At least once                                                                                                                                                                                  | The sweep produces before it writes, and reschedules the keys on failure                                                                                  |
-| Sweep expiry that recomposes a cohort | At most once                                                                                                                                                                                   | The composed result is written before it is produced                                                                                                      |
-| Cascade messages consumed             | At least once                                                                                                                                                                                  | Produce before state, and a failure holds the offset                                                                                                      |
-| Merge state                           | At least once, applied once                                                                                                                                                                    | Drain and apply markers keyed by the original merge message                                                                                               |
-| Merge state transfer                  | At least once                                                                                                                                                                                  | An outbox row survives until the transfer is acknowledged, and a timer redrives it                                                                        |
-| Merge membership output               | At most once                                                                                                                                                                                   | State commits before the produce, and a failed produce is dropped                                                                                         |
-| Backfill seed runs                    | At least once                                                                                                                                                                                  | A failure holds the run's first offset, and the seed replays on the next tenure. A redelivered seed re-emits a change that was lost                       |
-| Reconcile                             | At least once                                                                                                                                                                                  | A failed page retries on the next tick, and a deferred floor keeps the request uncommitted until the job completes                                        |
+| Path                                  | Guarantee                                                                                                                                                                                      | Why                                                                                                                                                           |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Events into Stage 1 state             | At least once across restarts, applied once. Within a tenure, an event whose fold fails on a store error, or whose re-key to a survivor's partition fails, is skipped and later committed past | Offsets commit after the work. A redelivered event is recognized by its replay marks. Only the merge, cascade and seed paths hold a failed offset             |
+| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. If the produce fails, the next clean sub-batch marks past it, and a replay finds no transition to emit     |
+| First-hop cascade messages            | At most once from the live, merge and sweep paths. At least once from seed apply and reconcile                                                                                                 | The live, merge and sweep paths produce them after the flip is committed. Seed apply and reconcile produce them before writing the flip, and retry on failure |
+| Sweep expiry of a single-leaf cohort  | At least once                                                                                                                                                                                  | The sweep produces before it writes, and reschedules the keys on failure                                                                                      |
+| Sweep expiry that recomposes a cohort | At most once                                                                                                                                                                                   | The composed result is written before it is produced                                                                                                          |
+| Cascade messages consumed             | At least once                                                                                                                                                                                  | Produce before state, and a failure holds the offset                                                                                                          |
+| Merge state                           | At least once, applied once                                                                                                                                                                    | Drain and apply markers keyed by the original merge message                                                                                                   |
+| Merge state transfer                  | At least once                                                                                                                                                                                  | An outbox row survives until the transfer is acknowledged, and a timer redrives it                                                                            |
+| Merge membership output               | At most once                                                                                                                                                                                   | State commits before the produce, and a failed produce is dropped                                                                                             |
+| Backfill seed runs                    | At least once                                                                                                                                                                                  | A failure holds the run's first offset, and the seed replays on the next tenure. A redelivered seed re-emits a change that was lost                           |
+| Reconcile                             | At least once                                                                                                                                                                                  | A failed page retries on the next tick, and a deferred floor keeps the request uncommitted until the job completes                                            |
 
-So live, merge, sweep-recompose and cascade output can all lose a membership change, and nothing on those paths puts it back.
+So live, merge, sweep-recompose and their first-hop cascade output can all lose a membership change, and nothing on those paths puts it back.
 The pipeline accepts that and relies on reconcile, run as part of every backfill, to re-emit the full membership of a cohort.
+Reconcile re-emits from stored state, so it repairs a lost change but not a lost Stage 1 write.
 [Backfill overview](backfill-overview.md) covers reconcile, and [membership output and readers](membership-output-and-readers.md) explains how the consumer tolerates duplicates.
+
+"At most once" here means the path never retries a failed produce.
+It is not a promise against duplicates.
+Writes reach the disk only at the next commit's flush, while output is acknowledged as soon as it is produced.
+A host crash that loses unflushed writes rolls state back to the last flush, and the replayed inputs can emit the same changes again.
+A wiped store does the same.
 
 ## Rebalance and the single-pod constraint
 
@@ -188,6 +197,13 @@ At boot the processor:
 By default the store is wiped at boot.
 With durable restore enabled, a restart reopens the same local store instead, and a worker that spawns rebuilds its in-memory eviction queue by scanning its slice of behavioral state.
 [State store and durability](state-store-and-durability.md) covers the restore order.
+
+With durable restore enabled, the events consumer also runs boot recovery once its assignment settles.
+It deletes the slices of partitions it does not own, and re-produces every transfer waiting in the merge outbox, clearing each outbox row from outside the worker.
+The ordering has a gap.
+The events consumer dispatches polls that arrive before its assignment settles, and the followers start after the first catalog load without waiting for boot recovery.
+So a worker can already be running while the boot redrive clears outbox rows on its partition.
+The code does not prevent this, although no failure from it has been reproduced.
 
 ## Store access lanes
 

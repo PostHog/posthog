@@ -124,7 +124,9 @@ From there the seeder takes over.
 
 ## Pinning
 
-A run replays a frozen definition and never switches to the live one.
+A run's seeds replay a frozen definition and never switch to the live one.
+Reconcile is different.
+The processor walks the cohort with its own current catalog and checks only the shape hash of the run's kind, as [seed apply and reconcile](seed-apply-and-reconcile.md#the-walk) explains.
 
 The creator pins:
 
@@ -139,17 +141,20 @@ An edit that invalidates the run's kind supersedes it.
 A cohort-scoped run then stops at the seeder's next lease renewal.
 In a team-scoped run, the seeder drops the edited cohort's conditions and carries on for the rest.
 
+Supersession lives in Postgres, and the processor and the membership consumer never read it.
+Reconcile requests already on the seed topic still run unless the edit moved the shape hash of their kind, and the markers they produce still count downstream.
+
 ## Gates
 
 Several independent gates decide whether anything happens.
 Missing one of them fails quietly, so they are worth knowing.
 
-| Gate                                     | Effect                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REALTIME_COHORT_TEAM_ALLOWLIST`         | Teams whose cohorts get hash maintenance, stamp invalidation, supersession and any run at all. Unset means no teams. Set but empty means **all** teams. Must match the value the Rust services use                                                                                                                |
-| `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST` | Teams whose saves create runs automatically. Unset or empty means **no** teams                                                                                                                                                                                                                                    |
-| Operator attestations                    | Settings an operator sets to declare that prerequisites hold. They are declarations, not live checks. Behavioral runs need `BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED` and `BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED`. Person runs also need the person TTL and sizing attestations and a positive seed-bytes budget |
-| Person sizing budget                     | A cohort-scoped person run is refused when the team's active person-run estimates plus its own would exceed the budget. A team run checks only its own estimate. Hitting the size estimate's scan cap, or the cap on pinned conditions, also refuses                                                              |
+| Gate                                     | Effect                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REALTIME_COHORT_TEAM_ALLOWLIST`         | Teams whose cohorts get hash maintenance, stamp invalidation, supersession and any run at all. Unset means no teams. Set but empty means **all** teams. Must match the value the Rust services use                                                                                                                                                                                                          |
+| `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST` | Teams whose saves create runs automatically. Unset or empty means **no** teams                                                                                                                                                                                                                                                                                                                              |
+| Operator attestations                    | Settings an operator sets to declare that prerequisites hold. They are declarations, not live checks. Behavioral runs need `BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED` and `BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED`. Person runs also need the person TTL and sizing attestations and a positive seed-bytes budget                                                                                           |
+| Person sizing budget                     | A cohort-scoped person run is refused when the team's active person-run estimates plus its own would exceed the budget. The check reads the active estimates before the run exists and reserves nothing, so two cohorts sized at the same time can together exceed the budget. A team run checks only its own estimate. Hitting the size estimate's scan cap, or the cap on pinned conditions, also refuses |
 
 The difference between the two allowlists matters.
 On a team that is realtime-allowlisted but not trigger-allowlisted, an edit clears the readiness stamp and supersedes the run, but nothing creates a replacement.

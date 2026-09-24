@@ -79,12 +79,14 @@ A single watcher task in the seeder tails the marker topic.
 For each marker it sets the partition's bit in the matching participation's 64-bit bitmap.
 Setting a bit twice changes nothing, so duplicate markers are harmless.
 When a cohort reaches 64 of 64, the watcher writes its bits to Postgres at once instead of waiting for its timer.
-The next observation pass marks the participation complete.
+That write records the bits only.
+The observation pass, below, decides when the participation is marked complete.
 
 ## Deciding the outcome
 
-When all 64 bits are set, the participation is **complete**, and no further check is needed.
+When every active participation of the run has all 64 bits, the next observation pass marks them all **complete**, and no further check is needed.
 
+When any participation is short, the pass needs more.
 Deciding that a cohort is **short** is harder: the seeder must be sure no more markers are coming.
 It proves that in two steps.
 
@@ -96,7 +98,9 @@ It proves that in two steps.
 2. **Read to the end.**
    The seeder records the marker topic's current end, and waits until the watcher has read that far.
 
-Only then does it settle each short participation:
+Only then does it settle the run.
+Participations with all 64 bits are marked complete at this point, so in a team run a cohort with every marker waits for the proof its short siblings need.
+Each short participation gets one of these outcomes:
 
 | Participation                                                                                  | Outcome written                                                             |
 | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |

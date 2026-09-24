@@ -96,6 +96,11 @@ The live path owns the day of `B` onward, starting from the moment the processor
 The boundary day itself is never seeded.
 On that day the live counter holds the events the live path saw, and a seed would hold events that arrived before it was scanned.
 Two partial counts of one day cannot be combined correctly by either `max` or `+`, so the day is left to live.
+
+The split holds in one direction only.
+Seeds never cover the boundary day or later days, but the live path counts every event it receives inside a leaf's window.
+So a seeded day can already hold live counts: events live folded after it loaded the leaf, and late events for old days.
+Rules 2 and 3 make that overlap safe.
 Events on day `d` that the processor received before it loaded the leaf are in neither domain.
 That gap is accepted.
 It affects every behavioral leaf: a matching event in the gap is missing from the person's state until its day leaves the window.
@@ -134,12 +139,13 @@ When that event arrived, live would add 1 on top of the tile and double count it
 A shuffler stall longer than the margin can still cause that.
 
 One residue remains.
-A late event that reaches ClickHouse after `S_chunk` is counted by live and not by the tile.
-`max` then takes the larger of two disjoint counts instead of their sum, so the day is under-counted.
+A late event that reaches ClickHouse after `S_chunk` is not in the tile.
+If live folds it before the tile applies, `max` takes the larger of two disjoint counts instead of their sum, so the day is under-counted.
+If live folds it after the tile applies, live adds it on top of the tile, which is correct.
 That is bounded to late arrivals on old days.
 It can drop a person out of a `gte` or `gt` cohort, and wrongly keep one in an `lt`, `lte`, `eq` or negated one.
 
-### Rule 4: person seeds are last-write-wins, with a margin
+### Rule 4: person seeds apply only when fresher than live, with a margin
 
 A person seed lists every pinned person condition the seeder evaluated and the subset that matched.
 A condition that was evaluated and did not match retracts a stored match.
@@ -155,6 +161,11 @@ So the processor applies a person seed only when:
 Otherwise the live answer stands.
 Applying a seed never touches the replay marks of the live path.
 
+This is not last-write-wins between seeds.
+A seed that changes nothing writes nothing, so it leaves no stamp for a later seed to compare against.
+When two runs share a person condition, the newer scan can arrive first, change nothing, and leave an older scan free to apply after it.
+Each seed is safe to apply twice, but seeds from different runs are not ordered by scan time.
+
 ### Reconcile: tell everyone again
 
 Seeding fixes state.
@@ -166,6 +177,10 @@ The processor then walks every Stage 2 row of the cohort on the partition, recom
 Rows whose stored bit was wrong are corrected.
 When the walk is done, the partition produces a completion marker for the cohort and the run.
 
+Reconcile works only from the state the store holds.
+It cannot bring back an event that live failed to fold, and it cannot find a person whose first Stage 2 row for the cohort was never written.
+[Seed apply and reconcile](seed-apply-and-reconcile.md#the-walk) says what repairs those.
+
 Reconcile emits every row, not only changes, because live output is at most once.
 Comparing state to state cannot find an emission that was lost on the wire.
 Downstream, the membership consumer also uses the full snapshot to find and delete rows that no reconcile asserted.
@@ -173,11 +188,13 @@ Downstream, the membership consumer also uses the full snapshot to find and dele
 
 A reconcile request carries the pinned shape hash of the run's kind.
 A processor whose catalog holds a different hash for that kind discards the request without a marker.
+That hash is the processor's only check on the definition.
+The walk composes the cohort's current tree, so an edit that leaves this kind's hash alone does not stop it.
 The final guard against stamping a stale definition is Django's: supersession on edit, and the finalizer's hash and composition checks.
 
 When a cohort's markers come up short, the seeder settles it anyway.
-If the cohort was edited or deleted, its participation is superseded.
-Otherwise it is a retryable shortfall, and the run waits in `reconciling` until an operator dispatches reconcile again.
+If the shape hash of the run's kind moved or cannot be read, or the cohort was deleted, its participation is superseded.
+Otherwise it is a retryable shortfall, even after an edit that left that hash alone, and the run waits in `reconciling` until an operator dispatches reconcile again.
 [Completion and readiness](completion-and-readiness.md#deciding-the-outcome) explains this.
 
 ## Run lifecycle
@@ -249,7 +266,8 @@ Every backfill gate is on, and the default timings apply: a 5-minute save deboun
     Feature flags can now read cohort 42 from the membership table.
 
 The fence dominates a small run.
-Save to readiness takes at least about 16 minutes with these defaults, and up to about 18 depending on the finalizer's schedule.
+In this example, save to readiness takes about 16 minutes, and up to about 18 depending on the finalizer's schedule.
+A backlog, a failure or a slow catalog refresh makes it longer.
 
 ## What backfill does not fix
 
@@ -259,7 +277,7 @@ Save to readiness takes at least about 16 minutes with these defaults, and up to
 - History for `performed_event` leaves with an hour or minute window.
   Only live events fill them.
 - Leaves the pipeline cannot represent at all, such as count windows under a day.
-- Events for a seeded day that reach ClickHouse after the chunk's scan and are also counted live, the under-count of Rule 3.
+- Events for a seeded day that reach ClickHouse after the chunk's scan and that live folds before the tile applies, the under-count of Rule 3.
 - A person condition's stale match for a person the person run pruned or did not scan.
   Person runs scan only persons updated within a horizon.
 - State left under a merged-away person after a lost merge event.

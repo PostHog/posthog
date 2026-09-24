@@ -165,6 +165,7 @@ Worker 26 checks it against p-2's marks, finds it new, counts it, and p-1's tota
 - **Merge output is at most once.**
   Merge state is applied once and survives failures, but membership changes are produced after the state commits.
   A lost change is repaired only by reconcile.
+  [Processor runtime](processor-runtime.md#delivery-semantics) explains what at most once does and does not rule out.
 - **A lost merge message is never detected.**
   The old person's state stays under the old id, the survivor under-counts, and stragglers keep folding into the old person.
   A backfill gives the survivor the right counts, because the seeder resolves persons through the merge overrides in ClickHouse.
@@ -225,6 +226,11 @@ Cycles are also removed at catalog build, where any cohort in a reference cycle 
 When a cohort is deleted, stops being realtime, or becomes excluded, its Stage 2 rows are useless.
 Once an hour each worker scans a bounded slice of its Stage 2 rows and deletes rows whose cohort no longer registers membership in the current catalog.
 It resumes from a cursor, so large partitions are covered over several runs.
+
+Rows received through a merge are the exception.
+With register transfer enabled, a merge records a person-first inventory entry for each row it moves onto the survivor, and the collection never deletes a row that still has one.
+The protection ends when the row is deleted, when a local evaluation overwrites it, or when the current catalog registers the cohort again.
+Absence from the catalog alone does not end it, so a transferred row for a cohort that never comes back stays, with its inventory entry.
 
 Two gates protect it.
 It never runs before the first catalog load, and it never runs when the catalog is empty, because an empty catalog after a database hiccup would otherwise wipe everything.

@@ -25,8 +25,10 @@ Two of them are read outside it.
 
 - `status` is `entered` or `left`.
 - `last_updated` is the change's **version**: processing time with microseconds.
-  Each step of a partition worker gets a stamp strictly newer than the partition's previous one.
+  Each step of a partition's worker gets a stamp strictly newer than that worker's previous one.
   All changes caused by one input message, and all rows of one reconcile page, share a stamp.
+  The worker keeps its last stamp only in memory.
+  After a restart or a partition move, the new worker's stamps follow the wall clock, so a clock that went back can stamp a newer change below an older one.
 - `origin` and `run_id` are set only by backfill: `seed` for seed apply, `reconcile` for reconcile.
   Live changes carry neither.
 
@@ -93,8 +95,10 @@ The version guard makes the consumer idempotent and safe against reordering.
 A replayed or late change cannot overwrite a newer one, and a crash only replays batches whose rows are already applied or rolled back.
 Recording progress in the same transaction as the rows means progress never claims rows that rolled back.
 
-A change whose `last_updated` is missing or malformed is still applied, but without ordering: it overwrites the row whatever its version, and it is counted.
+A change with no `last_updated`, or with one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and an off-format value is counted.
 A reconcile row like that also drags its run's snapshot minimum to the lowest possible value, so that run sweeps nothing.
+The consumer checks only the format.
+A value in the right format that Postgres cannot read as a timestamp, such as one with a thirteenth month, or an empty string, reaches the database and fails the whole batch.
 
 A message that fails validation fails the whole batch every time.
 There is no dead-letter queue, so a malformed message stops the feed until it is skipped or the code is fixed.
@@ -144,8 +148,11 @@ Each partition stamps its marker after its own rows, so any marker, even the ear
 A threshold built from markers alone would delete rows the run had just re-asserted.
 Taking the lower of the two can only make the sweep delete less.
 
-A run superseded by an edit never collects the full set of markers.
-Its ledger row never completes and is abandoned after a few days, and the run for the edit does the work instead.
+The consumer knows nothing about Django's supersession.
+A run that an edit superseded after its reconcile was dispatched can still collect all 64 markers.
+The processor discards the remaining requests only when the edit moved the shape hash of the run's kind, and it cannot take back markers it already produced.
+A run with every marker sweeps like any other run.
+A run whose markers stay incomplete never leaves `collecting`, and it is abandoned after a few days.
 
 ### What the table converges to
 
@@ -157,9 +164,9 @@ Some rows are never swept:
 
 - when the sweep is disabled,
 - rows of a cohort that was never reconciled, or whose reconcile emitted nothing,
-- rows of a cohort whose run never completed its markers, for example because it was superseded or a marker was lost,
+- rows of a cohort whose run never completed its markers, for example because an edit moved its kind's shape hash before every partition reconciled, or a marker was lost,
 - rows of a cohort whose reconcile included a change with no usable version,
-- rows of a cohort that was deleted, made static, or left the realtime pipeline,
+- rows of a cohort that was deleted, made static, or left the realtime pipeline, once any run that already had every marker has swept,
 - rows of a team that is no longer enabled.
 
 ## Feature flags
