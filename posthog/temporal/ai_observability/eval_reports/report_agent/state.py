@@ -1,11 +1,13 @@
 """State definitions for the evaluation report agent."""
 
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langgraph.graph.message import add_messages
 from langgraph.managed import RemainingSteps
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent
+
+REPORT_RUN_HANDLE_KEY = "report_run_handles"
 
 
 class EvalReportAgentState(TypedDict):
@@ -31,7 +33,9 @@ class EvalReportAgentState(TypedDict):
     evaluation_target: str
     output_type: str
     true_is_failure: bool
+    output_config: dict[str, Any]
     detector_evaluation_ids: list[str]
+    numeric_output_configs: dict[str, dict[str, Any]]
     period_start: str
     period_end: str
     previous_period_start: str
@@ -44,3 +48,6 @@ class EvalReportAgentState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
     session_id_allowlist: list[str]
+    # Short handle -> run UUID for every past run the agent has listed. The agent sees
+    # only the handle, because a run UUID is UUID-shaped but can never be cited.
+    report_run_handles: dict[str, str]

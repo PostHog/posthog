@@ -42,10 +42,12 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -60,6 +62,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
+from products.experiments.backend.temporal.metric_resolution import merge_saved_metric_breakdowns
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1238,6 +1241,64 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(
             created_ff.filters["holdout"],
             {"id": holdout_2_id, "exclusion_percentage": 5},
+        )
+
+    def test_saved_metric_fingerprint_is_stamped_from_the_merged_query(self):
+        """The stamped fingerprint tells the frontend which timeseries rows to read. It must be computed on
+        the saved query merged with the link-metadata breakdowns, the same dict the daily workflow files its
+        rows under, or the chart reads an empty series for a breakdown-configured saved metric."""
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Breakdown saved metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+        )
+        metadata = {"type": "primary", "breakdowns": [{"type": "event", "property": "$os_name"}]}
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Breakdown fingerprint",
+                "feature_flag_key": "breakdown-fingerprint",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                "saved_metrics_ids": [{"id": saved_metric_response.json()["id"], "metadata": metadata}],
+            },
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_response.json()['id']}/")
+        stamped = detail.json()["saved_metrics"][0]["query"]["fingerprint"]
+
+        experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
+        saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
+        fingerprint_args = (
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+        )
+        expected = compute_metric_fingerprint(
+            merge_saved_metric_breakdowns(saved_query, metadata),
+            *fingerprint_args,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants or [],
+        )
+        self.assertEqual(stamped, expected)
+        # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
+        # point the chart at rows that do not exist.
+        self.assertNotEqual(
+            stamped,
+            compute_metric_fingerprint(
+                saved_query,
+                *fingerprint_args,
+                only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants or [],
+            ),
         )
 
     def test_saved_metrics(self):
@@ -4650,6 +4711,217 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"target_team_id": other_team.id},
         )
         self.assertIn(copy_response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def _create_experiment_to_copy(self, name: str, feature_flag_key: str) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": name, "feature_flag_key": feature_flag_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()["id"]
+
+    def test_copy_experiment_to_project_requires_experiment_access_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        AccessControl.objects.create(team=target_team, resource="experiment", access_level="none")
+        experiment_id = self._create_experiment_to_copy("Target denied", "target-denied-flag")
+
+        member = User.objects.create_and_join(self.organization, "no-target-experiments@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_refuses_denied_flag_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        target_flag = FeatureFlag.objects.create(
+            team=target_team,
+            key="target-private-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                "payloads": {"control": '{"secret": "control"}', "test": '{"secret": "test"}'},
+            },
+        )
+        AccessControl.objects.create(
+            team=target_team, resource="feature_flag", resource_id=str(target_flag.id), access_level="none"
+        )
+        experiment_id = self._create_experiment_to_copy("Flag denied", "source-only-flag")
+
+        # The flag's creator keeps access regardless of access controls, so copy as a plain member.
+        member = User.objects.create_and_join(self.organization, "no-target-flag@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id, "feature_flag_key": "target-private-flag"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertNotIn("secret", copy_response.content.decode())
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_rejects_key_not_scoped_to_target(self) -> None:
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        experiment_id = self._create_experiment_to_copy("Scoped key", "scoped-key-flag")
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-only",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_create_experiment_refuses_flag_without_editor_access(self) -> None:
+        self._enable_access_control()
+        restricted_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="restricted-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(restricted_flag.id), access_level="none"
+        )
+
+        member = User.objects.create_and_join(self.organization, "no-flag-editor@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Adopts restricted flag", "feature_flag_key": "restricted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(Experiment.objects.filter(feature_flag_id=restricted_flag.id).exists())
+
+    def test_create_experiment_refuses_new_flag_without_flag_create_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="none")
+
+        member = User.objects.create_and_join(self.organization, "no-flag-create@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Mints a new flag", "feature_flag_key": "minted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(FeatureFlag.objects.filter(key="minted-flag", team_id=self.team.id).exists())
+
+    def _restrict_flag_and_login_as_member(self, flag_key: str, email: str) -> FeatureFlag:
+        flag = FeatureFlag.objects.get(key=flag_key, team=self.team)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, email, None)
+        self.client.force_login(member)
+        return flag
+
+    @parameterized.expand(
+        [
+            ("launch", "launch/", False, False),
+            ("pause", "pause/", True, True),
+            ("resume", "resume/", True, False),
+            ("ship_variant", "ship_variant/", True, True),
+        ]
+    )
+    def test_lifecycle_action_refuses_a_flag_the_user_cannot_edit(
+        self, name: str, path_suffix: str, needs_running: bool, flag_active_before: bool
+    ) -> None:
+        self._enable_access_control()
+        flag_key = f"lifecycle-{name}-flag"
+        if needs_running:
+            experiment_id = self._create_running_experiment(name=f"Lifecycle {name}", flag_key=flag_key)["id"]
+            if name == "resume":
+                pause = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/")
+                self.assertEqual(pause.status_code, status.HTTP_200_OK, pause.content)
+        else:
+            experiment_id = self._create_experiment_to_copy(f"Lifecycle {name}", flag_key)
+
+        flag = self._restrict_flag_and_login_as_member(flag_key, f"no-flag-{name}@posthog.com")
+        self.assertEqual(flag.active, flag_active_before)
+
+        body = {"variant_key": "control"} if name == "ship_variant" else None
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/{path_suffix}",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, flag_active_before)
+
+    def test_patching_a_draft_without_touching_the_flag_needs_no_flag_access(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Rename only", "rename-only-flag")
+        self._restrict_flag_and_login_as_member("rename-only-flag", "no-flag-rename@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"name": "Renamed without flag access"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Renamed without flag access")
+
+    def test_launching_by_patching_start_date_refuses_a_flag_the_user_cannot_edit(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Patch launch", "patch-launch-flag")
+        flag = self._restrict_flag_and_login_as_member("patch-launch-flag", "no-flag-patch@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"start_date": "2026-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+        self.assertIsNone(Experiment.objects.get(id=experiment_id).start_date)
 
     def test_copy_experiment_to_project_uses_selected_target_team(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")

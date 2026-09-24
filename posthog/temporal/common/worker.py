@@ -61,7 +61,7 @@ from posthog.temporal.usage_report.metrics import (
 from products.alerts.backend.facade.temporal import (
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
-    AlertsProductTelemetryInterceptor,
+    AlertsPlatformTelemetryInterceptor,
 )
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
@@ -178,7 +178,7 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
-    AlertsProductTelemetryInterceptor,
+    AlertsPlatformTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     SurfacingScoringMetricsInterceptor,

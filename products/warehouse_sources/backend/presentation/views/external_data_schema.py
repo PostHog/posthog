@@ -43,10 +43,12 @@ from products.data_warehouse.backend.facade.api import (
     update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.models import (
+    CDC_SNAPSHOT_LANE_KEY,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    mark_schema_running_unless_halted,
     resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -54,6 +56,8 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
+    BUFFER_LANE,
+    CDC_SEQ_COLUMN,
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
@@ -61,6 +65,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     purge_buffer_prefix,
+    resnapshot_stays_in_buffer,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -173,11 +178,12 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     # Merge under a row lock so the reset can't clobber a concurrent CDC extract activity's
     # sync_type_config writes (and the status/initial_sync_complete save below skips the JSON
     # column, leaving no second window for the merged config to be overwritten).
+    updates: dict[str, Any] = {"reset_pipeline": True, "cdc_mode": "snapshot"}
+    removes = ["cdc_last_log_position", "cdc_deferred_runs"]
+    if resnapshot_stays_in_buffer(instance, logger):
+        updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
     instance.sync_type_config = update_sync_type_config_keys(
-        instance.id,
-        instance.team_id,
-        updates={"reset_pipeline": True, "cdc_mode": "snapshot"},
-        removes=["cdc_last_log_position", "cdc_deferred_runs"],
+        instance.id, instance.team_id, updates=updates, removes=removes
     )
     instance.initial_sync_complete = False
     instance.save(update_fields=["initial_sync_complete", "updated_at"])
@@ -195,8 +201,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         )
         return
 
-    instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save(update_fields=["status", "updated_at"])
+    mark_schema_running_unless_halted(instance)
 
 
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
@@ -306,6 +311,20 @@ def _apply_primary_key_columns(
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Provide primary_key_columns or refresh schema discovery to pick one up."
+        )
+
+
+def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
+    """Capture stamps each change with this column, so a source column of the same name would fail
+    the source's sync. Checked against the columns discovery recorded, which are the source's own."""
+    metadata = instance.schema_metadata or {}
+    columns = metadata.get("columns") if isinstance(metadata, dict) else None
+    if isinstance(columns, list) and any(
+        isinstance(column, dict) and column.get("name") == CDC_SEQ_COLUMN for column in columns
+    ):
+        raise ValidationError(
+            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
+            "Rename the column on your database, or choose another sync method for this table."
         )
 
 
@@ -852,6 +871,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
+            # The publication step below skips types without an adapter, so accepting one here would
+            # save a `cdc` label that nothing can read a change stream for.
+            if not source_type_supports_cdc(instance.source.source_type):
+                raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
+
             from posthog.models import Team
 
             team = Team.objects.get(id=self.context["team_id"])
@@ -1032,6 +1056,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
             _apply_primary_key_columns(data, payload, instance, "CDC")
+            if instance.sync_type != ExternalDataSchema.SyncType.CDC:
+                _refuse_reserved_cdc_column(instance)
 
             validated_data["sync_type_config"] = payload
         elif sync_type == ExternalDataSchema.SyncType.XMIN:
@@ -1484,6 +1510,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Add table to capture set when enabling CDC or toggling sync on
         if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
             adapter.add_table(source, db_schema, source_table_name)
+            # Capture skipped the table while it was out of the set, so its buffer has a gap. Without
+            # the marker, capture empties the buffer before the new snapshot instead of replaying it.
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
 
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
@@ -1503,6 +1532,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Remove table from capture set when toggling sync off
         elif should_sync is False and instance.should_sync:
             adapter.remove_table(source, db_schema, source_table_name)
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
 
 
 class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
@@ -1807,8 +1837,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save()
+        mark_schema_running_unless_halted(instance)
         return Response(status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -1856,6 +1885,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Reset CDC state so the next run does a full re-snapshot
             updates["cdc_mode"] = "snapshot"
             removes = ["cdc_last_log_position", "cdc_deferred_runs"]
+            # Without the marker, the next capture run would empty the buffer, deleting changes a
+            # capture run already in progress wrote after the snapshot started reading.
+            if resnapshot_stays_in_buffer(instance, logger):
+                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
 
         # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
         # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
@@ -1883,8 +1916,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save(update_fields=["status", "updated_at"])
+        mark_schema_running_unless_halted(instance)
 
         return Response(status=status.HTTP_200_OK)
 

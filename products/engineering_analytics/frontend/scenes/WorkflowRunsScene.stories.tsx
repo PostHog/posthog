@@ -198,3 +198,18 @@ export const WorkflowDetailScopedToPullRequests: Story = {
     render: () => <App />,
     parameters: { pageUrl: `${WORKFLOW_URL}?run_scope=pull_request` },
 }
+
+// Each windowed section reads its own endpoint, so one failed read errors that section and leaves the rest.
+export const WorkflowDetailSectionLoadErrors: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: WORKFLOW_URL },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/workflow_run_activity/': () => [500, null],
+                'api/projects/:team_id/engineering_analytics/workflow_runner_costs/': () => [500, null],
+                'api/projects/:team_id/engineering_analytics/job_aggregates/': () => [500, null],
+            },
+        }),
+    ],
+}

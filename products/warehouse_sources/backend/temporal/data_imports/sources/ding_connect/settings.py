@@ -24,9 +24,10 @@ class DingConnectEndpointConfig:
     should_sync_default: bool = True
 
 
-# DingConnect's REST API exposes reference/catalog lookups (Countries, Currencies, Providers,
-# Products, Promotions, Balance) plus transaction history (TransferRecords). None of these expose
-# a server-side timestamp filter — the catalog endpoints are static lookups and ListTransferRecords
+# DingConnect's REST API exposes reference/catalog lookups (Countries, Currencies, Regions,
+# Providers, ProviderStatus, Products, ProductDescriptions, Promotions, Balance,
+# ErrorCodeDescriptions) plus transaction history (TransferRecords). None of these expose a
+# server-side timestamp filter — the catalog endpoints are static lookups and ListTransferRecords
 # only accepts Skip/Take offset paging — so every table is full refresh. Transfer history is also
 # only retained for ~2 months upstream, so each sync reflects the currently-retained window.
 DING_CONNECT_ENDPOINTS: dict[str, DingConnectEndpointConfig] = {
@@ -40,15 +41,33 @@ DING_CONNECT_ENDPOINTS: dict[str, DingConnectEndpointConfig] = {
         path="/api/V1/GetCurrencies",
         primary_keys=["CurrencyIso"],
     ),
+    # RegionCode is only documented as "the region code" alongside its CountryIso, so treat it as
+    # unique within a country rather than globally.
+    "Regions": DingConnectEndpointConfig(
+        name="Regions",
+        path="/api/V1/GetRegions",
+        primary_keys=["CountryIso", "RegionCode"],
+    ),
     "Providers": DingConnectEndpointConfig(
         name="Providers",
         path="/api/V1/GetProviders",
+        primary_keys=["ProviderCode"],
+    ),
+    "ProviderStatus": DingConnectEndpointConfig(
+        name="ProviderStatus",
+        path="/api/V1/GetProviderStatus",
         primary_keys=["ProviderCode"],
     ),
     "Products": DingConnectEndpointConfig(
         name="Products",
         path="/api/V1/GetProducts",
         primary_keys=["SkuCode"],
+    ),
+    # One row per product LocalizationKey per language, so both are needed to identify a row.
+    "ProductDescriptions": DingConnectEndpointConfig(
+        name="ProductDescriptions",
+        path="/api/V1/GetProductDescriptions",
+        primary_keys=["LocalizationKey", "LanguageCode"],
     ),
     # Promotions carry no unique identifier, so dedupe on the (provider, currency, start) tuple.
     "Promotions": DingConnectEndpointConfig(
@@ -63,6 +82,11 @@ DING_CONNECT_ENDPOINTS: dict[str, DingConnectEndpointConfig] = {
         path="/api/V1/GetBalance",
         data_selector="",
         primary_keys=["CurrencyIso"],
+    ),
+    "ErrorCodeDescriptions": DingConnectEndpointConfig(
+        name="ErrorCodeDescriptions",
+        path="/api/V1/GetErrorCodeDescriptions",
+        primary_keys=["Code"],
     ),
     "TransferRecords": DingConnectEndpointConfig(
         name="TransferRecords",

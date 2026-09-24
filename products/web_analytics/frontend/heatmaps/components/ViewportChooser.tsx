@@ -4,19 +4,26 @@ import { IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { percentage } from 'lib/utils/numbers'
+
+import { HEATMAP_PRESET_WIDTHS } from './heatmapCoverage'
+import { heatmapCoverageLogic } from './heatmapCoverageLogic'
 
 export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
+    const { widthShares } = useValues(heatmapCoverageLogic)
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
-    const options = [
-        { value: 320, icon: <IconPhone /> },
-        { value: 375, icon: <IconPhone /> },
-        { value: 425, icon: <IconPhone /> },
-        { value: 768, icon: <IconTabletPortrait /> },
-        { value: 1024, icon: <IconTabletLandscape /> },
-        { value: 1440, icon: <IconLaptop /> },
-        { value: 1920, icon: <IconLaptop /> },
-    ]
+    const iconForWidth = (width: number): JSX.Element =>
+        width < 768 ? (
+            <IconPhone />
+        ) : width < 1024 ? (
+            <IconTabletPortrait />
+        ) : width < 1440 ? (
+            <IconTabletLandscape />
+        ) : (
+            <IconLaptop />
+        )
+    const options = HEATMAP_PRESET_WIDTHS.map((value) => ({ value, icon: iconForWidth(value) }))
     const allOptions = lockedWidth ? [{ value: lockedWidth, icon: <IconLaptop /> }] : [...options]
     if (!lockedWidth && widthOverride && !options.some((option) => option.value === widthOverride)) {
         allOptions.push({ value: widthOverride, icon: <IconLaptop /> })
@@ -37,6 +44,9 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
                     <span className="flex items-center gap-1 whitespace-nowrap">
                         {icon}
                         <span>{`${value} px`}</span>
+                        {widthShares?.[value] !== undefined ? (
+                            <span className="text-muted">{percentage(widthShares[value], 0)}</span>
+                        ) : null}
                     </span>
                 ),
             }))}

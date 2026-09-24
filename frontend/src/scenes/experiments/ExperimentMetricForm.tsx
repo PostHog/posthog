@@ -148,8 +148,13 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
-    // holds the literal start event while the exposure sentinel is selected, so switching back restores it
-    const previousStartEvent = useRef<ExperimentMetricSource | null>(null)
+    // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
+    const previousRetentionStart = useRef<{
+        start_event: ExperimentMetricSource
+        start_handling: 'first_seen' | 'last_seen'
+        conversion_window?: number
+        conversion_window_unit?: FunnelConversionWindowTimeUnit
+    } | null>(null)
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -508,21 +513,34 @@ export function ExperimentMetricForm({
                                 onChange={(value) => {
                                     if (value === 'exposure') {
                                         if (!isExperimentExposureNode(metric.start_event)) {
-                                            previousStartEvent.current = metric.start_event
+                                            previousRetentionStart.current = {
+                                                start_event: metric.start_event,
+                                                start_handling: metric.start_handling,
+                                                conversion_window: metric.conversion_window,
+                                                conversion_window_unit: metric.conversion_window_unit,
+                                            }
                                         }
+                                        // the backend rejects a conversion window or 'last_seen' start handling on an exposure start
                                         handleSetMetric({
                                             ...metric,
                                             start_event: { kind: NodeKind.ExperimentExposureNode },
+                                            start_handling: 'first_seen',
+                                            conversion_window: undefined,
+                                            conversion_window_unit: undefined,
                                         })
                                     } else {
+                                        const previous = previousRetentionStart.current
                                         handleSetMetric({
                                             ...metric,
-                                            start_event: previousStartEvent.current ?? {
+                                            start_event: previous?.start_event ?? {
                                                 kind: NodeKind.EventsNode,
                                                 event: '$pageview',
                                                 name: '$pageview',
                                                 math: ExperimentMetricMathType.TotalCount,
                                             },
+                                            start_handling: previous?.start_handling ?? 'first_seen',
+                                            conversion_window: previous?.conversion_window,
+                                            conversion_window_unit: previous?.conversion_window_unit,
                                         })
                                     }
                                 }}
@@ -533,8 +551,9 @@ export function ExperimentMetricForm({
                             />
                             {isExperimentExposureNode(metric.start_event) ? (
                                 <div className="text-muted text-xs">
-                                    Retention starts from each user's first exposure to the experiment. In a shared
-                                    metric, each experiment uses its own exposure event.
+                                    {isSharedMetric
+                                        ? "Retention starts from each user's first exposure. Each experiment using this metric anchors on its own exposure event."
+                                        : "Retention starts from each user's first exposure to the experiment."}
                                 </div>
                             ) : (
                                 <ActionFilter

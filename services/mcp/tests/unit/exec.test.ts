@@ -6,9 +6,9 @@ import { z } from 'zod'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -359,12 +359,9 @@ describe('exec tool', () => {
             )
         })
 
-        it.each([
-            { label: '--confirm before --json', command: 'call --confirm --json mock-tool' },
-            { label: 'the retired --no-skills flag', command: 'call --no-skills --json mock-tool' },
-        ])('dispatches a call with $label', async ({ command }) => {
+        it('allows --confirm before --json when dispatching a call', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command })
+            const result = await exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
@@ -1679,6 +1676,15 @@ describe('exec tool', () => {
             expect(message.includes(redirectHint)).toBe(kept)
         })
 
+        // A generic unknown-command reply reads as "the tool does not exist".
+        it('routes a tool name typed as a command to the call form', async () => {
+            const exec = createExec([makeMockTool({ name: 'docs-search' })])
+
+            await expect(exec.handler(mockContext, { command: 'docs-search {"query":"funnels"}' })).rejects.toThrow(
+                /"docs-search" is a tool, not a command[\s\S]*call docs-search/
+            )
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
@@ -1810,6 +1816,9 @@ describe('exec tool', () => {
             // A removed tool is still one of our own names, so the redirect it
             // triggers stays diagnosable.
             ['call query-run {}', 'call', 'query-run'],
+            // Recording the tool separates a dropped `call` prefix from a genuine typo.
+            ['execute-sql {"query":"select 1"}', 'unrecognized', 'execute-sql'],
+            ['frobnicate now', 'unrecognized', undefined],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],
@@ -1883,10 +1892,11 @@ describe('exec tool', () => {
                     }
                 })
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 v2Tools,
                 context,
@@ -1916,10 +1926,11 @@ describe('exec tool', () => {
             const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
 
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 [],
                 createExecContext(),

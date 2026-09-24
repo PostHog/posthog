@@ -1,3 +1,7 @@
+import json
+from contextlib import ExitStack, nullcontext
+from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -6,12 +10,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes import (
     LanedPipelineV3,
     _LaneWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    OutputLane,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
@@ -757,6 +769,27 @@ class TestSingleTableRunIsUntouched:
         assert v3_pipeline_class(MagicMock(lanes=[OutputLane(name="users_cdc")])) is LanedPipelineV3
 
 
+class TestFinalizeStagesTheWatermarkFirst:
+    @pytest.mark.asyncio
+    async def test_desc_watermark_is_staged_before_the_final_batch_notification(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = [MagicMock()]
+        pipeline._last_incremental_field_value = None
+        order: list[str] = []
+        pipeline._send_final_batches = AsyncMock(side_effect=lambda *_a, **_k: order.append("send"))  # type: ignore[method-assign]
+
+        with (
+            patch(
+                f"{_PIPELINE}.finalize_desc_sort_incremental_value",
+                AsyncMock(side_effect=lambda *_a, **_k: order.append("stage")),
+            ),
+            patch(f"{_PIPELINE}.advance_xmin_state", AsyncMock()),
+        ):
+            await pipeline._finalize(row_count=1)
+
+        assert order == ["stage", "send"]
+
+
 class TestZeroBatchRunStampsTheFullRunMarker:
     @pytest.mark.asyncio
     async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self) -> None:
@@ -783,3 +816,137 @@ class TestZeroBatchRunStampsTheFullRunMarker:
             new=MagicMock(side_effect=RuntimeError("pooler is down")),
         ):
             await pipeline._finalize(row_count=0)
+
+
+@dataclass(frozen=True)
+class _Cursor:
+    id: str
+
+
+def _manager() -> ResumableSourceManager[_Cursor]:
+    inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
+    return ResumableSourceManager[_Cursor](inputs, _Cursor)
+
+
+def _table_source(manager: ResumableSourceManager[_Cursor], ids: list[str], stage_before_yield: bool):
+    def items():
+        previous = None
+        for row_id in ids:
+            if stage_before_yield:
+                manager.save_state(_Cursor(row_id))
+            elif previous is not None:
+                manager.save_state(_Cursor(previous))
+            yield pa.table({"id": [row_id]})
+            previous = row_id
+
+    return items
+
+
+def _runnable_pipeline(manager: ResumableSourceManager[_Cursor], items) -> PipelineV3:
+    pipeline = _make_pipeline()
+    pipeline._resumable_source_manager = manager
+    pipeline._resource = SourceResponse(name="test_table", items=items, primary_keys=["id"])
+    pipeline._batcher = Batcher(MagicMock(), primary_keys=["id"])
+    pipeline._schema = MagicMock(
+        id="schema-1",
+        source_id="source-1",
+        is_incremental=False,
+        is_webhook=False,
+        is_append=False,
+        should_use_incremental_field=False,
+        table=None,
+    )
+    pipeline._process_batch = AsyncMock()  # type: ignore[method-assign]
+    return pipeline
+
+
+def _raise_on_second_call(exc: Exception):
+    calls = {"n": 0}
+
+    def side_effect():
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise exc
+
+    return side_effect
+
+
+async def _run_expecting(pipeline: PipelineV3, redis: MagicMock, exc: type[BaseException]) -> None:
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)))
+        for name in (
+            "reset_rows_synced_if_needed",
+            "setup_row_tracking_with_billing_check",
+            "handle_reset_or_full_refresh",
+            "handle_corrupted_delta_log",
+        ):
+            stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+        for name in ("validate_incremental_sync", "record_source_item_stats"):
+            stack.enter_context(patch(f"{_PIPELINE}.{name}"))
+        stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+        with pytest.raises(exc):
+            await pipeline.run()
+
+
+class TestResumeCursorCommit:
+    @pytest.mark.parametrize(
+        "stage_before_yield,expected_committed",
+        [(True, ["a", "b"]), (False, ["a"])],
+        ids=["staged_before_yield", "staged_after_yield"],
+    )
+    @pytest.mark.asyncio
+    async def test_cursor_persisted_covers_exactly_the_staged_batches(
+        self, stage_before_yield: bool, expected_committed: list[str]
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        pipeline = _runnable_pipeline(manager, _table_source(manager, ["a", "b", "c"], stage_before_yield))
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = _raise_on_second_call(
+            shutdown
+        )
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        assert cast(AsyncMock, pipeline._process_batch).await_count == 2
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == expected_committed
+
+    @pytest.mark.asyncio
+    async def test_cursor_not_persisted_for_rows_the_batcher_still_holds(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            yield [{"id": "a"}]
+            manager.save_state(_Cursor("a"))
+            yield [{"id": "b"}]
+            manager.save_state(_Cursor("b"))
+            yield [{"id": "c"}]
+
+        pipeline = _runnable_pipeline(manager, items)
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = _raise_on_second_call(
+            shutdown
+        )
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        cast(AsyncMock, pipeline._process_batch).assert_not_awaited()
+        redis.set.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rows_buffered_when_the_source_raises_are_staged_with_their_cursor(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            manager.save_state(_Cursor("a"))
+            yield [{"id": "a"}]
+            raise RuntimeError("page budget")
+
+        pipeline = _runnable_pipeline(manager, items)
+
+        await _run_expecting(pipeline, redis, RuntimeError)
+
+        assert cast(AsyncMock, pipeline._process_batch).await_count == 1
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]

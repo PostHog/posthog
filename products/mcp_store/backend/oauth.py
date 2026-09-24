@@ -14,10 +14,16 @@ import structlog
 import tldextract
 
 from posthog.dataclasses import frozen
+from posthog.egress.slack.observability import record_slack_api_response, slack_endpoint_from_url
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
-from .oauth_credentials import resolve_oauth_credentials_source, validate_oauth_credentials_source_metadata
+from .oauth_credentials import (
+    SUPPORTED_OAUTH_CREDENTIAL_SOURCES,
+    oauth_credentials_source_is_allowed,
+    resolve_oauth_credentials_source,
+    validate_oauth_credentials_source_metadata,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -501,6 +507,8 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
 
     template = installation.template
     if template is not None:
+        if not oauth_credentials_source_is_allowed(template.oauth_credentials_source, installation.team_id):
+            raise ValueError("OAuth app is not available for this project")
         credentials = resolve_template_oauth_credentials(template)
         shared_client_id = credentials.get("client_id", "")
         if shared_client_id:
@@ -592,6 +600,7 @@ def refresh_oauth_token(
     client_secret: str | None = None,
     token_endpoint_auth_method: str | None = None,
     resource: str = "",
+    oauth_credentials_source: str = "",
 ) -> dict:
     data: dict[str, str] = {
         "grant_type": "refresh_token",
@@ -614,6 +623,15 @@ def refresh_oauth_token(
     try:
         _validate_url(token_url)
         resp = requests.post(token_url, data=data, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+        if oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
+            record_slack_api_response(
+                resp,
+                source="mcp_store_oauth",
+                workspace_id=None,
+                app_id=oauth_credentials_source,
+                method="POST",
+                endpoint=slack_endpoint_from_url(token_url),
+            )
         if 300 <= resp.status_code < 400:
             raise TokenRefreshError("Token refresh endpoint redirected")
         resp.raise_for_status()
@@ -701,6 +719,7 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
             client_secret=ctx.client_secret,
             token_endpoint_auth_method=ctx.token_endpoint_auth_method,
             resource=oauth_resource(ctx.metadata),
+            oauth_credentials_source=installation.template.oauth_credentials_source if installation.template else "",
         )
     except TokenRefreshRejectedError:
         _flag_needs_reauth(installation, rejected_refresh_token=refresh_token_value)
@@ -776,6 +795,16 @@ def exchange_oauth_token(
         raise OAuthTokenExchangeError(str(exc))
 
     token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+    oauth_credentials_source = installation.template.oauth_credentials_source if installation.template else ""
+    if oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
+        record_slack_api_response(
+            token_response,
+            source="mcp_store_oauth",
+            workspace_id=None,
+            app_id=oauth_credentials_source,
+            method="POST",
+            endpoint=slack_endpoint_from_url(token_endpoint),
+        )
 
     # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
     if 300 <= token_response.status_code < 400:

@@ -78,6 +78,11 @@ func (b Bindings) SelectAlias(name string) (catalog.Entry, bool) {
 	return alias.field, ok
 }
 
+func (b Bindings) ResolvedSelectAlias(name string) (catalog.Entry, bool) {
+	alias, ok := b.selectAlias(name)
+	return alias.field, ok && (alias.ambiguousAt == 0 || alias.ambiguousAt > b.aliasCutoff())
+}
+
 func (b Bindings) selectAlias(name string) (selectAlias, bool) {
 	cutoff := b.aliasCutoff()
 	if cutoff < 0 || !b.scope.budget.lookup(len(name)+1) {

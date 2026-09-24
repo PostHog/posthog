@@ -696,23 +696,25 @@ def test_chunks_for_page_groups_by_team_and_sweep_then_splits(rows, rpc_batch_si
 
 
 @pytest.mark.parametrize(
-    "exc,expected",
+    "exc,expected,is_conflict",
     [
-        (_pg_error("40001"), "retry"),
-        (_pg_error("40P01"), "retry"),
-        (_pg_error("55P03"), "retry"),
-        (_pg_error("57014"), "retry"),
+        (_pg_error("40001"), "retry", True),
+        (_pg_error("40P01"), "retry", True),
+        (_pg_error("55P03"), "retry", True),
+        # Retries like a conflict, but it is slowness, so it stays out of the conflict counter.
+        (_pg_error("57014"), "retry", False),
         # lock_timeout arrives as an OperationalError subclass: the same connection retries it.
-        (type("_LockNotAvailable", (psycopg2.OperationalError,), {"pgcode": "55P03"})(), "retry"),
-        (psycopg2.OperationalError("server closed the connection unexpectedly"), "reconnect"),
-        (psycopg2.InterfaceError("connection already closed"), "reconnect"),
-        (_pg_error("23505"), None),
-        (_pg_error(None), None),
-        (RuntimeError("not postgres"), None),
+        (type("_LockNotAvailable", (psycopg2.OperationalError,), {"pgcode": "55P03"})(), "retry", True),
+        (psycopg2.OperationalError("server closed the connection unexpectedly"), "reconnect", False),
+        (psycopg2.InterfaceError("connection already closed"), "reconnect", False),
+        (_pg_error("23505"), None, False),
+        (_pg_error(None), None, False),
+        (RuntimeError("not postgres"), None, False),
     ],
 )
-def test_pg_recovery(exc, expected):
+def test_pg_recovery(exc, expected, is_conflict):
     assert pg_recovery(exc) == expected
+    assert drain.pg_is_queue_conflict(exc) is is_conflict
 
 
 @pytest.mark.parametrize(
@@ -846,3 +848,15 @@ def test_publishes_every_measurement_the_run_took():
 def test_config_rejects_out_of_range_values(overrides, message):
     with pytest.raises(ValueError, match=message):
         drain.DrainConfig(**overrides)
+
+
+def test_the_scheduled_config_pins_every_setting_the_drain_reads():
+    config = drain.SCHEDULED_RUN_CONFIG["ops"]["drain_person_pg_cleanup_queue"]["config"]
+    assert set(drain.DrainConfig.model_fields) == set(config)
+    assert drain.DrainConfig.model_validate(config).dry_run is False
+
+
+def test_the_job_carries_the_tags_that_bound_a_run():
+    tags = drain.person_pg_cleanup_drain_job.tags
+    assert tags["person_pg_cleanup_drain_concurrency"] == "v1"
+    assert int(tags["dagster/max_runtime"]) > drain.DrainConfig().max_runtime_seconds

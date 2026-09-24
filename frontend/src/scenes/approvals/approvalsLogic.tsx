@@ -139,7 +139,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
 
                     const actualUrl =
                         url ||
-                        `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
+                        `api/projects/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                             ...(values.filters.state && { state: values.filters.state }),
                             ...(values.filters.action_key && { action_key: values.filters.action_key }),
                             ...(values.filters.resource_type && { resource_type: values.filters.resource_type }),
@@ -184,7 +184,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
             actions.loadChangeRequests()
         },
         loadMore: async () => {
-            const nextUrl = `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
+            const nextUrl = `api/projects/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                 offset: values.changeRequests.length.toString(),
                 ...(values.filters.state && { state: values.filters.state }),
                 ...(values.filters.action_key && { action_key: values.filters.action_key }),
@@ -197,7 +197,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
         },
         approveChangeRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/approve/`, {
+                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/approve/`, {
                     reason: reason || '',
                 })
                 lemonToast.success('Change request approved')
@@ -208,7 +208,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
         },
         rejectChangeRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/reject/`, {
+                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/reject/`, {
                     reason,
                 })
                 lemonToast.success('Change request rejected')

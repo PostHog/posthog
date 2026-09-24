@@ -1,5 +1,6 @@
 import sys
 import time
+import asyncio
 from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import pyarrow as pa
@@ -162,6 +163,10 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
+    async def _commit_resume_state(self) -> None:
+        if self._resumable_source_manager is not None:
+            await asyncio.to_thread(self._resumable_source_manager.commit)
+
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
@@ -221,26 +226,11 @@ class PipelineNonDLT(Generic[ResumableData]):
                     self._schema, partition_count_fallback=self._resource.partition_count
                 )
 
-            async for item in async_iterate(self._resource.items()):
-                py_table = None
-
-                record_source_item_stats(
-                    item,
-                    source_type=self._source.source_type,
-                    logger=self._logger,
-                    team_id=self._job.team_id,
-                    schema_name=self._schema.name,
-                )
-
-                self._batcher.batch(item)
-
-                # A single batched table may be split into several when a string/binary/list
-                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
-                while self._batcher.should_yield():
+            async def write_remaining_rows() -> None:
+                nonlocal chunk_index, row_count
+                while self._batcher.should_yield(include_incomplete_chunk=True):
                     py_table = self._batcher.get_table()
-
                     row_count += py_table.num_rows
-
                     await self._process_pa_table(
                         pa_table=py_table,
                         index=chunk_index,
@@ -248,26 +238,68 @@ class PipelineNonDLT(Generic[ResumableData]):
                         row_count=row_count,
                         is_first_ever_sync=is_first_ever_sync,
                     )
-
                     chunk_index += 1
+                # Every yielded row is written now, so whatever the source staged last is safe.
+                await self._commit_resume_state()
 
-                    cleanup_memory(pa_memory_pool, py_table)
+            awaiting_source = True
+            try:
+                async for item in async_iterate(self._resource.items()):
+                    awaiting_source = False
                     py_table = None
 
-                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-                    self._shutdown_monitor.raise_if_is_worker_shutdown()
+                    record_source_item_stats(
+                        item,
+                        source_type=self._source.source_type,
+                        logger=self._logger,
+                        team_id=self._job.team_id,
+                        schema_name=self._schema.name,
+                    )
 
-            while self._batcher.should_yield(include_incomplete_chunk=True):
-                py_table = self._batcher.get_table()
-                row_count += py_table.num_rows
-                await self._process_pa_table(
-                    pa_table=py_table,
-                    index=chunk_index,
-                    resuming_sync=should_resume,
-                    row_count=row_count,
-                    is_first_ever_sync=is_first_ever_sync,
-                )
-                chunk_index += 1
+                    self._batcher.batch(item)
+
+                    # A single batched table may be split into several when a string/binary/list
+                    # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                    wrote_chunk = False
+                    while self._batcher.should_yield():
+                        py_table = self._batcher.get_table()
+
+                        row_count += py_table.num_rows
+
+                        await self._process_pa_table(
+                            pa_table=py_table,
+                            index=chunk_index,
+                            resuming_sync=should_resume,
+                            row_count=row_count,
+                            is_first_ever_sync=is_first_ever_sync,
+                        )
+                        wrote_chunk = True
+
+                        chunk_index += 1
+
+                        cleanup_memory(pa_memory_pool, py_table)
+                        py_table = None
+
+                    # A write is what makes the staged cursor safe to persist: after a buffered-only item
+                    # it would skip rows that never landed, and after the shutdown check it would never land.
+                    if wrote_chunk:
+                        await self._commit_resume_state()
+
+                    if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                        self._shutdown_monitor.raise_if_is_worker_shutdown()
+                    awaiting_source = True
+            except Exception:
+                # A resumable source that ends its own attempt (a page or time budget) has staged a
+                # cursor for rows the batcher still holds. Writing them lets that cursor commit, so the
+                # next attempt continues from it instead of restarting the sweep.
+                if awaiting_source and source_is_resumable:
+                    try:
+                        await write_remaining_rows()
+                    except Exception:
+                        await self._logger.aexception("Failed to write the rows buffered before the source error")
+                raise
+
+            await write_remaining_rows()
 
             await self._persist_observed_columns()
 

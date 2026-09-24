@@ -29,6 +29,7 @@ from products.signals.backend.report_embeddings import (
     render_report_documents,
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
+from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 if TYPE_CHECKING:
@@ -648,6 +649,28 @@ def reconcile_report_embedding_on_verdict_saved(
     _reconcile_report_embedding_with_verdict(instance)
 
 
+def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
+    if instance.type != SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        return
+    SignalReport.refresh_latest_actionability(team_id=instance.team_id, report_id=instance.report_id)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Keep the report's cached actionability equal to its newest judgment.
+
+    On the artefact write path rather than at each producer, because a judgment reaches a report
+    from the research pipeline, a custom agent, a scout edit, the artefact REST API and the MCP
+    tools. Not gated on `created`, because `update_content` edits a judgment row in place.
+    """
+    _sync_report_latest_actionability(instance)
+
+
 def _deleted_directly(origin: Any) -> bool:
     """Whether a delete was issued against artefacts themselves rather than cascading from a report.
 
@@ -680,6 +703,23 @@ def reconcile_report_embedding_on_verdict_deleted(
     if not _deleted_directly(origin):
         return
     _reconcile_report_embedding_with_verdict(instance)
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_report_latest_actionability_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the newest judgment reverts the report to the one before it.
+
+    Skipped for a cascade, where the report itself is going away, so a team teardown does not pay
+    a read and a write per artefact for a row nobody will read.
+    """
+    if not _deleted_directly(origin):
+        return
+    _sync_report_latest_actionability(instance)
 
 
 @receiver(post_save, sender=SignalReport)
@@ -860,3 +900,37 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
         mark_stale_if_fleet_changed(instance.team_id)
     except Exception:
         logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def sync_suggested_reviewer_index_on_save(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """Rebuild the report's reviewer index whenever a reviewers row is written.
+
+    Not gated on `created`: `update_content` edits a reviewers row in place, and editing the
+    current row changes the report's reviewer set.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+        return
+    sync_suggested_reviewer_index(team_id=instance.team_id, report_id=str(instance.report_id))
+
+
+@receiver(post_delete, sender=SignalReportArtefact)
+def sync_suggested_reviewer_index_on_delete(
+    sender: type[SignalReportArtefact],
+    instance: SignalReportArtefact,
+    origin: Any = None,
+    **kwargs: Any,
+) -> None:
+    """Deleting the current reviewers row reverts the set to the previous one, or to none.
+
+    Skipped for a cascade: the index rows go down with the report that owns them, so rebuilding
+    per artefact on the way down would only spend queries to reach the same empty state.
+    """
+    if instance.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS or not _deleted_directly(origin):
+        return
+    sync_suggested_reviewer_index(team_id=instance.team_id, report_id=str(instance.report_id))

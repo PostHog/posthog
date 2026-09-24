@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -121,6 +123,68 @@ describe('apiStatusLogic', () => {
 
             expect(errorSpy).not.toHaveBeenCalled()
             errorSpy.mockRestore()
+        })
+    })
+
+    describe('writes that need a fresh session', () => {
+        const STALE_SESSION = { type: 'authentication_error', code: 'sensitive_action_required_reauth' }
+        let patchCalls: number
+
+        beforeEach(() => {
+            patchCalls = 0
+            useMocks({
+                patch: {
+                    '/api/users/@me/': () => (++patchCalls === 1 ? [403, STALE_SESSION] : [200, { saved: true }]),
+                },
+                post: {
+                    '/api/personal_api_keys/': () => [403, STALE_SESSION],
+                },
+            })
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+            timeSensitiveAuthenticationLogic.mount()
+        })
+
+        it.each([
+            ['success', { value: { saved: true } }, 2],
+            ['failure', { error: expect.objectContaining({ status: 403, code: STALE_SESSION.code }) }, 1],
+        ] as const)(
+            'on re-authentication %s, settles the write as %o after %i request(s)',
+            async (outcome, expected, calls) => {
+                const result = api.update('api/users/@me/', { notification_settings: {} }).then(
+                    (value) => ({ value }),
+                    (error) => ({ error })
+                )
+                await expectLogic(logic).toDispatchActions(['setTimeSensitiveAuthenticationRequired'])
+                logic.actions.resolveSensitiveAction(outcome)
+
+                expect(await result).toEqual(expected)
+                expect(patchCalls).toBe(calls)
+            }
+        )
+
+        it('settles every write waiting on the same re-authentication', async () => {
+            const first = api.update('api/users/@me/', { theme_mode: 'dark' }).catch(() => 'first settled')
+            const second = api.create('api/personal_api_keys/', {}).catch(() => 'second settled')
+            await expectLogic(logic).toDispatchActions([
+                'setTimeSensitiveAuthenticationRequired',
+                'setTimeSensitiveAuthenticationRequired',
+            ])
+            logic.actions.resolveSensitiveAction('failure')
+
+            expect(await Promise.all([first, second])).toEqual(['first settled', 'second settled'])
+        })
+
+        it('keeps the write waiting after a wrong password', async () => {
+            const result = api.update('api/users/@me/', { notification_settings: {} })
+            await expectLogic(logic).toDispatchActions(['setTimeSensitiveAuthenticationRequired'])
+
+            timeSensitiveAuthenticationLogic.actions.submitReauthenticationFailure(new Error('Wrong password'), {})
+            expect(patchCalls).toBe(1)
+            logic.actions.resolveSensitiveAction('success')
+
+            expect(await result).toEqual({ saved: true })
         })
     })
 })

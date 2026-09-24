@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -17,7 +16,6 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
-import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
@@ -38,14 +36,6 @@ export const scene: SceneExport = {
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
-    return (
-        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
-            <MCPAnalyticsSceneContent />
-        </FeaturePreviewSceneGate>
-    )
-}
-
-function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)

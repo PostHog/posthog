@@ -87,6 +87,27 @@ function MultipleSelectionScene(): JSX.Element {
     )
 }
 
+function PastedChannelIdScene(): JSX.Element {
+    const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+    const response = { channels: [channel('C1234567890', 'release-updates')] }
+    useStorybookMocks({
+        get: {
+            '/api/projects/:id/integrations/:intId/channels': response,
+            '/api/environments/:id/integrations/:intId/channels': response,
+        },
+    })
+
+    return (
+        <div className="p-4 max-w-2xl">
+            <SlackChannelPicker
+                integration={integration}
+                value={selectedChannel ?? undefined}
+                onChange={setSelectedChannel}
+            />
+        </div>
+    )
+}
+
 type StoryArgs = { recentlySubscribedChannelIds: string[] }
 
 const meta: Meta<StoryArgs> = {
@@ -124,6 +145,16 @@ export const RecentlySubscribedFirst: Story = {
 
 export const MultipleSelection: Story = {
     render: () => <MultipleSelectionScene />,
+}
+
+export const PastedChannelId: Story = {
+    render: () => <PastedChannelIdScene />,
+    play: async ({ canvasElement }) => {
+        const input = await within(canvasElement).findByRole('textbox')
+        await userEvent.click(input)
+        await userEvent.paste('C1234567890')
+        await within(document.body).findByText('#release-updates')
+    },
 }
 
 // Typing a channel name and clicking away drops the search, because the picker takes an option

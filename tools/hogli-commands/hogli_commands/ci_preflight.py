@@ -227,6 +227,24 @@ DIFF_CHECKS: list[DiffCheck] = [
         fix=["hogli", "lint:feature-flags:fix"],
     ),
     DiffCheck(
+        key="api-ratchet",
+        label="new lib/api.ts path method duplicating a generated client",
+        # Both sides of the comparison: a new path method, and a regenerated client
+        # that gives an existing method a twin.
+        triggers=[
+            "frontend/src/lib/api.ts",
+            "frontend/src/lib/api-ratchet-baseline.txt",
+            "frontend/src/generated/core/api.ts",
+            "products/*/frontend/generated/api.ts",
+            ".semgrep/rules/devex/prefer-codegen-api-namespaced.yaml",
+        ],
+        verify=["hogli", "lint:api-ratchet"],
+        # Prune, never update: --update-baseline would grandfather the duplicate the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:api-ratchet", "--prune-baseline", "--write-semgrep"],
+        requires=("python-env",),
+    ),
+    DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
@@ -267,6 +285,7 @@ DIFF_CHECKS: list[DiffCheck] = [
             *BUILD_TRIGGERS["build:taxonomy-json"],
             "bin/build-taxonomy-json.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+            "services/mcp/src/lib/trace-property-allowlist.generated.ts",
         ],
         verify=["hogli", "build:taxonomy-json", "--check"],
         fix=["hogli", "build:taxonomy-json"],

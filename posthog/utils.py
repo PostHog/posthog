@@ -52,7 +52,7 @@ from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
@@ -539,7 +539,7 @@ def _build_template_context(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_host"] = "https://internal-cf.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -560,8 +560,8 @@ def _build_template_context(
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_api_key"] = POSTHOG_JS_CLOUD_TOKEN
+        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -578,6 +578,7 @@ def _build_template_context(
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
+    # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
