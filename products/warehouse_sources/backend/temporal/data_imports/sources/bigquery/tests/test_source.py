@@ -2429,6 +2429,12 @@ _COMPLETE_KEY_FILE = {
         # The credential the user did not pick must not satisfy the one they did.
         ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
         ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
+        # ...nor block it: the form sends the unpicked option's empty key file alongside the one
+        # the user did fill in.
+        ({"selection": "service_account", "google_cloud_service_account_integration_id": 7, "key_file": {}}, True),
+        # A JSON file that is not a service account key, or one that lost fields.
+        ({"selection": "key_file", "key_file": {"type": "authorized_user"}}, False),
+        ({"selection": "key_file", "key_file": {"project_id": "my-project"}}, False),
     ],
 )
 def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_type(auth_type, expected_valid):
@@ -2438,5 +2444,7 @@ def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_
     is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", "auth_type": auth_type})
 
     assert is_valid is expected_valid
+    # The key file's fields are read out of the uploaded JSON, so naming one tells the user nothing.
+    assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)
