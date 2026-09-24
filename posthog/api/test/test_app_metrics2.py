@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -27,7 +28,7 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
             ("kind", {"kind": ["success"]}),
         ]
     )
-    def test_totals_optional_filters_are_bound(self, _name: str, filters: dict[str, object]) -> None:
+    def test_totals_optional_filters_are_bound(self, _name: str, filters: dict[str, Any]) -> None:
         self._seed(datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC), app_source_id="fn-filters")
 
         result = fetch_app_metric_totals(
