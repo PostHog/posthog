@@ -223,6 +223,25 @@ describe('billingLogic', () => {
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
     })
 
+    it('summarizes billing whose period has no end date', async () => {
+        billingState = {
+            ...billingWithProducts([productWithUsage(0.5)]),
+            billing_period: {
+                current_period_start: '2026-09-01T00:00:00Z',
+                current_period_end: null,
+                interval: 'month',
+            },
+        } as unknown as BillingType
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billingSummary?.current_period_end).toBeNull()
+    })
+
     it('clears a stale usage limit alert when refreshed billing data no longer qualifies', async () => {
         billingState = billingWithProducts([productWithUsage(1)])
         billingLogic.mount()

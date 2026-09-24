@@ -133,7 +133,9 @@ const formatBillingPeriodEnd = (currentPeriodEnd: string | null | undefined): st
 
 const summarizeBilling = (billing: BillingType): BillingSummary => ({
     deactivated: !!billing.deactivated,
-    current_period_end: billing.billing_period?.current_period_end?.toISOString() ?? null,
+    current_period_end: billing.billing_period?.current_period_end?.isValid()
+        ? billing.billing_period.current_period_end.toISOString()
+        : null,
     trial: billing.trial
         ? {
               type: billing.trial.type,
