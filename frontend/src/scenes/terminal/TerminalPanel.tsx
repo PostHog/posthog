@@ -9,6 +9,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { TerminalConfirmationModal } from './TerminalConfirmationModal'
 import { terminalDockLogic } from './terminalDockLogic'
+import { TerminalFramebufferWindow } from './TerminalFramebufferWindow'
 import { terminalLogic } from './terminalLogic'
 import { TerminalView } from './TerminalView'
 
@@ -53,6 +54,7 @@ export function TerminalPanel(): JSX.Element | null {
     return (
         <>
             <TerminalConfirmationModal />
+            {!fullScene && <TerminalFramebufferWindow />}
             <div
                 ref={container}
                 data-attr="terminal-dock"

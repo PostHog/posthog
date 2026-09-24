@@ -132,7 +132,10 @@ def ensure_marketing_sessions_precomputed(
         ),
         table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
         modifiers=modifiers,
-        cache_key_context={"modifiers": modifiers.model_dump_json(exclude_none=True)},
+        # Traffic-type classification is absent from this query; its rollout may differ across workers.
+        cache_key_context={
+            "modifiers": modifiers.model_dump_json(exclude_none=True, exclude={"cookielessTrafficIsRegular"})
+        },
         placeholders=base_placeholders(),
         query_type="marketing_sessions_dimensional_insert",
     )

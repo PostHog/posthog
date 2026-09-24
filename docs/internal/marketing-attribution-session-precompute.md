@@ -16,6 +16,16 @@ Materialized CTEs share the pageview identity scan between reach and credit, and
 
 Queries that override the session table version or v2 join mode fall back to live attribution when they differ from the writer. AUTO and v2 share the same session semantics. Custom channel rules can use cached dimensions when they match the writer's project rules, including rules that depend on the full entry URL. The writer classifies the channel before storing it and includes the rules in the job hash, so rule changes require fresh jobs. Queries with different rules, or disabled project-timezone conversion, use the live path. Identity and execution-only modifiers do not invalidate cached dimensions.
 
+The shared job hash excludes `cookielessTrafficIsRegular` because the writer does not classify traffic types.
+Different evaluations of that rollout flag in background workers and query workers do not require new session jobs.
+
+For the cache-key transition, an old job with an unset `cookielessTrafficIsRegular` keeps the same key because serialization already omitted null values.
+An old job with an explicit `true` or `false` has a different key and needs replacement before cached reads resume.
+There is no compatibility lookup for those old keys.
+Use the updated writer to prepare valid jobs for the full attribution read window before enabling cached reads.
+Keep cached reads disabled until a read-only job lookup confirms complete, fresh coverage.
+Missing coverage falls back to live calculation, so changing the key alone does not guarantee faster queries.
+
 Live and cached pageview scans include the full final second of the selected date range, matching conversion filters. This also applies to explicit fractional date bounds and pageview conversion goals.
 Attribution filters compare the event timestamp directly with the date bounds, using microsecond precision for the end of the range.
 This avoids copying timestamp casts into session filters and preserves the shared raw-session timestamp definition.

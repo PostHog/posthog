@@ -6,6 +6,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import { RefObject } from 'react'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import type { HeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
 import type { CommonFilters } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,7 +22,6 @@ import {
     matchIsChainConsistent,
 } from '~/toolbar/elements/domElementIndex'
 import type { ElementMatchOptions } from '~/toolbar/elements/domElementIndex'
-import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementsEventType } from '~/toolbar/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
@@ -33,7 +33,7 @@ import type {
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { ReplayIframeData } from '../replayIframeData'
-import { heatmapsBrowserLogic, isUrlPattern } from './heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 export interface ClickmapBox {
     top: number
@@ -55,11 +55,11 @@ export type RecordingClickmapLogicProps = {
 const CLICKMAP_STATS_LIMIT = 500
 const CLICKMAP_STATS_AUTO_LOAD_LIMIT = 10000
 
-function currentUrlProperty(href: string, isPattern: boolean): Record<string, unknown> {
-    return isPattern
+function currentUrlProperty({ href, regex }: HeatmapUrlFilter): Record<string, unknown> {
+    return regex
         ? {
               key: '$current_url',
-              value: `^${href.split('*').map(escapeUnescapedRegex).join('.*')}$`,
+              value: regex,
               operator: PropertyOperator.Regex,
               type: PropertyFilterType.Event,
           }
@@ -72,8 +72,7 @@ function currentUrlProperty(href: string, isPattern: boolean): Record<string, un
 }
 
 export function buildElementStatsParams(
-    href: string,
-    isPattern: boolean,
+    urlFilter: HeatmapUrlFilter,
     commonFilters: {
         date_from?: string | null
         date_to?: string | null
@@ -83,7 +82,7 @@ export function buildElementStatsParams(
     dataAttributes: string[],
     limit: number = CLICKMAP_STATS_LIMIT
 ): ElementsStatsRetrieveParams {
-    const properties: Record<string, unknown>[] = [currentUrlProperty(href, isPattern)]
+    const properties: Record<string, unknown>[] = [currentUrlProperty(urlFilter)]
     for (const cohortId of commonFilters.cohort_ids ?? []) {
         properties.push({
             type: PropertyFilterType.Cohort,
@@ -203,6 +202,7 @@ export async function computeClickmapBoxes(
 export interface recordingClickmapLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     commonFilters: CommonFilters // heatmapDataLogic
+    recordingUrlFilter: HeatmapUrlFilter | null // heatmapsBrowserLogic
     replayIframeData: ReplayIframeData | null // heatmapsBrowserLogic
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -233,6 +233,9 @@ export interface recordingClickmapLogicActions {
     } // heatmapDataLogic
     onIframeLoad: () => {
         value: true
+    } // heatmapsBrowserLogic
+    setRecordingUrlMatchMode: (mode: import('lib/components/heatmaps/heatmapUrlMatch').HeatmapUrlMatchMode) => {
+        mode: import('lib/components/heatmaps/heatmapUrlMatch').HeatmapUrlMatchMode
     } // heatmapsBrowserLogic
     setReplayIframeData: (replayIframeData: ReplayIframeData | null) => {
         replayIframeData: ReplayIframeData | null
@@ -310,7 +313,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             heatmapDataLogic({ context: 'in-app' }),
             ['commonFilters'],
             heatmapsBrowserLogic,
-            ['replayIframeData'],
+            ['replayIframeData', 'recordingUrlFilter'],
             teamLogic,
             ['currentTeam'],
             projectLogic,
@@ -320,7 +323,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         ],
         actions: [
             heatmapsBrowserLogic,
-            ['onIframeLoad', 'setReplayIframeData', 'setReplayIframeDataURL'],
+            ['onIframeLoad', 'setReplayIframeData', 'setReplayIframeDataURL', 'setRecordingUrlMatchMode'],
             heatmapDataLogic({ context: 'in-app' }),
             ['setCommonFilters', 'setWindowWidthOverride', 'setHeatmapTooltipSuppressed'],
         ],
@@ -355,6 +358,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 setClickmapEnabled: (state, { enabled }) => (enabled ? state : []),
                 setReplayIframeData: () => [],
                 setReplayIframeDataURL: () => [],
+                setRecordingUrlMatchMode: () => [],
             },
         ],
         selectedBoxKey: [
@@ -365,6 +369,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 setClickmapEnabled: () => null,
                 setReplayIframeData: () => null,
                 setReplayIframeDataURL: () => null,
+                setRecordingUrlMatchMode: () => null,
             },
         ],
         hoveredBoxKey: [
@@ -375,6 +380,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 setClickmapEnabled: () => null,
                 setReplayIframeData: () => null,
                 setReplayIframeDataURL: () => null,
+                setRecordingUrlMatchMode: () => null,
             },
         ],
         // the loader keeps stale stats across recording changes otherwise, and
@@ -382,6 +388,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         elementStats: {
             setReplayIframeData: () => null,
             setReplayIframeDataURL: () => null,
+            setRecordingUrlMatchMode: () => null,
         },
     }),
     loaders(({ values }) => ({
@@ -392,13 +399,12 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                     await breakpoint(150)
                     // heatmapDataLogic's href is shared and driven by the browser data-URL flow,
                     // so the replay payload's URL is the stable source of truth here
-                    const url = values.replayIframeData?.url?.trim()
-                    if (!url) {
+                    const urlFilter = values.recordingUrlFilter
+                    if (!urlFilter) {
                         return null
                     }
                     const params = buildElementStatsParams(
-                        url,
-                        isUrlPattern(url),
+                        urlFilter,
                         values.commonFilters,
                         values.wantedDataAttributes,
                         limit
@@ -457,6 +463,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         },
         setReplayIframeData: () => actions.maybeLoadElementStats(),
         setReplayIframeDataURL: () => actions.maybeLoadElementStats(),
+        setRecordingUrlMatchMode: () => actions.maybeLoadElementStats(),
         setCommonFilters: () => actions.maybeLoadElementStats(),
         setMatchLinksByHref: () => actions.recomputeClickmap(),
         setWindowWidthOverride: () => actions.recomputeClickmap(),

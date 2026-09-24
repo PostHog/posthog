@@ -501,7 +501,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "reset",
     ]
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
-    queryset = VisionAlertConfiguration.objects.unscoped().order_by("-created_at")
+    queryset = VisionAlertConfiguration.objects.unscoped().order_by("-created_at", "id")
     serializer_class = VisionAlertConfigurationSerializer
     lookup_field = "id"
 
@@ -678,7 +678,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 | Q(error_message__isnull=False)
                 | ~Q(state_before=F("state_after"))
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
 
         kind = request.query_params.get("kind")
