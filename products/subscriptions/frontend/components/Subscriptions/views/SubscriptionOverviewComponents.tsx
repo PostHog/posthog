@@ -253,6 +253,7 @@ export function SubscriptionListItem({
                         icon={sideActionBusy ? <Spinner /> : <IconEllipsis />}
                         disabled={sideActionBusy}
                         aria-label="Subscription actions"
+                        data-attr="subscription-list-item-actions"
                     />
                 </LemonMenu>
             </div>

@@ -390,6 +390,44 @@ describe('sceneLogic', () => {
             sharedView.mockRestore()
         })
 
+        it('keeps a newer homepage when a dashboard-list save is in flight', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            let finishSave!: () => void
+            let startSave!: () => void
+            const saveResponse = new Promise<void>((resolve) => (finishSave = resolve))
+            const saveStarted = new Promise<void>((resolve) => (startSave = resolve))
+            const savedHomepageIds: string[] = []
+            useMocks({
+                patch: {
+                    '/api/user_home_settings/@me/': async ({ request }) => {
+                        const body = (await request.json()) as { homepage: { id: string } }
+                        savedHomepageIds.push(body.homepage.id)
+                        if (savedHomepageIds.length === 1) {
+                            startSave()
+                            await saveResponse
+                        }
+                        return [200, {}] as const
+                    },
+                },
+            })
+
+            logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            await saveStarted
+            const latestHomepage = { ...dashboardHomepage, id: 'homepage-dashboard-43', pathname: urls.dashboard(43) }
+            logic.actions.setHomepage(latestHomepage)
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+
+            finishSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(savedHomepageIds).toEqual([dashboardHomepage.id, latestHomepage.id])
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(successToast).not.toHaveBeenCalled()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
         it('redirects /home to the configured dashboard homepage', async () => {
             logic.actions.setHomepage(dashboardHomepage)
             router.actions.push(urls.projectHomepage())

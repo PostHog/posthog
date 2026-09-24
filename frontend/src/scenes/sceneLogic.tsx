@@ -392,6 +392,8 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ cache }) => {
         cache.mountedSceneLogic = null as MountedSceneLogic | null
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
+        cache.homepageSave = Promise.resolve()
+        cache.homepageRequest = 0
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -724,25 +726,31 @@ export const sceneLogic = kea<sceneLogicType>([
             if (homepageSource) {
                 actions.setHomepageSaving(true)
             }
-            try {
-                await api.update('api/user_home_settings/@me/', {
-                    homepage: tab ? tabToPersistableSnapshot(tab) : null,
-                })
-                if (homepageSource) {
-                    actions.homepageSaved(tab)
-                    lemonToast.success('Homepage updated')
-                    posthog.capture('dashboard set as homepage', { source: homepageSource })
+            const requestId = ++cache.homepageRequest
+            const previousSave = cache.homepageSave
+            cache.homepageSave = (async () => {
+                await previousSave
+                try {
+                    await api.update('api/user_home_settings/@me/', {
+                        homepage: tab ? tabToPersistableSnapshot(tab) : null,
+                    })
+                    if (homepageSource && requestId === cache.homepageRequest) {
+                        actions.homepageSaved(tab)
+                        lemonToast.success('Homepage updated')
+                        posthog.capture('dashboard set as homepage', { source: homepageSource })
+                    }
+                } catch (error) {
+                    console.error('Failed to persist homepage', error)
+                    if (homepageSource && requestId === cache.homepageRequest) {
+                        lemonToast.error('Could not save your homepage. Please try again.')
+                    }
+                } finally {
+                    if (homepageSource) {
+                        actions.setHomepageSaving(false)
+                    }
                 }
-            } catch (error) {
-                console.error('Failed to persist homepage', error)
-                if (homepageSource) {
-                    lemonToast.error('Could not save your homepage. Please try again.')
-                }
-            } finally {
-                if (homepageSource) {
-                    actions.setHomepageSaving(false)
-                }
-            }
+            })()
+            await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {
