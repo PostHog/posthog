@@ -14,8 +14,7 @@ import { SidePanelTab } from '~/types'
 import { MARKETING_AI_QUESTIONS } from './marketingAiQuestions'
 
 export function AskPostHogAi(): JSX.Element {
-    const { dashboardBreakdown, dashboardProperties, dashboardView, dateFilter, draftConversionGoal } =
-        useValues(marketingAnalyticsLogic)
+    const { dashboardBreakdown, dashboardView, dateFilter, draftConversionGoal } = useValues(marketingAnalyticsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
@@ -29,7 +28,6 @@ export function AskPostHogAi(): JSX.Element {
             `Date range: ${dateFilter.dateFrom ?? 'all time'} to ${dateFilter.dateTo ?? 'today'}`,
             `Breakdown: ${dashboardBreakdown}`,
             draftConversionGoal ? `Conversion goal: ${draftConversionGoal.conversion_goal_name}` : null,
-            dashboardProperties.length > 0 ? `Property filters: ${JSON.stringify(dashboardProperties)}` : null,
         ].filter(Boolean)
 
         openSidePanel(

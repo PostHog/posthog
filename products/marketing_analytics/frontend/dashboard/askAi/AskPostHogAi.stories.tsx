@@ -12,14 +12,14 @@ import { defaultConversionGoalFilter } from 'scenes/web-analytics/tabs/marketing
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { PropertyFilterType, PropertyOperator, SidePanelTab } from '~/types'
 
 import { AskPostHogAi } from './AskPostHogAi'
 
 function AskPostHogAiStory({ approved = true }: { approved?: boolean }): JSX.Element {
     const [ready, setReady] = useState(false)
     const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
-    const { setDates, setDraftConversionGoal } = useActions(marketingAnalyticsLogic)
+    const { setDashboardProperties, setDates, setDraftConversionGoal } = useActions(marketingAnalyticsLogic)
 
     useOnMountEffect(() => {
         loadCurrentOrganizationSuccess({
@@ -32,6 +32,14 @@ function AskPostHogAiStory({ approved = true }: { approved?: boolean }): JSX.Ele
             conversion_goal_id: 'storybook-purchase',
             conversion_goal_name: 'Purchase',
         })
+        setDashboardProperties([
+            {
+                type: PropertyFilterType.Session,
+                key: '$channel_type',
+                operator: PropertyOperator.Exact,
+                value: 'URL-controlled filter value',
+            },
+        ])
         setReady(true)
     })
 
