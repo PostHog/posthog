@@ -17,24 +17,6 @@ SUCCESS_RESULTS = [{"recipient": "test@posthog.com", "status": "success", "error
 FAILED_RESULTS = [{"recipient": "test@posthog.com", "status": "failed", "error": "bounced"}]
 
 
-class _FakePhClient:
-    def __init__(self) -> None:
-        self.captured: list[dict] = []
-
-    def capture(self, **kwargs) -> None:
-        self.captured.append(kwargs)
-
-    def shutdown(self) -> None:
-        pass
-
-
-def _install_fake_ph_client(monkeypatch) -> _FakePhClient:
-    client = _FakePhClient()
-    monkeypatch.setattr("posthog.ph_client.is_cloud", lambda: True)
-    monkeypatch.setattr("posthog.ph_client.get_client", lambda *a, **kw: client)
-    return client
-
-
 def _create_subscription(team, user) -> Subscription:
     insight = Insight.objects.create(team=team, name="Pageviews", created_by=user)
     return Subscription.objects.create(
@@ -59,8 +41,7 @@ def _create_delivery(subscription: Subscription, *, status: str, recipient_resul
     )
 
 
-def test_stamps_the_creator_when_the_first_delivery_reaches_a_recipient(team, user, monkeypatch) -> None:
-    client = _install_fake_ph_client(monkeypatch)
+def test_stamps_the_creator_when_the_first_delivery_reaches_a_recipient(team, user, fake_ph_client) -> None:
     subscription = _create_subscription(team, user)
     finished_at = datetime(2022, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC"))
     delivery = _create_delivery(
@@ -72,8 +53,8 @@ def test_stamps_the_creator_when_the_first_delivery_reaches_a_recipient(team, us
 
     record_first_delivery_completed(delivery.id)
 
-    assert len(client.captured) == 1
-    captured = client.captured[0]
+    assert len(fake_ph_client.captured) == 1
+    captured = fake_ph_client.captured[0]
     assert captured["distinct_id"] == user.distinct_id
     assert captured["properties"]["$set_once"] == {FIRST_DELIVERY_COMPLETED_PERSON_PROPERTY: finished_at.isoformat()}
 
@@ -88,8 +69,7 @@ def test_stamps_the_creator_when_the_first_delivery_reaches_a_recipient(team, us
         pytest.param(SubscriptionDelivery.Status.COMPLETED, SUCCESS_RESULTS, True, id="not_the_first_delivery"),
     ],
 )
-def test_does_not_stamp_the_creator(team, user, monkeypatch, status, recipient_results, earlier_delivery) -> None:
-    client = _install_fake_ph_client(monkeypatch)
+def test_does_not_stamp_the_creator(team, user, fake_ph_client, status, recipient_results, earlier_delivery) -> None:
     subscription = _create_subscription(team, user)
     if earlier_delivery:
         _create_delivery(
@@ -107,4 +87,4 @@ def test_does_not_stamp_the_creator(team, user, monkeypatch, status, recipient_r
 
     record_first_delivery_completed(delivery.id)
 
-    assert client.captured == []
+    assert fake_ph_client.captured == []
